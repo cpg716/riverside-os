@@ -22,7 +22,18 @@ export type RosieSettings = {
 
 export type RosieChatMessage = {
   role: "system" | "user" | "assistant";
-  content: string;
+  content:
+    | string
+    | Array<
+        | { type: "text"; text: string }
+        | { type: "image_url"; image_url: { url: string } }
+      >;
+};
+
+export type RosieAttachment = {
+  name: string;
+  mime_type: "image/jpeg" | "image/png" | "image/webp";
+  data_url: string;
 };
 
 export type RosieChatCompletionRequest = {
@@ -91,6 +102,7 @@ export type RosieGroundedHelpRequest = {
   mode?: "help" | "conversation";
   settings: Pick<RosieSettings, "enabled" | "response_style" | "show_citations">;
   client_context?: RosieClientContext;
+  attachments?: RosieAttachment[];
 };
 
 export type RosieGroundedHelpResponse = {
@@ -133,6 +145,7 @@ export type RosieToolResult = {
     | "wedding_actions"
     | "inventory_variant_intelligence"
     | "rosie_read_tool"
+    | "rosie_native_read_tool"
     | "rosie_tool_planner"
     | "product_catalog_analyze"
     | "product_catalog_suggest";
@@ -331,6 +344,9 @@ export type RosieLocalRuntimeStatus = {
     model_name: string;
     model_path?: string | null;
     model_present: boolean;
+    multimodal_projector_path?: string | null;
+    multimodal_projector_present?: boolean;
+    multimodal_available?: boolean;
     sidecar_binary_present: boolean;
     running: boolean;
     available?: boolean;
@@ -1208,6 +1224,83 @@ export async function rosieChatCompletions(
   return json as RosieChatCompletionResponse;
 }
 
+async function rosieChatCompletionsStream(
+  payload: RosieChatCompletionRequest,
+  options: {
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
+    on_delta?: (delta: string) => void;
+  },
+): Promise<RosieChatCompletionResponse> {
+  const response = await fetch(`${getBaseUrl()}/api/help/rosie/v1/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      ...(options.headers ?? {}),
+    },
+    body: JSON.stringify({
+      ...payload,
+      stream: true,
+      reasoning: false,
+      chat_template_kwargs: {
+        ...(payload.chat_template_kwargs ?? {}),
+        enable_thinking: false,
+      },
+    }),
+    signal: options.signal,
+  });
+  if (!response.ok || !response.body) {
+    const error = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(error.error ?? `ROSIE stream failed with HTTP ${response.status}`);
+  }
+  if (!response.headers.get("content-type")?.includes("text/event-stream")) {
+    const completion = (await response.json()) as RosieChatCompletionResponse;
+    const answer = extractRosieCompletionAnswer(completion);
+    if (answer) options.on_delta?.(answer);
+    return completion;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let answer = "";
+  let model: string | undefined;
+  let usage: Record<string, unknown> | undefined;
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    for (const event of events) {
+      const data = event
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+      if (!data || data === "[DONE]") continue;
+      const chunk = JSON.parse(data) as {
+        model?: string;
+        usage?: Record<string, unknown>;
+        choices?: Array<{ delta?: { content?: string } }>;
+      };
+      model = chunk.model ?? model;
+      usage = chunk.usage ?? usage;
+      const delta = chunk.choices?.[0]?.delta?.content ?? "";
+      if (delta) {
+        answer += delta;
+        options.on_delta?.(delta);
+      }
+    }
+    if (done) break;
+  }
+  return {
+    model,
+    usage,
+    choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: answer } }],
+  };
+}
+
 function buildGroundedHelpSystemPrompt(
   request: RosieGroundedHelpRequest,
   context: RosieToolContextResponse,
@@ -1295,11 +1388,14 @@ function buildGroundedHelpSystemPrompt(
         "wedding_actions",
         "inventory_variant_intelligence",
         "rosie_read_tool",
+        "rosie_native_read_tool",
       ].includes(tool.tool_name),
     )
       ? "Approved operational/read-only tool results are present. Narrate only those returned JSON fields, include basis/limit caveats when present, and keep the answer operationally grounded."
       : "No approved operational/read-only tool results are present.",
-    context.tool_results.some((tool) => tool.tool_name === "rosie_read_tool")
+    context.tool_results.some((tool) =>
+      ["rosie_read_tool", "rosie_native_read_tool"].includes(tool.tool_name),
+    )
       ? "A ROSIE read-only data tool result is present. Do not say ROSIE lacks access to that data category. If row_count is zero, say the approved lookup returned no matching rows for the filters."
       : "If no ROSIE read-only data tool result is present, do not invent live database facts.",
     request.settings.response_style === "detailed"
@@ -1396,13 +1492,19 @@ async function fetchRosieToolContext(
     headers?: Record<string, string>;
   },
 ): Promise<RosieToolContextResponse> {
+  const contextRequest = {
+    question: request.question,
+    mode: request.mode,
+    settings: request.settings,
+    client_context: request.client_context,
+  };
   const response = await fetch(`${getBaseUrl()}/api/help/rosie/v1/tool-context`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(options?.headers ?? {}),
     },
-    body: JSON.stringify(request),
+    body: JSON.stringify(contextRequest),
   });
 
   const json = (await response.json().catch(() => ({}))) as
@@ -1536,7 +1638,7 @@ function readToolEnvelope(tool: RosieToolResult): {
   toolName: string;
   response: RosieReadToolResponseLike;
 } | null {
-  if (tool.tool_name !== "rosie_read_tool") return null;
+  if (!["rosie_read_tool", "rosie_native_read_tool"].includes(tool.tool_name)) return null;
   const args = asRecord(tool.args);
   const toolName = asText(args?.tool_name);
   const response = asRecord(tool.result);
@@ -1827,6 +1929,9 @@ function directGenericReadToolAnswer(toolName: string, response: RosieReadToolRe
 
 function questionLooksLikeDataRequest(question: string): boolean {
   const lower = question.toLowerCase();
+  if (/\b(how do i|how to|steps|procedure|instructions)\b/.test(lower)) {
+    return false;
+  }
   return /\b(how many|how much|what was|what is|do we have|which|who has|show me|list|count|total|balance|points|sales|sold|best selling|best-selling|inventory|stock|orders?|pickup|appointments?|alterations?|weddings?|customers?|vendors?|purchase orders?|receiving|gift cards?|store credit|qbo|register close)\b/.test(lower);
 }
 
@@ -1866,6 +1971,7 @@ function hasStructuredDataResult(context: RosieToolContextResponse): boolean {
       "wedding_actions",
       "inventory_variant_intelligence",
       "rosie_read_tool",
+      "rosie_native_read_tool",
     ].includes(tool.tool_name),
   );
 }
@@ -2005,7 +2111,7 @@ export async function askRosieGroundedHelp(
   }
 
   const context = await fetchRosieToolContext(request, options);
-  const directAnswer = directDataAnswer(request, context);
+  const directAnswer = request.attachments?.length ? null : directDataAnswer(request, context);
   if (directAnswer) {
     return {
       answer: directAnswer,
@@ -2015,6 +2121,15 @@ export async function askRosieGroundedHelp(
       completion: { choices: [{ message: { role: "assistant", content: directAnswer } }] },
     };
   }
+  const userContent: RosieChatMessage["content"] = request.attachments?.length
+    ? [
+        { type: "text", text: buildGroundedHelpUserPrompt(request, context) },
+        ...request.attachments.slice(0, 3).map((attachment) => ({
+          type: "image_url" as const,
+          image_url: { url: attachment.data_url },
+        })),
+      ]
+    : buildGroundedHelpUserPrompt(request, context);
   const messages: RosieChatMessage[] = [
     {
       role: "system",
@@ -2022,7 +2137,7 @@ export async function askRosieGroundedHelp(
     },
     {
       role: "user",
-      content: buildGroundedHelpUserPrompt(request, context),
+      content: userContent,
     },
   ];
 
@@ -2120,7 +2235,7 @@ export async function askRosieGroundedHelpStream(
 
   const context = await fetchRosieToolContext(request, options);
   options?.on_context?.(context);
-  const directAnswer = directDataAnswer(request, context);
+  const directAnswer = request.attachments?.length ? null : directDataAnswer(request, context);
   if (directAnswer) {
     options?.on_delta?.(directAnswer);
     return {
@@ -2131,6 +2246,15 @@ export async function askRosieGroundedHelpStream(
       completion: { choices: [{ message: { role: "assistant", content: directAnswer } }] },
     };
   }
+  const streamUserContent: RosieChatMessage["content"] = request.attachments?.length
+    ? [
+        { type: "text", text: buildGroundedHelpUserPrompt(request, context) },
+        ...request.attachments.slice(0, 3).map((attachment) => ({
+          type: "image_url" as const,
+          image_url: { url: attachment.data_url },
+        })),
+      ]
+    : buildGroundedHelpUserPrompt(request, context);
   const messages: RosieChatMessage[] = [
     {
       role: "system",
@@ -2138,7 +2262,7 @@ export async function askRosieGroundedHelpStream(
     },
     {
       role: "user",
-      content: buildGroundedHelpUserPrompt(request, context),
+      content: streamUserContent,
     },
   ];
   const maxTokens =
@@ -2150,7 +2274,7 @@ export async function askRosieGroundedHelpStream(
         ? 180
         : 180;
 
-  let completion = await rosieChatCompletions(
+  let completion = await rosieChatCompletionsStream(
     {
       model: "local",
       temperature: 0.2,
@@ -2159,12 +2283,10 @@ export async function askRosieGroundedHelpStream(
     },
     {
       headers: options?.headers,
+      on_delta: options?.on_delta,
     },
   );
   let answer = extractRosieCompletionAnswer(completion);
-  if (answer) {
-    options?.on_delta?.(answer);
-  }
 
   if (!answer) {
     completion = await rosieChatCompletions(

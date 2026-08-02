@@ -593,8 +593,28 @@ $llamaPort = if ($envConfig -and $envConfig.RIVERSIDE_LLAMA_PORT) { "$($envConfi
 $llamaBase = "http://${llamaHost}:${llamaPort}"
 $llamaHealth = Test-Http "$llamaBase/health"
 $llamaProcesses = @(Get-Process -Name 'llama-server' -ErrorAction SilentlyContinue)
-$out.rosie = @{ host = $llamaBase; health = $llamaHealth; process_count = $llamaProcesses.Count }
+$rosieStatusPath = Join-Path $installRoot 'rosie\rosie_status.json'
+$rosieStatus = $null
+if (Test-Path $rosieStatusPath) {
+  try { $rosieStatus = Get-Content $rosieStatusPath -Raw | ConvertFrom-Json } catch {}
+}
+$rosieStackReady = [bool]($rosieStatus -and $rosieStatus.ready -eq $true)
+$rosieSttReady = [bool]($rosieStatus -and $rosieStatus.components.stt.ready -eq $true)
+$rosieTtsReady = [bool]($rosieStatus -and $rosieStatus.components.tts.ready -eq $true)
+$out.rosie = @{
+  host = $llamaBase
+  health = $llamaHealth
+  process_count = $llamaProcesses.Count
+  status_path = $rosieStatusPath
+  stack_ready = $rosieStackReady
+  stt_ready = $rosieSttReady
+  tts_ready = $rosieTtsReady
+  generated_at = if ($rosieStatus) { "$($rosieStatus.generated_at)" } else { '' }
+  llama_version = if ($rosieStatus) { "$($rosieStatus.components.binaries.llama_version)" } else { '' }
+  sherpa_version = if ($rosieStatus) { "$($rosieStatus.components.binaries.sherpa_version)" } else { '' }
+}
 if (-not $llamaHealth.ok) { [void]$issues.Add(@{ severity = 'warning'; title = 'ROSIE LLM host is offline'; detail = 'Local chat may be unavailable until the LLM host starts.'; action = 'start_rosie' }) }
+elseif (-not $rosieStackReady) { [void]$issues.Add(@{ severity = 'warning'; title = 'ROSIE is not functionally certified'; detail = 'Run Repair ROSIE so the Main Hub can verify Gemma, SenseVoice, and Kokoro together.'; action = 'install_rosie' }) }
 
 $driveName = ([System.IO.Path]::GetPathRoot($installRoot)).TrimEnd('\').TrimEnd(':')
 $drive = Get-PSDrive -Name $driveName -ErrorAction SilentlyContinue

@@ -9,9 +9,9 @@ const visualMode = process.env.E2E_RUN_VISUAL === "1";
 const isCi = process.env.CI === "true" || process.env.CI === "1";
 const autoBootLocalStack = (process.env.E2E_AUTO_BOOT ?? "1") !== "0";
 const reuseExistingServer = process.env.E2E_REUSE_EXISTING_SERVER === "1";
-const usingLocalViteBase = /^https?:\/\/localhost:43173\/?$/.test(baseURL);
+const usingLocalViteBase = /^https?:\/\/(localhost|127\.0\.0\.1):\d+\/?$/.test(baseURL);
 const usingIsolatedApiBase =
-  /^https?:\/\/(127\.0\.0\.1|localhost):43300\/?$/.test(apiBase);
+  /^https?:\/\/(127\.0\.0\.1|localhost):\d+\/?$/.test(apiBase);
 if (
   autoBootLocalStack &&
   usingLocalViteBase &&

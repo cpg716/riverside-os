@@ -36,16 +36,6 @@ const ROSIE_LLM_PROVIDER_OPTIONS = [
     label: "Remote LM Studio",
     description: "Private OpenAI-compatible work hub",
   },
-  {
-    id: "openai",
-    label: "OpenAI",
-    description: "Server-side cloud API",
-  },
-  {
-    id: "gemini",
-    label: "Gemini",
-    description: "Server-side Google API",
-  },
 ] as const;
 
 function runtimeProviderMatches(provider: string | undefined, id: string): boolean {
@@ -90,6 +80,7 @@ export default function RosieSettingsPanel() {
   const llmAvailable =
     localRuntimeStatus?.llm.available ??
     Boolean(localRuntimeStatus?.llm.model_present && localRuntimeStatus?.llm.running);
+  const multimodalAvailable = Boolean(localRuntimeStatus?.llm.multimodal_available);
   const sttAvailable =
     localRuntimeStatus?.stt.available ??
     (localRuntimeStatus?.stt.active_engine !== "unavailable" && localRuntimeStatus != null);
@@ -429,6 +420,14 @@ export default function RosieSettingsPanel() {
                     {llmAvailable ? "Available" : localRuntimeStatus.llm.unavailable_reason ?? "Unavailable"}
                   </span>
                 </div>
+                {localRuntimeStatus.llm.deployment_kind === "local" ? (
+                  <div className="mt-2 flex items-center gap-2 text-xs">
+                    <span className="text-app-text-muted">Vision:</span>
+                    <span className={`font-medium ${multimodalAvailable ? "text-green-600" : "text-red-600"}`}>
+                      {multimodalAvailable ? "Projector ready" : "Projector missing or unavailable"}
+                    </span>
+                  </div>
+                ) : null}
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
                 <div className="flex items-center justify-between gap-2">
@@ -476,8 +475,8 @@ export default function RosieSettingsPanel() {
             <IntegrationCredentialsCard
               baseUrl={baseUrl}
               integrationKey="rosie"
-              title="ROSIE Provider Credentials"
-              description="Save ROSIE provider endpoints, API keys, and speech model names here. Environment values are fallback/bootstrap only; cloud API keys stay encrypted on the Riverside server."
+              title="ROSIE Local Provider Configuration"
+              description="ROSIE is restricted to the Main Hub or an approved private LM Studio host. Public cloud providers are disabled by server policy."
               fields={[
                 {
                   key: "local_llm_base_url",
@@ -504,76 +503,6 @@ export default function RosieSettingsPanel() {
                   label: "Remote LM Studio model",
                   type: "text",
                   placeholder: "gemma-4-12B-it-q5_k_m.gguf",
-                },
-                {
-                  key: "openai_api_key",
-                  label: "OpenAI API key",
-                  type: "password",
-                },
-                {
-                  key: "openai_base_url",
-                  label: "OpenAI base URL",
-                  type: "url",
-                  placeholder: "https://api.openai.com",
-                },
-                {
-                  key: "openai_llm_model",
-                  label: "OpenAI chat model",
-                  type: "text",
-                  placeholder: "gpt-4.1-mini",
-                },
-                {
-                  key: "openai_stt_model",
-                  label: "OpenAI speech-to-text model",
-                  type: "text",
-                  placeholder: "gpt-4o-mini-transcribe",
-                },
-                {
-                  key: "openai_tts_model",
-                  label: "OpenAI speech output model",
-                  type: "text",
-                  placeholder: "gpt-4o-mini-tts",
-                },
-                {
-                  key: "openai_tts_voice",
-                  label: "OpenAI speech voice",
-                  type: "text",
-                  placeholder: "alloy",
-                },
-                {
-                  key: "gemini_api_key",
-                  label: "Gemini API key",
-                  type: "password",
-                },
-                {
-                  key: "gemini_base_url",
-                  label: "Gemini base URL",
-                  type: "url",
-                  placeholder: "https://generativelanguage.googleapis.com",
-                },
-                {
-                  key: "gemini_model",
-                  label: "Gemini chat model",
-                  type: "text",
-                  placeholder: "gemini-2.5-pro",
-                },
-                {
-                  key: "gemini_stt_model",
-                  label: "Gemini speech-to-text model",
-                  type: "text",
-                  placeholder: "gemini-2.5-flash",
-                },
-                {
-                  key: "gemini_tts_model",
-                  label: "Gemini speech output model",
-                  type: "text",
-                  placeholder: "gemini-2.5-flash-preview-tts",
-                },
-                {
-                  key: "gemini_tts_voice",
-                  label: "Gemini speech voice",
-                  type: "text",
-                  placeholder: "Kore",
                 },
               ]}
               onSaved={async () => {

@@ -17,8 +17,13 @@ LLAMA_BIN="${RIVERSIDE_LLAMA_BIN:-$ROOT_DIR/client/src-tauri/binaries/llama-serv
 LLAMA_HOST="${RIVERSIDE_LLAMA_HOST:-127.0.0.1}"
 LLAMA_PORT="${RIVERSIDE_LLAMA_PORT:-8080}"
 LLAMA_URL="http://${LLAMA_HOST}:${LLAMA_PORT}"
-LLAMA_MODEL_PATH="${RIVERSIDE_LLAMA_MODEL_PATH:-$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf}"
+LLAMA_MODEL_PATH="${RIVERSIDE_LLAMA_MODEL_PATH:-$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/gemma-4-E4B_q4_0-it.gguf}"
+LLAMA_MMPROJ_PATH="${RIVERSIDE_LLAMA_MMPROJ_PATH:-$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/gemma-4-E4B-it-mmproj.gguf}"
 LLAMA_EXTRA_ARGS="${RIVERSIDE_LLAMA_EXTRA_ARGS:-}"
+LLAMA_CONTEXT_SIZE="${RIVERSIDE_LLAMA_CONTEXT_SIZE:-8192}"
+LLAMA_PARALLEL="${RIVERSIDE_LLAMA_PARALLEL:-2}"
+LLAMA_BATCH_SIZE="${RIVERSIDE_LLAMA_BATCH_SIZE:-512}"
+LLAMA_UBATCH_SIZE="${RIVERSIDE_LLAMA_UBATCH_SIZE:-512}"
 DEFAULT_LLAMA_PERF_PROFILE="intel-i9-12900"
 if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
   DEFAULT_LLAMA_PERF_PROFILE="apple-m3-pro"
@@ -58,7 +63,10 @@ ROSIE_SPEECH_PYTHON="${RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH:-$HOME/.local/share/uv
 SENSEVOICE_MODEL_DIR="${RIVERSIDE_SENSEVOICE_MODEL_DIR:-$HOME/Library/Application Support/riverside-os/rosie/stt/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17}"
 SENSEVOICE_MODEL_PATH="${SENSEVOICE_MODEL_DIR}/model.int8.onnx"
 SENSEVOICE_TOKENS_PATH="${SENSEVOICE_MODEL_DIR}/tokens.txt"
-KOKORO_MODEL_DIR="${RIVERSIDE_KOKORO_MODEL_DIR:-$HOME/Library/Application Support/riverside-os/rosie/tts/kokoro-multi-lang-v1_0}"
+KOKORO_MODEL_DIR="${RIVERSIDE_KOKORO_MODEL_DIR:-$HOME/Library/Application Support/riverside-os/rosie/tts/kokoro-multi-lang-v1_1}"
+if [[ ! -d "$KOKORO_MODEL_DIR" && -d "$HOME/Library/Application Support/riverside-os/rosie/tts/kokoro-multi-lang-v1_0" ]]; then
+  KOKORO_MODEL_DIR="$HOME/Library/Application Support/riverside-os/rosie/tts/kokoro-multi-lang-v1_0"
+fi
 KOKORO_MODEL_PATH="${KOKORO_MODEL_DIR}/model.onnx"
 KOKORO_VOICES_PATH="${KOKORO_MODEL_DIR}/voices.bin"
 KOKORO_TOKENS_PATH="${KOKORO_MODEL_DIR}/tokens.txt"
@@ -68,8 +76,9 @@ TTS_FALLBACK_COMMAND="${RIVERSIDE_TTS_FALLBACK_COMMAND_PATH:-/usr/bin/say}"
 
 SHERPA_PROVIDER="${RIVERSIDE_SHERPA_PROVIDER:-cpu}"
 ROSIE_API_BASE="${ROSIE_API_BASE:-http://127.0.0.1:3000}"
-ROSIE_STAFF_CODE="${ROSIE_STAFF_CODE:-1234}"
-ROSIE_STAFF_PIN="${ROSIE_STAFF_PIN:-1234}"
+ROSIE_STAFF_CODE="${ROSIE_STAFF_CODE:-}"
+ROSIE_STAFF_PIN="${ROSIE_STAFF_PIN:-}"
+ROSIE_GOVERNED_VERIFY="${ROSIE_GOVERNED_VERIFY:-false}"
 ROSIE_SELECTED_VOICE="${ROSIE_SELECTED_VOICE:-adam}"
 ROSIE_SPEECH_RATE="${ROSIE_SPEECH_RATE:-1.0}"
 
@@ -80,6 +89,11 @@ fi
 
 if [[ ! -f "$LLAMA_MODEL_PATH" ]]; then
   echo "Missing Gemma model: $LLAMA_MODEL_PATH" >&2
+  exit 1
+fi
+
+if [[ ! -f "$LLAMA_MMPROJ_PATH" ]]; then
+  echo "Missing Gemma multimodal projector: $LLAMA_MMPROJ_PATH" >&2
   exit 1
 fi
 
@@ -120,8 +134,14 @@ else
   LLAMA_CMD=(
     "$LLAMA_BIN"
     -m "$LLAMA_MODEL_PATH"
+    --mmproj "$LLAMA_MMPROJ_PATH"
     --host "$LLAMA_HOST"
     --port "$LLAMA_PORT"
+    --ctx-size "$LLAMA_CONTEXT_SIZE"
+    --parallel "$LLAMA_PARALLEL"
+    --batch-size "$LLAMA_BATCH_SIZE"
+    --ubatch-size "$LLAMA_UBATCH_SIZE"
+    --cont-batching
   )
   if [[ -n "$LLAMA_EXTRA_ARGS" ]]; then
     # shellcheck disable=SC2206
@@ -195,6 +215,27 @@ echo "Transcribing the generated voice prompt with SenseVoice..."
 TRANSCRIPT="$(tr -d '\r' < "$TMP_DIR/question.txt" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
 echo "SenseVoice transcript:"
 echo "$TRANSCRIPT"
+
+echo "Running the deterministic local Gemma regression fixtures..."
+ROSIE_EVAL_BASE_URL="$LLAMA_URL" \
+ROSIE_EVAL_MODEL="local" \
+node "$ROOT_DIR/scripts/rosie-model-eval.mjs" >"$TMP_DIR/model-eval.json"
+cat "$TMP_DIR/model-eval.json"
+
+if [[ "$ROSIE_GOVERNED_VERIFY" != "true" ]]; then
+  echo "ROSIE component verification passed. Set ROSIE_GOVERNED_VERIFY=true with explicit test staff credentials to run the governed API checks."
+  exit 0
+fi
+
+if [[ -z "$ROSIE_STAFF_CODE" || -z "$ROSIE_STAFF_PIN" ]]; then
+  echo "Governed verification requires explicit ROSIE_STAFF_CODE and ROSIE_STAFF_PIN values." >&2
+  exit 2
+fi
+
+if ! curl -sf "${ROSIE_API_BASE}/api/live" >/dev/null; then
+  echo "Governed verification requested, but the Riverside API is unavailable at ${ROSIE_API_BASE}." >&2
+  exit 2
+fi
 
 python3 - <<'PY' "$ROSIE_API_BASE" "$ROSIE_STAFF_CODE" "$ROSIE_STAFF_PIN" "$TRANSCRIPT" "$LLAMA_URL" >"$TMP_DIR/governed.response.txt"
 import json

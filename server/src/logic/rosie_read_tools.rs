@@ -624,6 +624,36 @@ pub fn tool_definition(tool_name: &str) -> Option<&'static RosieReadToolDefiniti
         .find(|tool| tool.tool_name == tool_name)
 }
 
+pub fn openai_tool_definition(def: &RosieReadToolDefinition) -> Value {
+    let required = required_arguments_for_tool(def.tool_name);
+    let mut properties = serde_json::Map::new();
+    for argument in required
+        .iter()
+        .chain(optional_arguments_for_tool(def.tool_name).iter())
+    {
+        let schema = match *argument {
+            "customer_id" | "wedding_id" => json!({ "type": "string", "format": "uuid" }),
+            "from" | "to" => json!({ "type": "string", "format": "date" }),
+            "limit" => json!({ "type": "integer", "minimum": 1, "maximum": def.max_rows }),
+            _ => json!({ "type": "string" }),
+        };
+        properties.insert((*argument).to_string(), schema);
+    }
+    json!({
+        "type": "function",
+        "function": {
+            "name": def.tool_name,
+            "description": def.description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "additionalProperties": false
+            }
+        }
+    })
+}
+
 pub fn mutation_like_tool_name(tool_name: &str) -> bool {
     let lower = tool_name
         .to_ascii_lowercase()
@@ -3539,5 +3569,21 @@ mod tests {
         assert_eq!(serialized["audit_policy"], "fail_closed");
         assert_eq!(serialized["mutation_allowed"], false);
         assert_eq!(serialized["read_only"], true);
+    }
+
+    #[test]
+    fn openai_tool_schema_keeps_required_arguments_and_read_only_name() {
+        let tool = tool_definition("get_customer_credit_summary").expect("credit tool");
+        let schema = openai_tool_definition(tool);
+        assert_eq!(schema["type"], "function");
+        assert_eq!(schema["function"]["name"], tool.tool_name);
+        assert_eq!(
+            schema["function"]["parameters"]["required"][0],
+            "customer_id"
+        );
+        assert_eq!(
+            schema["function"]["parameters"]["additionalProperties"],
+            false
+        );
     }
 }

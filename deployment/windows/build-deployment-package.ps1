@@ -169,7 +169,8 @@ function Add-RosieHfFiles(
   [string]$Repo,
   [string]$Revision,
   [string]$TargetSubdir,
-  [string[]]$Files
+  [string[]]$Files,
+  [hashtable]$ExpectedSha256
 ) {
   $destRoot = Join-Path $PackageRoot $TargetSubdir
   New-Item -ItemType Directory -Force -Path $destRoot | Out-Null
@@ -182,6 +183,10 @@ function Add-RosieHfFiles(
     }
     $url = "https://huggingface.co/$Repo/resolve/$Revision/$file"
     Invoke-DownloadFile $url $dest $file
+    if (-not $ExpectedSha256.ContainsKey($file)) {
+      throw "Missing pinned SHA256 for ROSIE asset $file."
+    }
+    Assert-FileSha256 $dest $ExpectedSha256[$file]
   }
 }
 
@@ -191,12 +196,16 @@ function Add-RosieVoiceModels([string]$PackageRoot) {
     -Repo "chris-cao/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17" `
     -Revision "20dc3ebe15651c2e26d7e07b04fcd84a39c3b920" `
     -TargetSubdir "rosie\stt\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17" `
-    -Files @("model.int8.onnx", "tokens.txt")
+    -Files @("model.int8.onnx", "tokens.txt") `
+    -ExpectedSha256 @{
+      "model.int8.onnx" = "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51"
+      "tokens.txt" = "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc"
+    }
   Add-RosieHfFiles `
     -PackageRoot $PackageRoot `
-    -Repo "csukuangfj/kokoro-multi-lang-v1_0" `
-    -Revision "7e9b67b79bfdcbd2b4bc144370345fcceac3cb0c" `
-    -TargetSubdir "rosie\tts\kokoro-multi-lang-v1_0" `
+    -Repo "csukuangfj/kokoro-multi-lang-v1_1" `
+    -Revision "914313412b607d95400bcd12446233fbd1248801" `
+    -TargetSubdir "rosie\tts\kokoro-multi-lang-v1_1" `
     -Files @(
       "model.onnx",
       "voices.bin",
@@ -211,13 +220,28 @@ function Add-RosieVoiceModels([string]$PackageRoot) {
       "espeak-ng-data/lang/roa/es",
       "espeak-ng-data/lang/roa/fr",
       "espeak-ng-data/lang/gmw/de"
-    )
+    ) `
+    -ExpectedSha256 @{
+      "model.onnx" = "acc4adc175b9d9986106cd20060329673ad5a2e12ef3c557d2d3745b694f8b38"
+      "voices.bin" = "e64a5a581d8c2a350d848f51c3121657cd83aa07ed6109172177345874a7244c"
+      "tokens.txt" = "931ab2df2400cd65d580a22402024c2347ced8ae9ea300e545144b1aacc48e14"
+      "espeak-ng-data/en_dict" = "71bd330ba8a2e3e8076e631508208ef49449d6147c17b7bd2b4b1e1468292e35"
+      "espeak-ng-data/phontab" = "886f3fa402cb0ba73d483aa8ad000af47a6b7cc06293c75a97913fba68a530f6"
+      "espeak-ng-data/phonindex" = "3ca7b8fa3b42624e4b0f152707e7a39245fce569aa99ea47c055d9e622fcf0c4"
+      "espeak-ng-data/phondata" = "4e0288957874029a8c3c9f41a8f517ad4bf18127046decbdd4b9d1d6807ce3a3"
+      "espeak-ng-data/intonations" = "3f8af65fd3eda9759a10f021d61361c120871f463515229c925995c7f90918cc"
+      "espeak-ng-data/lang/gmw/en" = "4605d5330801de3641c6e366d15f129ea1f5ffbce8722642aba01ace07ab9c83"
+      "espeak-ng-data/lang/gmw/en-US" = "41534c2a22df5dd4f1052ff9e1a33a3ea7bff5a26b5c02bdad5ba8ddb7524704"
+      "espeak-ng-data/lang/roa/es" = "966aa015ea5646d79f0ca4807cf5da7339aabd3782b55cfa5eb0d8c3fc8fc588"
+      "espeak-ng-data/lang/roa/fr" = "95f44834b48c075dad13eace54d2c98ff79b81aa0074dd67eebaf66c2909eef8"
+      "espeak-ng-data/lang/gmw/de" = "f3cca92f94b70f8c25a29ee0a4c9ce4c7f1022241532e0647fa2b7f698bf104e"
+    }
 
   Write-Host "Packaged ROSIE STT/TTS model files"
 }
 
 function Add-RosieSherpaBinaries([string]$PackageRoot) {
-  $sherpaVersion = "1.13.2"
+  $sherpaVersion = "1.13.4"
   $sherpaArchiveName = "sherpa-onnx-v$sherpaVersion-win-x64-shared-MD-Release.tar.bz2"
   $sherpaUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$sherpaVersion/$sherpaArchiveName"
   $rosieBinDest = Join-Path $PackageRoot "rosie\bin"
@@ -235,7 +259,7 @@ function Add-RosieSherpaBinaries([string]$PackageRoot) {
 
   New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
   Invoke-DownloadFile $sherpaUrl $archivePath $sherpaArchiveName
-  Assert-FileSha256 $archivePath "f91f488186e797dd9e9bc2a3dcbe18ddd244627af5d9fa3707f7a2f3bc4032ce"
+  Assert-FileSha256 $archivePath "d4dacc8be5afe03f22ade4d50cfd587c03a625eaca8c41f2d99a24d3db463eab"
 
   if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
   New-Item -ItemType Directory -Force -Path $extractDir | Out-Null

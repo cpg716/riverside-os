@@ -335,13 +335,15 @@ Downloads and configures the local AI copilot runtime into `C:\RiversideOS\rosie
 
 | Step | Description |
 |---|---|
-| **1 — Binaries** | Copies `sherpa-onnx-offline.exe` / `sherpa-onnx-offline-tts.exe` from the deployment package if bundled. If not present, downloads the pinned **sherpa-onnx v1.13.2** tar.bz2 from GitHub Releases and extracts the executables + required DLLs to `rosie\bin\`. |
+| **1 — Binaries** | Copies `sherpa-onnx-offline.exe` / `sherpa-onnx-offline-tts.exe` from the deployment package if bundled. If not present, downloads the SHA256-pinned **sherpa-onnx v1.13.4** tar.bz2 from GitHub Releases and extracts the executables + required DLLs to `rosie\bin\`. |
 | **2 — STT Models** | Copies or downloads **SenseVoice Small (int8)** from HuggingFace — `model.int8.onnx` + `tokens.txt` — into `rosie\stt\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17\`. |
-| **3 — TTS Models** | Copies or downloads **Kokoro-82M** from HuggingFace — `model.onnx`, `voices.bin`, `tokens.txt`, `espeak-ng-data\` — into `rosie\tts\kokoro-multi-lang-v1_0\`. |
-| **4 — Gemma GGUF** | Verifies SHA256 of the pinned Gemma 4 E4B GGUF or downloads from Hugging Face. A download failure is a **warning** (not a fatal error) so STT/TTS remain functional even without the LLM. |
-| **5 — `.env` Patch** | Writes `RIVERSIDE_LLAMA_MODEL_PATH`, `RIVERSIDE_LLAMA_HOST`, and `RIVERSIDE_LLAMA_PORT` into the server `.env` file (skipped when called by `install-server.ps1` which handles this itself via the returned model path). |
+| **3 — TTS Models** | Copies or downloads revision- and SHA256-pinned **Kokoro-82M v1.1** assets from Hugging Face into `rosie\tts\kokoro-multi-lang-v1_1\`. |
+| **4 — Gemma model + projector** | Installs the SHA256-pinned official Gemma 4 E4B QAT Q4_0 text model and matching multimodal projector from the package or Hugging Face. Missing, mismatched, or uncertifiable assets are fatal so ROSIE never reports a partially upgraded LLM as ready. |
+| **5 — Activation + certification** | Writes the text-model, projector, local-only runtime, and safe batch defaults to `.env`; then certifies text, SSE streaming, native read-tool calling, and image input. If certification fails, the prior configuration is restored. |
 
-**Version pins** are defined at the top of the script — update the `$SHERPA_VERSION`, `$STT_MODEL_DIR`, and `$TTS_MODEL_DIR` variables to upgrade components.
+**Version and checksum pins** are defined at the top of the script. Update the
+model/projector pins and their SHA256 values as one reviewed unit; never advance
+only one half of the multimodal pair.
 
 > [!NOTE]
 > Binaries and models are **never committed to the git repository**. Current deployment ZIPs pre-bundle `rosie\bin\`, `rosie\stt\`, and `rosie\tts\` so operators do not have to download voice models during install. If those package folders are missing, the installer attempts pinned downloads and fails with an explicit Hugging Face token/model-source message instead of looping through opaque 401 errors.

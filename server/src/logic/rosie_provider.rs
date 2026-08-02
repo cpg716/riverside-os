@@ -13,6 +13,10 @@ use crate::logic::rosie_openai::OpenAiClient;
 pub trait RosieLLMProvider: Send + Sync {
     async fn chat_completion_payload(&self, payload: Value) -> Result<Value, String>;
 
+    async fn chat_completion_stream(&self, _payload: Value) -> Result<reqwest::Response, String> {
+        Err("Selected ROSIE provider does not support governed streaming".to_string())
+    }
+
     async fn chat_completion(&self, messages: Vec<Value>) -> Result<Value, String>;
 }
 
@@ -105,6 +109,34 @@ impl RosieLLMProvider for LocalGemmaProvider {
         }))
         .await
     }
+
+    async fn chat_completion_stream(
+        &self,
+        mut payload: Value,
+    ) -> Result<reqwest::Response, String> {
+        if let Some(object) = payload.as_object_mut() {
+            object.insert("stream".to_string(), json!(true));
+            object.insert(
+                "stream_options".to_string(),
+                json!({ "include_usage": true }),
+            );
+        }
+        let response = self
+            .client
+            .post(format!("{}/v1/chat/completions", self.upstream_url))
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|error| format!("Gemma streaming request failed: {error}"))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let detail = response.text().await.unwrap_or_default();
+            return Err(format!(
+                "Gemma streaming API returned HTTP {status}: {detail}"
+            ));
+        }
+        Ok(response)
+    }
 }
 
 /// Remote LM Studio provider.
@@ -194,6 +226,35 @@ impl RosieLLMProvider for RemoteLmStudioProvider {
             "stream": false,
         }))
         .await
+    }
+
+    async fn chat_completion_stream(
+        &self,
+        mut payload: Value,
+    ) -> Result<reqwest::Response, String> {
+        if let Some(object) = payload.as_object_mut() {
+            object.insert("model".to_string(), json!(self.model.clone()));
+            object.insert("stream".to_string(), json!(true));
+            object.insert(
+                "stream_options".to_string(),
+                json!({ "include_usage": true }),
+            );
+        }
+        let response = self
+            .client
+            .post(self.chat_url())
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|error| format!("Remote LM Studio streaming request failed: {error}"))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let detail = response.text().await.unwrap_or_default();
+            return Err(format!(
+                "Remote LM Studio streaming API returned HTTP {status}: {detail}"
+            ));
+        }
+        Ok(response)
     }
 }
 

@@ -21,11 +21,15 @@ On macOS development workstations, the server and Tauri voice layers prefer nati
 ## Pinned local asset expectations
 
 - `RIVERSIDE_LLAMA_MODEL_PATH`
-  - default: `~/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf`
+  - default: `~/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/gemma-4-E4B_q4_0-it.gguf`
+- `RIVERSIDE_LLAMA_MMPROJ_PATH`
+  - default: `~/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/gemma-4-E4B-it-mmproj.gguf`
+  - must match the pinned text model; the runtime is not multimodal-ready without it
 - `RIVERSIDE_SENSEVOICE_MODEL_DIR`
   - default: `~/Library/Application Support/riverside-os/rosie/stt/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`
 - `RIVERSIDE_KOKORO_MODEL_DIR`
-  - default: `~/Library/Application Support/riverside-os/rosie/tts/kokoro-multi-lang-v1_0`
+  - default: `~/Library/Application Support/riverside-os/rosie/tts/kokoro-multi-lang-v1_1`
+  - migration fallback: `kokoro-multi-lang-v1_0`
 - `RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH`
   - default on the current workstation flow: `~/.local/share/uv/tools/sherpa-onnx/bin/python`
 
@@ -46,8 +50,10 @@ The desktop shell treats that sidecar as the local-first direct runtime path.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `RIVERSIDE_LLAMA_MODEL_PATH` | Gemma path above | Approved primary GGUF for the Host LLM runtime. |
+| `RIVERSIDE_LLAMA_MMPROJ_PATH` | Gemma projector path above | Matching vision projector loaded with the text model. |
 | `RIVERSIDE_LLAMA_HOST` | `127.0.0.1` | Loopback HTTP bind for the OpenAI-compatible runtime. |
 | `RIVERSIDE_LLAMA_PORT` | `8080` | Loopback port for the local Host runtime. |
+| `RIVERSIDE_LLAMA_UBATCH_SIZE` | `512` | Safe physical batch size; values below `256` are rejected because they crash this Gemma vision path. |
 | `RIVERSIDE_LLAMA_PERF_PROFILE` | `auto` | llama.cpp launch profile: `intel-i9-12900`, `minisforum-v3`, `apple-m3-pro`, `apple-m3-pro-cpu`, or `portable-cpu`. |
 | `RIVERSIDE_LLAMA_EXTRA_ARGS` | `--reasoning off` when unset | Optional non-performance llama-server args. ROS launchers append the selected performance profile after this value. |
 | `RIVERSIDE_SENSEVOICE_MODEL_DIR` | SenseVoice path above | Approved primary STT model directory. |

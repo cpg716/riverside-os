@@ -58,6 +58,9 @@ impl RosieProviderMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RosieProviderConfig {
     pub mode: RosieProviderMode,
+    /// Public cloud providers remain disabled unless an operator deliberately enables them.
+    /// Private Main Hub and LM Studio endpoints are still allowed.
+    pub allow_cloud_providers: bool,
     pub force_local_for_sensitive: bool,
     pub allow_cloud_for_sensitive: bool,
     pub gemini_api_key: Option<String>,
@@ -74,6 +77,7 @@ impl Default for RosieProviderConfig {
             mode: provider_env
                 .map(|s| RosieProviderMode::from_str(&s))
                 .unwrap_or_default(),
+            allow_cloud_providers: cloud_providers_enabled(),
             force_local_for_sensitive: std::env::var("ROSIE_FORCE_LOCAL_FOR_SENSITIVE")
                 .map(|s| s.to_lowercase() == "true")
                 .unwrap_or(true),
@@ -93,6 +97,12 @@ impl Default for RosieProviderConfig {
                 }),
         }
     }
+}
+
+pub fn cloud_providers_enabled() -> bool {
+    std::env::var("ROSIE_ALLOW_CLOUD_PROVIDERS")
+        .map(|value| matches!(value.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -121,19 +131,31 @@ impl RosieSpeechProviderMode {
 }
 
 pub fn stt_provider_mode() -> RosieSpeechProviderMode {
-    std::env::var("ROSIE_STT_PROVIDER")
+    let selected = std::env::var("ROSIE_STT_PROVIDER")
         .map(|value| RosieSpeechProviderMode::from_str(&value))
-        .unwrap_or(RosieSpeechProviderMode::Local)
+        .unwrap_or(RosieSpeechProviderMode::Local);
+    if selected != RosieSpeechProviderMode::Local && !cloud_providers_enabled() {
+        tracing::warn!("ROSIE cloud STT provider was requested while cloud providers are disabled");
+        RosieSpeechProviderMode::Local
+    } else {
+        selected
+    }
 }
 
 pub fn tts_provider_mode() -> RosieSpeechProviderMode {
-    std::env::var("ROSIE_TTS_PROVIDER")
+    let selected = std::env::var("ROSIE_TTS_PROVIDER")
         .map(|value| RosieSpeechProviderMode::from_str(&value))
-        .unwrap_or(RosieSpeechProviderMode::Local)
+        .unwrap_or(RosieSpeechProviderMode::Local);
+    if selected != RosieSpeechProviderMode::Local && !cloud_providers_enabled() {
+        tracing::warn!("ROSIE cloud TTS provider was requested while cloud providers are disabled");
+        RosieSpeechProviderMode::Local
+    } else {
+        selected
+    }
 }
 
 /// Query type for provider selection
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueryType {
     Help,
     Conversation,
@@ -146,6 +168,17 @@ pub async fn select_llm_provider(
     config: &RosieProviderConfig,
     query_type: QueryType,
 ) -> Result<Box<dyn RosieLLMProvider>, String> {
+    if !config.allow_cloud_providers
+        && matches!(
+            config.mode,
+            RosieProviderMode::GeminiApi | RosieProviderMode::OpenAiApi
+        )
+    {
+        return Err(
+            "ROSIE public cloud providers are disabled. Set ROSIE_ALLOW_CLOUD_PROVIDERS=true only after an approved privacy review."
+                .to_string(),
+        );
+    }
     match config.mode {
         RosieProviderMode::LocalGemma => {
             tracing::info!("Using local Gemma provider (forced by configuration)");
@@ -175,6 +208,13 @@ pub async fn select_llm_provider(
                 tracing::info!("Auto-selected Remote LM Studio provider");
                 return RemoteLmStudioProvider::from_env()
                     .map(|p| Box::new(p) as Box<dyn RosieLLMProvider>);
+            }
+
+            if !config.allow_cloud_providers {
+                return Err(
+                    "ROSIE auto mode found no available local/private provider. Public cloud providers are disabled."
+                        .to_string(),
+                );
             }
 
             if config.force_local_for_sensitive && query_type == QueryType::Sensitive {
@@ -322,6 +362,7 @@ mod tests {
         std::env::remove_var("RIVERSIDE_LLAMA_PROVIDER");
         let config = RosieProviderConfig::default();
         assert_eq!(config.mode, RosieProviderMode::LocalGemma);
+        assert!(!config.allow_cloud_providers);
         assert!(config.force_local_for_sensitive);
         assert!(!config.allow_cloud_for_sensitive);
     }
@@ -346,6 +387,7 @@ mod tests {
         std::env::remove_var("OPENAI_API_KEY");
         std::env::remove_var("RIVERSIDE_LLAMA_UPSTREAM");
         std::env::remove_var("ROSIE_PROVIDER");
+        std::env::set_var("ROSIE_ALLOW_CLOUD_PROVIDERS", "true");
 
         let config = RosieProviderConfig::default();
         let result = select_llm_provider(&config, QueryType::Conversation).await;
@@ -355,6 +397,7 @@ mod tests {
             Ok(_) => panic!("OpenAI provider should fail without OPENAI_API_KEY"),
         }
         std::env::remove_var("ROSIE_PROVIDER_MODE");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
     }
 
     #[tokio::test]
@@ -364,6 +407,7 @@ mod tests {
         std::env::remove_var("GEMINI_API_KEY");
         std::env::remove_var("RIVERSIDE_LLAMA_UPSTREAM");
         std::env::remove_var("ROSIE_PROVIDER");
+        std::env::set_var("ROSIE_ALLOW_CLOUD_PROVIDERS", "true");
 
         let config = RosieProviderConfig::default();
         let result = select_llm_provider(&config, QueryType::Conversation).await;
@@ -373,6 +417,7 @@ mod tests {
             Ok(_) => panic!("Gemini provider should fail without GEMINI_API_KEY"),
         }
         std::env::remove_var("ROSIE_PROVIDER_MODE");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
     }
 
     #[tokio::test]
@@ -395,6 +440,7 @@ mod tests {
     async fn explicit_cloud_provider_is_blocked_for_sensitive_by_default() {
         let _guard = env_lock();
         std::env::set_var("ROSIE_PROVIDER", "openai");
+        std::env::set_var("ROSIE_ALLOW_CLOUD_PROVIDERS", "true");
         std::env::remove_var("ROSIE_ALLOW_CLOUD_FOR_SENSITIVE");
         std::env::remove_var("OPENAI_API_KEY");
 
@@ -406,6 +452,7 @@ mod tests {
             Ok(_) => panic!("OpenAI provider should be blocked for sensitive requests by default"),
         }
         std::env::remove_var("ROSIE_PROVIDER");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
     }
 
     #[test]
@@ -418,11 +465,16 @@ mod tests {
 
         std::env::set_var("ROSIE_STT_PROVIDER", "openai");
         std::env::set_var("ROSIE_TTS_PROVIDER", "gemini");
+        assert_eq!(stt_provider_mode(), RosieSpeechProviderMode::Local);
+        assert_eq!(tts_provider_mode(), RosieSpeechProviderMode::Local);
+
+        std::env::set_var("ROSIE_ALLOW_CLOUD_PROVIDERS", "true");
         assert_eq!(stt_provider_mode(), RosieSpeechProviderMode::OpenAi);
         assert_eq!(tts_provider_mode(), RosieSpeechProviderMode::Gemini);
 
         std::env::remove_var("ROSIE_STT_PROVIDER");
         std::env::remove_var("ROSIE_TTS_PROVIDER");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
     }
 
     #[tokio::test]
@@ -441,7 +493,7 @@ mod tests {
         let result = select_llm_provider(&config, QueryType::Conversation).await;
 
         match result {
-            Err(error) => assert!(error.contains("Cloud fallback is disabled")),
+            Err(error) => assert!(error.contains("Public cloud providers are disabled")),
             Ok(_) => panic!("OpenAI auto preference should not bypass cloud fallback policy"),
         }
         std::env::remove_var("ROSIE_PROVIDER_MODE");
@@ -456,6 +508,7 @@ mod tests {
         std::env::set_var("ROSIE_PROVIDER_MODE", "auto");
         std::env::set_var("ROSIE_CLOUD_PROVIDER", "openai");
         std::env::set_var("ROSIE_ALLOW_CLOUD_FOR_SENSITIVE", "true");
+        std::env::set_var("ROSIE_ALLOW_CLOUD_PROVIDERS", "true");
         std::env::set_var("ROSIE_LOCAL_LLM_BASE_URL", "http://127.0.0.1:9");
         std::env::set_var("ROSIE_REMOTE_LMSTUDIO_BASE_URL", "http://127.0.0.1:9/v1");
         std::env::remove_var("OPENAI_API_KEY");
@@ -472,6 +525,7 @@ mod tests {
         std::env::remove_var("ROSIE_PROVIDER_MODE");
         std::env::remove_var("ROSIE_CLOUD_PROVIDER");
         std::env::remove_var("ROSIE_ALLOW_CLOUD_FOR_SENSITIVE");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
         std::env::remove_var("ROSIE_LOCAL_LLM_BASE_URL");
         std::env::remove_var("ROSIE_REMOTE_LMSTUDIO_BASE_URL");
     }

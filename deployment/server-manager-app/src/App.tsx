@@ -63,6 +63,13 @@ type ServerSnapshot = {
     host: string;
     health: StatusCheck;
     process_count: number;
+    status_path: string;
+    stack_ready: boolean;
+    stt_ready: boolean;
+    tts_ready: boolean;
+    generated_at: string;
+    llama_version: string;
+    sherpa_version: string;
   };
   storage: {
     drive: string;
@@ -436,9 +443,11 @@ export default function App() {
             />
             <StatusCard
               title="ROSIE"
-              value={isOk(snapshot.rosie.health) ? 'Online' : 'Offline'}
-              detail={snapshot.rosie.host}
-              tone={statusTone(isOk(snapshot.rosie.health), true)}
+              value={snapshot.rosie.stack_ready ? 'Certified' : isOk(snapshot.rosie.health) ? 'Partial' : 'Offline'}
+              detail={snapshot.rosie.stack_ready
+                ? `Gemma, SenseVoice, and Kokoro ready · llama ${snapshot.rosie.llama_version || 'version unknown'} · sherpa ${snapshot.rosie.sherpa_version || 'version unknown'}`
+                : snapshot.rosie.host}
+              tone={statusTone(snapshot.rosie.stack_ready, true)}
               icon={RosieIcon}
             />
           </section>

@@ -76,6 +76,16 @@ fn rosie_host_dir() -> Option<PathBuf> {
 fn default_rosie_root_dir() -> Option<PathBuf> {
     #[cfg(windows)]
     {
+        if let Some(install_root) = std::env::var_os("RIVERSIDE_INSTALL_ROOT") {
+            let path = PathBuf::from(install_root).join("rosie");
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        let main_hub_path = PathBuf::from(r"C:\RiversideOS\rosie");
+        if main_hub_path.exists() {
+            return Some(main_hub_path);
+        }
         if let Some(program_data) = std::env::var_os("ProgramData") {
             let path = PathBuf::from(program_data)
                 .join("riverside-os")
@@ -100,7 +110,7 @@ fn default_rosie_llm_model_path() -> Option<PathBuf> {
     default_rosie_root_dir().map(|root| {
         root.join("models")
             .join("gemma-4-e4b")
-            .join("google_gemma-4-E4B-it-Q4_K_M.gguf")
+            .join("gemma-4-E4B_q4_0-it.gguf")
     })
 }
 
@@ -178,7 +188,14 @@ fn resolve_tts_binary_path() -> PathBuf {
 }
 
 fn resolve_kokoro_model_dir() -> Option<PathBuf> {
-    default_rosie_root_dir().map(|root| root.join("tts").join("kokoro-multi-lang-v1_0"))
+    default_rosie_root_dir().and_then(|root| {
+        let current = root.join("tts").join("kokoro-multi-lang-v1_1");
+        if current.exists() {
+            return Some(current);
+        }
+        let legacy = root.join("tts").join("kokoro-multi-lang-v1_0");
+        legacy.exists().then_some(legacy)
+    })
 }
 
 fn resolve_kokoro_model_path() -> Option<PathBuf> {

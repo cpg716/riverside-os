@@ -7,13 +7,14 @@ use std::path::{Path as FsPath, PathBuf};
 
 use axum::{
     body::Body,
-    extract::{Path, Query, State},
-    http::{header::CONTENT_TYPE, HeaderMap},
+    extract::{DefaultBodyLimit, Path, Query, State},
+    http::HeaderMap,
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use chrono::{Datelike, Duration, NaiveDate, Utc};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::process::Command;
@@ -49,71 +50,83 @@ mod rosie_insight_summary;
 #[path = "../logic/rosie_search_intent.rs"]
 mod rosie_search_intent;
 
-fn build_rosie_upstream_client() -> Result<reqwest::Client, reqwest::Error> {
-    reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(120))
-        .pool_max_idle_per_host(0)
-        .http1_only()
-        .build()
-}
-
-async fn send_rosie_upstream_chat_request(
-    upstream_client: &reqwest::Client,
-    upstream_url: &str,
-    body: &Value,
-) -> Result<reqwest::Response, reqwest::Error> {
-    let body = rosie_disable_model_reasoning(body);
-    let mut last_error = None;
-    for attempt in 1..=3 {
-        match upstream_client.post(upstream_url).json(&body).send().await {
-            Ok(ok) => return Ok(ok),
-            Err(error) => {
-                tracing::warn!(
-                    attempt,
-                    error = %error,
-                    %upstream_url,
-                    "rosie upstream request attempt failed"
-                );
-                last_error = Some(error);
-                if attempt < 3 {
-                    tokio::time::sleep(std::time::Duration::from_millis(250 * attempt as u64))
-                        .await;
-                }
-            }
-        }
-    }
-
-    Err(last_error.expect("rosie upstream retries should capture a terminal error"))
-}
-
 async fn send_rosie_provider_chat_request(
     query_type: QueryType,
     body: &Value,
 ) -> Result<Value, String> {
+    let body = rosie_apply_model_policy(body, query_type);
     let provider = select_llm_provider(&RosieProviderConfig::default(), query_type).await?;
-    provider
-        .chat_completion_payload(rosie_disable_model_reasoning(body))
-        .await
+    provider.chat_completion_payload(body).await
 }
 
-fn rosie_disable_model_reasoning(body: &Value) -> Value {
+async fn send_rosie_provider_chat_stream(
+    query_type: QueryType,
+    body: &Value,
+) -> Result<reqwest::Response, String> {
+    let body = rosie_apply_model_policy(body, query_type);
+    let provider = select_llm_provider(&RosieProviderConfig::default(), query_type).await?;
+    provider.chat_completion_stream(body).await
+}
+
+fn rosie_apply_model_policy(body: &Value, query_type: QueryType) -> Value {
+    let analysis_reasoning_enabled = query_type == QueryType::Analysis
+        && std::env::var("ROSIE_ENABLE_ANALYSIS_REASONING")
+            .map(|value| matches!(value.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false);
+    rosie_set_model_reasoning(body, analysis_reasoning_enabled)
+}
+
+fn rosie_set_model_reasoning(body: &Value, enabled: bool) -> Value {
     let mut payload = body.clone();
     let Some(object) = payload.as_object_mut() else {
         return payload;
     };
-    object.insert("reasoning".to_string(), Value::Bool(false));
+    object.insert("reasoning".to_string(), Value::Bool(enabled));
 
     let kwargs = object
         .entry("chat_template_kwargs")
         .or_insert_with(|| serde_json::json!({}));
     if let Some(kwargs_object) = kwargs.as_object_mut() {
-        kwargs_object.insert("enable_thinking".to_string(), Value::Bool(false));
+        kwargs_object.insert("enable_thinking".to_string(), Value::Bool(enabled));
     } else {
-        *kwargs = serde_json::json!({ "enable_thinking": false });
+        *kwargs = serde_json::json!({ "enable_thinking": enabled });
     }
 
     payload
+}
+
+fn validate_rosie_multimodal_payload(body: &Value) -> Result<(), &'static str> {
+    let mut image_count = 0usize;
+    for content in body
+        .get("messages")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|message| message.get("content").and_then(Value::as_array))
+        .flatten()
+    {
+        if content.get("type").and_then(Value::as_str) != Some("image_url") {
+            continue;
+        }
+        image_count += 1;
+        if image_count > 3 {
+            return Err("ROSIE accepts at most 3 images per request");
+        }
+        let url = content
+            .pointer("/image_url/url")
+            .and_then(Value::as_str)
+            .ok_or("ROSIE image input is missing a data URL")?;
+        if !(url.starts_with("data:image/jpeg;base64,")
+            || url.starts_with("data:image/png;base64,")
+            || url.starts_with("data:image/webp;base64,"))
+        {
+            return Err("ROSIE images must be local JPEG, PNG, or WebP data URLs");
+        }
+        if url.len() > 11 * 1024 * 1024 {
+            return Err("ROSIE image input exceeds the 8 MB decoded limit");
+        }
+    }
+    Ok(())
 }
 
 fn rosie_provider_label_from_completion(body: &Value) -> &'static str {
@@ -133,6 +146,63 @@ fn rosie_provider_label_from_completion(body: &Value) -> &'static str {
     } else {
         "local"
     }
+}
+
+async fn plan_native_rosie_read_tools(question: &str, viewer: &HelpViewer) -> Vec<(String, Value)> {
+    let tools = rosie_read_tools::list_rosie_read_tools()
+        .iter()
+        .filter(|definition| {
+            viewer.is_admin
+                || staff_has_permission(&viewer.staff_perms, definition.required_permission)
+        })
+        .map(rosie_read_tools::openai_tool_definition)
+        .collect::<Vec<_>>();
+    if tools.is_empty() {
+        return Vec::new();
+    }
+    let payload = serde_json::json!({
+        "model": "local",
+        "temperature": 0.0,
+        "max_tokens": 256,
+        "messages": [
+            { "role": "system", "content": "Select only the minimum approved read-only Riverside OS tools needed to answer. Never invent identifiers. If no tool applies, answer without a tool." },
+            { "role": "user", "content": question }
+        ],
+        "tools": tools,
+        "tool_choice": "auto",
+        "parallel_tool_calls": false,
+        "stream": false
+    });
+    let Ok(completion) = send_rosie_provider_chat_request(QueryType::Conversation, &payload).await
+    else {
+        tracing::warn!(
+            "native ROSIE tool planning failed; deterministic planner remains available"
+        );
+        return Vec::new();
+    };
+    completion
+        .pointer("/choices/0/message/tool_calls")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .take(3)
+        .filter_map(|call| {
+            let name = call.pointer("/function/name")?.as_str()?.to_string();
+            if !rosie_read_tools::tool_definition(&name).is_some_and(|definition| {
+                viewer.is_admin
+                    || staff_has_permission(&viewer.staff_perms, definition.required_permission)
+            }) {
+                return None;
+            }
+            let raw_arguments = call.pointer("/function/arguments")?;
+            let arguments = if let Some(raw) = raw_arguments.as_str() {
+                serde_json::from_str(raw).ok()?
+            } else {
+                raw_arguments.clone()
+            };
+            Some((name, arguments))
+        })
+        .collect()
 }
 
 const RIVERSIDEOS_CREATOR_ANSWER: &str =
@@ -490,10 +560,7 @@ mod tests {
     use axum::http::{HeaderValue, StatusCode};
     use rust_decimal::Decimal;
     use sqlx::PgPool;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
 
     use crate::api::store_account_rate::StoreAccountRateState;
     use crate::auth::permissions::{
@@ -503,6 +570,31 @@ mod tests {
     use crate::logic::podium::PodiumTokenCache;
     use crate::logic::wedding_push::WeddingEventBus;
     use crate::observability::ServerLogRing;
+
+    #[test]
+    fn multimodal_payload_accepts_bounded_local_images() {
+        let payload = serde_json::json!({
+            "messages": [{
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": "What is shown?" },
+                    { "type": "image_url", "image_url": { "url": "data:image/png;base64,aGVsbG8=" } }
+                ]
+            }]
+        });
+        assert!(validate_rosie_multimodal_payload(&payload).is_ok());
+    }
+
+    #[test]
+    fn multimodal_payload_rejects_remote_urls() {
+        let payload = serde_json::json!({
+            "messages": [{
+                "role": "user",
+                "content": [{ "type": "image_url", "image_url": { "url": "https://example.com/image.png" } }]
+            }]
+        });
+        assert!(validate_rosie_multimodal_payload(&payload).is_err());
+    }
 
     async fn connect_test_db() -> PgPool {
         let _ =
@@ -1202,89 +1294,16 @@ mod tests {
             .any(|tool| tool.requires_permission.is_some()));
     }
 
-    #[tokio::test]
-    async fn rosie_chat_proxy_retries_transport_failures() {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind retry test listener");
-        let address = listener.local_addr().expect("retry test local addr");
-        let attempts = Arc::new(AtomicUsize::new(0));
-        let attempts_for_server = Arc::clone(&attempts);
-
-        let server = tokio::spawn(async move {
-            loop {
-                let (mut socket, _) = listener.accept().await.expect("accept retry test socket");
-                let attempt = attempts_for_server.fetch_add(1, Ordering::SeqCst) + 1;
-
-                if attempt < 3 {
-                    let mut buffer = [0_u8; 1024];
-                    let _ = socket.read(&mut buffer).await;
-                    drop(socket);
-                    continue;
-                }
-
-                let mut request = Vec::new();
-                let mut chunk = [0_u8; 1024];
-                loop {
-                    let read = socket
-                        .read(&mut chunk)
-                        .await
-                        .expect("read retry test request");
-                    if read == 0 {
-                        break;
-                    }
-                    request.extend_from_slice(&chunk[..read]);
-                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                        break;
-                    }
-                }
-
-                let body = br#"{"choices":[{"index":0,"message":{"role":"assistant","content":"Proxy retry ok."}}]}"#;
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
-                    body.len()
-                );
-                socket
-                    .write_all(response.as_bytes())
-                    .await
-                    .expect("write retry test headers");
-                socket.write_all(body).await.expect("write retry test body");
-                break;
-            }
-        });
-
-        let client = build_rosie_upstream_client().expect("build rosie upstream client");
-        let response = send_rosie_upstream_chat_request(
-            &client,
-            &format!("http://{address}/v1/chat/completions"),
-            &serde_json::json!({
-                "model": "local",
-                "messages": [{ "role": "user", "content": "Say retry ok." }],
-            }),
-        )
-        .await
-        .expect("proxy should retry into a successful response");
-        let payload = response
-            .json::<Value>()
-            .await
-            .expect("retry test response json");
-
-        server.await.expect("retry test server");
-
-        assert_eq!(attempts.load(Ordering::SeqCst), 3);
-        assert_eq!(
-            payload["choices"][0]["message"]["content"],
-            Value::String("Proxy retry ok.".to_string())
-        );
-    }
-
     #[test]
     fn rosie_upstream_payload_disables_gemma_reasoning() {
-        let payload = rosie_disable_model_reasoning(&serde_json::json!({
-            "model": "local",
-            "messages": [{ "role": "user", "content": "Help me close the register." }],
-            "chat_template_kwargs": { "existing": true }
-        }));
+        let payload = rosie_set_model_reasoning(
+            &serde_json::json!({
+                "model": "local",
+                "messages": [{ "role": "user", "content": "Help me close the register." }],
+                "chat_template_kwargs": { "existing": true }
+            }),
+            false,
+        );
 
         assert_eq!(payload["reasoning"], Value::Bool(false));
         assert_eq!(
@@ -1293,6 +1312,23 @@ mod tests {
         );
         assert_eq!(
             payload["chat_template_kwargs"]["existing"],
+            Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn rosie_model_policy_can_enable_bounded_analysis_reasoning() {
+        let payload = rosie_set_model_reasoning(
+            &serde_json::json!({
+                "model": "local",
+                "messages": [{ "role": "user", "content": "Summarize these facts." }],
+            }),
+            true,
+        );
+
+        assert_eq!(payload["reasoning"], Value::Bool(true));
+        assert_eq!(
+            payload["chat_template_kwargs"]["enable_thinking"],
             Value::Bool(true)
         );
     }
@@ -3854,7 +3890,10 @@ pub fn router() -> Router<AppState> {
         .route("/manuals", get(list_manuals))
         .route("/manuals/{manual_id}", get(get_manual))
         .route("/rosie/v1/tool-context", post(rosie_tool_context))
-        .route("/rosie/v1/chat/completions", post(rosie_chat_completions))
+        .route(
+            "/rosie/v1/chat/completions",
+            post(rosie_chat_completions).layer(DefaultBodyLimit::max(36 * 1024 * 1024)),
+        )
         .route(
             "/rosie/v1/insight-summary",
             post(post_rosie_insight_summary),
@@ -4074,6 +4113,13 @@ async fn rosie_chat_completions(
     Json(body): Json<Value>,
 ) -> Result<Response, Response> {
     let _viewer = resolve_help_viewer(&state, &headers).await?;
+    validate_rosie_multimodal_payload(&body).map_err(|error| {
+        (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response()
+    })?;
     let stream_requested = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     if let Some(answer) =
         rosie_last_user_message(&body).and_then(|question| rosie_creator_answer(&question))
@@ -4106,52 +4152,67 @@ async fn rosie_chat_completions(
         return Ok(Json(payload).into_response());
     }
 
-    let upstream = std::env::var("RIVERSIDE_LLAMA_UPSTREAM")
-        .ok()
-        .map(|v| v.trim().trim_end_matches('/').to_string())
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| {
-            (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "ROSIE upstream is not configured",
-                })),
-            )
-                .into_response()
-        })?;
+    if let Some(answer) = rosie_last_user_message(&body).and_then(|q| rosie_creator_answer(&q)) {
+        let chunk = serde_json::json!({
+            "model": "rosie-static",
+            "choices": [{ "index": 0, "delta": { "role": "assistant", "content": answer }, "finish_reason": null }]
+        });
+        let done = serde_json::json!({
+            "model": "rosie-static",
+            "choices": [{ "index": 0, "delta": {}, "finish_reason": "stop" }]
+        });
+        let payload = format!("data: {chunk}\n\ndata: {done}\n\ndata: [DONE]\n\n");
+        return Ok(Response::builder()
+            .header(axum::http::header::CONTENT_TYPE, "text/event-stream")
+            .header(axum::http::header::CACHE_CONTROL, "no-cache")
+            .body(Body::from(payload))
+            .expect("valid static ROSIE stream response"));
+    }
 
-    let upstream_url = format!("{upstream}/v1/chat/completions");
-    let upstream_client = build_rosie_upstream_client().map_err(|e| {
-        tracing::error!(error = %e, %upstream_url, "rosie upstream client init failed");
-        (
-            axum::http::StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({
-                "error": "ROSIE upstream is unavailable",
-            })),
-        )
-            .into_response()
-    })?;
-    let response = send_rosie_upstream_chat_request(&upstream_client, &upstream_url, &body)
+    let upstream = send_rosie_provider_chat_stream(QueryType::Conversation, &body)
         .await
-        .map_err(|e| {
-            tracing::error!(error = %e, %upstream_url, "rosie upstream request failed");
+        .map_err(|error| {
+            tracing::error!(%error, "rosie provider streaming request failed");
             (
                 axum::http::StatusCode::BAD_GATEWAY,
                 Json(serde_json::json!({
-                    "error": "ROSIE upstream request failed",
+                    "error": "ROSIE provider streaming request failed"
                 })),
             )
                 .into_response()
         })?;
-
-    let status = response.status();
-    let stream = response.bytes_stream();
-    Ok((
-        status,
-        [(CONTENT_TYPE, "text/event-stream; charset=utf-8")],
-        Body::from_stream(stream),
-    )
-        .into_response())
+    let telemetry_pool = state.db.clone();
+    let mut telemetry_buffer = String::new();
+    let stream = upstream.bytes_stream().map(move |chunk| {
+        if let Ok(bytes) = &chunk {
+            if let Ok(text) = std::str::from_utf8(bytes) {
+                telemetry_buffer.push_str(text);
+                while let Some(boundary) = telemetry_buffer.find("\n\n") {
+                    let event = telemetry_buffer[..boundary].to_string();
+                    telemetry_buffer.drain(..boundary + 2);
+                    let data = event
+                        .lines()
+                        .filter_map(|line| line.strip_prefix("data: "))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if let Ok(value) = serde_json::from_str::<Value>(&data) {
+                        crate::logic::rosie_intelligence::record_telemetry_from_value(
+                            telemetry_pool.clone(),
+                            rosie_provider_label_from_completion(&value),
+                            &value,
+                        );
+                    }
+                }
+            }
+        }
+        chunk
+    });
+    Ok(Response::builder()
+        .header(axum::http::header::CONTENT_TYPE, "text/event-stream")
+        .header(axum::http::header::CACHE_CONTROL, "no-cache, no-transform")
+        .header(axum::http::header::CONNECTION, "keep-alive")
+        .body(Body::from_stream(stream))
+        .expect("valid ROSIE streaming response"))
 }
 
 async fn post_rosie_insight_summary(
@@ -4850,6 +4911,37 @@ async fn rosie_tool_context(
             }
         }
 
+        let native_tool_requests = plan_native_rosie_read_tools(question, &viewer).await;
+        let native_tool_names = native_tool_requests
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect::<HashSet<_>>();
+        for (tool_name, args) in native_tool_requests {
+            let result =
+                execute_rosie_read_tool_inner(&state, &headers, tool_name.as_str(), args.clone())
+                    .await?;
+            sources.push(RosieToolGroundingSourceOut {
+                kind: "rosie_read_tool".to_string(),
+                title: format!("ROSIE Native Tool — {}", tool_name.replace('_', " ")),
+                excerpt: format!("{} rows, basis {}", result.row_count, result.basis),
+                content: sanitize_excerpt(&result.data.to_string(), source_excerpt_limit),
+                manual_id: None,
+                manual_title: None,
+                section_slug: None,
+                section_heading: None,
+                anchor_id: None,
+                report_spec_id: None,
+                report_route: None,
+                route: Some(format!("/api/help/rosie/v1/tools/execute#{tool_name}")),
+                entity_id: None,
+            });
+            tool_results.push(RosieToolResultOut {
+                tool_name: "rosie_native_read_tool".to_string(),
+                args: serde_json::json!({ "tool_name": tool_name, "arguments": args }),
+                result: serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({})),
+            });
+        }
+
         let planner_decision = plan_rosie_read_tool(question, body.client_context.as_ref());
         if planner_decision.decision != RosiePlannerDecisionKind::ExecuteTool
             && planner_decision.decision != RosiePlannerDecisionKind::AnswerFromHelpDocs
@@ -4865,7 +4957,10 @@ async fn rosie_tool_context(
             });
         }
 
-        for (tool_name, args) in infer_read_tool_requests(question, body.client_context.as_ref()) {
+        for (tool_name, args) in infer_read_tool_requests(question, body.client_context.as_ref())
+            .into_iter()
+            .filter(|(tool_name, _)| !native_tool_names.contains(tool_name))
+        {
             let result =
                 execute_rosie_read_tool_inner(&state, &headers, tool_name.as_str(), args.clone())
                     .await?;

@@ -1,6 +1,6 @@
 # Local multimodal help — **ROSIE** (RiversideOS Intelligence Engine)
 
-**Status:** **Shipped baseline with active roadmap** — Help Library, on-device fallback search, **Ask ROSIE**, **ROSIE Chat**, server-governed local/private/cloud providers, approved local knowledge retrieval, permission-gated read tools, optional voice, Help authoring automation, and `ros_help` indexing are implemented. Vision, developer-mode code assistance, and other phases remain roadmap work. **Last updated:** 2026-07-10.
+**Status:** **Shipped local intelligence stack with active roadmap** — Help Library, on-device fallback search, **Ask ROSIE**, **ROSIE Chat**, local/private provider governance, approved local knowledge retrieval, permission-gated native read tools, streamed answers, JPEG/PNG/WebP vision input, optional voice, Help authoring automation, and `ros_help` indexing are implemented. Developer-mode code assistance and other phases remain roadmap work. **Policy pack:** `rosie-policy-pack-0.96.0`. **Last updated:** 2026-08-02.
 
 **Product name:** **ROSIE** = **RiversideOS Intelligence Engine**—orchestration + whitelisted **read** tools for answers autonomously build **only** the in-app Help Center (AIDOCS + Playwright → **`client/src/assets/docs/*-manual.md`**, **`client/src/assets/images/help/**`**, **`generate:help`**, **`ros_help`** reindex, and **help-scoped** embedding slices if used).
 

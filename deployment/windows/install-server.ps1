@@ -813,11 +813,11 @@ function Resolve-LlamaPerfProfile([string]$Requested) {
 function Resolve-LlamaPerfArgs([string]$Requested) {
   $profile = Resolve-LlamaPerfProfile $Requested
   switch ($profile) {
-    "intel-i9-12900" { return "--reasoning off --threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
-    "minisforum-v3" { return "--reasoning off --threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
-    "apple-m3-pro" { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 99 --flash-attn on --mmap" }
-    "apple-m3-pro-cpu" { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
-    default { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
+    "intel-i9-12900" { return "--threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
+    "minisforum-v3" { return "--threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
+    "apple-m3-pro" { return "--threads 6 --threads-batch 6 --gpu-layers 99 --flash-attn on --mmap" }
+    "apple-m3-pro-cpu" { return "--threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
+    default { return "--threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
   }
 }
 
@@ -827,7 +827,11 @@ function Ensure-RiversideLlamaHost(
   [string]$ModelPath,
   [string]$LlamaHost,
   [int]$LlamaPort,
-  [string]$LlamaPerfProfile = "auto"
+  [string]$LlamaPerfProfile = "auto",
+  [int]$ContextSize = 8192,
+  [int]$Parallel = 2,
+  [int]$BatchSize = 512,
+  [int]$UbatchSize = 512
 ) {
   $llamaSrc = Join-Path $PackageRoot "rosie\bin\llama-server.exe"
   $llamaDir = Join-Path $InstallRoot "rosie\bin"
@@ -859,7 +863,11 @@ function Ensure-RiversideLlamaHost(
   $llamaPerfArgs = Resolve-LlamaPerfArgs $LlamaPerfProfile
   $resolvedLlamaPerfProfile = Resolve-LlamaPerfProfile $LlamaPerfProfile
   Write-Host "ROSIE: Applying llama.cpp performance profile '$resolvedLlamaPerfProfile'."
-  $argument = "-m `"$ModelPath`" --host $LlamaHost --port $LlamaPort $llamaPerfArgs"
+  $argument = "-m `"$ModelPath`" --host $LlamaHost --port $LlamaPort --ctx-size $ContextSize --parallel $Parallel --batch-size $BatchSize --ubatch-size $UbatchSize --cont-batching $llamaPerfArgs"
+  $mmprojPath = Join-Path (Split-Path -Parent $ModelPath) "gemma-4-E4B-it-mmproj.gguf"
+  if (Test-Path $mmprojPath) {
+    $argument = "$argument --mmproj `"$mmprojPath`""
+  }
 
   Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
   $action = New-ScheduledTaskAction -Execute $llamaExe -Argument $argument -WorkingDirectory $llamaDir
@@ -1310,11 +1318,23 @@ function Get-PreservedRosieEnvironment([string]$Path) {
   }
 
   foreach ($line in @(Get-Content $Path)) {
-    if ($line -match '^(RIVERSIDE_(?:LLAMA|ROSIE|SHERPA)_[A-Z0-9_]+)=(.*)$') {
+    if ($line -match '^((?:RIVERSIDE_(?:LLAMA|ROSIE|SHERPA)|ROSIE)_[A-Z0-9_]+)=(.*)$') {
       $preserved[$Matches[1]] = $Matches[2]
     }
   }
   return $preserved
+}
+
+function Restore-RosieEnvironment([string]$Path, $Environment) {
+  if (-not (Test-Path $Path)) { return }
+  $lines = @(Get-Content $Path) | Where-Object {
+    $_ -notmatch '^((?:RIVERSIDE_(?:LLAMA|ROSIE|SHERPA)|ROSIE)_[A-Z0-9_]+)='
+  }
+  foreach ($key in @($Environment.Keys | Sort-Object)) {
+    $lines += "$key=$($Environment[$key])"
+  }
+  $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllLines($Path, [string[]]$lines, $utf8WithoutBom)
 }
 
 function Resolve-InstalledRosieModelPath([string]$InstallRoot, [string]$PackageRoot, $PreservedRosieEnvironment) {
@@ -1326,7 +1346,7 @@ function Resolve-InstalledRosieModelPath([string]$InstallRoot, [string]$PackageR
   }
 
   $modelDirectory = Join-Path $InstallRoot "rosie\models\gemma-4-e4b"
-  $modelFilename = "google_gemma-4-E4B-it-Q4_K_M.gguf"
+  $modelFilename = "gemma-4-E4B_q4_0-it.gguf"
   $pinPath = Join-Path $PackageRoot "rosie\MODEL_PIN.json"
   if (Test-Path $pinPath) {
     try {
@@ -1386,10 +1406,19 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $BackupDatabaseUrl, $Fron
       $lines += "$key=$($PreservedRosieEnvironment[$key])"
     }
   } elseif ($RosieModelPath) {
+    $rosieMmprojPath = Join-Path (Split-Path -Parent $RosieModelPath) "gemma-4-E4B-it-mmproj.gguf"
     $lines += "RIVERSIDE_LLAMA_MODEL_PATH=$RosieModelPath"
+    if (Test-Path $rosieMmprojPath) {
+      $lines += "RIVERSIDE_LLAMA_MMPROJ_PATH=$rosieMmprojPath"
+    }
     $lines += "RIVERSIDE_LLAMA_PORT=8080"
     $lines += "RIVERSIDE_LLAMA_HOST=127.0.0.1"
-    $lines += "RIVERSIDE_LLAMA_EXTRA_ARGS=--reasoning off"
+    $lines += "RIVERSIDE_LLAMA_CONTEXT_SIZE=8192"
+    $lines += "RIVERSIDE_LLAMA_PARALLEL=2"
+    $lines += "RIVERSIDE_LLAMA_BATCH_SIZE=512"
+    $lines += "RIVERSIDE_LLAMA_UBATCH_SIZE=512"
+    $lines += "ROSIE_ALLOW_CLOUD_PROVIDERS=false"
+    $lines += "ROSIE_ENABLE_ANALYSIS_REASONING=false"
     if (-not $configuredLlamaProfile) {
       $lines += "RIVERSIDE_LLAMA_PERF_PROFILE=auto"
     }
@@ -1504,7 +1533,7 @@ function Install-RosieStack($PackageRoot) {
 
   # Resolve model destination using MODEL_PIN.json or release default
   $pinPath = Join-Path $PackageRoot "rosie\MODEL_PIN.json"
-  $modelFilename = "google_gemma-4-E4B-it-Q4_K_M.gguf"
+  $modelFilename = "gemma-4-E4B_q4_0-it.gguf"
   if (Test-Path $pinPath) {
     try {
       $pin = Get-Content -Raw $pinPath | ConvertFrom-Json
@@ -2238,8 +2267,9 @@ if ($script:postgresReachable) {
 $envPath = Join-Path $serverDir ".env"
 $rosieModelPath = $null
 $preservedRosieEnvironment = $null
+$previousRosieEnvironment = Get-PreservedRosieEnvironment $envPath
 if ($PreserveExistingRosie) {
-  $preservedRosieEnvironment = Get-PreservedRosieEnvironment $envPath
+  $preservedRosieEnvironment = $previousRosieEnvironment
   $rosieModelPath = Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment
   if ($rosieModelPath) {
     $preservedRosieEnvironment["RIVERSIDE_LLAMA_MODEL_PATH"] = $rosieModelPath
@@ -2298,18 +2328,74 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Pr
 $llamaHost = "127.0.0.1"
 $llamaPort = 8080
 $llamaPerfProfile = "auto"
+$llamaContextSize = 8192
+$llamaParallel = 2
+$llamaBatchSize = 512
+$llamaUbatchSize = 512
 if ($server.environment) {
   $envHost = "$($server.environment.RIVERSIDE_LLAMA_HOST)".Trim()
   $envPort = "$($server.environment.RIVERSIDE_LLAMA_PORT)".Trim()
   $envPerfProfile = "$($server.environment.RIVERSIDE_LLAMA_PERF_PROFILE)".Trim()
+  $envContextSize = "$($server.environment.RIVERSIDE_LLAMA_CONTEXT_SIZE)".Trim()
+  $envParallel = "$($server.environment.RIVERSIDE_LLAMA_PARALLEL)".Trim()
+  $envBatchSize = "$($server.environment.RIVERSIDE_LLAMA_BATCH_SIZE)".Trim()
+  $envUbatchSize = "$($server.environment.RIVERSIDE_LLAMA_UBATCH_SIZE)".Trim()
   if ($envHost) { $llamaHost = $envHost }
   if ($envPort -and ($envPort -match '^\d+$')) { $llamaPort = [int]$envPort }
   if ($envPerfProfile) { $llamaPerfProfile = $envPerfProfile }
+  if ($envContextSize -match '^\d+$') { $llamaContextSize = [math]::Min(131072, [math]::Max(2048, [int]$envContextSize)) }
+  if ($envParallel -match '^\d+$') { $llamaParallel = [math]::Min(8, [math]::Max(1, [int]$envParallel)) }
+  if ($envBatchSize -match '^\d+$') { $llamaBatchSize = [math]::Min(2048, [math]::Max(32, [int]$envBatchSize)) }
+  if ($envUbatchSize -match '^\d+$') { $llamaUbatchSize = [math]::Min($llamaBatchSize, [math]::Max(256, [int]$envUbatchSize)) }
 }
 if ($PreserveExistingRosie) {
   Write-Host "ROSIE scheduled task preserved without restart or re-registration."
 } else {
-  Ensure-RiversideLlamaHost $ScriptRoot $installRoot $rosieModelPath $llamaHost $llamaPort $llamaPerfProfile
+  Ensure-RiversideLlamaHost $ScriptRoot $installRoot $rosieModelPath $llamaHost $llamaPort $llamaPerfProfile $llamaContextSize $llamaParallel $llamaBatchSize $llamaUbatchSize
+  $rosieWatchdogSource = Join-Path $ScriptRoot "watch-rosie-stack.ps1"
+  if (Test-Path $rosieWatchdogSource) {
+    $rosieWatchdogDest = Join-Path $installRoot "watch-rosie-stack.ps1"
+    Copy-Item $rosieWatchdogSource $rosieWatchdogDest -Force
+    $rosieWatchdogTask = "Riverside OS ROSIE Watchdog"
+    Unregister-ScheduledTask -TaskName $rosieWatchdogTask -Confirm:$false -ErrorAction SilentlyContinue
+    $rosieWatchdogAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$rosieWatchdogDest`" -InstallRoot `"$installRoot`""
+    $rosieWatchdogStartup = New-ScheduledTaskTrigger -AtStartup
+    $rosieWatchdogRepeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Days 3650)
+    $rosieWatchdogPrincipal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+    $rosieWatchdogSettings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+    Register-ScheduledTask -TaskName $rosieWatchdogTask -Action $rosieWatchdogAction -Trigger @($rosieWatchdogStartup, $rosieWatchdogRepeat) -Principal $rosieWatchdogPrincipal -Settings $rosieWatchdogSettings | Out-Null
+    if (-not $NoStart) {
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $rosieWatchdogDest -InstallRoot $installRoot -FullCertification
+      if ($LASTEXITCODE -ne 0) {
+        if ($previousRosieEnvironment.Count -gt 0) {
+          Write-Warning "ROSIE candidate certification failed. Restoring the previous ROSIE environment."
+          Restore-RosieEnvironment $envPath $previousRosieEnvironment
+          Stop-ScheduledTask -TaskName "Riverside OS LLM Host" -ErrorAction SilentlyContinue
+          Get-Process -Name "llama-server" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          $rosieStartScript = Join-Path $installRoot "start-riverside-llama.ps1"
+          if (Test-Path $rosieStartScript) {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $rosieStartScript -InstallRoot $installRoot | Out-Null
+          }
+        }
+        throw "ROSIE functional certification failed. See $installRoot\rosie\rosie_status.json."
+      }
+      $managedModelDir = Join-Path $installRoot "rosie\models\gemma-4-e4b"
+      foreach ($key in @("RIVERSIDE_LLAMA_MODEL_PATH", "RIVERSIDE_LLAMA_MMPROJ_PATH")) {
+        if (-not $previousRosieEnvironment.ContainsKey($key)) { continue }
+        $oldAsset = "$($previousRosieEnvironment[$key])".Trim().Trim('"')
+        if (
+          $oldAsset -and
+          (Test-Path $oldAsset) -and
+          [IO.Path]::GetFullPath((Split-Path -Parent $oldAsset)).TrimEnd('\') -eq [IO.Path]::GetFullPath($managedModelDir).TrimEnd('\') -and
+          $oldAsset -ne $rosieModelPath -and
+          $oldAsset -ne (Join-Path $managedModelDir "gemma-4-E4B-it-mmproj.gguf")
+        ) {
+          Write-Host "Removing superseded certified ROSIE asset: $(Split-Path -Leaf $oldAsset)"
+          Remove-Item $oldAsset -Force
+        }
+      }
+    }
+  }
 }
 
 if (-not $NoStart) {

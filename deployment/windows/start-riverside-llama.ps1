@@ -49,12 +49,21 @@ function Resolve-LlamaPerfProfile([string]$Requested) {
 function Resolve-LlamaPerfArgs([string]$Requested) {
   $profile = Resolve-LlamaPerfProfile $Requested
   switch ($profile) {
-    "intel-i9-12900" { return "--reasoning off --threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
-    "minisforum-v3" { return "--reasoning off --threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
-    "apple-m3-pro" { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 99 --flash-attn on --mmap" }
-    "apple-m3-pro-cpu" { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
-    default { return "--reasoning off --threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
+    "intel-i9-12900" { return "--threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
+    "minisforum-v3" { return "--threads 8 --threads-batch 8 --cpu-mask 0xFFFF --cpu-mask-batch 0xFFFF --cpu-strict 1 --cpu-strict-batch 1 --gpu-layers 0 --device none --flash-attn on --mmap --mlock" }
+    "apple-m3-pro" { return "--threads 6 --threads-batch 6 --gpu-layers 99 --flash-attn on --mmap" }
+    "apple-m3-pro-cpu" { return "--threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
+    default { return "--threads 6 --threads-batch 6 --gpu-layers 0 --device none --flash-attn on --mmap" }
   }
+}
+
+function Resolve-BoundedInt([string]$Value, [int]$Default, [int]$Minimum, [int]$Maximum, [string]$Label) {
+  if ([string]::IsNullOrWhiteSpace($Value)) { return $Default }
+  $parsed = 0
+  if (-not [int]::TryParse($Value, [ref]$parsed) -or $parsed -lt $Minimum -or $parsed -gt $Maximum) {
+    throw "$Label must be an integer between $Minimum and $Maximum."
+  }
+  return $parsed
 }
 
 if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
@@ -68,9 +77,15 @@ if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
 
 $envPath = Join-Path $InstallRoot "server\.env"
 $modelPath = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_MODEL_PATH"
+$mmprojPath = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_MMPROJ_PATH"
 $hostName = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_HOST"
 $port = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_PORT"
 $llamaPerfProfile = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_PERF_PROFILE"
+$contextSizeValue = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_CONTEXT_SIZE"
+$parallelValue = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_PARALLEL"
+$batchSizeValue = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_BATCH_SIZE"
+$ubatchSizeValue = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_UBATCH_SIZE"
+$extraArgs = Read-ServerEnvValue $envPath "RIVERSIDE_LLAMA_EXTRA_ARGS"
 if ([string]::IsNullOrWhiteSpace($hostName)) { $hostName = "127.0.0.1" }
 if ([string]::IsNullOrWhiteSpace($port)) { $port = "8080" }
 
@@ -96,8 +111,19 @@ if ([string]::IsNullOrWhiteSpace($modelPath) -or -not (Test-Path $modelPath)) {
 $taskName = "Riverside OS LLM Host"
 $llamaPerfArgs = Resolve-LlamaPerfArgs $llamaPerfProfile
 $resolvedLlamaPerfProfile = Resolve-LlamaPerfProfile $llamaPerfProfile
+$contextSize = Resolve-BoundedInt $contextSizeValue 8192 2048 131072 "RIVERSIDE_LLAMA_CONTEXT_SIZE"
+$parallel = Resolve-BoundedInt $parallelValue 2 1 8 "RIVERSIDE_LLAMA_PARALLEL"
+$batchSize = Resolve-BoundedInt $batchSizeValue 512 32 2048 "RIVERSIDE_LLAMA_BATCH_SIZE"
+$ubatchSize = Resolve-BoundedInt $ubatchSizeValue 512 256 $batchSize "RIVERSIDE_LLAMA_UBATCH_SIZE"
 Write-Host "Applying llama.cpp performance profile '$resolvedLlamaPerfProfile'."
-$argument = "-m `"$modelPath`" --host $hostName --port $port $llamaPerfArgs"
+Write-Host "Runtime tuning: context=$contextSize, parallel=$parallel, batch=$batchSize, ubatch=$ubatchSize."
+$argument = "-m `"$modelPath`" --host $hostName --port $port --ctx-size $contextSize --parallel $parallel --batch-size $batchSize --ubatch-size $ubatchSize --cont-batching $llamaPerfArgs"
+if (-not [string]::IsNullOrWhiteSpace($mmprojPath) -and (Test-Path $mmprojPath)) {
+  $argument = "$argument --mmproj `"$mmprojPath`""
+}
+if (-not [string]::IsNullOrWhiteSpace($extraArgs)) {
+  $argument = "$argument $extraArgs"
+}
 $llamaDir = Split-Path -Parent $llamaExe
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue

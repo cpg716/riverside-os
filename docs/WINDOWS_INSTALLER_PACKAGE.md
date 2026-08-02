@@ -13,7 +13,7 @@ The normal entry point is **`Install-ROSDeploymentApps.cmd`**. It installs the R
 Build output:
 
 ```text
-RiversideOS-v0.95.5-<build-sha>-Windows-Deployment/
+RiversideOS-v0.96.0-<build-sha>-Windows-Deployment/
   Start-RiversideDeployment.cmd
   Start-RiversideDeployment.ps1
   Install-ROSDeploymentApps.cmd
@@ -138,7 +138,7 @@ If Riverside Settings cannot open because the API is down, manage the server fro
 
 For immediate recovery after a failed update, open Administrator PowerShell on the Main Hub and run `Start-ScheduledTask -TaskName "Riverside OS Server"`, then confirm `http://127.0.0.1:3000/api/ready` responds so PostgreSQL connectivity is included. Do not reset or restore the database solely because the installer backup step failed.
 
-Hotfix/support actions included in v0.95.5 packages:
+Hotfix/support actions included in v0.96.0 packages:
 
 - **`Install-RosieAiStack.cmd`** copies the precompiled ROSIE AI binaries (llama-server, sherpa-onnx) and bundled STT/TTS model files, verifies the Gemma GGUF model integrity, patches the server `.env` to make the local LLM reachable, and restarts the server. Use this to restore ROSIE AI features on existing Main Hubs without a full reinstall.
 - **`Repair-RiversideCredentialsKey.cmd`** repairs the installed server credential key, writes it to both `C:\RiversideOS\server\.env` and the Windows machine environment, and restarts the `Riverside OS Server` task. Use this when Backoffice Settings says `RIVERSIDE_CREDENTIALS_KEY` must be set before integration credentials can be saved.
@@ -195,7 +195,7 @@ If Riverside starts but a screen reports a missing database table, use **Apply-R
 
 During Main Hub install/update, the workstation installer writes the Main Hub desktop API target as `http://127.0.0.1:3000` even when an older `station-config.json` exists. It still preserves unrelated local station settings such as printers.
 
-Main Hub **updates** use `install-server.ps1 -PreserveExistingRosie`. This updates the server, web client, and migrations without downloading, deleting, or replacing installed ROSIE LLM/STT/TTS assets and without stopping or re-registering the `Riverside OS LLM Host` scheduled task. A fresh Main Hub **install** still runs the complete ROSIE setup. If ROSIE itself needs repair, use `Install-RosieAiStack.cmd` as a separate intentional maintenance action.
+Main Hub installs and standard updates run the pinned ROSIE stack installer. Existing assets whose hashes match the current pins are reused without downloading them again. When a model pin changes, the update downloads and verifies the new text model and matching projector, activates them together, and runs bounded text, SSE, native-tool, image, STT, and TTS certification before reporting readiness. A failed model certificate restores the prior configured model; a successful certificate removes superseded model files from the managed model directory. `-PreserveExistingRosie` remains an explicit diagnostic/maintenance option, but it is not used by normal update workflows. If ROSIE itself needs repair, `Install-RosieAiStack.cmd` runs the same pinned setup directly.
 
 The Main Hub desktop app also has a local recovery path: if it opens on the Main Hub, is pointed at `localhost` / `127.0.0.1`, and the roster check cannot reach the API, it asks Windows to start the installed `Riverside OS Server` scheduled task and then retries the roster check. If the task is missing, run **Repair** from the Deployment Manager instead of manually creating a different task name.
 

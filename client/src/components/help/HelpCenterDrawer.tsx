@@ -8,6 +8,7 @@ import {
   CircleHelp,
   BookOpen,
   Mic,
+  Paperclip,
   Printer,
   SendHorizonal,
   Square,
@@ -40,6 +41,7 @@ import {
   startRosieVoiceCapture,
   stopRosieSpeechPlayback,
   type RosieGroundedHelpRequest,
+  type RosieAttachment,
   type RosieHelpGroundingSource,
   type RosieSuggestedAction,
   type RosieSettings,
@@ -899,6 +901,7 @@ export default function HelpCenterDrawer({
   const [rosieConversationMessages, setRosieConversationMessages] = useState<RosiChatEntry[]>([]);
   const [rosieQuestion, setRosieQuestion] = useState("");
   const [rosieConversationQuestion, setRosieConversationQuestion] = useState("");
+  const [rosieAttachments, setRosieAttachments] = useState<RosieAttachment[]>([]);
   const [rosieBusy, setRosieBusy] = useState(false);
   const [rosieStatus, setRosieStatus] = useState<string | null>(null);
   const [rosieThinkingDots, setRosieThinkingDots] = useState(".");
@@ -914,6 +917,31 @@ export default function HelpCenterDrawer({
   const speechPlaybackRef = useRef<RosieSpeechPlayback | null>(null);
   const rosieChatEndRef = useRef<HTMLDivElement | null>(null);
   const activeManualContentRef = useRef<HTMLDivElement | null>(null);
+
+  const addRosieImages = useCallback((files: FileList | null) => {
+    const selected = Array.from(files ?? []).slice(0, Math.max(0, 3 - rosieAttachments.length));
+    for (const file of selected) {
+      if (!(["image/jpeg", "image/png", "image/webp"] as string[]).includes(file.type)) {
+        setRosieStatus("ROSIE accepts JPEG, PNG, or WebP images.");
+        continue;
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        setRosieStatus(`${file.name} is larger than the 8 MB image limit.`);
+        continue;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result;
+        if (typeof dataUrl !== "string") return;
+        setRosieAttachments((current) => [
+          ...current,
+          { name: file.name, mime_type: file.type as RosieAttachment["mime_type"], data_url: dataUrl },
+        ].slice(0, 3));
+        setRosieStatus(null);
+      };
+      reader.readAsDataURL(file);
+    }
+  }, [rosieAttachments.length]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -1530,6 +1558,7 @@ export default function HelpCenterDrawer({
           show_citations: mode === "conversation" ? false : rosieSettings.show_citations,
         },
         client_context: buildRosieClientContext(mode),
+        attachments: rosieAttachments,
       };
       const result = await askRosieGroundedHelpStream(groundedRequest, {
         headers: apiAuth() as Record<string, string>,
@@ -1551,6 +1580,7 @@ export default function HelpCenterDrawer({
           }
         },
       });
+      setRosieAttachments([]);
       const answer = result.answer;
       setAssistantMessage({
         content: result.answer,
@@ -1610,6 +1640,7 @@ export default function HelpCenterDrawer({
     rosieConversationQuestion,
     rosieQuestion,
     rosieSettings,
+    rosieAttachments,
     rosieChatSpeechEnabled,
     stopRosieSpeaking,
   ]);
@@ -2134,6 +2165,22 @@ export default function HelpCenterDrawer({
                     ) : null}
                   </div>
                 ) : null}
+                {rosieAttachments.length > 0 ? (
+                  <div className="mx-auto mb-2 flex max-w-4xl flex-wrap gap-2">
+                    {rosieAttachments.map((attachment) => (
+                      <button
+                        key={attachment.name}
+                        type="button"
+                        onClick={() => setRosieAttachments((current) => current.filter((item) => item !== attachment))}
+                        className="inline-flex items-center gap-1 rounded-full border border-app-border bg-app-surface-2 px-2 py-1 text-xs text-app-text"
+                        title="Remove image"
+                      >
+                        {attachment.name}
+                        <X size={12} aria-hidden />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
                 <div
                   className={`flex items-end gap-2 ${
                     conversationModeActive
@@ -2229,6 +2276,25 @@ export default function HelpCenterDrawer({
                       <Mic size={18} aria-hidden />
                     </button>
                   ) : null}
+                  <label
+                    className="inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text hover:bg-app-border/15"
+                    aria-label="Attach images for ROSIE"
+                    title="Attach up to 3 images"
+                  >
+                    <Paperclip size={18} aria-hidden />
+                    <input
+                      data-testid="help-center-rosie-image-input"
+                      className="sr-only"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      multiple
+                      disabled={!rosieSettings.enabled || rosieBusy || rosieAttachments.length >= 3}
+                      onChange={(event) => {
+                        addRosieImages(event.target.files);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
                   <label className="sr-only" htmlFor={activeRosieInputId}>
                     {activeRosieMode === "conversation"
                       ? "ROSIE Chat"
@@ -2374,7 +2440,7 @@ export function HelpCenterTriggerButton({
       type="button"
       onClick={onOpen}
       data-testid="help-center-trigger"
-      className={`relative inline-flex touch-manipulation items-center justify-center rounded-lg border border-app-border bg-app-surface-2 p-2 text-app-text shadow-sm transition-colors hover:bg-app-border/20 ${className}`.trim()}
+      className={`ui-touch-target relative inline-flex touch-manipulation items-center justify-center rounded-lg border border-app-border bg-app-surface-2 p-2 text-app-text shadow-sm transition-colors hover:bg-app-border/20 ${className}`.trim()}
       aria-label="Open Help Library"
       title="Help Library"
     >
@@ -2395,7 +2461,7 @@ export function RosieTriggerButton({
       type="button"
       onClick={onOpen}
       data-testid="help-center-ask-rosie-trigger"
-      className={`relative inline-flex touch-manipulation items-center justify-center rounded-lg border border-app-border bg-app-surface-2 p-2 text-app-text shadow-sm transition-colors hover:bg-app-border/20 ${className}`.trim()}
+      className={`ui-touch-target relative inline-flex touch-manipulation items-center justify-center rounded-lg border border-app-border bg-app-surface-2 p-2 text-app-text shadow-sm transition-colors hover:bg-app-border/20 ${className}`.trim()}
       aria-label="Open ROSIE Chat"
       title="ROSIE Chat"
     >

@@ -119,15 +119,39 @@ fn llama_profile_args(profile: &str) -> &'static [&'static str] {
     }
 }
 
+fn bounded_env_usize(key: &str, default: usize, min: usize, max: usize) -> usize {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(default)
+        .clamp(min, max)
+}
+
 fn default_rosie_model_path() -> Option<PathBuf> {
-    // Windows production: installer downloads to %LOCALAPPDATA%\riverside-os\rosie\models\gemma-4-e4b\.
+    // Windows production: installer downloads under the Main Hub install root.
+    if let Some(install_root) = std::env::var_os("RIVERSIDE_INSTALL_ROOT") {
+        let path = PathBuf::from(install_root)
+            .join("rosie")
+            .join("models")
+            .join("gemma-4-e4b")
+            .join("gemma-4-E4B_q4_0-it.gguf");
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    let main_hub_path =
+        PathBuf::from(r"C:\RiversideOS\rosie\models\gemma-4-e4b\gemma-4-E4B_q4_0-it.gguf");
+    if main_hub_path.exists() {
+        return Some(main_hub_path);
+    }
+    // Legacy Windows development fallback.
     if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
         let win_path = PathBuf::from(local_app_data)
             .join("riverside-os")
             .join("rosie")
             .join("models")
             .join("gemma-4-e4b")
-            .join("google_gemma-4-E4B-it-Q4_K_M.gguf");
+            .join("gemma-4-E4B_q4_0-it.gguf");
         if win_path.exists() {
             return Some(win_path);
         }
@@ -140,7 +164,16 @@ fn default_rosie_model_path() -> Option<PathBuf> {
             .join("rosie")
             .join("models")
             .join("gemma-4-e4b")
-            .join("google_gemma-4-E4B-it-Q4_K_M.gguf")
+            .join("gemma-4-E4B_q4_0-it.gguf")
+    })
+}
+
+fn default_rosie_mmproj_path() -> Option<PathBuf> {
+    default_rosie_model_path().map(|model| {
+        model
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("gemma-4-E4B-it-mmproj.gguf")
     })
 }
 
@@ -180,6 +213,8 @@ fn drain_sidecar_logs(mut rx: Receiver<CommandEvent>) {
 /// - `RIVERSIDE_LLAMA_MMPROJ_PATH` — optional; enables **LLaVA** (`--mmproj`).
 /// - `RIVERSIDE_LLAMA_HOST` — default `127.0.0.1`.
 /// - `RIVERSIDE_LLAMA_PORT` — default `8080`.
+/// - `RIVERSIDE_LLAMA_CONTEXT_SIZE`, `RIVERSIDE_LLAMA_PARALLEL`,
+///   `RIVERSIDE_LLAMA_BATCH_SIZE`, `RIVERSIDE_LLAMA_UBATCH_SIZE` — bounded runtime tuning.
 /// - `RIVERSIDE_LLAMA_EXTRA_ARGS` — optional extra args split on ASCII whitespace.
 #[tauri::command]
 pub async fn rosie_llama_start(
@@ -210,6 +245,14 @@ pub async fn rosie_llama_start(
 
     let host = std::env::var("RIVERSIDE_LLAMA_HOST").unwrap_or_else(|_| "127.0.0.1".into());
     let port = std::env::var("RIVERSIDE_LLAMA_PORT").unwrap_or_else(|_| "8080".into());
+    let context_size = bounded_env_usize("RIVERSIDE_LLAMA_CONTEXT_SIZE", 8192, 2048, 131_072);
+    let parallel = bounded_env_usize("RIVERSIDE_LLAMA_PARALLEL", 2, 1, 8);
+    let batch_size = bounded_env_usize("RIVERSIDE_LLAMA_BATCH_SIZE", 512, 256, 2048);
+    let ubatch_size = bounded_env_usize("RIVERSIDE_LLAMA_UBATCH_SIZE", 512, 256, batch_size);
+    let context_size = context_size.to_string();
+    let parallel = parallel.to_string();
+    let batch_size = batch_size.to_string();
+    let ubatch_size = ubatch_size.to_string();
 
     let mut cmd = app
         .shell()
@@ -224,12 +267,27 @@ pub async fn rosie_llama_start(
             host.as_str(),
             "--port",
             port.as_str(),
+            "--ctx-size",
+            context_size.as_str(),
+            "--parallel",
+            parallel.as_str(),
+            "--batch-size",
+            batch_size.as_str(),
+            "--ubatch-size",
+            ubatch_size.as_str(),
+            "--cont-batching",
         ]);
 
-    if let Ok(mmproj) = std::env::var("RIVERSIDE_LLAMA_MMPROJ_PATH") {
-        if !mmproj.is_empty() {
-            cmd = cmd.args(["--mmproj", mmproj.as_str()]);
-        }
+    let mmproj_path = std::env::var("RIVERSIDE_LLAMA_MMPROJ_PATH")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            default_rosie_mmproj_path()
+                .filter(|path| path.exists())
+                .map(|path| path.display().to_string())
+        });
+    if let Some(mmproj) = mmproj_path {
+        cmd = cmd.args(["--mmproj", mmproj.as_str()]);
     }
 
     let extra_args =

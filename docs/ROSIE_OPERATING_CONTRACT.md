@@ -1,8 +1,14 @@
 # ROSIE Operating Contract
 
+**Policy pack:** `rosie-policy-pack-0.96.0` · **Last reviewed:** 2026-08-02
+
 ## Purpose
 ROSIE (RiversideOS Intelligence Engine) is an assistive system.
 It never becomes a system of record and never mutates business logic autonomously.
+
+Production ROSIE is local-only: Gemma, SenseVoice, and Kokoro run on the Main Hub. Public-cloud providers remain disabled by product policy; local requests do not require an additional data-sensitivity classification gate. Existing authentication, authorization, audit, transport, and storage encryption controls still apply.
+
+Main Hub readiness reports ROSIE LLM, STT, and TTS status. ROSIE normally degrades—but does not block—the retail API; deployments that require ROSIE may set `ROSIE_REQUIRED_FOR_READINESS=true`.
 
 ## Source of Truth Hierarchy
 1. Server tool JSON (authoritative)
@@ -25,11 +31,18 @@ It never becomes a system of record and never mutates business logic autonomousl
 - inferred or hallucinated data
 
 ## Tool Execution Rules
-- model proposes tools only
+- Gemma proposes native structured tool calls from the permission-filtered read-only registry
 - server validates all tool calls
 - server executes
 - model narrates returned JSON only
 - no tool = no data
+
+## Streaming and Multimodal Rules
+- final answers use provider-governed SSE streaming; disconnecting the client cancels the upstream request
+- usage-bearing stream chunks feed normal ROSIE token telemetry
+- image input is limited to three local JPEG, PNG, or WebP data URLs, each no larger than 8 MB decoded
+- image bytes are held only for the active request and are not persisted by ROSIE
+- the matching SHA256-pinned Gemma multimodal projector must be present for image input
 
 ## Operational Copilot Rules
 - ROSIE may use server-authored operational playbooks for recovery guidance.

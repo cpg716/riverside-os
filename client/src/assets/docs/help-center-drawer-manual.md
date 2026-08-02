@@ -71,7 +71,9 @@ ROSIE help should return from the approved local Host stack. If the local model 
 
 Ask ROSIE should answer the staff question directly. It should not tell staff to search, read, or check a manual as the main answer. When sources are incomplete, ROSIE should give the best available Riverside answer, explain the gap briefly, and show the sources it used.
 
-Ask ROSIE and ROSIE Chat use ROSIE's local approved knowledge index for current Help manuals, staff docs, policy docs, and approved read-only ROS data tools. The index uses exact, fuzzy, stem, and phrase matching so staff questions can still work with normal wording differences or small typos. The knowledge layer stays local and provider-neutral: it is optimized for the local Gemma E4B, Kokoro, and SenseVoice stack, while still allowing a future approved cloud LLM, TTS, or STT provider to use the same bounded Riverside context. Help Library search can use the local search index, but ROSIE answers should not depend on Help Library search results.
+Ask ROSIE and ROSIE Chat use ROSIE's local approved knowledge index for current Help manuals, staff docs, policy docs, and approved read-only ROS data tools. The index uses exact, fuzzy, stem, and phrase matching so staff questions can still work with normal wording differences or small typos. The production knowledge path stays on the Main Hub through local Gemma E4B, Kokoro, and SenseVoice. Help Library search can use the local search index, but ROSIE answers should not depend on Help Library search results.
+
+Select the paperclip to attach up to three JPEG, PNG, or WebP images, each no larger than 8 MB. ROSIE can inspect screenshots, labels, receipts, and other visible details with the local Gemma vision projector. Images remain in the active request and are not saved to ROSIE conversation storage.
 
 When staff ask who created RiversideOS, ROSIE answers that RiversideOS was designed by Christopher Garcia and released first on June of 2026.
 
@@ -85,7 +87,7 @@ ROSIE refuses mutation requests. It can explain or summarize a workflow, but it 
 
 Examples ROSIE should handle through approved read-only planning include: "Do we have navy suits in 40R?", "Do we have open orders for John Smith?", "Which weddings need attention this week?", "Who is missing measurements?", "What appointments are today?", "How many tuxes sold in June?", "What POs are open?", "What did we receive this week?", "Does John Smith have store credit?", "Does QBO have errors?", and "What needs manager attention today?"
 
-While ROSIE is answering, the drawer shows visible thinking and then streams the answer into the same message. Ask ROSIE can show source chips for manuals, reports, Store SOP, or operational playbooks when citations are enabled.
+While ROSIE is answering, the drawer streams the answer into the same message as Gemma produces it. Ask ROSIE can show source chips for manuals, reports, Store SOP, or operational playbooks when citations are enabled.
 
 Use Ask ROSIE sources to open the exact manual section ROSIE used. Non-manual sources, such as workflow playbooks or operational read tools, remain evidence only and do not replace the current workflow screen.
 

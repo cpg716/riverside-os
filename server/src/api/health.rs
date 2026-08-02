@@ -29,9 +29,24 @@ pub struct ReadyResponse {
     pub database: DatabaseStatus,
     pub background_workers: WorkerStatus,
     pub backup: BackupReadinessStatus,
+    pub rosie: RosieReadinessStatus,
     /// Required dependencies/workers that are not currently ready. Empty only when status is
     /// `ready`; callers must not infer readiness from HTTP reachability alone.
     pub unavailable_components: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RosieReadinessStatus {
+    /// ROSIE is an assistive layer, so it degrades readiness unless explicitly required.
+    pub required: bool,
+    pub local_only: bool,
+    pub llm_available: bool,
+    pub multimodal_available: bool,
+    pub stt_available: bool,
+    pub tts_available: bool,
+    pub provider: String,
+    pub model_name: String,
+    pub unavailable_reasons: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -82,6 +97,7 @@ const BACKUP_ARTIFACT_TIMEOUT: Duration = Duration::from_secs(3);
 // Redis is an optional acceleration layer. A stalled Redis node must not make
 // a healthy Main Hub look offline to a POS workstation.
 const REDIS_HEALTH_TIMEOUT: Duration = Duration::from_millis(500);
+const ROSIE_HEALTH_TIMEOUT: Duration = Duration::from_secs(6);
 const JOB_QUEUE_HEARTBEAT_MAX_AGE_SECONDS: u64 = 60;
 
 #[derive(Debug, Default)]
@@ -192,10 +208,16 @@ pub async fn ready(State(state): State<AppState>) -> Response {
     } else {
         unavailable_backup_readiness(backup_worker_healthy)
     };
+    let rosie_status = check_rosie_readiness(&state).await;
 
-    let unavailable_components =
-        readiness_failures(&database_status, &worker_status, &backup_status);
-    let blocking_components = blocking_readiness_failures(&database_status, &worker_status);
+    let unavailable_components = readiness_failures(
+        &database_status,
+        &worker_status,
+        &backup_status,
+        &rosie_status,
+    );
+    let blocking_components =
+        blocking_readiness_failures(&database_status, &worker_status, &rosie_status);
     let status = if !blocking_components.is_empty() {
         "not_ready"
     } else if unavailable_components.is_empty() {
@@ -210,6 +232,7 @@ pub async fn ready(State(state): State<AppState>) -> Response {
         database: database_status,
         background_workers: worker_status,
         backup: backup_status,
+        rosie: rosie_status,
         unavailable_components,
     };
 
@@ -222,6 +245,88 @@ pub async fn ready(State(state): State<AppState>) -> Response {
         Json(response),
     )
         .into_response()
+}
+
+async fn check_rosie_readiness(state: &AppState) -> RosieReadinessStatus {
+    let required = std::env::var("ROSIE_REQUIRED_FOR_READINESS")
+        .map(|value| matches!(value.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false);
+    let local_only = !crate::logic::rosie_provider_selection::cloud_providers_enabled();
+    let runtime = tokio::time::timeout(
+        ROSIE_HEALTH_TIMEOUT,
+        crate::logic::rosie_speech::runtime_status(&state.rosie_speech_state),
+    )
+    .await;
+
+    match runtime {
+        Ok(Ok(status)) => {
+            let mut unavailable_reasons = Vec::new();
+            if !status.llm.available {
+                unavailable_reasons.push(
+                    status
+                        .llm
+                        .unavailable_reason
+                        .clone()
+                        .unwrap_or_else(|| "Local Gemma is unavailable".to_string()),
+                );
+            }
+            if status.llm.deployment_kind == "local" && !status.llm.multimodal_available {
+                unavailable_reasons
+                    .push("Local Gemma multimodal projector is missing or unavailable".to_string());
+            }
+            if !status.stt.available {
+                unavailable_reasons.push(
+                    status
+                        .stt
+                        .unavailable_reason
+                        .clone()
+                        .unwrap_or_else(|| "SenseVoice is unavailable".to_string()),
+                );
+            }
+            if !status.tts.available {
+                unavailable_reasons.push(
+                    status
+                        .tts
+                        .unavailable_reason
+                        .clone()
+                        .unwrap_or_else(|| "Kokoro is unavailable".to_string()),
+                );
+            }
+            RosieReadinessStatus {
+                required,
+                local_only,
+                llm_available: status.llm.available,
+                multimodal_available: status.llm.multimodal_available,
+                stt_available: status.stt.available,
+                tts_available: status.tts.available,
+                provider: status.llm.provider,
+                model_name: status.llm.model_name,
+                unavailable_reasons,
+            }
+        }
+        Ok(Err(error)) => RosieReadinessStatus {
+            required,
+            local_only,
+            llm_available: false,
+            multimodal_available: false,
+            stt_available: false,
+            tts_available: false,
+            provider: "local_llm".to_string(),
+            model_name: "Gemma 4 E4B".to_string(),
+            unavailable_reasons: vec![error],
+        },
+        Err(_) => RosieReadinessStatus {
+            required,
+            local_only,
+            llm_available: false,
+            multimodal_available: false,
+            stt_available: false,
+            tts_available: false,
+            provider: "local_llm".to_string(),
+            model_name: "Gemma 4 E4B".to_string(),
+            unavailable_reasons: vec!["ROSIE health probe timed out".to_string()],
+        },
+    }
 }
 
 /// Liveness check - verifies the app is not deadlocked
@@ -462,6 +567,7 @@ fn readiness_failures(
     database: &DatabaseStatus,
     workers: &WorkerStatus,
     backup: &BackupReadinessStatus,
+    rosie: &RosieReadinessStatus,
 ) -> Vec<String> {
     let mut failures = Vec::new();
     if !database.connected {
@@ -492,16 +598,40 @@ fn readiness_failures(
     if !backup.recent_verified_backup {
         failures.push("backup_recent_verified".to_string());
     }
+    if !rosie.llm_available {
+        failures.push("rosie_llm".to_string());
+    }
+    if !rosie.multimodal_available {
+        failures.push("rosie_multimodal".to_string());
+    }
+    if !rosie.stt_available {
+        failures.push("rosie_stt".to_string());
+    }
+    if !rosie.tts_available {
+        failures.push("rosie_tts".to_string());
+    }
     failures
 }
 
-fn blocking_readiness_failures(database: &DatabaseStatus, workers: &WorkerStatus) -> Vec<String> {
+fn blocking_readiness_failures(
+    database: &DatabaseStatus,
+    workers: &WorkerStatus,
+    rosie: &RosieReadinessStatus,
+) -> Vec<String> {
     let mut failures = Vec::new();
     if !database.connected {
         failures.push("database".to_string());
     }
     if workers.job_queue_enabled && !workers.job_queue_worker {
         failures.push("job_queue_worker".to_string());
+    }
+    if rosie.required
+        && (!rosie.llm_available
+            || !rosie.multimodal_available
+            || !rosie.stt_available
+            || !rosie.tts_available)
+    {
+        failures.push("rosie".to_string());
     }
     failures
 }
@@ -510,8 +640,8 @@ fn blocking_readiness_failures(database: &DatabaseStatus, workers: &WorkerStatus
 mod tests {
     use super::{
         blocking_readiness_failures, readiness_failures, unavailable_backup_readiness,
-        verified_backup_is_recent, BackupReadinessStatus, DatabaseStatus, WorkerHealth,
-        WorkerStatus, JOB_QUEUE_HEARTBEAT_MAX_AGE_SECONDS,
+        verified_backup_is_recent, BackupReadinessStatus, DatabaseStatus, RosieReadinessStatus,
+        WorkerHealth, WorkerStatus, JOB_QUEUE_HEARTBEAT_MAX_AGE_SECONDS,
     };
 
     fn healthy_workers() -> WorkerStatus {
@@ -545,6 +675,20 @@ mod tests {
         }
     }
 
+    fn healthy_rosie() -> RosieReadinessStatus {
+        RosieReadinessStatus {
+            required: false,
+            local_only: true,
+            llm_available: true,
+            multimodal_available: true,
+            stt_available: true,
+            tts_available: true,
+            provider: "local_llm".to_string(),
+            model_name: "Gemma 4 E4B".to_string(),
+            unavailable_reasons: Vec::new(),
+        }
+    }
+
     #[test]
     fn optional_redis_and_disabled_job_queue_do_not_fail_readiness() {
         let database = DatabaseStatus {
@@ -553,8 +697,16 @@ mod tests {
             active_connections: 1,
             idle_connections: 3,
         };
-        assert!(readiness_failures(&database, &healthy_workers(), &healthy_backup()).is_empty());
-        assert!(blocking_readiness_failures(&database, &healthy_workers()).is_empty());
+        assert!(readiness_failures(
+            &database,
+            &healthy_workers(),
+            &healthy_backup(),
+            &healthy_rosie(),
+        )
+        .is_empty());
+        assert!(
+            blocking_readiness_failures(&database, &healthy_workers(), &healthy_rosie()).is_empty()
+        );
     }
 
     #[test]
@@ -570,11 +722,11 @@ mod tests {
         workers.job_queue_enabled = true;
         workers.metrics_worker = false;
         assert_eq!(
-            readiness_failures(&database, &workers, &healthy_backup()),
+            readiness_failures(&database, &workers, &healthy_backup(), &healthy_rosie()),
             vec!["metrics_worker", "redis", "job_queue_worker"]
         );
         assert_eq!(
-            blocking_readiness_failures(&database, &workers),
+            blocking_readiness_failures(&database, &workers, &healthy_rosie()),
             vec!["job_queue_worker"]
         );
     }
@@ -596,10 +748,57 @@ mod tests {
         let mut backup = healthy_backup();
         backup.recent_verified_backup = false;
         assert_eq!(
-            readiness_failures(&database, &healthy_workers(), &backup),
+            readiness_failures(&database, &healthy_workers(), &backup, &healthy_rosie()),
             vec!["backup_recent_verified"]
         );
-        assert!(blocking_readiness_failures(&database, &healthy_workers()).is_empty());
+        assert!(
+            blocking_readiness_failures(&database, &healthy_workers(), &healthy_rosie()).is_empty()
+        );
+    }
+
+    #[test]
+    fn rosie_degrades_readiness_and_only_blocks_when_required() {
+        let database = DatabaseStatus {
+            connected: true,
+            pool_size: 4,
+            active_connections: 1,
+            idle_connections: 3,
+        };
+        let mut rosie = healthy_rosie();
+        rosie.llm_available = false;
+        assert_eq!(
+            readiness_failures(&database, &healthy_workers(), &healthy_backup(), &rosie),
+            vec!["rosie_llm"]
+        );
+        assert!(blocking_readiness_failures(&database, &healthy_workers(), &rosie).is_empty());
+
+        rosie.required = true;
+        assert_eq!(
+            blocking_readiness_failures(&database, &healthy_workers(), &rosie),
+            vec!["rosie"]
+        );
+    }
+
+    #[test]
+    fn missing_gemma_projector_degrades_and_can_block_readiness() {
+        let database = DatabaseStatus {
+            connected: true,
+            pool_size: 4,
+            active_connections: 1,
+            idle_connections: 3,
+        };
+        let mut rosie = healthy_rosie();
+        rosie.multimodal_available = false;
+        assert_eq!(
+            readiness_failures(&database, &healthy_workers(), &healthy_backup(), &rosie),
+            vec!["rosie_multimodal"]
+        );
+        assert!(blocking_readiness_failures(&database, &healthy_workers(), &rosie).is_empty());
+        rosie.required = true;
+        assert_eq!(
+            blocking_readiness_failures(&database, &healthy_workers(), &rosie),
+            vec!["rosie"]
+        );
     }
 
     #[test]

@@ -576,7 +576,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "settings-rosie-settings-panel",
     title: "ROSIE Settings",
-    summary: "Control ROSIE help, insight, voice, provider status, and required Host behavior for the workstation.",
+    summary: "Control local ROSIE help, insight, voice, Main Hub status, and required Host behavior for the workstation.",
     markdown: manual_71_raw,
     tags: ["settings-rosie-settings-panel","rosie","help","voice"],
   },

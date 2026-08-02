@@ -2,7 +2,7 @@
 id: settings-rosie-settings-panel
 title: "ROSIE Settings"
 order: 1116
-summary: "Control ROSIE help, insight, voice, provider status, and required Host behavior for the workstation."
+summary: "Control local ROSIE help, insight, voice, Main Hub status, and required Host behavior for the workstation."
 source: client/src/components/settings/RosieSettingsPanel.tsx
 last_scanned: 2026-05-10
 tags: settings-rosie-settings-panel, rosie, help, voice
@@ -38,7 +38,7 @@ Use this panel when:
 
 - ROSIE help or chat should be turned on or off for a station
 - voice input or spoken responses need to be adjusted
-- the local Gemma, Remote LM Studio, OpenAI, or Gemini provider status needs review
+- the local Gemma or approved private Remote LM Studio provider status needs review
 - speech-to-text and speech output routing need confirmation
 - support asks whether ROSIE is available on the workstation
 
@@ -99,9 +99,11 @@ ROSIE uses approved semantic tools, not arbitrary SQL. If a question is unsuppor
 
 Voice controls only appear when the workstation supports the approved SenseVoice and Kokoro Host paths. Spoken responses come from the configured Riverside host path, not from browser text-to-speech.
 
-The selected chat provider is configured on the Riverside server. The panel can show Local Gemma, Remote LM Studio, OpenAI, or Gemini. Speech-to-text and speech output have their own selected provider, so the store can use Remote LM Studio for chat while keeping SenseVoice and Kokoro local for voice.
+The selected chat provider is configured on the Riverside server. The panel shows Local Gemma or an approved private Remote LM Studio host. SenseVoice speech-to-text and Kokoro speech output remain local on the Main Hub.
 
-Use **ROSIE Provider Credentials** to add, replace, or clear the local/private/cloud provider endpoints, OpenAI and Gemini API keys, and cloud speech model names. These values are stored encrypted by Riverside OS. Environment values are fallback/bootstrap only.
+For Local Gemma, the status card also shows whether the matching vision projector is ready. **Projector ready** means ROSIE can accept supported JPEG, PNG, and WebP images in addition to text. **Projector missing or unavailable** means text may still work, but the complete Gemma model installation has not passed its image-input readiness requirement and support should repair the ROSIE Host stack.
+
+Use **ROSIE Local Provider Configuration** to review the Main Hub endpoint or an approved private LM Studio endpoint. Public cloud providers are disabled by server policy and are not configured from this panel.
 
 If a selected provider is not configured or cannot be reached, ROSIE returns an explicit provider error instead of silently switching providers.
 
@@ -115,7 +117,7 @@ Use staff-facing status labels. Avoid internal runtime terms when explaining the
 
 ROSIE settings control assistance, not source-of-truth behavior. Turning ROSIE off should never hide deterministic workflow facts, totals, warnings, or manual access. If ROSIE gives an answer that conflicts with the current screen or a manager decision, follow the screen/manual and log the ROSIE grounding issue.
 
-Provider mode is server-owned. Register and Back Office apps use the Main Hub ROSIE route; they do not need a local Gemma model. Support configures the Host with environment variables such as `ROSIE_PROVIDER=local_llm`, `ROSIE_PROVIDER=remote_lmstudio`, `ROSIE_PROVIDER=openai`, or `ROSIE_PROVIDER=gemini`, plus `ROSIE_STT_PROVIDER` and `ROSIE_TTS_PROVIDER` for voice. API keys must be entered only in **ROSIE Provider Credentials** or deployment fallback env, never in Vite/client env, staff notes, logs, or screenshots.
+Provider mode is server-owned. Register and Back Office apps use the Main Hub ROSIE route; they do not need a local Gemma model. Production uses `ROSIE_PROVIDER=local_llm`, `ROSIE_STT_PROVIDER=local`, `ROSIE_TTS_PROVIDER=local`, and `ROSIE_ALLOW_CLOUD_PROVIDERS=false`. A private LM Studio host may be selected only as an approved private provider.
 
 
 ## What to watch for
@@ -124,4 +126,5 @@ Provider mode is server-owned. Register and Back Office apps use the Main Hub RO
 - Do not treat voice output as proof that a workflow was completed; verify the visible screen state.
 - Do not paste Access PINs, tokens, card numbers, or private customer notes into ROSIE.
 - If the selected provider is offline, continue using manuals and deterministic workflow screens, and report ROSIE as a provider issue.
-- If OpenAI or Gemini cloud mode is selected, report missing API key or model errors as provider configuration issues; do not switch to a local fallback unless management explicitly changes the provider mode.
+- If Local Gemma reports **Projector missing or unavailable**, report the ROSIE Host stack as incomplete even if text answers still work.
+- If a public cloud provider appears active, report it as a configuration-policy violation; do not enter API keys or continue using that provider.

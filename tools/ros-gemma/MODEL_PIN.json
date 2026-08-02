@@ -1,8 +1,11 @@
 {
-  "description": "Canonical ROS-AI GGUF per ROS_AI_INTEGRATION_PLAN.md (Gemma 4 E4B-it 4B, Q4_K_M). Revise this file when intentionally changing weights.",
-  "huggingface_model_id": "bartowski/google_gemma-4-E4B-it-GGUF",
-  "revision": "c04cb322fd63e347db759a08b6249b867488ccf8",
-  "filename": "google_gemma-4-E4B-it-Q4_K_M.gguf",
-  "sha256": "51865750adafd22de56994a343d5a887cc1a589b9bae41d62b748c8bd0ca9c76",
-  "size_bytes": 5405168384
+  "description": "Official Google Gemma 4 E4B instruction-tuned QAT Q4_0 GGUF with its matching multimodal projector. The text model is the required runtime; the projector enables image input.",
+  "huggingface_model_id": "google/gemma-4-E4B-it-qat-q4_0-gguf",
+  "revision": "4b4a2c1d584be7264f87aac328a1bc739ce81b6c",
+  "filename": "gemma-4-E4B_q4_0-it.gguf",
+  "sha256": "676c35070db6dbe52f93e9c864ee0fba4eddea94b9c875d9cb10daff453fbaee",
+  "size_bytes": 5154941280,
+  "mmproj_filename": "gemma-4-E4B-it-mmproj.gguf",
+  "mmproj_sha256": "7498a37cb619e55f2fcf87eb931f56e99389ed6d432e4c5c66110694c0d65578",
+  "mmproj_size_bytes": 991552256
 }

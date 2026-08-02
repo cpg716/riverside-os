@@ -35,6 +35,9 @@ pub struct RosieHostLlmStatus {
     pub model_name: String,
     pub model_path: Option<String>,
     pub model_present: bool,
+    pub multimodal_projector_path: Option<String>,
+    pub multimodal_projector_present: bool,
+    pub multimodal_available: bool,
     pub sidecar_binary_present: bool,
     pub running: bool,
     pub available: bool,
@@ -92,6 +95,16 @@ fn rosie_host_dir() -> Option<PathBuf> {
 fn default_rosie_root_dir() -> Option<PathBuf> {
     #[cfg(windows)]
     {
+        if let Some(install_root) = std::env::var_os("RIVERSIDE_INSTALL_ROOT") {
+            let path = PathBuf::from(install_root).join("rosie");
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        let main_hub_path = PathBuf::from(r"C:\RiversideOS\rosie");
+        if main_hub_path.exists() {
+            return Some(main_hub_path);
+        }
         if let Some(program_data) = std::env::var_os("ProgramData") {
             let path = PathBuf::from(program_data)
                 .join("riverside-os")
@@ -116,7 +129,7 @@ fn default_rosie_llm_model_path() -> Option<PathBuf> {
     default_rosie_root_dir().map(|root| {
         root.join("models")
             .join("gemma-4-e4b")
-            .join("google_gemma-4-E4B-it-Q4_K_M.gguf")
+            .join("gemma-4-E4B_q4_0-it.gguf")
     })
 }
 
@@ -126,6 +139,20 @@ fn resolve_llama_model_path() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
         .or_else(|| default_rosie_llm_model_path().filter(|path| path.exists()))
+}
+
+fn resolve_llama_mmproj_path() -> Option<PathBuf> {
+    std::env::var("RIVERSIDE_LLAMA_MMPROJ_PATH")
+        .ok()
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| {
+            default_rosie_root_dir().map(|root| {
+                root.join("models")
+                    .join("gemma-4-e4b")
+                    .join("gemma-4-E4B-it-mmproj.gguf")
+            })
+        })
 }
 
 fn resolve_sensevoice_model_dir() -> Option<PathBuf> {
@@ -194,7 +221,14 @@ fn resolve_tts_binary_path() -> PathBuf {
 }
 
 fn resolve_kokoro_model_dir() -> Option<PathBuf> {
-    default_rosie_root_dir().map(|root| root.join("tts").join("kokoro-multi-lang-v1_0"))
+    default_rosie_root_dir().and_then(|root| {
+        let current = root.join("tts").join("kokoro-multi-lang-v1_1");
+        if current.exists() {
+            return Some(current);
+        }
+        let legacy = root.join("tts").join("kokoro-multi-lang-v1_0");
+        legacy.exists().then_some(legacy)
+    })
 }
 
 fn resolve_kokoro_model_path() -> Option<PathBuf> {
@@ -448,6 +482,10 @@ async fn local_llm_status() -> RosieHostLlmStatus {
         .as_ref()
         .map(|path| path.exists())
         .unwrap_or(false);
+    let multimodal_projector_path = resolve_llama_mmproj_path();
+    let multimodal_projector_present = multimodal_projector_path
+        .as_ref()
+        .is_some_and(|path| path.exists());
     let running = resolve_llm_running(&upstream_url).await;
     let available = model_present && running;
     let unavailable_reason = if available {
@@ -468,6 +506,9 @@ async fn local_llm_status() -> RosieHostLlmStatus {
         model_name: resolve_local_llm_model_name(),
         model_path: model_path.map(|path| path.display().to_string()),
         model_present,
+        multimodal_projector_path: multimodal_projector_path.map(|path| path.display().to_string()),
+        multimodal_projector_present,
+        multimodal_available: available && multimodal_projector_present,
         sidecar_binary_present: resolve_llama_upstream_url().is_some(),
         running,
         available,
@@ -506,6 +547,9 @@ async fn remote_lmstudio_llm_status() -> RosieHostLlmStatus {
         model_name,
         model_path: None,
         model_present,
+        multimodal_projector_path: None,
+        multimodal_projector_present: false,
+        multimodal_available: false,
         sidecar_binary_present: false,
         running,
         available,
@@ -548,6 +592,9 @@ async fn openai_llm_status() -> RosieHostLlmStatus {
         model_name: config.llm_model,
         model_path: None,
         model_present: api_key_configured,
+        multimodal_projector_path: None,
+        multimodal_projector_present: false,
+        multimodal_available: false,
         sidecar_binary_present: false,
         running,
         available,
@@ -586,6 +633,9 @@ async fn gemini_llm_status() -> RosieHostLlmStatus {
         model_name: config.model,
         model_path: None,
         model_present: api_key_configured,
+        multimodal_projector_path: None,
+        multimodal_projector_present: false,
+        multimodal_available: false,
         sidecar_binary_present: false,
         running,
         available,
@@ -618,6 +668,9 @@ async fn auto_llm_status(config: &RosieProviderConfig) -> RosieHostLlmStatus {
             model_name: local.model_name,
             model_path: local.model_path,
             model_present: local.model_present,
+            multimodal_projector_path: local.multimodal_projector_path,
+            multimodal_projector_present: local.multimodal_projector_present,
+            multimodal_available: false,
             sidecar_binary_present: local.sidecar_binary_present,
             running: false,
             available: false,
@@ -635,6 +688,39 @@ async fn auto_llm_status(config: &RosieProviderConfig) -> RosieHostLlmStatus {
 }
 
 async fn llm_status_for_config(config: &RosieProviderConfig) -> RosieHostLlmStatus {
+    if !config.allow_cloud_providers
+        && matches!(
+            config.mode,
+            RosieProviderMode::OpenAiApi | RosieProviderMode::GeminiApi
+        )
+    {
+        return RosieHostLlmStatus {
+            runtime_name: "Public cloud provider blocked by ROSIE policy".to_string(),
+            provider: config.mode.as_str().to_string(),
+            deployment_kind: "blocked_cloud".to_string(),
+            base_url: String::new(),
+            host: String::new(),
+            port: String::new(),
+            model_name: String::new(),
+            model_path: None,
+            model_present: false,
+            multimodal_projector_path: None,
+            multimodal_projector_present: false,
+            multimodal_available: false,
+            sidecar_binary_present: false,
+            running: false,
+            available: false,
+            unavailable_reason: Some(
+                "Public cloud providers are disabled by ROSIE_ALLOW_CLOUD_PROVIDERS policy"
+                    .to_string(),
+            ),
+            context_hint: Some(
+                "Use the Main Hub local Gemma provider or an approved private LM Studio host."
+                    .to_string(),
+            ),
+            api_key_configured: None,
+        };
+    }
     match config.mode {
         RosieProviderMode::LocalGemma => local_llm_status().await,
         RosieProviderMode::RemoteLmStudio => remote_lmstudio_llm_status().await,
@@ -1234,6 +1320,7 @@ mod tests {
     async fn openai_transcribe_fails_on_missing_key_before_local_stt() {
         let _guard = env_lock();
         std::env::set_var("ROSIE_STT_PROVIDER", "openai");
+        std::env::set_var("ROSIE_ALLOW_CLOUD_PROVIDERS", "true");
         std::env::remove_var("OPENAI_API_KEY");
 
         let result = transcribe_wav(&BASE64_STANDARD.encode(b"not-a-real-wav")).await;
@@ -1241,12 +1328,14 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("OPENAI_API_KEY"));
         std::env::remove_var("ROSIE_STT_PROVIDER");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
     }
 
     #[tokio::test]
     async fn openai_tts_fails_on_missing_key_before_kokoro() {
         let _guard = env_lock();
         std::env::set_var("ROSIE_TTS_PROVIDER", "openai");
+        std::env::set_var("ROSIE_ALLOW_CLOUD_PROVIDERS", "true");
         std::env::remove_var("OPENAI_API_KEY");
 
         let result = synthesize_tts_wav_base64("hello", None, None).await;
@@ -1254,12 +1343,14 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("OPENAI_API_KEY"));
         std::env::remove_var("ROSIE_TTS_PROVIDER");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
     }
 
     #[tokio::test]
     async fn gemini_transcribe_fails_on_missing_key_before_local_stt() {
         let _guard = env_lock();
         std::env::set_var("ROSIE_STT_PROVIDER", "gemini");
+        std::env::set_var("ROSIE_ALLOW_CLOUD_PROVIDERS", "true");
         std::env::remove_var("GEMINI_API_KEY");
 
         let result = transcribe_wav(&BASE64_STANDARD.encode(b"not-a-real-wav")).await;
@@ -1267,12 +1358,14 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("GEMINI_API_KEY"));
         std::env::remove_var("ROSIE_STT_PROVIDER");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
     }
 
     #[tokio::test]
     async fn gemini_tts_fails_on_missing_key_before_kokoro() {
         let _guard = env_lock();
         std::env::set_var("ROSIE_TTS_PROVIDER", "gemini");
+        std::env::set_var("ROSIE_ALLOW_CLOUD_PROVIDERS", "true");
         std::env::remove_var("GEMINI_API_KEY");
 
         let result = synthesize_tts_wav_base64("hello", None, None).await;
@@ -1280,6 +1373,7 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("GEMINI_API_KEY"));
         std::env::remove_var("ROSIE_TTS_PROVIDER");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
     }
 
     #[tokio::test]
@@ -1315,6 +1409,7 @@ mod tests {
     async fn runtime_status_reports_openai_missing_key_without_secret() {
         let _guard = env_lock();
         std::env::set_var("ROSIE_PROVIDER", "openai");
+        std::env::set_var("ROSIE_ALLOW_CLOUD_PROVIDERS", "true");
         std::env::remove_var("OPENAI_API_KEY");
 
         let state = Arc::new(Mutex::new(None));
@@ -1329,6 +1424,28 @@ mod tests {
         );
 
         std::env::remove_var("ROSIE_PROVIDER");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
+    }
+
+    #[tokio::test]
+    async fn runtime_status_reports_cloud_provider_blocked_by_default() {
+        let _guard = env_lock();
+        std::env::set_var("ROSIE_PROVIDER", "openai");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
+
+        let state = Arc::new(Mutex::new(None));
+        let status = runtime_status(&state).await.expect("runtime status");
+
+        assert_eq!(status.llm.provider, "openai");
+        assert_eq!(status.llm.deployment_kind, "blocked_cloud");
+        assert!(!status.llm.available);
+        assert!(status
+            .llm
+            .unavailable_reason
+            .unwrap_or_default()
+            .contains("disabled"));
+
+        std::env::remove_var("ROSIE_PROVIDER");
     }
 
     #[tokio::test]
@@ -1336,6 +1453,7 @@ mod tests {
         let _guard = env_lock();
         std::env::set_var("ROSIE_STT_PROVIDER", "openai");
         std::env::set_var("ROSIE_TTS_PROVIDER", "gemini");
+        std::env::set_var("ROSIE_ALLOW_CLOUD_PROVIDERS", "true");
         std::env::remove_var("OPENAI_API_KEY");
         std::env::remove_var("GEMINI_API_KEY");
 
@@ -1349,5 +1467,6 @@ mod tests {
 
         std::env::remove_var("ROSIE_STT_PROVIDER");
         std::env::remove_var("ROSIE_TTS_PROVIDER");
+        std::env::remove_var("ROSIE_ALLOW_CLOUD_PROVIDERS");
     }
 }

@@ -206,9 +206,9 @@ function Invoke-MainHubUpdate(
     Write-Warning "Pre-update backup skipped by operator request."
   }
 
-  $serverArgs = @("-ConfigPath", $ConfigPath, "-PreserveExistingRosie")
+  $serverArgs = @("-ConfigPath", $ConfigPath)
   if ($SkipMigrations) { $serverArgs += "-SkipMigrations" }
-  if ($SkipRosieSetup) { Write-Warning "-SkipRosieSetup is retained for compatibility; update mode now preserves the installed ROSIE stack." }
+  if ($SkipRosieSetup) { $serverArgs += "-SkipRosieSetup" }
   if ($NoStart) { $serverArgs += "-NoStart" }
   Invoke-Installer (Join-Path $PackagePath "install-server.ps1") $serverArgs
 

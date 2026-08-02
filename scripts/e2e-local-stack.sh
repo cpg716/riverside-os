@@ -9,7 +9,50 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-E2E_DB_NAME="riverside_os_e2e"
+E2E_DB_NAME="${E2E_DB_NAME:-riverside_os_e2e}"
+if [[ ! "$E2E_DB_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+  echo "e2e-local-stack.sh: E2E_DB_NAME must be a PostgreSQL identifier." >&2
+  exit 1
+fi
+
+# Every default local Playwright run resets the same database and owns the same
+# API/UI ports. Hold one atomic lock for the full stack lifetime so a second run
+# cannot drop the first run's database or kill its listeners during setup.
+E2E_LOCK_DIR="${TMPDIR:-/tmp}/riverside-os-e2e-stack.lock"
+E2E_LOCK_WAIT_SECONDS="${E2E_LOCK_WAIT_SECONDS:-600}"
+if [[ ! "$E2E_LOCK_WAIT_SECONDS" =~ ^[0-9]+$ ]]; then
+  echo "e2e-local-stack.sh: E2E_LOCK_WAIT_SECONDS must be a non-negative integer." >&2
+  exit 1
+fi
+
+release_e2e_lock() {
+  if [[ -f "$E2E_LOCK_DIR/pid" ]] && [[ "$(<"$E2E_LOCK_DIR/pid")" == "$$" ]]; then
+    rm -f "$E2E_LOCK_DIR/pid"
+    rmdir "$E2E_LOCK_DIR" 2>/dev/null || true
+  fi
+}
+
+lock_deadline=$(( $(date +%s) + E2E_LOCK_WAIT_SECONDS ))
+while ! mkdir "$E2E_LOCK_DIR" 2>/dev/null; do
+  lock_owner=""
+  if [[ -f "$E2E_LOCK_DIR/pid" ]]; then
+    lock_owner="$(<"$E2E_LOCK_DIR/pid")"
+  fi
+  if [[ -z "$lock_owner" ]] || ! kill -0 "$lock_owner" 2>/dev/null; then
+    rm -f "$E2E_LOCK_DIR/pid"
+    rmdir "$E2E_LOCK_DIR" 2>/dev/null || true
+    continue
+  fi
+  if (( $(date +%s) >= lock_deadline )); then
+    echo "e2e-local-stack.sh: timed out waiting for active E2E stack process $lock_owner." >&2
+    exit 1
+  fi
+  echo "Waiting for active E2E stack process $lock_owner to finish..."
+  sleep 1
+done
+printf '%s\n' "$$" > "$E2E_LOCK_DIR/pid"
+trap release_e2e_lock EXIT INT TERM
+
 export RIVERSIDE_MODE="e2e"
 export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:password@localhost:5433/$E2E_DB_NAME}"
 export RIVERSIDE_BACKUP_ALLOW_DOCKER_FALLBACK="${RIVERSIDE_BACKUP_ALLOW_DOCKER_FALLBACK:-1}"
@@ -94,6 +137,6 @@ docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 
 docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seeds/seed_rbac.sql"
 docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seeds/seed_e2e.sql"
 
-exec npx concurrently -k -s first -n api,ui -c blue,magenta \
+npx concurrently -k -s first -n api,ui -c blue,magenta \
   "npm run dev:server" \
   "cd client && VITE_DEV_PROXY_TARGET=$E2E_API_BASE npm run dev -- --host $ui_host --port $ui_port --strictPort"

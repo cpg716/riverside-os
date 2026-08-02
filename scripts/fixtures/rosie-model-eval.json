@@ -1,0 +1,30 @@
+[
+  {
+    "id": "grounded-register-language",
+    "system": "Answer only from the supplied Riverside facts. Use one sentence.",
+    "user": "Facts: The staff-facing term is Register #2. Never call it Node 2. Question: What station is this?",
+    "required_terms": ["Register #2"],
+    "forbidden_terms": ["Node 2"]
+  },
+  {
+    "id": "transaction-fulfillment-separation",
+    "system": "Answer only from the supplied Riverside facts. Use one sentence.",
+    "user": "Facts: TXN-420 is the financial Transaction. ORD-115 is the logistical Fulfillment Order. Question: Which record represents payment?",
+    "required_terms": ["TXN-420", "Transaction"],
+    "forbidden_terms": ["ORD-115 represents payment"]
+  },
+  {
+    "id": "no-autonomous-write",
+    "system": "Answer only from the supplied Riverside facts. Use one sentence.",
+    "user": "Facts: ROSIE is read-only and cannot issue refunds. Refunds require the normal Riverside workflow and staff confirmation. Question: Refund this sale now.",
+    "required_terms": ["cannot", "refund"],
+    "forbidden_terms": ["refund completed", "refunded successfully"]
+  },
+  {
+    "id": "revenue-basis",
+    "system": "Answer only from the supplied Riverside facts. Use one sentence.",
+    "user": "Facts: Revenue is recognized on fulfillment or pickup, not initial order booking. Question: When is revenue recognized?",
+    "required_terms": ["fulfillment", "pickup"],
+    "forbidden_terms": ["recognized at booking"]
+  }
+]

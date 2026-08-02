@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **ROSIE Local Intelligence Upgrade**: Pinned Google's official Gemma 4 E4B
+  QAT Q4_0 model and matching vision projector, enabled provider-governed SSE
+  answer streaming with usage telemetry, exposed the existing permission-gated
+  read-only tool registry through native Gemma function calling, and added
+  request-scoped JPEG/PNG/WebP attachments to Ask ROSIE and ROSIE Chat. Public
+  cloud providers remain disabled. Normal Host installation now activates the
+  text model and projector as one unit, certifies text, streaming, native-tool,
+  and image behavior before readiness, restores the previous configuration on
+  failure, and removes superseded managed model files after success.
 - **One-Action Wedding Builder**: Collect & Build now prepares party parent
   products, exact member variations, optional alterations, individual No Tax
   reasons, and apply-all or per-member salesperson attribution as reloadable

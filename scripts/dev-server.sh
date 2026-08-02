@@ -84,7 +84,8 @@ wait_for_rosie_health() {
 ARCH="$(rosie_arch)"
 PLATFORM_SUFFIX="$(rosie_platform_suffix)"
 DEFAULT_LLAMA_BIN="$ROOT/client/src-tauri/binaries/llama-server-${ARCH}-${PLATFORM_SUFFIX}"
-DEFAULT_LLAMA_MODEL_PATH="$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf"
+DEFAULT_LLAMA_MODEL_PATH="$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/gemma-4-E4B_q4_0-it.gguf"
+DEFAULT_LLAMA_MMPROJ_PATH="$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/gemma-4-E4B-it-mmproj.gguf"
 
 load_env_default "RIVERSIDE_LLAMA_UPSTREAM"
 load_env_default "RIVERSIDE_LLAMA_PROVIDER"
@@ -94,8 +95,13 @@ load_env_default "ROSIE_REMOTE_LMSTUDIO_BASE_URL"
 load_env_default "RIVERSIDE_DEV_AUTOSTART_ROSIE_HOST"
 load_env_default "RIVERSIDE_LLAMA_BIN"
 load_env_default "RIVERSIDE_LLAMA_MODEL_PATH"
+load_env_default "RIVERSIDE_LLAMA_MMPROJ_PATH"
 load_env_default "RIVERSIDE_LLAMA_HOST"
 load_env_default "RIVERSIDE_LLAMA_PORT"
+load_env_default "RIVERSIDE_LLAMA_CONTEXT_SIZE"
+load_env_default "RIVERSIDE_LLAMA_PARALLEL"
+load_env_default "RIVERSIDE_LLAMA_BATCH_SIZE"
+load_env_default "RIVERSIDE_LLAMA_UBATCH_SIZE"
 load_env_default "RIVERSIDE_LLAMA_EXTRA_ARGS"
 load_env_default "RIVERSIDE_LLAMA_PERF_PROFILE"
 load_env_default "RIVERSIDE_DEV_ROSIE_HOST_LOG_LEVEL"
@@ -105,6 +111,11 @@ LLAMA_HOST="${RIVERSIDE_LLAMA_HOST:-127.0.0.1}"
 LLAMA_PORT="${RIVERSIDE_LLAMA_PORT:-8080}"
 LOCAL_LLAMA_URL="http://${LLAMA_HOST}:${LLAMA_PORT}"
 LLAMA_MODEL_PATH="${RIVERSIDE_LLAMA_MODEL_PATH:-$DEFAULT_LLAMA_MODEL_PATH}"
+LLAMA_MMPROJ_PATH="${RIVERSIDE_LLAMA_MMPROJ_PATH:-$DEFAULT_LLAMA_MMPROJ_PATH}"
+LLAMA_CONTEXT_SIZE="${RIVERSIDE_LLAMA_CONTEXT_SIZE:-8192}"
+LLAMA_PARALLEL="${RIVERSIDE_LLAMA_PARALLEL:-2}"
+LLAMA_BATCH_SIZE="${RIVERSIDE_LLAMA_BATCH_SIZE:-512}"
+LLAMA_UBATCH_SIZE="${RIVERSIDE_LLAMA_UBATCH_SIZE:-512}"
 LLAMA_EXTRA_ARGS="${RIVERSIDE_LLAMA_EXTRA_ARGS:---reasoning off}"
 ROSIE_HOST_LOG_LEVEL="${RIVERSIDE_DEV_ROSIE_HOST_LOG_LEVEL:-quiet}"
 DEFAULT_LLAMA_PERF_PROFILE="intel-i9-12900"
@@ -227,13 +238,21 @@ if ! is_falsey "$ROSIE_AUTOSTART"; then
       echo "[rosie] local ROSIE Host runtime not started: missing llama-server binary at ${LLAMA_BIN}" >&2
     elif [[ ! -f "$LLAMA_MODEL_PATH" ]]; then
       echo "[rosie] local ROSIE Host runtime not started: missing Gemma model at ${LLAMA_MODEL_PATH}" >&2
+    elif [[ ! -f "$LLAMA_MMPROJ_PATH" ]]; then
+      echo "[rosie] local ROSIE Host runtime not started: missing Gemma multimodal projector at ${LLAMA_MMPROJ_PATH}" >&2
     else
       echo "[rosie] starting local Gemma Host runtime at ${LOCAL_LLAMA_URL} (${LLAMA_PERF_PROFILE})"
       LLAMA_CMD=(
         "$LLAMA_BIN"
         -m "$LLAMA_MODEL_PATH"
+        --mmproj "$LLAMA_MMPROJ_PATH"
         --host "$LLAMA_HOST"
         --port "$LLAMA_PORT"
+        --ctx-size "$LLAMA_CONTEXT_SIZE"
+        --parallel "$LLAMA_PARALLEL"
+        --batch-size "$LLAMA_BATCH_SIZE"
+        --ubatch-size "$LLAMA_UBATCH_SIZE"
+        --cont-batching
       )
       if [[ -n "$LLAMA_EXTRA_ARGS" ]]; then
         # shellcheck disable=SC2206

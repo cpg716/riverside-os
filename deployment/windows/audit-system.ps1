@@ -308,7 +308,10 @@ if (Test-Path $sensevoiceModel) {
     Write-AuditFailure "STT (SenseVoice) model missing at $sensevoiceModel"
 }
 
-$kokoroModel = Join-Path $rosieRoot "tts\kokoro-multi-lang-v1_0\model.onnx"
+$kokoroModel = Join-Path $rosieRoot "tts\kokoro-multi-lang-v1_1\model.onnx"
+if (-not (Test-Path $kokoroModel)) {
+    $kokoroModel = Join-Path $rosieRoot "tts\kokoro-multi-lang-v1_0\model.onnx"
+}
 if (Test-Path $kokoroModel) {
     Write-Host "[OK] TTS (Kokoro) model verified: $kokoroModel" -ForegroundColor Green
 } else {
@@ -317,7 +320,7 @@ if (Test-Path $kokoroModel) {
 
 # Verify Gemma GGUF model via MODEL_PIN.json
 $pinPath = Join-Path $packageRoot "rosie\MODEL_PIN.json"
-$gemmaFilename = "google_gemma-4-E4B-it-Q4_K_M.gguf"
+$gemmaFilename = "gemma-4-E4B_q4_0-it.gguf"
 if (Test-Path $pinPath) {
     try {
         $pin = Get-Content -Raw $pinPath | ConvertFrom-Json

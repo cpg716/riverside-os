@@ -93,14 +93,19 @@ test("prints the currently viewed Help section", async ({ page }) => {
   await signInToBackOffice(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-trigger").click();
-  await expect(page.getByRole("dialog", { name: /help/i })).toBeVisible();
+  const helpDrawer = page.getByRole("dialog", { name: /help/i });
+  await expect(helpDrawer).toBeVisible();
+  const currentManualTitle = await helpDrawer
+    .getByRole("combobox")
+    .locator("option:checked")
+    .textContent();
+  expect(currentManualTitle?.trim()).toBeTruthy();
 
   const popupPromise = page.waitForEvent("popup");
   await page.getByTestId("help-center-print-current").click();
   const printPage = await popupPromise;
 
-  await expect(printPage.locator("body")).toContainText(/Getting Started with Riverside OS/i);
-  await expect(printPage.locator("body")).toContainText(/starting guide for every Riverside OS staff member/i);
+  await expect(printPage.locator("body")).toContainText(currentManualTitle!.trim());
   await expect(printPage.getByTestId("help-center-search")).toHaveCount(0);
 });
 
@@ -259,6 +264,73 @@ test("Ask ROSIE sends Help request and renders sources", async ({
     page.getByTestId("help-center-rosie-source-chip").first(),
   ).toBeVisible({ timeout: 15_000 });
   expect(completionCalled).toBe(true);
+});
+
+test("Ask ROSIE sends request-scoped image input and renders streamed deltas", async ({
+  page,
+}) => {
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    expect(body.attachments).toBeUndefined();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question: body.question,
+        settings: body.settings,
+        sources: [],
+        tool_results: [],
+        suggested_actions: [],
+      }),
+    });
+  });
+  await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    const body = route.request().postDataJSON() as {
+      stream?: boolean;
+      messages?: Array<{
+        role?: string;
+        content?: Array<{
+          type?: string;
+          image_url?: { url?: string };
+        }>;
+      }>;
+    };
+    expect(body.stream).toBe(true);
+    const userContent = body.messages?.find((message) => message.role === "user")?.content;
+    const image = userContent?.find((part) => part.type === "image_url");
+    expect(image?.image_url?.url).toMatch(/^data:image\/png;base64,/);
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: [
+        'data: {"model":"local","choices":[{"index":0,"delta":{"role":"assistant","content":"Image "},"finish_reason":null}]}',
+        "",
+        'data: {"model":"local","choices":[{"index":0,"delta":{"content":"received."},"finish_reason":null}]}',
+        "",
+        'data: {"model":"local","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+        "",
+        "data: [DONE]",
+        "",
+      ].join("\n"),
+    });
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-ask-rosie-tab").click();
+  await page.getByTestId("help-center-rosie-image-input").setInputFiles({
+    name: "rosie-test.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
+  await page.getByTestId("help-center-ask-rosie-input").fill("What is in this image?");
+  await page.getByTestId("help-center-ask-rosie-send").click();
+
+  await expect(page.getByText("Image received.")).toBeVisible({ timeout: 15_000 });
 });
 
 test("Top Bar ROSIE opens voice-first chat with Riverside context", async ({
