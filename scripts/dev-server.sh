@@ -31,6 +31,40 @@ load_env_default() {
   export "${key}=${value}"
 }
 
+configure_postgres_client_tools() {
+  load_env_default "RIVERSIDE_PG_DUMP_PATH"
+  load_env_default "RIVERSIDE_PG_RESTORE_PATH"
+
+  if [[ -n "${RIVERSIDE_PG_DUMP_PATH:-}" && -z "${RIVERSIDE_PG_RESTORE_PATH:-}" ]]; then
+    local sibling_restore
+    sibling_restore="$(dirname "$RIVERSIDE_PG_DUMP_PATH")/pg_restore"
+    if [[ -x "$sibling_restore" ]]; then
+      export RIVERSIDE_PG_RESTORE_PATH="$sibling_restore"
+    fi
+  elif [[ -n "${RIVERSIDE_PG_RESTORE_PATH:-}" && -z "${RIVERSIDE_PG_DUMP_PATH:-}" ]]; then
+    local sibling_dump
+    sibling_dump="$(dirname "$RIVERSIDE_PG_RESTORE_PATH")/pg_dump"
+    if [[ -x "$sibling_dump" ]]; then
+      export RIVERSIDE_PG_DUMP_PATH="$sibling_dump"
+    fi
+  fi
+
+  if [[ -n "${RIVERSIDE_PG_DUMP_PATH:-}" && -n "${RIVERSIDE_PG_RESTORE_PATH:-}" ]]; then
+    return 0
+  fi
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    return 0
+  fi
+
+  local libpq_prefix
+  libpq_prefix="$(brew --prefix libpq 2>/dev/null || true)"
+  if [[ -n "$libpq_prefix" && -x "$libpq_prefix/bin/pg_dump" && -x "$libpq_prefix/bin/pg_restore" ]]; then
+    export RIVERSIDE_PG_DUMP_PATH="$libpq_prefix/bin/pg_dump"
+    export RIVERSIDE_PG_RESTORE_PATH="$libpq_prefix/bin/pg_restore"
+    echo "[postgres] using Homebrew libpq client tools from $libpq_prefix/bin"
+  fi
+}
+
 is_falsey() {
   case "${1:-}" in
     0|false|FALSE|False|no|NO|off|OFF|disabled|DISABLED|"")
@@ -87,6 +121,7 @@ DEFAULT_LLAMA_BIN="$ROOT/client/src-tauri/binaries/llama-server-${ARCH}-${PLATFO
 DEFAULT_LLAMA_MODEL_PATH="$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/gemma-4-E4B_q4_0-it.gguf"
 DEFAULT_LLAMA_MMPROJ_PATH="$HOME/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/gemma-4-E4B-it-mmproj.gguf"
 
+configure_postgres_client_tools
 load_env_default "RIVERSIDE_LLAMA_UPSTREAM"
 load_env_default "RIVERSIDE_LLAMA_PROVIDER"
 load_env_default "ROSIE_PROVIDER"
