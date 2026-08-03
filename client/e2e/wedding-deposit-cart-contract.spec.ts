@@ -225,6 +225,10 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(weddingsApiSource).toContain('source: "party_builder_template"');
   expect(cartSource).toContain("buildWeddingMemberCheckoutPayload");
   expect(cartSource).toContain('data-testid="wedding-collect-build-final-review"');
+  expect(cartSource).toContain('data-testid="wedding-builder-final-review-line"');
+  expect(cartSource).toContain("appliedPriceOverride");
+  expect(cartSource).toContain("requestPriceOverrideApproval");
+  expect(cartSource).toContain("Variation panel line discount exceeded staff limit");
   expect(cartSource).toContain("The payer has not been charged yet.");
   expect(cartSource).toContain("if (collectingWeddingOrderDraft)");
   expect(cartSource).toContain("openDepositApplicationCents");
@@ -276,7 +280,8 @@ test("selecting a wedding member offers the reusable exact-variation order flow"
   );
   expect(cartSource).toContain("openWeddingParentVariantPicker(");
   expect(cartSource).toContain('"Add to Wedding Order"');
-  expect(cartSource).toContain("allowPriceOverride={!weddingVariantSelectionContext}");
+  expect(cartSource).toContain("allowPriceOverride={");
+  expect(cartSource).toContain('item.source !== "party_builder_template"');
   expect(cartSource).toContain('? "wedding_order"');
   expect(cartSource).toContain('weddingContext.mode === "needs_measurements"');
   expect(cartSource).toContain("setOpenDepositNotice(null)");

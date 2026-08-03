@@ -3893,7 +3893,11 @@ async fn execute_checkout_internal(
         if !backdate_approval_was_logged(
             pool,
             approval,
-            checkout_booked_at_local.as_deref().unwrap_or_default(),
+            payload
+                .booked_at_local
+                .as_deref()
+                .unwrap_or_default()
+                .trim(),
             payload.session_id,
         )
         .await?
@@ -5334,9 +5338,14 @@ async fn execute_checkout_internal(
                     unit_price, unit_cost, state_tax, local_tax, size_specs,
                     is_fulfilled, fulfilled_at,
                     salesperson_id, calculated_commission,
-                    custom_item_type, is_rush, need_by_date, needs_gift_wrap, is_internal
+                    custom_item_type, is_rush, need_by_date, needs_gift_wrap, is_internal,
+                    booked_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                    $15, $16, $17, $18, $19, $20, $21,
+                    (SELECT booked_at FROM transactions WHERE id = $1)
+                )
                 RETURNING id
                 "#,
             )
@@ -5675,9 +5684,12 @@ async fn execute_checkout_internal(
                 INSERT INTO transaction_lines (
                     transaction_id, product_id, variant_id, fulfillment, quantity,
                     unit_price, unit_cost, state_tax, local_tax, salesperson_id,
-                    calculated_commission, is_fulfilled, is_internal, custom_item_type
+                    calculated_commission, is_fulfilled, is_internal, custom_item_type, booked_at
                 )
-                VALUES ($1, $2, $3, $4, $5, 0, 0, 0, 0, $6, $7, $8, TRUE, 'spiff_reward')
+                VALUES (
+                    $1, $2, $3, $4, $5, 0, 0, 0, 0, $6, $7, $8, TRUE,
+                    'spiff_reward', (SELECT booked_at FROM transactions WHERE id = $1)
+                )
                 "#,
                 )
                 .bind(transaction_id)

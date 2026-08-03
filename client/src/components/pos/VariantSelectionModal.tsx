@@ -71,6 +71,7 @@ export default function VariantSelectionModal({
 }: VariantSelectionModalProps) {
   const [selections, setSelections] = useState<string[]>([]);
   const [priceOverride, setPriceOverride] = useState("");
+  const [discountPercentInput, setDiscountPercentInput] = useState("");
 
   const selectionModel = useMemo(
     () => buildVariantSelectionModel(product?.variants ?? []),
@@ -93,6 +94,7 @@ export default function VariantSelectionModal({
     if (!product?.product_id) return;
     setSelections(initialSelections);
     setPriceOverride("");
+    setDiscountPercentInput("");
   }, [initialSelections, product?.product_id]);
 
   const attributeSteps = useMemo(() => {
@@ -135,7 +137,15 @@ export default function VariantSelectionModal({
       ? matchingEntries[0].variant
       : null;
   const isCurrentVariant = Boolean(initialVariantId && finalVariant?.variant_id === initialVariantId);
-  const canSubmit = Boolean(isSelectionComplete && finalVariant && !isCurrentVariant);
+  const hasPriceChange = Boolean(
+    priceOverride &&
+      finalVariant &&
+      parseMoneyToCents(priceOverride) !==
+        parseMoneyToCents(preservedUnitPrice ?? finalVariant.retail_price),
+  );
+  const canSubmit = Boolean(
+    isSelectionComplete && finalVariant && (!isCurrentVariant || hasPriceChange),
+  );
   const currentVariantAttributes = useMemo(
     () => selectionModel.entries.find(
       (entry) => entry.variant.variant_id === initialVariant?.variant_id,
@@ -145,6 +155,7 @@ export default function VariantSelectionModal({
 
   const goBack = () => {
     setPriceOverride("");
+    setDiscountPercentInput("");
     if (selections.length === 0) {
       onClose();
       return;
@@ -154,30 +165,61 @@ export default function VariantSelectionModal({
 
   const editSelection = (selectionIndex: number) => {
     setPriceOverride("");
+    setDiscountPercentInput("");
     setSelections((previous) => previous.slice(0, selectionIndex));
+  };
+
+  const resetPriceAdjustment = () => {
+    setPriceOverride("");
+    setDiscountPercentInput("");
+  };
+
+  const applyDiscountPercent = (rawValue: string) => {
+    const cleaned = rawValue.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1").slice(0, 6);
+    if (!cleaned || !finalVariant) {
+      setDiscountPercentInput(cleaned);
+      setPriceOverride("");
+      return;
+    }
+    const parsedPercent = parseMoney(cleaned);
+    if (!Number.isFinite(parsedPercent)) return;
+    const discountPercent = Math.min(100, Math.max(0, parsedPercent));
+    setDiscountPercentInput(
+      discountPercent === parsedPercent ? cleaned : String(discountPercent),
+    );
+    const baseCents = parseMoneyToCents(finalVariant.retail_price);
+    const newCents = Math.round((baseCents * (100 - discountPercent)) / 100);
+    setPriceOverride(newCents === baseCents ? "" : centsToFixed2(newCents));
   };
 
   const handleNumpadKey = (key: string) => {
     if (key === "CLR") {
-      setPriceOverride("");
+      resetPriceAdjustment();
       return;
     }
 
     if (key === "%" || key === "$") {
       if (!priceOverride || !finalVariant) return;
       if (key === "%") {
-        const discountPercent = parseMoney(priceOverride);
-        const baseCents = parseMoneyToCents(finalVariant.retail_price);
-        const newCents = Math.round(
-          (baseCents * (100 - discountPercent)) / 100,
-        );
-        setPriceOverride(centsToFixed2(newCents));
+        applyDiscountPercent(priceOverride);
       } else {
-        setPriceOverride(centsToFixed2(parseMoneyToCents(priceOverride)));
+        const normalizedPrice = centsToFixed2(parseMoneyToCents(priceOverride));
+        setPriceOverride(normalizedPrice);
+        const baseCents = parseMoneyToCents(finalVariant.retail_price);
+        const normalizedCents = parseMoneyToCents(normalizedPrice);
+        setDiscountPercentInput(
+          normalizedCents < baseCents && baseCents > 0
+            ? ((1 - normalizedCents / baseCents) * 100)
+                .toFixed(2)
+                .replace(/\.00$/, "")
+                .replace(/(\.\d)0$/, "$1")
+            : "",
+        );
       }
       return;
     }
 
+    setDiscountPercentInput("");
     setPriceOverride(prev => {
       if (key === "." && prev.includes(".")) return prev;
       return (prev + key).slice(0, 10);
@@ -223,7 +265,7 @@ export default function VariantSelectionModal({
              <div className="flex items-center gap-3">
                 {initialVariantId ? <RefreshCw size={24} /> : <ShoppingCart size={24} />}
                 <span className="text-xl font-black uppercase italic tracking-widest">
-                  {isCurrentVariant ? "Current Item Selected" : actionLabel}
+                  {isCurrentVariant && !hasPriceChange ? "Current Item Selected" : actionLabel}
                 </span>
              </div>
           </button>
@@ -372,27 +414,54 @@ export default function VariantSelectionModal({
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-app-text">
                        <CircleDollarSign size={14} />
-                       <span className="text-[10px] font-black uppercase tracking-widest text-app-text">Adjust Price</span>
+                       <span className="text-[10px] font-black uppercase tracking-widest text-app-text">Line Pricing</span>
                     </div>
                     {priceOverride && (
-                       <button onClick={() => setPriceOverride("")} className="text-[9px] font-black text-red-500 hover:underline uppercase tracking-tighter">Reset</button>
+                       <button type="button" onClick={resetPriceAdjustment} className="text-[9px] font-black text-red-500 hover:underline uppercase tracking-tighter">Reset</button>
                     )}
                  </div>
 
+                 <div className="grid gap-3 sm:grid-cols-2">
+                   <div className="rounded-xl border border-app-border bg-app-surface p-3">
+                     <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">Regular unit price</span>
+                     <span className="mt-1 block text-lg font-black tabular-nums text-app-text">${centsToFixed2(parseMoneyToCents(finalVariant?.retail_price || "0"))}</span>
+                   </div>
+                   <label className="rounded-xl border border-app-border bg-app-surface p-3">
+                     <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">Line discount %</span>
+                     <div className="mt-1 flex items-center gap-2">
+                       <input
+                         data-testid="variant-line-discount-percent"
+                         value={discountPercentInput}
+                         onChange={(event) => applyDiscountPercent(event.target.value)}
+                         inputMode="decimal"
+                         placeholder="0"
+                         aria-label="Line discount percent"
+                         className="min-w-0 flex-1 bg-transparent text-lg font-black tabular-nums text-app-text outline-none"
+                       />
+                       <span className="text-sm font-black text-app-text-muted">%</span>
+                     </div>
+                     <span className="mt-1 block text-[9px] font-bold text-app-text-muted">Enter 0–100. Manager Access is requested above your staff limit.</span>
+                   </label>
+                 </div>
+
                  <div className="flex h-12 items-center justify-center rounded-2xl bg-app-surface-2 px-6 ring-2 ring-app-border transition-all shadow-inner overflow-hidden">
-                    <span className={`text-2xl font-black tabular-nums transition-colors ${priceOverride ? "text-app-text" : "text-app-text-muted opacity-50"}`}>
+                    <div className="text-center">
+                    <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">Final unit price</span>
+                    <span data-testid="variant-final-unit-price" className={`block text-2xl font-black tabular-nums transition-colors ${priceOverride ? "text-emerald-600 dark:text-emerald-400" : "text-app-text"}`}>
                       $
                       {priceOverride ||
                         centsToFixed2(
                           parseMoneyToCents(finalVariant?.retail_price || "0"),
                         )}
                     </span>
+                    </div>
                  </div>
 
                  <div className="grid grid-cols-4 gap-2">
                     <div className="grid grid-cols-3 gap-2 col-span-3">
                        {["1","2","3","4","5","6","7","8","9",".","0","CLR"].map(k => (
                          <button
+                           type="button"
                            key={k}
                            onClick={() => handleNumpadKey(k)}
                            className={`flex h-16 items-center justify-center rounded-xl text-xl font-black transition-all active:scale-90 ${k === 'CLR' ? 'bg-app-surface-2 text-app-text-muted' : 'bg-app-surface shadow-sm ring-1 ring-app-border text-app-text hover:ring-app-text'}`}
@@ -403,6 +472,7 @@ export default function VariantSelectionModal({
                     </div>
                     <div className="grid grid-cols-1 gap-2">
                        <button
+                         type="button"
                          onClick={() => handleNumpadKey("%")}
                          className="flex h-16 flex-col items-center justify-center rounded-xl bg-indigo-600 text-white shadow-xl active:scale-90 hover:bg-indigo-500 transition-all"
                        >
@@ -410,6 +480,7 @@ export default function VariantSelectionModal({
                          <span className="text-[9px] font-bold uppercase opacity-80">Disc</span>
                        </button>
                        <button
+                         type="button"
                          onClick={() => handleNumpadKey("$")}
                          className="flex h-16 flex-col items-center justify-center rounded-xl bg-indigo-600 text-white shadow-xl active:scale-90 hover:bg-indigo-500 transition-all"
                        >

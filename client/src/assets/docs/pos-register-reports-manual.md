@@ -27,6 +27,8 @@ Use this screen to review the current register session, void a completed sale wi
 
 Daily Sales payment totals use the same store-local effective business-date window as the Z-Report. A payment made on another date toward a sale booked today is shown on that payment's date only, so card, cash, and other tender totals reconcile to the register close. Z-Reports show net Cash, net CC, and net Checks as the primary reconciliation totals. Terminal, CNP, manual-card, and all-card-refund rows are CC detail; Deposit Applied, Exchange Credit, store credit, gift card, RMS, and similar rows are informational activity and are not additive to those primary totals.
 
+A manager-approved backdated order appears in Booked Daily Sales and the Z-Report quick-look totals for its approved business date, including when it is entered after that date's close. Its payment remains on the actual tender date; an unpaid order changes no historical cash, card, check, deposit, or drawer reconciliation. The original close evidence remains immutable while the report clearly reflects the audited post-close booking.
+
 ## How to use it
 
 1. Open **POS → Reports** while the register session is still active.

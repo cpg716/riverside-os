@@ -104,6 +104,12 @@ test("shared variation drawer keeps item progress visible and supports back/edit
   expect(picker).toContain("setSelections((previous) => previous.slice(0, -1))");
   expect(picker).toContain("onClick={() => editSelection(index)}");
   expect(picker).toContain("Review pricing below. Use Back");
+  expect(picker).toContain('data-testid="variant-line-discount-percent"');
+  expect(picker).toContain("Line discount %");
+  expect(picker).toContain('data-testid="variant-final-unit-price"');
+  expect(picker).toContain("Regular unit price");
+  expect(picker).toContain("Final unit price");
+  expect(picker).toContain("!isCurrentVariant || hasPriceChange");
   expect(cart).toContain("<VariantSelectionModal");
   expect(orderModal).toContain("<VariantSelectionModal");
 });

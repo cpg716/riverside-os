@@ -41,7 +41,7 @@ Staff-facing details for engineers: **[Parked sales and RMS charges](../POS_PARK
 
 1. **Scan** a barcode or **type** SKU or keywords in the search field.
 2. **Single match:** the line may drop in automatically.
-3. **Multiple matches:** a **product / variation picker** opens. **Item to Build** stays at the top with the product and every completed choice. Select the correct **size / color / style**. Use **Back** to return one step, or tap a completed choice under **Item to Build** to edit from that point. These controls remain available on the pricing review before **Add to Sale**. At the first step, **Back** returns to the Cart without adding an item.
+3. **Multiple matches:** a **product / variation picker** opens. **Item to Build** stays at the top with the product and every completed choice. Select the correct **size / color / style**. Use **Back** to return one step, or tap a completed choice under **Item to Build** to edit from that point. On the pricing review, confirm **Regular unit price**, enter an approved **Line discount %** when needed, and verify **Final unit price** before **Add to Sale**. At the first step, **Back** returns to the Cart without adding an item.
 4. **Search suggestions:** keyword matches may list **best‑selling styles first** (recent store sales by product), then alphabetically — so common names like “suit” still surface many **different** products, not only one matrix with many sizes.
 5. **Custom Orders:** One of the three primary fulfillment types. The known Custom garment SKUs automatically book as **Custom** orders:
    - `100` HSM Custom Suit
@@ -100,7 +100,7 @@ Use the guided flow this way:
 
 1. Confirm the party name and event date with the customer.
 2. Choose **Yes — Build Wedding Order** for party merchandise. Choose **No — Regular Sale** only when this purchase is unrelated to the wedding. **Start Wedding Order** can reopen the question.
-3. Review each parent item in the **Wedding Checklist** and choose this member's exact variation.
+3. Review each parent item in the **Wedding Checklist** and choose this member's exact variation. On the final variation step, enter any approved **Line discount %** and verify the regular and final unit prices. The Collect & Build final review lists every drafted line and its discount before payer tender.
 4. Tap **Take now** when the item is in store and the customer is taking it today.
 5. Tap **Order** when the exact item is known and needs vendor ordering or later fulfillment.
 6. Tap **Measure** when measurements are still needed or the size/variation is not final. Additional searched/scanned products default to Wedding Order while this member is active; add alterations or exceptions as needed.

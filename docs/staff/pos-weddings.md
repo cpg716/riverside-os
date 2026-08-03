@@ -26,6 +26,7 @@ POS **Weddings** keeps **party lookup**, **balances**, and **next steps** beside
    - **Take now** for in-store items the customer will leave with.
    - **Order** for exact items that need vendor ordering or later fulfillment.
    - **Measure** when measurements or the exact size/variation are not final.
+   - On the final variation step, confirm the regular price, enter any approved **Line discount %**, and verify the final unit price. Discounts above the staff limit require Manager Access and are recorded in the authorization audit.
 6. Add exceptions, searched/scanned items, or alterations as needed. Additional merchandise defaults to Wedding Order while this member is active.
 7. If a held wedding deposit appears, confirm the named payer and explicitly apply the intended amount in **Pay**. The notice does not apply money by itself.
 8. Confirm the salesperson and complete checkout normally. Nothing financial posts from the question or checklist; the successful checkout creates the member Transaction Record, Wedding Fulfillment Order, deposit redemption, tax, reporting, and receipt.

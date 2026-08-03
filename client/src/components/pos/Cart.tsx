@@ -3265,10 +3265,42 @@ export default function Cart({
     nextPriceCents: number;
     originalPriceCents: number;
     reason: string;
+    applyApprovedOverride?: () => void;
   } | null>(null);
   const [suitSwapWizardOpen, setSuitSwapWizardOpen] = useState(false);
   const [showSuitSwapApproval, setShowSuitSwapApproval] = useState(false);
   // roleMaxDiscountPct moved up
+
+  const requestPriceOverrideApproval = useCallback(
+    (
+      variantId: string,
+      originalPrice: string | number,
+      nextPrice: string,
+      applyApprovedOverride: () => void,
+    ): boolean => {
+      const originalPriceCents = parseMoneyToCents(originalPrice);
+      const nextPriceCents = parseMoneyToCents(nextPrice);
+      if (
+        hasAccess ||
+        originalPriceCents <= 0 ||
+        nextPriceCents >= originalPriceCents
+      ) {
+        return false;
+      }
+      const discountPct =
+        ((originalPriceCents - nextPriceCents) / originalPriceCents) * 100;
+      if (discountPct <= roleMaxDiscountPct) return false;
+      setDiscountPrompt({
+        variantId,
+        nextPriceCents,
+        originalPriceCents,
+        reason: "Variation panel line discount exceeded staff limit",
+        applyApprovedOverride,
+      });
+      return true;
+    },
+    [hasAccess, roleMaxDiscountPct],
+  );
 
   const [posStaffList, setPosStaffList] = useState<PosStaffRow[]>([]);
 
@@ -5759,7 +5791,24 @@ export default function Cart({
                       <div className="mt-3 space-y-1 text-xs text-app-text-muted">
                         {weddingCollectBuildSession.buildMembers.map((member) => {
                           const draft = weddingCollectBuildSession.drafts[member.id];
-                          return <p key={member.id}><strong className="text-app-text">{member.first_name} {member.last_name}</strong> · {draft?.lines.length ?? 0} item{draft?.lines.length === 1 ? "" : "s"} · salesperson confirmed</p>;
+                          return <div key={member.id} className="rounded-xl border border-app-border/70 bg-app-surface/70 p-3">
+                            <p><strong className="text-app-text">{member.first_name} {member.last_name}</strong> · {draft?.lines.length ?? 0} item{draft?.lines.length === 1 ? "" : "s"} · salesperson confirmed</p>
+                            {draft?.lines.map((line) => {
+                              const regularCents = parseMoneyToCents(line.original_unit_price ?? line.standard_retail_price);
+                              const saleCents = parseMoneyToCents(line.standard_retail_price);
+                              const discountPercent = regularCents > saleCents && regularCents > 0
+                                ? Math.round((1 - saleCents / regularCents) * 100)
+                                : 0;
+                              return <p key={line.cart_row_id} data-testid="wedding-builder-final-review-line" className="mt-1 flex flex-wrap justify-between gap-2 pl-3">
+                                <span>{line.name} · {line.variation_label || line.sku}</span>
+                                <span className="font-black tabular-nums text-app-text">
+                                  {discountPercent > 0 ? `${discountPercent}% off · ` : ""}
+                                  {discountPercent > 0 ? <span className="mr-1 text-app-text-muted line-through">${centsToFixed2(regularCents)}</span> : null}
+                                  ${centsToFixed2(saleCents)}
+                                </span>
+                              </p>;
+                            })}
+                          </div>;
                         })}
                       </div>
                     </div>
@@ -7571,7 +7620,13 @@ export default function Cart({
               ? "Add to Member Order"
               : "Add to Sale"
         }
-        allowPriceOverride={!weddingVariantSelectionContext}
+        allowPriceOverride={
+          !weddingVariantSelectionContext ||
+          !(
+            weddingVariantSelectionContext.membership.is_free_suit_promo &&
+            weddingVariantSelectionContext.item.source !== "party_builder_template"
+          )
+        }
         onClose={() => {
           setActiveVariationSelection(null);
           setVariantSwapCartRowId(null);
@@ -7610,28 +7665,41 @@ export default function Cart({
                         "Wedding Promo (Free Suit Selection)",
                     }
                   : resolved;
-                activateWeddingMembership(
-                  weddingContext.membership,
-                  { ...weddingContext.item, ...resolved },
-                );
-                addItem(
-                  itemForCart,
-                  undefined,
-                  weddingContext.mode === "takeaway"
-                    ? "takeaway"
-                    : "wedding_order",
-                  weddingContext.mode === "needs_measurements"
-                    ? "needs_measurements"
-                    : undefined,
-                );
-                toast(
-                  weddingContext.mode === "takeaway"
-                    ? "Exact wedding variation added for take-now sale."
-                    : weddingContext.mode === "needs_measurements"
-                      ? "Exact wedding variation added and marked needs measurements."
-                      : "Exact variation added to the Wedding Order.",
-                  "success",
-                );
+                const appliedPriceOverride = isFreeSuit ? undefined : priceOverride;
+                const addWeddingSelection = () => {
+                  activateWeddingMembership(
+                    weddingContext.membership,
+                    { ...weddingContext.item, ...resolved },
+                  );
+                  addItem(
+                    itemForCart,
+                    appliedPriceOverride,
+                    weddingContext.mode === "takeaway"
+                      ? "takeaway"
+                      : "wedding_order",
+                    weddingContext.mode === "needs_measurements"
+                      ? "needs_measurements"
+                      : undefined,
+                  );
+                  toast(
+                    weddingContext.mode === "takeaway"
+                      ? "Exact wedding variation added for take-now sale."
+                      : weddingContext.mode === "needs_measurements"
+                        ? "Exact wedding variation added and marked needs measurements."
+                        : "Exact variation added to the Wedding Order.",
+                    "success",
+                  );
+                };
+                if (
+                  appliedPriceOverride &&
+                  requestPriceOverrideApproval(
+                    v.variant_id,
+                    resolved.standard_retail_price,
+                    appliedPriceOverride,
+                    addWeddingSelection,
+                  )
+                ) return;
+                addWeddingSelection();
               } catch (cause) {
                 toast(
                   cause instanceof Error
@@ -7701,8 +7769,18 @@ export default function Cart({
             (r) => r.variant_id === v.variant_id,
           );
           if (original) {
-            addItem(original, priceOverride);
+            const addSelectedItem = () => addItem(original, priceOverride);
             setActiveVariationSelection(null);
+            if (
+              priceOverride &&
+              requestPriceOverrideApproval(
+                v.variant_id,
+                original.standard_retail_price,
+                priceOverride,
+                addSelectedItem,
+              )
+            ) return;
+            addSelectedItem();
             return;
           }
           void (async () => {
@@ -7718,12 +7796,20 @@ export default function Cart({
                 );
                 return;
               }
-              addItem(
-                scanPayloadToResolvedItem(
-                  (await res.json()) as Record<string, unknown>,
-                ),
-                priceOverride,
+              const resolved = scanPayloadToResolvedItem(
+                (await res.json()) as Record<string, unknown>,
               );
+              const addSelectedItem = () => addItem(resolved, priceOverride);
+              if (
+                priceOverride &&
+                requestPriceOverrideApproval(
+                  v.variant_id,
+                  resolved.standard_retail_price,
+                  priceOverride,
+                  addSelectedItem,
+                )
+              ) return;
+              addSelectedItem();
               setActiveVariationSelection(null);
             } catch {
               toast("Could not add that variation to the sale.", "error");
@@ -8293,22 +8379,26 @@ export default function Cart({
               }),
             });
             if (res.ok) {
-              setLines((prev) =>
-                prev.map((l) =>
-                  l.variant_id === discountPrompt.variantId
-                    ? {
-                        ...l,
-                        standard_retail_price: centsToFixed2(
-                          discountPrompt.nextPriceCents,
-                        ),
-                        original_unit_price: centsToFixed2(
-                          discountPrompt.originalPriceCents,
-                        ),
-                        price_override_reason: `Manager authorized over ${roleMaxDiscountPct.toFixed(0)}%`,
-                      }
-                    : l,
-                ),
-              );
+              if (discountPrompt.applyApprovedOverride) {
+                discountPrompt.applyApprovedOverride();
+              } else {
+                setLines((prev) =>
+                  prev.map((l) =>
+                    l.variant_id === discountPrompt.variantId
+                      ? {
+                          ...l,
+                          standard_retail_price: centsToFixed2(
+                            discountPrompt.nextPriceCents,
+                          ),
+                          original_unit_price: centsToFixed2(
+                            discountPrompt.originalPriceCents,
+                          ),
+                          price_override_reason: `Manager authorized over ${roleMaxDiscountPct.toFixed(0)}%`,
+                        }
+                      : l,
+                  ),
+                );
+              }
               toast("Override authorized", "success");
               return true;
             }
