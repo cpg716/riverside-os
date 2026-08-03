@@ -731,7 +731,31 @@ pub async fn try_load_party_ledger(
                     ) THEN 'special_order'
                     ELSE 'other'
                 END
-            ) AS fulfillment_profile
+            ) AS fulfillment_profile,
+            (
+                SELECT STRING_AGG(
+                    CONCAT(
+                        oi2.quantity,
+                        ' × ',
+                        COALESCE(
+                            NULLIF(TRIM(oi2.size_specs->>'counterpoint_description'), ''),
+                            NULLIF(TRIM(p2.name), ''),
+                            NULLIF(TRIM(pv2.sku), ''),
+                            NULLIF(TRIM(oi2.custom_item_type), ''),
+                            'Item'
+                        ),
+                        CASE
+                            WHEN NULLIF(TRIM(pv2.variation_label), '') IS NULL THEN ''
+                            ELSE CONCAT(' · ', TRIM(pv2.variation_label))
+                        END
+                    ),
+                    ', ' ORDER BY oi2.line_display_id NULLS LAST, oi2.id
+                )
+                FROM transaction_lines oi2
+                LEFT JOIN products p2 ON p2.id = oi2.product_id
+                LEFT JOIN product_variants pv2 ON pv2.id = oi2.variant_id
+                WHERE oi2.transaction_id = o.id
+            ) AS item_summary
         FROM transactions o
         JOIN wedding_members wm ON wm.id = o.wedding_member_id
         JOIN customers c ON c.id = wm.customer_id
@@ -750,7 +774,8 @@ pub async fn try_load_party_ledger(
             'payment'::text AS kind,
             pa.amount_allocated AS amount,
             pt.created_at AS created_at,
-            NULL::text AS fulfillment_profile
+            NULL::text AS fulfillment_profile,
+            NULL::text AS item_summary
         FROM payment_allocations pa
         JOIN payment_transactions pt ON pt.id = pa.transaction_id
         JOIN transactions o ON o.id = pa.target_transaction_id
@@ -768,7 +793,8 @@ pub async fn try_load_party_ledger(
             'payment'::text AS kind,
             codls.amount AS amount,
             codl.created_at AS created_at,
-            NULL::text AS fulfillment_profile
+            NULL::text AS fulfillment_profile,
+            NULL::text AS item_summary
         FROM customer_open_deposit_ledger_sources codls
         JOIN customer_open_deposit_ledger codl ON codl.id = codls.ledger_id
         JOIN payment_transactions pt ON pt.id = codls.source_payment_transaction_id
@@ -786,7 +812,8 @@ pub async fn try_load_party_ledger(
             'payment'::text AS kind,
             pt.amount AS amount,
             pt.created_at AS created_at,
-            NULL::text AS fulfillment_profile
+            NULL::text AS fulfillment_profile,
+            NULL::text AS item_summary
         FROM payment_transactions pt
         JOIN wedding_members wm ON wm.id = pt.wedding_member_id
         JOIN customers c ON c.id = wm.customer_id
@@ -875,6 +902,46 @@ pub async fn try_load_party_financial_context(
                       )
                 ), 0)
             )::numeric AS paid_total,
+            (
+                COALESCE((
+                    SELECT SUM(pa.amount_allocated) FROM payment_allocations pa
+                    JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                    JOIN transactions target ON target.id = pa.target_transaction_id
+                    WHERE target.wedding_member_id = wm.id
+                ), 0)
+                + COALESCE((
+                    SELECT SUM(pt.amount) FROM payment_transactions pt
+                    WHERE pt.wedding_member_id = wm.id
+                      AND NOT EXISTS (
+                          SELECT 1 FROM payment_allocations pa WHERE pa.transaction_id = pt.id
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM customer_open_deposit_ledger_sources codls
+                          WHERE codls.source_payment_transaction_id = pt.id
+                      )
+                ), 0)
+            )::numeric AS applied_paid_total,
+            COALESCE((
+                SELECT SUM(held.remaining_amount)
+                FROM (
+                    SELECT ROUND(
+                        allocation.amount
+                        - COALESCE(SUM(source_event.amount) FILTER (WHERE source_event.event_kind = 'redemption'), 0)
+                        + COALESCE(SUM(source_event.amount) FILTER (WHERE source_event.event_kind = 'restoration'), 0),
+                        2
+                    )::numeric AS remaining_amount
+                    FROM wedding_deposit_workflow_allocations allocation
+                    JOIN wedding_deposit_workflows workflow ON workflow.id = allocation.workflow_id
+                    LEFT JOIN customer_open_deposit_source_events source_event
+                        ON source_event.source_credit_ledger_id = allocation.held_credit_ledger_id
+                    WHERE allocation.wedding_member_id = wm.id
+                      AND allocation.destination_kind = 'held_for_future_order'
+                      AND workflow.wedding_party_id = $1
+                      AND workflow.status <> 'voided'
+                    GROUP BY allocation.id, allocation.amount
+                ) held
+                WHERE held.remaining_amount > 0
+            ), 0)::numeric AS held_deposit_total,
             COALESCE((SELECT SUM(o.balance_due) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS balance_due,
             wm.is_free_suit_promo
         FROM wedding_members wm
@@ -1047,6 +1114,7 @@ pub async fn list_appointments_filtered(
     pool: &PgPool,
     from: Option<chrono::DateTime<chrono::Utc>>,
     to: Option<chrono::DateTime<chrono::Utc>>,
+    party_id: Option<uuid::Uuid>,
 ) -> Result<Vec<AppointmentRow>, sqlx::Error> {
     let mut qb: QueryBuilder<'_, sqlx::Postgres> = QueryBuilder::new(
         "SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone, \
@@ -1058,6 +1126,9 @@ pub async fn list_appointments_filtered(
     }
     if let Some(to) = to {
         qb.push(" AND starts_at <= ").push_bind(to);
+    }
+    if let Some(party_id) = party_id {
+        qb.push(" AND wedding_party_id = ").push_bind(party_id);
     }
     qb.push(" ORDER BY starts_at ASC, id ASC ");
 

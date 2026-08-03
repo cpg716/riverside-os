@@ -661,7 +661,7 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                     </div>
                                 ) : (
                                     <div className="space-y-3">
-                                        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                                        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                                             <div className="rounded border border-blue-100 bg-blue-50 p-2">
                                                 <div className="text-[10px] font-bold uppercase text-blue-700">Transaction Records</div>
                                                 <div className="text-lg font-black text-blue-900">{financialRow.transaction_count ?? 0}</div>
@@ -675,8 +675,12 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                                 <div className="text-sm font-black text-app-text">{formatMoney(financialRow.transaction_total)}</div>
                                             </div>
                                             <div className="rounded border border-app-border bg-app-surface p-2">
-                                                <div className="text-[10px] font-bold uppercase text-app-text-muted">Paid / Deposits</div>
-                                                <div className="text-sm font-black text-emerald-700">{formatMoney(financialRow.paid_total)}</div>
+                                                <div className="text-[10px] font-bold uppercase text-app-text-muted">Applied Payments</div>
+                                                <div className="text-sm font-black text-emerald-700">{formatMoney(financialRow.applied_paid_total ?? financialRow.paid_total)}</div>
+                                            </div>
+                                            <div className="rounded border border-blue-100 bg-blue-50 p-2">
+                                                <div className="text-[10px] font-bold uppercase text-blue-700">Held Deposit</div>
+                                                <div className="text-sm font-black text-blue-900">{formatMoney(financialRow.held_deposit_total ?? 0)}</div>
                                             </div>
                                         </div>
                                         <div className={`rounded border p-2 text-sm font-black ${
@@ -718,6 +722,9 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                                                 {ln.kind}
                                                                 {ln.kind === "order" && fulfillmentLabel(ln.fulfillment_profile)
                                                                     ? ` · ${fulfillmentLabel(ln.fulfillment_profile)}`
+                                                                    : ""}
+                                                                {ln.kind === "order" && ln.item_summary
+                                                                    ? ` · ${ln.item_summary}`
                                                                     : ""}
                                                                 {" · "}
                                                                 {ln.created_at ? new Date(ln.created_at).toLocaleString() : "No date"}

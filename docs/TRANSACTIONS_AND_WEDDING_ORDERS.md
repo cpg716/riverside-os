@@ -156,6 +156,10 @@ In v0.2.1, the Wedding Management Hub is integrated as a first-class workspace w
 - **Navigation Context**: Navigating to a wedding party from the POS (e.g., via the Register Dashboard or a Search drawer) keeps the user in **POS mode**.
 - **Deep Linking**: The POS shell uses a `pendingWmPartyId` state to initialize the Hub with the correct party context immediately upon switching tabs.
 - **Unified Auth**: Like other POS-mirrored workspaces, the Hub respects the authenticated staff member's permissions and uses the register's operational context for actions.
+- **Source ownership**: The Hub does not create a parallel payment or fulfillment ledger. It joins the linked ROS Customer, Transaction lines and balances, payment allocations, remaining source-tracked held deposits, Fulfillment Order lifecycle, alterations, and party-scoped appointments for the current tracker view.
+- **Refresh contract**: An open party refreshes on Wedding/appointment events, window focus/visibility return, and at least once per minute. Purchased-item summaries are calculated from current Transaction lines. **Paid** requires a linked Transaction whose current `balance_due` is zero; unredeemed held funds remain **Deposit**.
+- **Read-only logistics**: Ordered, In Stock/Received, and Picked Up are derived from non-takeaway Transaction/Fulfillment Order lines and cannot be toggled in Wedding Manager. Staff complete receiving, shipping, pickup, payment, and receipt work in the owning ROS workspace.
+- **Tracking archive**: Manager **Archive Tracking** changes only the wedding tracking record and writes authenticated audit metadata. It never completes, cancels, pays, fulfills, ships, refunds, or otherwise mutates linked ROS work.
 
 ## Developer Guidelines — Invariants & Anti-Patterns
 

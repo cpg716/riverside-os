@@ -12,6 +12,8 @@
 
 POS **Weddings** keeps **party lookup**, **balances**, and **next steps** beside the cart so you do not jump to Back Office during a busy Saturday. It uses the same **native** wedding UI as the main module (no external iframe).
 
+The Wedding Party Hub is a tracker over ROS records. Customer contact information comes from the linked Customer; purchased items and fulfillment come from Transaction/Fulfillment Order lines; payment labels come from applied payments, held deposits, and the current balance; and appointment counts come from the party's ROS appointments. An open party refreshes every minute, when ROS regains focus, and when Wedding or appointment updates arrive.
+
 **Rush Tracking:** If any member has a **Rush Order** (priority "Need By" date), it will be flagged on the **POS Dashboard** and the **Morning Compass** queue. Use these shortcuts to prioritize fittings or pickups for that party.
 
 ## Common tasks
@@ -44,13 +46,13 @@ Changing or removing the Customer clears the Wedding question, member checklist,
 ### Explain balance due
 
 1. Open **party** or **member** financial view (per UI).
-2. Point to **balance_due** line; explain **what is left** vs **what was paid**.
+2. Point to **Balance Due**, **Applied Payments**, and **Held Deposit**; explain what is left versus what has actually been applied. A held deposit remains **Deposit** until Register applies it. **Paid** requires a linked Transaction with no balance due.
 3. If **disbursement** (split payers) applies, follow **trained** checkout — do not split arbitrarily.
 
 ### Quick “is my tux ready?”
 
 1. Find **member** row.
-2. Read **pipeline** / **pickup** status from screen text only.
+2. Read the ROS-derived **Ordered**, **In Stock**, and **Picked Up** status. These stages are read-only in Wedding Manager.
 3. If status unclear, **Alterations** or **Orders** may have detail — get lead.
 
 ### Wedding orders in shared Orders screens
@@ -63,6 +65,10 @@ Wedding order work also appears in the shared **Orders** views.
 - A fully paid wedding order is not automatically ready for pickup. Staff still need to confirm measurements, receiving, and member readiness before handing anything over.
 - In POS order review, treat a wedding-linked order as a member follow-up step, not a generic open order or the whole sale.
 - Register uses the same Wedding Manager source. If a member still needs measurements, use **Measure** so the line stays **Needs measurements** until the exact variation is selected.
+
+### Archive an inactive tracker
+
+Use Manager **Archive Tracking** for a passed, cancelled, incomplete, legacy, duplicate, or test wedding tracker. Review and acknowledge the linked ROS snapshot when open work exists. Archiving removes the tracker from active Wedding boards but does not pay, cancel, fulfill, ship, refund, close appointments, or change alterations. Reopen it from **Closed / Archived** when needed.
 
 ## Helping a coworker
 
@@ -91,4 +97,4 @@ Wedding order work also appears in the shared **Orders** views.
 - [weddings-back-office.md](weddings-back-office.md)
 - [../WEDDING_GROUP_PAY_AND_RETURNS.md](../WEDDING_GROUP_PAY_AND_RETURNS.md)
 
-**Last reviewed:** 2026-05-14
+**Last reviewed:** 2026-08-03

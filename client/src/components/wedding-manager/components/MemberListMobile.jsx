@@ -35,7 +35,7 @@ function lifecycleBadge(readiness) {
     return null;
 }
 
-const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId = {}, readinessByMemberId = {}, onMemberClick, onUpdateMember, toggleStatus, onAppointmentClick }) => {
+const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId = {}, readinessByMemberId = {}, appointmentsByMemberId = {}, onMemberClick, onUpdateMember, toggleStatus, onAppointmentClick }) => {
     if (members.length === 0) {
         return (
             <div className="md:hidden p-8 text-center text-app-text-muted italic bg-app-surface-2 border-b border-app-border">
@@ -88,6 +88,7 @@ const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId
                             : 'bg-rose-100 text-rose-700';
                 const workflow = buildWeddingWorkflow(member);
                 const orderLifecycle = lifecycleBadge(readinessByMemberId[member.id]);
+                const appointmentSummary = appointmentsByMemberId[member.id] || { scheduledCount: 0, next: null };
 
                 return (
                     <div key={member.id} className="bg-app-surface rounded-lg shadow-sm border border-app-border p-4 active:scale-[0.99] transition-transform duration-200">
@@ -128,9 +129,13 @@ const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId
                             <div className="flex gap-2">
                                 <button type="button"
                                     onClick={() => onAppointmentClick(member)}
-                                    className={`p-3 rounded-full transition-colors touch-target ${member.measureDate || member.fittingDate ? 'bg-blue-50 text-blue-600' : 'bg-app-surface-2 text-app-text-muted'}`}
+                                    title={appointmentSummary.next
+                                        ? `${appointmentSummary.scheduledCount} scheduled · Next: ${appointmentSummary.next.type} ${formatDate(appointmentSummary.next.datetime)}`
+                                        : 'No active ROS appointments scheduled'}
+                                    className={`p-3 rounded-full transition-colors touch-target ${appointmentSummary.scheduledCount > 0 ? 'bg-blue-50 text-blue-600' : 'bg-app-surface-2 text-app-text-muted'}`}
                                 >
                                     <Icon name="Calendar" size={20} />
+                                    {appointmentSummary.scheduledCount > 0 && <span className="ml-1 text-[10px] font-black">{appointmentSummary.scheduledCount}</span>}
                                 </button>
                                 <button type="button"
                                     onClick={() => onMemberClick(member)}

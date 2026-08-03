@@ -205,6 +205,8 @@ pub struct WeddingLedgerLine {
     pub created_at: DateTime<Utc>,
     /// For `kind = transaction`: `takeaway`, `wedding_order`, `special_order`, `mixed`, or null when the transaction has no lines.
     pub fulfillment_profile: Option<String>,
+    /// Current ROS Transaction line descriptions for a transaction ledger row.
+    pub item_summary: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -221,6 +223,8 @@ pub struct WeddingMemberFinancialRow {
     pub payment_count: i64,
     pub transaction_total: Decimal,
     pub paid_total: Decimal,
+    pub applied_paid_total: Decimal,
+    pub held_deposit_total: Decimal,
     pub balance_due: Decimal,
     pub is_free_suit_promo: bool,
 }

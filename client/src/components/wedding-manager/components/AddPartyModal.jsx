@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { formatPhone } from '../lib/utils';
 import { useModal } from '../hooks/useModal';
 import StaffMiniSelector from '../../ui/StaffMiniSelector';
+import WeddingBuilderItemSelector, { builderItemAudienceIsValid } from './WeddingBuilderItemSelector';
 
 const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
     const { showAlert, selectSalesperson } = useModal();
@@ -71,6 +72,14 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        const builderItems = Array.isArray(formData.accessories.builder_parent_items)
+            ? formData.accessories.builder_parent_items
+            : [];
+        if (!builderItems.every(builderItemAudienceIsValid)) {
+            showAlert('Enter the exact member role for every item marked Other.', 'Item Role Required', { variant: 'warning' });
+            return;
+        }
 
         // Groom name construction: First + Last (Party Name)
         const groomName = formData.groomFirstName
@@ -147,6 +156,13 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
         setFormData(prev => ({
             ...prev,
             accessories: { ...prev.accessories, [key]: val }
+        }));
+    };
+
+    const handleBuilderItemsChange = (items) => {
+        setFormData(prev => ({
+            ...prev,
+            accessories: { ...prev.accessories, builder_parent_items: items }
         }));
     };
 
@@ -256,6 +272,16 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
                             <h4 className="text-sm font-black text-app-text mb-4 flex items-center gap-2">
                                 <Icon name="Tie" size={18} className="text-gold-500" /> Attire & Accessories
                             </h4>
+                            <div className="mb-6 rounded-xl border-2 border-app-accent/30 bg-app-accent/5 p-4">
+                                <h5 className="text-xs font-black uppercase tracking-wide text-app-text">Sellable party items</h5>
+                                <p className="mb-3 mt-1 text-xs font-semibold text-app-text-muted">
+                                    Select the actual ROS parent products. Register will show only the products that apply to each member, then staff choose that member&apos;s size and variation.
+                                </p>
+                                <WeddingBuilderItemSelector
+                                    items={Array.isArray(formData.accessories.builder_parent_items) ? formData.accessories.builder_parent_items : []}
+                                    onChange={handleBuilderItemsChange}
+                                />
+                            </div>
                             <div className="grid grid-cols-1 gap-4 mb-6">
                                 <label className="block text-xs font-bold text-app-text uppercase tracking-wide mb-1">Style Info (Suite/Tux)</label>
                                 <input type="text" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded outline-none" placeholder="e.g. 40901-1 BLACK"

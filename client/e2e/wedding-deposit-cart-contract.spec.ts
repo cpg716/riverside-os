@@ -65,9 +65,48 @@ const weddingsApiSource = readFileSync(
   new URL("../../server/src/api/weddings.rs", import.meta.url),
   "utf8",
 );
+const weddingQueriesSource = readFileSync(
+  new URL("../../server/src/logic/wedding_queries.rs", import.meta.url),
+  "utf8",
+);
 const styleEditSource = readFileSync(
   new URL(
     "../src/components/wedding-manager/components/StyleEditModal.jsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const addPartySource = readFileSync(
+  new URL(
+    "../src/components/wedding-manager/components/AddPartyModal.jsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const builderItemSelectorSource = readFileSync(
+  new URL(
+    "../src/components/wedding-manager/components/WeddingBuilderItemSelector.jsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const weddingDashboardSource = readFileSync(
+  new URL(
+    "../src/components/wedding-manager/pages/Dashboard.jsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const partyDetailSource = readFileSync(
+  new URL(
+    "../src/components/wedding-manager/components/PartyDetail.jsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const orderReviewSource = readFileSync(
+  new URL(
+    "../src/components/wedding-manager/components/OrderReviewTab.jsx",
     import.meta.url,
   ),
   "utf8",
@@ -225,6 +264,27 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(cartSource).toContain('? "wedding_order"');
   expect(styleEditSource).toContain("builder_parent_items");
   expect(styleEditSource).toContain("Wedding Builder parent items");
+  expect(addPartySource).toContain("WeddingBuilderItemSelector");
+  expect(addPartySource).toContain("builder_parent_items");
+  expect(builderItemSelectorSource).toContain("Groom Only");
+  expect(builderItemSelectorSource).toContain("Groomsmen Only");
+  expect(builderItemSelectorSource).toContain("Any");
+  expect(builderItemSelectorSource).toContain("Other");
+  expect(weddingsApiSource).toContain("wedding_builder_items::applies_to_role");
+  expect(weddingsApiSource).toContain("required_for_member");
+  expect(weddingsApiSource).toContain("builder_parent_items_before");
+  expect(weddingsApiSource).toContain("builder_parent_items_after");
+  expect(weddingQueriesSource).toContain("applied_paid_total");
+  expect(weddingQueriesSource).toContain("held_deposit_total");
+  expect(weddingQueriesSource).toContain("AS item_summary");
+  expect(partyDetailSource).toContain("balanceDue <= 0.004");
+  expect(partyDetailSource).toContain('status = "DEPOSIT"');
+  expect(partyDetailSource).toContain("appointmentsByMemberId");
+  expect(weddingDashboardSource).toContain("appointments_updated");
+  expect(weddingDashboardSource).toContain("selectedParty?.id ? 60000 : 600000");
+  expect(orderReviewSource).toContain("isRosDerived");
+  expect(orderReviewSource).toContain("read-only ROS status");
+  expect(cartSource).toContain("item.audience_label");
   expect(weddingsApiSource).toContain('source: "party_builder_template"');
   expect(cartSource).toContain("buildWeddingMemberCheckoutPayload");
   expect(cartSource).toContain('data-testid="wedding-collect-build-final-review"');

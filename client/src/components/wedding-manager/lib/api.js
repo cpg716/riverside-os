@@ -668,6 +668,25 @@ export const api = {
       notes: a.notes || "",
     }));
   },
+  getPartyAppointments: async (partyId) => {
+    const json = await wmJson("GET", `${API_URL}/weddings/appointments`, {
+      params: { party_id: partyId },
+    });
+    return (json || []).map((a) => ({
+      id: a.id,
+      datetime: a.starts_at,
+      customerName: a.customer_display_name,
+      phone: a.phone,
+      type: a.appointment_type,
+      status: a.status,
+      salesperson: a.salesperson,
+      salespersonStaffId: a.salesperson_staff_id,
+      memberId: a.wedding_member_id,
+      partyId: a.wedding_party_id,
+      customerId: a.customer_id,
+      notes: a.notes || "",
+    }));
+  },
   searchCustomers: async (q, opts = {}) => {
     const trimmed = String(q || "").trim();
     if (trimmed.length < 2) return [];

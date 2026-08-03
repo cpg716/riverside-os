@@ -4,15 +4,17 @@
 
 The Wedding Hub derives Ordered, Received, Ready for Pickup, and Picked Up from each member's non-takeaway Transaction/Fulfillment Order lines. Staff cannot complete those stages by toggling a party-grid flag. Open the member, then continue in Register or Orders so receiving, alterations, shipping, pickup, payments, and receipts retain the same source identifiers.
 
+The open party tracker refreshes from ROS every minute, when the app regains focus, and when Wedding or appointment events arrive. Customer contact data comes from the linked Customer; purchased item descriptions and fulfillment come from Transaction lines; payment status comes from Transactions, payment allocations, source-tracked held deposits, and current `balance_due`; appointment counts come from ROS wedding appointments. **Paid** requires a linked Transaction with no balance due. A held deposit remains **Deposit** until Register applies it to the member's Transaction.
+
 Measurements and fittings remain operational milestones. Marking a linked Measurement or Fitting appointment Attended updates the appointment and member milestone atomically. Pickup appointments never complete fulfillment; use Orders/Register.
 
 ROS uses the authenticated staff identity for wedding mutations and records party/member updates with their activity entry in the same database transaction. Appointment conflict overrides require Manager Access plus a written reason.
 
-## Historical wedding closeout
+## Archive inactive wedding tracking
 
-For a passed, cancelled, incomplete, duplicate/test, or pre-ROS wedding, use **Close Out** instead of manually marking every workflow stage complete. The manager records an outcome, required reason, optional notes, and explicitly acknowledges any open ROS work shown in the review.
+For a passed, cancelled, incomplete, duplicate/test, or pre-ROS wedding tracker, use **Archive Tracking** instead of manually marking workflow stages complete. The manager records a tracking outcome, required reason, optional notes, and explicitly acknowledges linked ROS work shown in the read-only snapshot.
 
-Closeout archives the wedding from active boards and writes an authenticated `WEDDING_CLOSED_OUT` activity entry. It preserves linked Transactions, balances, deposits, fulfillment lines, appointments, alterations, shipments, and customer history without changing their state. Closed weddings are listed under **Closed / Archived** and can be reopened with Manager Access; reopening clears the current closeout marker but retains the historical activity entry.
+The Wedding Hub does not own or write the linked Transactions, balances, deposits, fulfillment lines, appointments, alterations, shipments, or customer history. It aggregates their current state for tracking. Archiving changes only the wedding tracking record and writes an authenticated `WEDDING_TRACKING_ARCHIVED` activity entry. Archived trackers are listed under **Closed / Archived** and can be reopened with Manager Access; reopening clears the current archive marker but retains the historical activity entry.
 
 **Audience:** Wedding managers and consultants.
 
@@ -79,6 +81,10 @@ Common readiness labels:
 4. **Add members** (groom, groomsmen, etc.) with **roles** and **outfit** types.
 5. **Link order lines** when sales exist; balances flow from **Transaction Records**, not manual typing.
 
+Party search waits for a short typing pause. The loaded party cards remain visible with an
+**Updating…** status while the newest results arrive, so a slow PWA connection does not make the
+Wedding Party Hub appear to reload after every letter.
+
 ### Attaching Counterpoint Transaction Records (v0.1.9)
 If a customer has a Counterpoint Transaction Record or fulfillment line that should belong to this wedding party:
 1. Go to **Back Office** → **Orders**.
@@ -119,7 +125,7 @@ When a customer is attached to the Register, POS shows current wedding membershi
 Manager setup matters:
 
 - Set the party/member's exact ROS product variation when it is known.
-- Configure the party's normal **Wedding Builder parent items** so Register and Deposit & Build use the same suit, shirt, tie, shoe, and accessory starting point.
+- In **New Wedding Party** or **Style & Order Details**, select the party's sellable **Wedding Builder parent items** from the ROS catalog. Mark each item **All**, **Groom Only**, **Groomsmen Only**, **Any**, or **Other**. Register and Deposit & Build then show only the products applicable to the loaded member before asking for the exact size/variation.
 - Leave placeholder suits as **Needs measurements** until the size/variation is known.
 - Use checklist-only items for notes or non-catalog tasks, but do not expect POS to charge for them until they are linked to a sellable product.
 - If staff report that Register only shows a checklist note, review the party/member item setup and product link.

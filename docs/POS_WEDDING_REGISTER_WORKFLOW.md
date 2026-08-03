@@ -88,6 +88,8 @@ Response shape:
   - party name, event date, role, status
   - measurement and suit ordered flags
   - linked sellable `purchase_items[]`
+    - `audience` and `audience_label` explain the party rule that matched the loaded member
+    - `required_for_member` is false only for an **Any** optional choice
   - checklist-only `checklist_items[]`
 
 Sellable purchase items flatten the same cart-ready product fields used by POS SKU resolution and include:
@@ -96,6 +98,10 @@ Sellable purchase items flatten the same cart-ready product fields used by POS S
 - `already_tracked`
 
 `already_tracked` tells Register not to duplicate an item that already exists on a wedding-linked Transaction Record.
+
+Wedding Hub payment badges use current Transaction `balance_due`, applied payment allocations, and remaining source-tracked held deposits. Held funds are displayed as **Deposit**, not **Paid**, until they are explicitly redeemed against the member Transaction.
+
+Wedding Hub is a read model over ROS, not a separate owner of purchases or payments. Customer contact data comes from the linked Customer; purchased-item descriptions and fulfillment come from Transaction lines; alterations remain in Alterations; and scheduled counts come from party-scoped Wedding appointments. An open tracker refreshes on source events, focus/visibility return, and a one-minute interval. Ordered, In Stock, and Picked Up are read-only and must be completed in Register, Orders, Receiving, Shipping, or Pickup as applicable.
 
 ## Staff UX Rules
 

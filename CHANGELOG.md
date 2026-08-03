@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Live ROS-Backed Wedding Party Hub**: The open party tracker now refreshes canonical Customer contact data, purchased Transaction-line merchandise, applied payments, held deposits, balances, Fulfillment Order lifecycle, alterations, and party-scoped appointments every minute, on focus, and on Wedding/appointment events. A held deposit remains **Deposit** until applied; **Paid** requires a linked Transaction with no balance due. Ordered, In Stock, and Picked Up remain read-only ROS-derived stages.
+- **Wedding Party Setup and Tracking Archive**: New Party and Style & Order Details now select sellable ROS parent products for suit, shirt, tie, shoes, and accessories and scope each choice to **All**, **Groom Only**, **Groomsmen Only**, **Any**, or **Other** before Register opens the shared variation panel. Manager **Archive Tracking** records an audited tracker outcome while preserving every linked ROS Transaction, balance, deposit, appointment, alteration, shipment, and fulfillment record unchanged.
 - **Fluid Search Across Desktop and PWA**: Remote staff searches now wait for a short typing pause, cancel superseded requests, and retain already-loaded results while replacements arrive. Wedding Party Hub and other high-traffic customer, inventory, order, staff, online-store, appointment, and deposit searches no longer refresh or replace their workspace on every keystroke, including on slower PWA connections.
 - **Fixed Register Checkout Dock**: The quantity/price keypad and contextual Pay, Complete Pickup, or Wedding Order action now remain full size in a fixed bottom dock. Customer, wedding, and sale-summary content scrolls independently above the controls, and the primary action is approximately 20% taller for totals and longer workflow labels.
 - **Helcim Pending Approval Guard**: Register no longer shows or enables **Ready to Save** while the current checkout is still waiting for a Helcim card result. The normal card/PIN interaction window before outcome-recovery guidance is extended from 15 seconds to two minutes; approval, decline, cancellation, or expiry must be confirmed before the sale can be recorded.
@@ -37,15 +39,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compatible Homebrew PostgreSQL dump/restore pair when available.
 
 ### Changed
-- **Wedding Lifecycle Authority and Closeout**: Wedding Hub now derives ordered,
+- **Wedding Lifecycle Authority and Tracking Archive**: Wedding Hub now derives ordered,
   received, ready-for-pickup, and picked-up status from authoritative
   Transaction/Fulfillment Order lines. Authenticated party/member/appointment
   audit writes are atomic, scheduling overrides retain staff identity and
   reasons, and recent member activity opens the exact Transaction in Orders.
-  Managers can close passed, cancelled, incomplete, or legacy weddings without
+  Managers can archive tracking for passed, cancelled, incomplete, or legacy weddings without
   fabricating workflow completion; linked balances, deposits, fulfillment,
   appointments, alterations, shipping, and customer history remain unchanged
-  and the wedding can be reopened from Closed / Archived with retained audit
+  and the tracker can be reopened from Closed / Archived with retained audit
   history.
 - **ROSIE Local Intelligence Upgrade**: Pinned Google's official Gemma 4 E4B
   QAT Q4_0 model and matching vision projector, enabled provider-governed SSE

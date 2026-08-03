@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { apiBase, staffHeaders } from "./helpers/rmsCharge";
 
-test("manager closeout preserves open work, archives the wedding, and can be reopened", async ({
+test("manager tracker archive preserves linked source work and can be reopened", async ({
   request,
 }) => {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -85,7 +85,7 @@ test("manager closeout preserves open work, archives the wedding, and can be reo
   expect(closeRes.status(), await closeRes.text()).toBe(200);
   const closed = await closeRes.json();
   expect(closed.closed).toBe(true);
-  expect(closed.open_work_preserved.scheduled_appointment_count).toBe(1);
+  expect(closed.linked_source_snapshot.scheduled_appointment_count).toBe(1);
 
   const archivedRes = await request.get(`${apiBase()}/api/weddings/parties`, {
     headers: staffHeaders(),

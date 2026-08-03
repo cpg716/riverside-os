@@ -9,7 +9,7 @@ const OrderReviewTab = ({ members, partyId, toggleStatus, onMemberClick, payment
         { key: 'ordered', label: 'Ordered', icon: 'Save', color: 'amber', dateKey: 'orderedDate', activeColor: 'text-amber-600', bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
         { key: 'received', label: 'In Stock', icon: 'CheckCircle', color: 'emerald', dateKey: 'receivedDate', activeColor: 'text-emerald-600', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-200' },
         { key: 'fitting', label: 'Fitted', icon: 'Scissors', color: 'indigo', dateKey: 'fittingDate', activeColor: 'text-indigo-600', bgColor: 'bg-indigo-50', borderColor: 'border-indigo-200' },
-        { key: 'pickup', label: 'Ready', icon: 'ShoppingBag', color: 'navy', dateKey: 'pickupDate', activeColor: 'text-app-text', bgColor: 'bg-navy-50', borderColor: 'border-navy-200' }
+        { key: 'pickup', label: 'Picked Up', icon: 'ShoppingBag', color: 'navy', dateKey: 'pickupDate', activeColor: 'text-app-text', bgColor: 'bg-navy-50', borderColor: 'border-navy-200' }
     ], []);
 
     const calculateMemberProgress = (member) => {
@@ -115,6 +115,7 @@ const OrderReviewTab = ({ members, partyId, toggleStatus, onMemberClick, payment
                                         const isCurrent = !!member[stage.key];
                                         const isNext = !isCurrent && (idx === 0 || !!member[stages[idx - 1].key]);
                                         const dateVal = member[stage.dateKey];
+                                        const isRosDerived = ['ordered', 'received', 'pickup'].includes(stage.key);
 
                                         return (
                                             <td key={stage.key} className="px-4 py-6 text-center border-b border-app-surface-2 relative">
@@ -124,7 +125,9 @@ const OrderReviewTab = ({ members, partyId, toggleStatus, onMemberClick, payment
                                                 )}
 
                                                 <button type="button"
-                                                    onClick={() => toggleStatus(partyId, member.id, stage.key)}
+                                                    onClick={() => isRosDerived
+                                                        ? onMemberClick(member)
+                                                        : toggleStatus(partyId, member.id, stage.key)}
                                                     className={`relative z-10 flex flex-col items-center group/btn`}
                                                 >
                                                     <div className={`w-12 h-12 rounded-full border flex items-center justify-center transition-all duration-300 ${getStatusStyles(member, stage, isNext)}`}>
@@ -132,7 +135,11 @@ const OrderReviewTab = ({ members, partyId, toggleStatus, onMemberClick, payment
 
                                                         {/* Tooltip */}
                                                         <div className="absolute bottom-full mb-3 hidden group-hover/btn:block bg-navy-900 text-white text-[10px] px-3 py-1.5 rounded-lg whitespace-nowrap z-30 shadow-xl pointer-events-none font-bold">
-                                                            {isCurrent ? `${stage.label} on ${dateVal ? formatDate(dateVal) : 'N/A'}${stage.key === 'ordered' && member.orderedPO ? ` (PO: ${member.orderedPO})` : ''}` : `Mark as ${stage.label}`}
+                                                            {isRosDerived
+                                                                ? `${stage.label} is read from ROS Transactions and Fulfillment Orders. Open member details to continue.`
+                                                                : isCurrent
+                                                                    ? `${stage.label} on ${dateVal ? formatDate(dateVal) : 'N/A'}`
+                                                                    : `Mark as ${stage.label}`}
                                                             <div className="absolute top-full left-1/2 -translate-x-1/2 border-8 border-transparent border-t-navy-900"></div>
                                                         </div>
                                                     </div>
@@ -168,7 +175,7 @@ const OrderReviewTab = ({ members, partyId, toggleStatus, onMemberClick, payment
                     <span className="flex items-center gap-1"><div className="w-3 h-3 rounded-full bg-blue-100 border border-blue-300"></div> Completed</span>
                     <span className="flex items-center gap-1"><div className="w-3 h-3 rounded-full border border-dashed border-app-border bg-app-surface"></div> Next Recommended Step</span>
                 </div>
-                <div>* Click any stage to toggle status or view historical dates.</div>
+                <div>* Ordered, In Stock, and Picked Up are read-only ROS status. Complete them through Register, Orders, Receiving, or Pickup.</div>
             </div>
         </div>
     );

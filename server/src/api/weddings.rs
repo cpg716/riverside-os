@@ -36,6 +36,7 @@ use crate::logic::customers::{insert_customer, next_customer_code, InsertCustome
 use crate::logic::messaging::MessagingService;
 use crate::logic::staff_schedule;
 use crate::logic::wedding_api_types::build_party_bundle;
+use crate::logic::wedding_builder_items;
 use crate::logic::wedding_deposit_workflows;
 use crate::logic::wedding_queries::{
     digits_only, fetch_member_optional, fetch_party_row_optional, list_appointments_filtered,
@@ -267,6 +268,9 @@ pub struct CustomerWeddingPurchaseItem {
     pub item: ResolvedSkuItem,
     pub source: String,
     pub already_tracked: bool,
+    pub audience: String,
+    pub audience_label: String,
+    pub required_for_member: bool,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -831,6 +835,7 @@ pub struct UpdateAppointmentRequest {
 pub struct AppointmentsQuery {
     pub from: Option<String>,
     pub to: Option<String>,
+    pub party_id: Option<Uuid>,
 }
 
 fn parse_datetime(s: &str) -> Result<chrono::DateTime<chrono::Utc>, WeddingError> {
@@ -1108,13 +1113,23 @@ async fn get_customer_purchase_context(
                     .bind(variant_id)
                     .fetch_one(&state.db)
                     .await?;
+                    let source = row
+                        .suit_source
+                        .clone()
+                        .unwrap_or_else(|| "wedding_item".to_string());
+                    let member_specific = source == "member_suit";
                     purchase_items.push(CustomerWeddingPurchaseItem {
                         item,
-                        source: row
-                            .suit_source
-                            .clone()
-                            .unwrap_or_else(|| "wedding_item".to_string()),
+                        source,
                         already_tracked,
+                        audience: if member_specific { "member" } else { "all" }.to_string(),
+                        audience_label: if member_specific {
+                            "This Member"
+                        } else {
+                            "All"
+                        }
+                        .to_string(),
+                        required_for_member: true,
                     });
                 }
                 Err(error) => {
@@ -1133,6 +1148,9 @@ async fn get_customer_purchase_context(
             .and_then(serde_json::Value::as_array)
         {
             for builder_item in builder_items {
+                if !wedding_builder_items::applies_to_role(builder_item, &row.role) {
+                    continue;
+                }
                 let Some(variant_id) = builder_item
                     .get("variant_id")
                     .and_then(serde_json::Value::as_str)
@@ -1169,6 +1187,10 @@ async fn get_customer_purchase_context(
                             item,
                             source: "party_builder_template".to_string(),
                             already_tracked,
+                            audience: wedding_builder_items::audience(builder_item).to_string(),
+                            audience_label: wedding_builder_items::audience_label(builder_item),
+                            required_for_member: wedding_builder_items::audience(builder_item)
+                                != "any",
                         });
                     }
                     Err(error) => {
@@ -1371,6 +1393,10 @@ async fn insert_party_and_respond(
     }
 
     let acc = body.accessories.unwrap_or_else(|| json!({}));
+    let builder_parent_items = acc
+        .get("builder_parent_items")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     let gp = body.groom_phone.as_deref().unwrap_or("");
     let bp = body.bride_phone.as_deref().unwrap_or("");
     let gpc = if gp.is_empty() {
@@ -1585,7 +1611,8 @@ async fn insert_party_and_respond(
         json!({
             "party_type": party_type,
             "couple_id": couple_id,
-            "started_without_members": body.start_empty
+            "started_without_members": body.start_empty,
+            "builder_parent_items": builder_parent_items
         }),
     )
     .await
@@ -1752,11 +1779,41 @@ async fn update_party(
     let fields_summary = party_patch_summary(&body);
     qb.push(" WHERE id = ").push_bind(party_id);
     let mut tx = state.db.begin().await?;
+    let previous_builder_parent_items = if body.accessories.is_some() {
+        let previous_accessories: serde_json::Value =
+            sqlx::query_scalar("SELECT accessories FROM wedding_parties WHERE id = $1 FOR UPDATE")
+                .bind(party_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        Some(
+            previous_accessories
+                .get("builder_parent_items")
+                .cloned()
+                .unwrap_or_else(|| json!([])),
+        )
+    } else {
+        None
+    };
     qb.build().execute(&mut *tx).await?;
 
     if !fields_summary.is_empty() {
         let actor = resolve_actor(log_actor);
         let desc = format!("Party updated: {}", fields_summary.join(", "));
+        let metadata = if let Some(previous_items) = previous_builder_parent_items {
+            let current_items = body
+                .accessories
+                .as_ref()
+                .and_then(|accessories| accessories.get("builder_parent_items"))
+                .cloned()
+                .unwrap_or_else(|| json!([]));
+            json!({
+                "fields": fields_summary,
+                "builder_parent_items_before": previous_items,
+                "builder_parent_items_after": current_items
+            })
+        } else {
+            json!({ "fields": fields_summary })
+        };
         wedding_logic::insert_wedding_activity(
             &mut *tx,
             party_id,
@@ -1764,7 +1821,7 @@ async fn update_party(
             &actor,
             "STATUS_CHANGE",
             &desc,
-            json!({ "fields": fields_summary }),
+            metadata,
         )
         .await?;
     }
@@ -1983,7 +2040,7 @@ async fn closeout_wedding(
         .map_err(WeddingError::Database)?;
     if !staff_can_approve_manager_access(&effective, actor.role) {
         return Err(WeddingError::Forbidden(
-            "Manager Access is required to close out a wedding without completing its ROS workflow"
+            "Manager Access is required to archive a wedding tracking record while preserving linked ROS work"
                 .to_string(),
         ));
     }
@@ -1998,13 +2055,13 @@ async fn closeout_wedding(
             | "duplicate_or_test"
     ) {
         return Err(WeddingError::BadRequest(
-            "Select a supported wedding closeout outcome".to_string(),
+            "Select a supported wedding tracking outcome".to_string(),
         ));
     }
     let reason = body.reason.trim();
     if reason.chars().count() < 10 {
         return Err(WeddingError::BadRequest(
-            "Closeout reason must be at least 10 characters".to_string(),
+            "Tracking archive reason must be at least 10 characters".to_string(),
         ));
     }
     let notes = body
@@ -2029,7 +2086,7 @@ async fn closeout_wedding(
     let summary = load_wedding_closeout_summary(&mut *tx, party_id).await?;
     if summary.has_open_work() && !body.acknowledge_open_work {
         return Err(WeddingError::BadRequest(
-            "This wedding still has open financial, fulfillment, appointment, or alteration work. Review it and explicitly acknowledge that closeout preserves those records without completing them."
+            "This tracker still detects linked financial, fulfillment, appointment, or alteration work. Review the read-only snapshot and explicitly acknowledge that each item remains controlled by its owning ROS workspace."
                 .to_string(),
         ));
     }
@@ -2059,15 +2116,15 @@ async fn closeout_wedding(
         party_id,
         None,
         &actor.full_name,
-        "WEDDING_CLOSED_OUT",
-        &format!("Wedding closed out as {outcome}: {reason}"),
+        "WEDDING_TRACKING_ARCHIVED",
+        &format!("Wedding tracking archived as {outcome}: {reason}"),
         json!({
             "actor_staff_id": actor.id,
             "outcome": outcome,
             "reason": reason,
             "notes": notes,
             "open_work_acknowledged": body.acknowledge_open_work,
-            "open_work_summary": &summary,
+            "linked_source_snapshot": &summary,
         }),
     )
     .await?;
@@ -2083,7 +2140,7 @@ async fn closeout_wedding(
         "party_name": party_name,
         "closed": true,
         "outcome": outcome,
-        "open_work_preserved": summary,
+        "linked_source_snapshot": summary,
     })))
 }
 
@@ -2583,7 +2640,7 @@ async fn list_appointments(
     require_weddings_view(&state, &headers).await?;
     let from_dt = q.from.as_ref().map(|s| parse_datetime(s)).transpose()?;
     let to_dt = q.to.as_ref().map(|s| parse_datetime(s)).transpose()?;
-    let rows = list_appointments_filtered(&state.db, from_dt, to_dt).await?;
+    let rows = list_appointments_filtered(&state.db, from_dt, to_dt, q.party_id).await?;
     Ok(Json(rows))
 }
 

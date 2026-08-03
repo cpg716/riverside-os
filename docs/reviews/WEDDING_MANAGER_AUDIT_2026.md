@@ -1,5 +1,13 @@
 # Audit Report: Wedding Manager Subsystem (2026)
-## 2026-08-02 closure review
+## 2026-08-03 source-of-truth follow-up
+
+The Wedding Party Hub is now explicitly a live aggregate over owning ROS records. Customer contact fields come from `customers`; purchased item descriptions, balances, and lifecycle come from `transactions` and `transaction_lines`; applied payments and held deposits remain separate ledger facts; and appointment counts are scoped to `wedding_appointments` for the selected party. The open tracker refreshes every minute, on focus/visibility return, and on Wedding or appointment events.
+
+Payment labels no longer use held deposits as evidence that a Transaction is paid. **Paid** requires a linked Transaction with zero current balance; applied money against an open balance is **Partial**; source-tracked money waiting for a future order is **Deposit**. Member detail presents applied payments and held deposits separately and lists current purchased merchandise from the linked Transaction lines.
+
+New Party and Style & Order Details use catalog-backed parent-item selection with **All**, **Groom Only**, **Groomsmen Only**, **Any**, and role-specific **Other** rules. Register filters those current party rules for the selected member before exact variation and line pricing review.
+
+## 2026-08-02 lifecycle review
 
 The POS Wedding Hub now treats `transaction_lines.lifecycle_status` as the authority for Ordered, Received, Ready for Pickup, and Picked Up. Legacy member flags remain compatibility fields but are no longer writable from the party grid and no longer satisfy readiness completion.
 
@@ -9,7 +17,7 @@ Party/member updates now use authenticated staff attribution and commit their ac
 
 Financial behavior remains unchanged: deposits are payer-owned liabilities, beneficiary allocations consume exact source ledger funds, and member builds create separate Transactions/Fulfillment Orders through checkout.
 
-The 2026-08-03 follow-up adds a Manager Access closeout for weddings that passed, were cancelled, did not proceed, were completed outside ROS, or predate complete ROS tracking. Closeout records structured outcome/reason/notes and an open-work snapshot, requires explicit acknowledgment when linked work remains, archives the party, and writes the audit event atomically. It never mutates linked financial or operational records and supports an audited manager reopen path.
+The 2026-08-03 follow-up adds Manager **Archive Tracking** for weddings that passed, were cancelled, did not proceed, were completed outside ROS, or predate complete ROS tracking. It records structured outcome/reason/notes and a read-only linked-source snapshot, requires explicit acknowledgment when linked work remains, archives the tracker, and writes the audit event atomically. It never mutates linked financial or operational records and supports an audited manager reopen path.
 
 **Date:** 2026-04-08
 **Status:** Feature Complete / Event-Driven
@@ -21,12 +29,12 @@ The Wedding Manager (WM) is a specialized "CRM within a CRM," focusing on the co
 
 ### 2.1 Unified Party Model
 - **Relationship**: `wedding_parties` -> `wedding_members` (linked to `customers` ID).
-- **Financial Context**: A dedicated `WeddingPartyFinancialContext` provides a real-time summary of balance dues and recognition levels across all members of a party.
+- **Financial Context**: `WeddingPartyFinancialContext` is a read model over canonical Transaction, payment-allocation, and held-deposit ledgers. It does not own or rewrite those values.
 - **Workflow Fields**: Members track granular status flags (`measured`, `suit_ordered`, `received`, `fitting`, `pickup_status`).
 
 ### 2.2 Event-Driven Sync (SSE)
 - **Live Updates**: The system uses **Server-Sent Events (SSE)** via `wedding_events_stream` to broadcast `parties_updated` and `appointments_updated` events.
-- **Client Cache**: The Wedding Manager UI responds to these events by triggering `refresh()` on its local data providers, ensuring that multiple staff members working a large bridal party always see the same state.
+- **Client Refresh**: Wedding Manager responds to both events, refreshes on focus/visibility return, and polls an open tracker every minute so Transaction or fulfillment changes without a wedding-specific event do not remain stale indefinitely.
 
 ## 3. The Action Dashboard (Mission Control)
 - **Categorization Engine**: A core architectural component is the `ActionDashboard.jsx`, which segments work into:

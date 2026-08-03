@@ -225,4 +225,4 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 
 ---
 
-**Last reviewed:** 2026-08-02 (v0.96.0 Wedding Builder, variation navigation, Main Hub audit, and Help/ROSIE policy-pack review)
+**Last reviewed:** 2026-08-03 (v0.96.0 live Wedding Hub sources, role-scoped party setup, tracking archive, Wedding Builder, and Help/ROSIE review)

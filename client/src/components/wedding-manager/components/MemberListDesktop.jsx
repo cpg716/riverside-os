@@ -14,7 +14,7 @@ function lifecycleBadge(readiness) {
     return null;
 }
 
-const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberId = {}, readinessByMemberId = {}, onMemberClick, onUpdateMember, toggleStatus, onAppointmentClick }) => {
+const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberId = {}, readinessByMemberId = {}, appointmentsByMemberId = {}, onMemberClick, onUpdateMember, toggleStatus, onAppointmentClick }) => {
     return (
         <div className="hidden md:block overflow-x-auto">
             <table className="min-w-full divide-y divide-app-border">
@@ -80,11 +80,6 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
 
                             const inconsistency = checkInconsistency();
 
-                            const upcomingAppts = [
-                                member.measureDate ? `${member.measured ? 'Measured' : 'Measure Appt'}: ${formatDate(member.measureDate)}` : null,
-                                member.fittingDate ? `${member.fitting ? 'Fitted' : 'Fitting Appt'}: ${formatDate(member.fittingDate)}` : null,
-                                member.pickupDate ? `${member.pickup ? 'Picked Up' : 'Pickup Appt'}: ${formatDate(member.pickupDate)}` : null
-                            ].filter(Boolean).join(', ');
                             const paymentStatus = paymentStatusByMemberId[member.id] || 'UNPAID';
                             const paymentBadgeClass =
                                 paymentStatus === 'PAID'
@@ -95,6 +90,7 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                         ? 'bg-amber-100 text-amber-700'
                                         : 'bg-rose-100 text-rose-700';
                             const orderLifecycle = lifecycleBadge(readinessByMemberId[member.id]);
+                            const appointmentSummary = appointmentsByMemberId[member.id] || { scheduledCount: 0, next: null };
 
                             return (
                                 <tr key={member.id} className="hover:bg-app-surface-2 transition-colors group border-b border-app-border/80 last:border-0">
@@ -161,11 +157,16 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                                 return member.measureDate ? (isOverdue(member.measureDate) ? 'text-amber-600' : 'text-green-600') : 'text-red-400';
                                             })()
                                                 }`}
-                                            title={upcomingAppts || "No appointments scheduled"}
+                                            title={appointmentSummary.next
+                                                ? `${appointmentSummary.scheduledCount} scheduled · Next: ${appointmentSummary.next.type} ${formatDate(appointmentSummary.next.datetime)}`
+                                                : "No active ROS appointments scheduled"}
                                             onClick={() => onAppointmentClick(member)}
                                             onKeyDown={(event) => activateOnEnterOrSpace(event, () => onAppointmentClick(member))}
                                         >
                                             <Icon name="Calendar" size={16} />
+                                            {appointmentSummary.scheduledCount > 0 && (
+                                                <span className="ml-1 text-[10px] font-black">{appointmentSummary.scheduledCount}</span>
+                                            )}
                                         </div>
                                     </td>
                                     <td className="px-2 py-3 whitespace-nowrap text-center">

@@ -49,6 +49,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
     const [pendingStockUpdate, setPendingStockUpdate] = useState(null); // { memberId, field, value }
     const [paymentStatusByMemberId, setPaymentStatusByMemberId] = useState({});
     const [readinessByMemberId, setReadinessByMemberId] = useState({});
+    const [appointmentsByMemberId, setAppointmentsByMemberId] = useState({});
     const [financialContext, setFinancialContext] = useState(null);
     const [showManagerFinancials, setShowManagerFinancials] = useState(false);
     const [isCloseoutModalOpen, setIsCloseoutModalOpen] = useState(false);
@@ -65,12 +66,14 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                 const rows = Array.isArray(ctx?.members) ? ctx.members : [];
                 const next = {};
                 rows.forEach((row) => {
-                    const paid = Number(row.paid_total ?? 0);
+                    const appliedPaid = Number(row.applied_paid_total ?? row.paid_total ?? 0);
+                    const heldDeposit = Number(row.held_deposit_total ?? 0);
                     const transactionTotal = Number(row.transaction_total ?? 0);
+                    const balanceDue = Number(row.balance_due ?? 0);
                     let status = "UNPAID";
-                    if (paid > 0 && transactionTotal <= 0) status = "DEPOSIT";
-                    if (paid > 0 && paid < transactionTotal) status = "PARTIAL";
-                    if (transactionTotal > 0 && paid >= transactionTotal) status = "PAID";
+                    if (heldDeposit > 0) status = "DEPOSIT";
+                    if (transactionTotal > 0 && appliedPaid > 0 && balanceDue > 0.004) status = "PARTIAL";
+                    if (transactionTotal > 0 && balanceDue <= 0.004) status = "PAID";
                     next[row.wedding_member_id] = status;
                 });
                 setPaymentStatusByMemberId(next);
@@ -81,6 +84,40 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
             }
         };
         void run();
+    }, [party?.id, party?.members]);
+
+    useEffect(() => {
+        if (!party?.id) {
+            setAppointmentsByMemberId({});
+            return;
+        }
+        let ignore = false;
+        const run = async () => {
+            try {
+                const appointments = await api.getPartyAppointments(party.id);
+                if (ignore) return;
+                const activeStatuses = new Set(['scheduled', 'confirmed', 'pending']);
+                const grouped = {};
+                appointments
+                    .filter((appointment) => appointment.partyId === party.id && appointment.memberId)
+                    .sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)))
+                    .forEach((appointment) => {
+                        const memberId = appointment.memberId;
+                        const current = grouped[memberId] || { scheduledCount: 0, next: null };
+                        if (activeStatuses.has(String(appointment.status || '').toLowerCase())) {
+                            current.scheduledCount += 1;
+                            if (!current.next) current.next = appointment;
+                        }
+                        grouped[memberId] = current;
+                    });
+                setAppointmentsByMemberId(grouped);
+            } catch (err) {
+                console.error('Failed to load live appointment status:', err);
+                if (!ignore) setAppointmentsByMemberId({});
+            }
+        };
+        void run();
+        return () => { ignore = true; };
     }, [party?.id, party?.members]);
 
     useEffect(() => {
@@ -131,29 +168,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
             return r.inflight;
         }
 
-        let from;
-        let to;
-        const ev = party?.date;
-        if (ev && typeof ev === 'string') {
-            const base = new Date(/^\d{4}-\d{2}-\d{2}$/.test(ev) ? `${ev}T12:00:00` : ev);
-            if (!Number.isNaN(base.getTime())) {
-                const f = new Date(base);
-                f.setMonth(f.getMonth() - 9);
-                const t = new Date(base);
-                t.setMonth(t.getMonth() + 9);
-                from = f.toISOString();
-                to = t.toISOString();
-            }
-        }
-        if (!from) {
-            const t = new Date();
-            const f = new Date();
-            f.setFullYear(f.getFullYear() - 2);
-            from = f.toISOString();
-            to = t.toISOString();
-        }
-
-        const inflight = api.getAppointments(from, to).then((list) => {
+        const inflight = api.getPartyAppointments(pid).then((list) => {
             apptsGateCacheRef.current = {
                 partyId: pid,
                 list,
@@ -172,7 +187,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
             inflight,
         };
         return inflight;
-    }, [party?.id, party?.date]);
+    }, [party?.id]);
 
     // Handlers wrapped in useCallback
     const handleUpdateMember = useCallback(async (memberId, updatedMemberData, shouldSave = true) => {
@@ -785,7 +800,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
             rows.push(`${balanceBlocked} member${balanceBlocked === 1 ? "" : "s"} have balance holds before release.`);
         }
         if (rows.length === 0) {
-            rows.push(stats.total > 0 ? "Milestones look clear from the visible party data; review balances and pickup completion before closeout." : "Add members to start readiness tracking.");
+            rows.push(stats.total > 0 ? "Milestones look clear from the visible party data; review linked balances and pickup completion before archiving this tracker." : "Add members to start readiness tracking.");
         }
         return rows.slice(0, 4);
     }, [readinessByMemberId, stats]);
@@ -1080,9 +1095,9 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                             <button type="button"
                                 onClick={() => setIsCloseoutModalOpen(true)}
                                 className="flex items-center gap-2 rounded-lg border-2 border-amber-400/70 bg-amber-500/15 px-4 py-2 text-xs font-black uppercase tracking-wider text-amber-200 shadow-sm transition-all hover:bg-amber-500 hover:text-white active:scale-95"
-                                title="Record a historical outcome and remove this wedding from active tracking"
+                                title="Archive this tracker without changing linked ROS records"
                             >
-                                <Icon name="Archive" size={16} /> Close Out
+                                <Icon name="Archive" size={16} /> Archive Tracking
                             </button>
                             <button type="button"
                                 onClick={onPrint}
@@ -1487,6 +1502,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                                     partyId={party.id}
                                     paymentStatusByMemberId={paymentStatusByMemberId}
                                     readinessByMemberId={readinessByMemberId}
+                                    appointmentsByMemberId={appointmentsByMemberId}
                                     onMemberClick={handleMemberClick}
                                     onUpdateMember={handleUpdateMember}
                                     toggleStatus={toggleStatus}
@@ -1499,6 +1515,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                                     partyId={party.id}
                                     paymentStatusByMemberId={paymentStatusByMemberId}
                                     readinessByMemberId={readinessByMemberId}
+                                    appointmentsByMemberId={appointmentsByMemberId}
                                     onMemberClick={handleMemberClick}
                                     onUpdateMember={handleUpdateMember}
                                     toggleStatus={toggleStatus}

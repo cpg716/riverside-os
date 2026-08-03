@@ -465,6 +465,9 @@ interface WeddingPurchaseItem extends ResolvedSkuItem {
   reserved_stock?: number;
   source: string;
   already_tracked: boolean;
+  audience: string;
+  audience_label: string;
+  required_for_member: boolean;
 }
 
 interface WeddingChecklistItem {
@@ -6063,6 +6066,14 @@ export default function Cart({
                                   )}
                                 </span>
                               </div>
+                              <div className="mt-1.5 flex flex-wrap gap-1">
+                                <span className="rounded-full bg-app-accent/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-app-accent">
+                                  {item.audience_label}
+                                </span>
+                                <span className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wide ${item.required_for_member ? "bg-amber-100 text-amber-800" : "bg-app-info/10 text-app-info"}`}>
+                                  {item.required_for_member ? "Expected" : "Optional"}
+                                </span>
+                              </div>
                               {tracked ? (
                                 <p className="mt-2 rounded-lg bg-app-success/10 px-2 py-1 text-[10px] font-bold text-app-success">
                                   Already tracked for this wedding member.
@@ -6082,7 +6093,7 @@ export default function Cart({
                                       Choose This Member&apos;s Variation
                                     </button>
                                     <span className="flex items-center rounded-lg border border-app-border bg-app-surface px-2 text-[9px] font-black uppercase tracking-wide text-app-text-muted">
-                                      Skip is OK
+                                      {item.required_for_member ? "Expected" : "Optional"}
                                     </span>
                                   </div>
                                 ) : (

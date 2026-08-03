@@ -1,6 +1,6 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.96.0 adds a one-action Wedding Builder, persistent variation-picker navigation, production-aligned Main Hub auditing, the certified local Gemma 4 ROSIE stack, and input-method accessibility across staff workflows. The exact published source is always the commit referenced by the `v0.96.0` tag; physical Windows Main Hub update verification remains a separate operational gate.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.96.0 adds a one-action Wedding Builder, a live ROS-backed Wedding Party Hub, persistent variation-picker navigation, production-aligned Main Hub auditing, the certified local Gemma 4 ROSIE stack, and input-method accessibility across staff workflows. The Wedding Hub tracks linked Customers, Transactions, Fulfillment Orders, deposits, appointments, and alterations without becoming a parallel financial or fulfillment system. The exact published source is always the commit referenced by the `v0.96.0` tag; physical Windows Main Hub update verification remains a separate operational gate.
 
 Current Version: **v0.96.0** (See [CHANGELOG.md](CHANGELOG.md))
 

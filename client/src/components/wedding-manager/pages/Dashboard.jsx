@@ -134,11 +134,13 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
         socket.on('connect', onConnect);
         socket.on('disconnect', onDisconnect);
         socket.on('parties_updated', onPartiesUpdated);
+        socket.on('appointments_updated', onPartiesUpdated);
 
         return () => {
             socket.off('connect', onConnect);
             socket.off('disconnect', onDisconnect);
             socket.off('parties_updated', onPartiesUpdated);
+            socket.off('appointments_updated', onPartiesUpdated);
         };
     }, []);
 
@@ -158,13 +160,23 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
         void fetchPartiesRef.current();
     }, [currentPage, debouncedSearchTerm, dateFilter, salespersonFilter, showDeleted]);
 
-    // Auto-Refresh every 10 minutes - MOVED BEFORE CONDITIONAL RETURNS
+    // Keep an open tracker current even when Transactions or other owning ROS
+    // workspaces do not emit a wedding-specific socket event.
     useEffect(() => {
         const interval = setInterval(() => {
             void fetchPartiesRef.current();
-        }, 600000); // 10 minutes
-        return () => clearInterval(interval);
-    }, []);
+        }, selectedParty?.id ? 60000 : 600000);
+        const refreshWhenVisible = () => {
+            if (document.visibilityState === 'visible') void fetchPartiesRef.current();
+        };
+        window.addEventListener('focus', refreshWhenVisible);
+        document.addEventListener('visibilitychange', refreshWhenVisible);
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('focus', refreshWhenVisible);
+            document.removeEventListener('visibilitychange', refreshWhenVisible);
+        };
+    }, [selectedParty?.id]);
 
     useEffect(() => () => {
         partiesRequestRef.current += 1;
@@ -608,7 +620,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                     searchTerm={debouncedSearchTerm}
                                     showDeleted={showDeleted}
                                     onRestore={async (party) => {
-                                        const confirmed = await showConfirm(`Reopen party "${party.name}"? It will return to active wedding tracking, while its prior closeout remains in audit history.`, 'Reopen Wedding Party', { variant: 'info', confirmText: 'Yes, Reopen' });
+                                        const confirmed = await showConfirm(`Reopen party "${party.name}"? It will return to active wedding tracking, while its prior archive remains in audit history.`, 'Reopen Wedding Tracking', { variant: 'info', confirmText: 'Yes, Reopen' });
                                         if (!confirmed) return;
                                         const restoredBy = await selectSalesperson();
                                         if (!restoredBy) return;

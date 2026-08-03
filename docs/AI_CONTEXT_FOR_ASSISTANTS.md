@@ -1,6 +1,6 @@
 # AI context guide — answering Riverside OS questions
 
-**Policy pack:** `rosie-policy-pack-0.96.0` · **Release context reviewed:** 2026-08-02. Current wedding guidance includes the one-action Wedding Builder, payer-scoped Deposit Only resume, exact member variations, and normal audited checkout for every member Transaction.
+**Policy pack:** `rosie-policy-pack-0.96.0` · **Release context reviewed:** 2026-08-03. Current wedding guidance includes the live ROS-backed Wedding Party Hub, role-scoped catalog setup, one-action Wedding Builder, payer-scoped Deposit Only resume, exact member variations, and normal audited checkout for every member Transaction.
 
 This document is for **prompt authors**, **server-side system prompts**, **fine-tuning / instruction-tuning datasets**, and **implementers** wiring in-app help (**`GET /api/help/search`** over **`ros_help`**), admin reporting, or external assistants (ChatGPT projects, Cursor rules, future **ROSIE**). The legacy **`POST /api/ai/help`** + **`ai_doc_chunk`** path was **retired** (migration **78**) — see **`ROS_AI_INTEGRATION_PLAN.md`**. **`docs/staff/*`** remains the **primary** procedure truth; this file teaches **how to route**, **what not to invent**, and **how APIs + RBAC + SOP fit together**.
 
@@ -55,6 +55,7 @@ This document is for **prompt authors**, **server-side system prompts**, **fine-
 - **“How do I refund / void / exchange?”** → `abstracts/returns-refunds-exchanges.md` → `transactions-back-office.md` → technical detail `TRANSACTION_RETURNS_EXCHANGES.md` (link only if needed).
 - **“Special order / reserved / available stock”** → `abstracts/transactions-and-stock.md` → `INVENTORY_GUIDE.md` (repo root) for depth.
 - **“Wedding group pay”** → `abstracts/wedding-group-pay.md` → `WEDDING_GROUP_PAY_AND_RETURNS.md`.
+- **“Wedding member paid / partial / deposit / purchased items / appointments”** → `staff/weddings-back-office.md` and the live Wedding Hub. Treat the Hub as a read model over Customers, Transactions/lines, payment allocations, held-deposit ledgers, fulfillment, alterations, and appointments. Never infer **Paid** from held funds; require the linked Transaction balance to be zero.
 - **“What reports or data can I query?”** → `AI_REPORTING_DATA_CATALOG.md` §0 inventory of GETs.
 - **“What is ROSIE / Ask ROSIE in Help?”** → **Contract bundle:** `PLAN_LOCAL_LLM_HELP.md` (architecture + tools + prompt stub), `ROSIE_OPERATING_CONTRACT.md`, this file **§13**, `AI_REPORTING_DATA_CATALOG.md` (§0 **`report_id`** allowlist + §15 time/`basis`), and `ROS_AI_HELP_CORPUS.md`; retirement vs **`/api/ai`** → `ROS_AI_INTEGRATION_PLAN.md`.
 - **“Register reports / Z-close / drawer / session list”** → Curated **`register_sessions`**, **`register_day_activity`**, **`register_override_mix`** + §15 **`basis`** (`AI_REPORTING_DATA_CATALOG.md`); procedures (**who runs Z**, multi-lane) → `docs/TILL_GROUP_AND_REGISTER_OPEN.md`, `docs/staff/pos-reports.md`, `docs/staff/EOD-AND-OPEN-CLOSE.md`. **Tool JSON** for numbers; staff docs for steps.
