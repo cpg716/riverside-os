@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Icon from './Icon';
 import { api } from '../lib/api';
 import StaffMiniSelector from '../../ui/StaffMiniSelector';
+import WeddingModalPortal from './WeddingModalPortal';
 
 import { useModal } from '../hooks/useModal';
 import { activateOnEnterOrSpace } from '../../../lib/interaction';
@@ -30,7 +31,9 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
         partyId: '',
         memberId: '',
         customerId: '',
-        salesperson: ''
+        salesperson: '',
+        salespersonStaffId: '',
+        scheduleOverrideReason: ''
     });
 
     const [searchTerm, setSearchTerm] = useState('');
@@ -78,7 +81,9 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
                 partyId: initialData.partyId || '',
                 memberId: initialData.memberId || '',
                 customerId: initialData.customerId || '',
-                salesperson: (initialData.salesperson || '').trim()
+                salesperson: (initialData.salesperson || '').trim(),
+                salespersonStaffId: initialData.salespersonStaffId || '',
+                scheduleOverrideReason: ''
             }));
 
             if (initialData.customerName) setSearchTerm(initialData.customerName);
@@ -94,7 +99,9 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
                 partyId: '',
                 memberId: '',
                 customerId: '',
-                salesperson: ''
+                salesperson: '',
+                salespersonStaffId: '',
+                scheduleOverrideReason: ''
             });
             setSearchTerm('');
         }
@@ -228,7 +235,8 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
             "Schedule Conflict",
             { variant: 'warning', confirmText: 'Yes, Schedule Anyway', cancelText: 'No, Cancel' }
         );
-        return confirmed;
+        if (!confirmed) return false;
+        return Boolean(formData.scheduleOverrideReason.trim());
     };
 
     const handleSubmit = async (e) => {
@@ -256,7 +264,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
             ...formData,
             datetime,
             customerName: searchTerm, // Ensure name is captured even if not linked
-            createdBy: scheduler // Log who created/updated this
+            createdBy: scheduler // Display-only attribution; API authentication is authoritative.
         };
 
         try {
@@ -269,40 +277,20 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
             onClose();
         } catch (err) {
             console.error("Failed to save appointment:", err);
-            showAlert("Failed to save appointment.", "Error", { variant: 'danger' });
+            showAlert(err instanceof Error ? err.message : "Failed to save appointment.", "Error", { variant: 'danger' });
         }
     };
     const handleAttended = async () => {
         const updatedBy = await selectSalesperson();
         if (!updatedBy) return;
 
-        // SMART STATUS SYNCING
-        if (initialData && initialData.memberId) {
-            let statusKey = '';
-            let statusLabel = '';
-
-            if (formData.type === 'Measurement') {
-                statusKey = 'measured';
-                statusLabel = 'Measured';
-            } else if (formData.type === 'Fitting') {
-                statusKey = 'fitting';
-                statusLabel = 'Fitted';
-            } else if (formData.type === 'Pickup') {
-                statusKey = 'pickup';
-                statusLabel = 'Picked Up';
-            }
-
-            if (statusKey) {
-                const confirmed = await showConfirm(`Mark this member as "${statusLabel}" in the system?`, `${statusLabel}?`, { variant: 'info', confirmText: `Yes, Mark ${statusLabel}` });
-                if (confirmed) {
-                    try {
-                        await api.updateMember(initialData.memberId, { [statusKey]: true, updatedBy });
-                    } catch (err) {
-                        console.error(`Failed to mark as ${statusLabel}:`, err);
-                        showAlert(`Failed to update member status to ${statusLabel}.`, "Error", { variant: 'danger' });
-                    }
-                }
-            }
+        const completesMilestone = formData.type === 'Measurement' || formData.type === 'Fitting';
+        if (formData.type === 'Pickup') {
+            await showAlert(
+                'The appointment will be marked attended. Complete the pickup through Orders/Register so inventory, fulfillment, payment, and the audit trail stay synchronized.',
+                'Pickup stays in fulfillment',
+                { variant: 'info' }
+            );
         }
 
         const datetime = `${formData.date}T${formData.time}:00`;
@@ -311,7 +299,8 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
             status: 'Attended',
             datetime,
             customerName: searchTerm,
-            updatedBy
+            updatedBy,
+            completeMemberMilestone: completesMilestone
         };
 
         try {
@@ -399,7 +388,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-app-text/40 backdrop-blur-[2px] animate-fade-in" >
+        <WeddingModalPortal className="flex items-center justify-center p-4 bg-app-text/40 backdrop-blur-[2px] animate-fade-in">
             <div className="bg-app-surface rounded-lg shadow-2xl w-full max-w-2xl border border-app-border transition-colors">
                 <div className="bg-app-surface border-b border-app-border/80 p-4 flex justify-between items-center text-app-text rounded-t-lg">
                     <h3 className="font-extrabold text-lg flex items-center gap-2 uppercase tracking-tight">
@@ -462,7 +451,12 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
                                 selectedId={salespersonSelectValue}
                                 onSelect={(id) => {
                                     const picked = salespersonOptions.find((sp) => sp.id === id);
-                                    setFormData({ ...formData, salesperson: picked?.full_name || '' });
+                                    setFormData({
+                                        ...formData,
+                                        salesperson: picked?.full_name || '',
+                                        salespersonStaffId: picked && !String(picked.id).startsWith('legacy-') ? picked.id : '',
+                                        scheduleOverrideReason: ''
+                                    });
                                 }}
                                 placeholder="Any / Unassigned"
                                 displayLabel={formData.salesperson || undefined}
@@ -470,10 +464,22 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
                                 fullWidth
                                 className={conflicts.length > 0 ? 'rounded-xl ring-2 ring-red-500 ring-offset-0' : ''}
                             />
-                            {conflicts.length > 0 && (
-                                <p className="text-[10px] text-red-500 mt-1 font-bold">
-                                    Already has {conflicts.length} appointment(s) at this time.
-                                </p>
+                            {formData.salesperson && (
+                                <div className="mt-2 space-y-1">
+                                    <p className="text-[10px] text-red-500 font-bold">
+                                        {conflicts.length > 0
+                                            ? `Already has ${conflicts.length} appointment(s) at this time. Manager Access and a reason are required to override.`
+                                            : 'If ROS reports an off-schedule assignment, Manager Access and a reason are required to override.'}
+                                    </p>
+                                    <input
+                                        className="ui-input w-full p-2 text-xs font-semibold text-app-text"
+                                        value={formData.scheduleOverrideReason}
+                                        onChange={(event) => setFormData({ ...formData, scheduleOverrideReason: event.target.value })}
+                                        placeholder="Override reason, when required"
+                                        minLength={8}
+                                        required={conflicts.length > 0}
+                                    />
+                                </div>
                             )}
                         </div>
                     </div>
@@ -624,7 +630,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
                     </div>
                 </form>
             </div>
-        </div >
+        </WeddingModalPortal>
     );
 };
 

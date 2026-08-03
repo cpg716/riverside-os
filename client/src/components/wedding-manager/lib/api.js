@@ -244,6 +244,11 @@ function mapPartyRowToWmParty(row) {
     accessories: party.accessories || {},
     type: party.party_type || "Wedding",
     isDeleted: !!party.is_deleted,
+    closedAt: party.closed_at || null,
+    closedByStaffId: party.closed_by_staff_id || null,
+    closeoutOutcome: party.closeout_outcome || null,
+    closeoutReason: party.closeout_reason || null,
+    closeoutNotes: party.closeout_notes || null,
     members: members.map(toWmMember),
   };
 }
@@ -255,6 +260,17 @@ function yn(v) {
 function toWmMember(m) {
   const first = m.first_name ?? "";
   const last = m.last_name ?? "";
+  const lifecycle = {
+    needsMeasurements: Number(m.lifecycle_needs_measurements ?? 0),
+    ntbo: Number(m.lifecycle_ntbo ?? 0),
+    ordered: Number(m.lifecycle_ordered ?? 0),
+    received: Number(m.lifecycle_received ?? 0),
+    readyForPickup: Number(m.lifecycle_ready_for_pickup ?? 0),
+    pickedUp: Number(m.lifecycle_picked_up ?? 0),
+    open: Number(m.lifecycle_open ?? 0),
+  };
+  const lifecycleTotal = lifecycle.needsMeasurements + lifecycle.ntbo + lifecycle.ordered +
+    lifecycle.received + lifecycle.readyForPickup + lifecycle.pickedUp;
   return {
     id: m.id,
     partyId: m.wedding_party_id,
@@ -267,10 +283,15 @@ function toWmMember(m) {
     phone: m.customer_phone ?? "",
     status: m.status ?? "prospect",
     measured: yn(m.measured),
-    ordered: yn(m.suit_ordered),
-    received: yn(m.received),
+    ordered: lifecycleTotal > 0 && lifecycle.needsMeasurements + lifecycle.ntbo === 0,
+    received: lifecycleTotal > 0 && lifecycle.needsMeasurements + lifecycle.ntbo + lifecycle.ordered === 0,
     fitting: yn(m.fitting),
-    pickup: m.pickup_status === "complete" ? 1 : m.pickup_status === "partial" ? "partial" : 0,
+    pickup: lifecycleTotal > 0 && lifecycle.open === 0 && lifecycle.pickedUp > 0
+      ? 1
+      : lifecycle.readyForPickup > 0 || lifecycle.pickedUp > 0
+        ? "partial"
+        : 0,
+    lifecycle,
     suit: m.suit ?? "",
     waist: m.waist ?? "",
     vest: m.vest ?? "",
@@ -608,6 +629,21 @@ export const api = {
     });
   },
 
+  getWeddingCloseoutSummary: async (id) => {
+    return wmJson("GET", `${API_URL}/weddings/parties/${id}/closeout`);
+  },
+
+  closeoutWedding: async (id, payload) => {
+    return wmJson("POST", `${API_URL}/weddings/parties/${id}/closeout`, {
+      body: {
+        outcome: payload.outcome,
+        reason: payload.reason,
+        notes: payload.notes || null,
+        acknowledge_open_work: !!payload.acknowledgeOpenWork,
+      },
+    });
+  },
+
   // Appointments
   getAppointments: async (start, end) => {
     const params = {};
@@ -622,6 +658,7 @@ export const api = {
       type: a.appointment_type,
       status: a.status,
       salesperson: a.salesperson,
+      salespersonStaffId: a.salesperson_staff_id,
       memberId: a.wedding_member_id,
       partyId: a.wedding_party_id,
       customerId: a.customer_id,
@@ -662,6 +699,8 @@ export const api = {
       notes: apptData.notes || null,
       status: apptData.status || "Scheduled",
       salesperson: apptData.salesperson || null,
+      salesperson_staff_id: apptData.salespersonStaffId || null,
+      schedule_override_reason: apptData.scheduleOverrideReason || null,
     };
     return wmJson("POST", `${API_URL}/weddings/appointments`, { body: payload });
   },
@@ -676,6 +715,9 @@ export const api = {
       notes: updates.notes,
       status: updates.status,
       salesperson: updates.salesperson,
+      salesperson_staff_id: updates.salespersonStaffId || undefined,
+      schedule_override_reason: updates.scheduleOverrideReason || undefined,
+      complete_member_milestone: updates.completeMemberMilestone || false,
     };
     return wmJson("PATCH", `${API_URL}/weddings/appointments/${id}`, { body: payload });
   },

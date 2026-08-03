@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import Icon from './Icon';
+import WeddingModalPortal from './WeddingModalPortal';
 
 const GlobalModal = ({
     isOpen,
@@ -62,8 +63,8 @@ const GlobalModal = ({
     const styles = getVariantStyles();
 
     return (
-        <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-app-text/40 backdrop-blur-[2px] animate-fade-in"
+        <WeddingModalPortal
+            className="flex items-center justify-center p-4 bg-app-text/40 backdrop-blur-[2px] animate-fade-in"
             role="dialog"
             aria-modal="true"
             aria-labelledby="wm-global-modal-title"
@@ -104,7 +105,7 @@ const GlobalModal = ({
                     </button>
                 </div>
             </div>
-        </div>
+        </WeddingModalPortal>
     );
 };
 

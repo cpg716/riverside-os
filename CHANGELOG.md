@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compatible Homebrew PostgreSQL dump/restore pair when available.
 
 ### Changed
+- **Wedding Lifecycle Authority and Closeout**: Wedding Hub now derives ordered,
+  received, ready-for-pickup, and picked-up status from authoritative
+  Transaction/Fulfillment Order lines. Authenticated party/member/appointment
+  audit writes are atomic, scheduling overrides retain staff identity and
+  reasons, and recent member activity opens the exact Transaction in Orders.
+  Managers can close passed, cancelled, incomplete, or legacy weddings without
+  fabricating workflow completion; linked balances, deposits, fulfillment,
+  appointments, alterations, shipping, and customer history remain unchanged
+  and the wedding can be reopened from Closed / Archived with retained audit
+  history.
 - **ROSIE Local Intelligence Upgrade**: Pinned Google's official Gemma 4 E4B
   QAT Q4_0 model and matching vision projector, enabled provider-governed SSE
   answer streaming with usage telemetry, exposed the existing permission-gated

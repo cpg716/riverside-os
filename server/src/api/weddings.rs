@@ -344,10 +344,9 @@ async fn require_weddings_view(state: &AppState, headers: &HeaderMap) -> Result<
 async fn require_weddings_mutate(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<(), WeddingError> {
+) -> Result<pins::AuthenticatedStaff, WeddingError> {
     middleware::require_staff_with_permission(state, headers, WEDDINGS_MUTATE)
         .await
-        .map(|_| ())
         .map_err(map_wed_perm)
 }
 
@@ -451,6 +450,38 @@ async fn wedding_events_stream(
 pub struct ActorQuery {
     #[serde(default)]
     pub actor_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CloseoutWeddingRequest {
+    pub outcome: String,
+    pub reason: String,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub acknowledge_open_work: bool,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct WeddingCloseoutSummary {
+    pub transaction_count: i64,
+    pub open_transaction_count: i64,
+    pub balance_due: Decimal,
+    pub held_deposit_balance: Decimal,
+    pub open_fulfillment_line_count: i64,
+    pub scheduled_appointment_count: i64,
+    pub open_alteration_count: i64,
+}
+
+impl WeddingCloseoutSummary {
+    fn has_open_work(&self) -> bool {
+        self.open_transaction_count > 0
+            || self.balance_due != Decimal::ZERO
+            || self.held_deposit_balance != Decimal::ZERO
+            || self.open_fulfillment_line_count > 0
+            || self.scheduled_appointment_count > 0
+            || self.open_alteration_count > 0
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -791,6 +822,9 @@ pub struct UpdateAppointmentRequest {
     pub salesperson_staff_id: Option<Uuid>,
     #[serde(default)]
     pub schedule_override_reason: Option<String>,
+    /// Atomically completes Measurement/Fitting member milestones when the appointment is attended.
+    #[serde(default)]
+    pub complete_member_milestone: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -970,6 +1004,10 @@ pub fn router() -> Router<AppState> {
             get(get_party_deposit_context),
         )
         .route("/parties/{party_id}/restore", post(restore_party))
+        .route(
+            "/parties/{party_id}/closeout",
+            get(get_wedding_closeout_summary).post(closeout_wedding),
+        )
         .route("/parties/{party_id}/health", get(get_health))
         .route("/parties/{party_id}/readiness", get(get_party_readiness))
         .route("/parties/{party_id}/cutover", get(get_party_cutover))
@@ -1567,8 +1605,10 @@ async fn create_party(
     headers: HeaderMap,
     Json(body): Json<CreatePartyRequest>,
 ) -> Result<Json<WeddingPartyWithMembers>, WeddingError> {
-    require_weddings_mutate(&state, &headers).await?;
+    let actor = require_weddings_mutate(&state, &headers).await?;
     let sender = wedding_client_sender(&headers);
+    let mut body = body;
+    body.actor_name = Some(actor.full_name);
     insert_party_and_respond(&state, body, sender.as_deref()).await
 }
 
@@ -1599,8 +1639,8 @@ async fn update_party(
     headers: HeaderMap,
     Json(body): Json<UpdatePartyRequest>,
 ) -> Result<Json<WeddingPartyWithMembers>, WeddingError> {
-    require_weddings_mutate(&state, &headers).await?;
-    let log_actor = body.actor_name.clone();
+    let authenticated_actor = require_weddings_mutate(&state, &headers).await?;
+    let log_actor = Some(authenticated_actor.full_name);
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wedding_parties WHERE id = $1)")
             .bind(party_id)
@@ -1711,13 +1751,14 @@ async fn update_party(
 
     let fields_summary = party_patch_summary(&body);
     qb.push(" WHERE id = ").push_bind(party_id);
-    qb.build().execute(&state.db).await?;
+    let mut tx = state.db.begin().await?;
+    qb.build().execute(&mut *tx).await?;
 
     if !fields_summary.is_empty() {
         let actor = resolve_actor(log_actor);
         let desc = format!("Party updated: {}", fields_summary.join(", "));
-        if let Err(e) = wedding_logic::insert_wedding_activity(
-            &state.db,
+        wedding_logic::insert_wedding_activity(
+            &mut *tx,
             party_id,
             None,
             &actor,
@@ -1725,11 +1766,9 @@ async fn update_party(
             &desc,
             json!({ "fields": fields_summary }),
         )
-        .await
-        {
-            tracing::warn!(error = %e, "Wedding activity log failed");
-        }
+        .await?;
     }
+    tx.commit().await?;
 
     state
         .wedding_events
@@ -1744,10 +1783,10 @@ async fn update_party(
 async fn delete_party_handler(
     State(state): State<AppState>,
     Path(party_id): Path<Uuid>,
-    Query(q): Query<ActorQuery>,
+    Query(_q): Query<ActorQuery>,
     headers: HeaderMap,
 ) -> Result<StatusCode, WeddingError> {
-    require_weddings_mutate(&state, &headers).await?;
+    let authenticated_actor = require_weddings_mutate(&state, &headers).await?;
     let r = sqlx::query("UPDATE wedding_parties SET is_deleted = TRUE WHERE id = $1 AND (is_deleted IS NULL OR is_deleted = FALSE)")
         .bind(party_id)
         .execute(&state.db)
@@ -1755,7 +1794,7 @@ async fn delete_party_handler(
     if r.rows_affected() == 0 {
         return Err(WeddingError::PartyNotFound);
     }
-    let actor = resolve_actor(q.actor_name);
+    let actor = authenticated_actor.full_name;
     if let Err(e) = wedding_logic::insert_wedding_activity(
         &state.db,
         party_id,
@@ -1779,31 +1818,70 @@ async fn delete_party_handler(
 async fn restore_party(
     State(state): State<AppState>,
     Path(party_id): Path<Uuid>,
-    Query(q): Query<ActorQuery>,
+    Query(_q): Query<ActorQuery>,
     headers: HeaderMap,
 ) -> Result<Json<WeddingPartyWithMembers>, WeddingError> {
-    require_weddings_mutate(&state, &headers).await?;
-    let r = sqlx::query("UPDATE wedding_parties SET is_deleted = FALSE WHERE id = $1")
-        .bind(party_id)
-        .execute(&state.db)
-        .await?;
+    let authenticated_actor = require_weddings_mutate(&state, &headers).await?;
+    let mut tx = state.db.begin().await?;
+    let previous: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT closeout_outcome, closeout_reason FROM wedding_parties WHERE id = $1 FOR UPDATE",
+    )
+    .bind(party_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let previous = previous.ok_or(WeddingError::PartyNotFound)?;
+    if previous.0.is_some() {
+        let effective = effective_permissions_for_staff(
+            &state.db,
+            authenticated_actor.id,
+            authenticated_actor.role,
+        )
+        .await
+        .map_err(WeddingError::Database)?;
+        if !staff_can_approve_manager_access(&effective, authenticated_actor.role) {
+            return Err(WeddingError::Forbidden(
+                "Manager Access is required to reopen a closed-out wedding".to_string(),
+            ));
+        }
+    }
+    let r = sqlx::query(
+        r#"
+        UPDATE wedding_parties
+        SET is_deleted = FALSE,
+            closed_at = NULL,
+            closed_by_staff_id = NULL,
+            closeout_outcome = NULL,
+            closeout_reason = NULL,
+            closeout_notes = NULL
+        WHERE id = $1
+        "#,
+    )
+    .bind(party_id)
+    .execute(&mut *tx)
+    .await?;
     if r.rows_affected() == 0 {
         return Err(WeddingError::PartyNotFound);
     }
-    let actor = resolve_actor(q.actor_name);
-    if let Err(e) = wedding_logic::insert_wedding_activity(
-        &state.db,
+    let actor = authenticated_actor.full_name;
+    wedding_logic::insert_wedding_activity(
+        &mut *tx,
         party_id,
         None,
         &actor,
         "STATUS_CHANGE",
-        "Party restored from archive",
-        json!({}),
+        if previous.0.is_some() {
+            "Closed-out wedding reopened"
+        } else {
+            "Party restored from archive"
+        },
+        json!({
+            "previous_closeout_outcome": previous.0,
+            "previous_closeout_reason": previous.1,
+            "actor_staff_id": authenticated_actor.id,
+        }),
     )
-    .await
-    {
-        tracing::warn!(error = %e, "Wedding activity log failed");
-    }
+    .await?;
+    tx.commit().await?;
     state
         .wedding_events
         .parties_updated(wedding_client_sender(&headers).as_deref());
@@ -1812,13 +1890,211 @@ async fn restore_party(
     Ok(Json(bundle))
 }
 
+async fn load_wedding_closeout_summary<'e, E>(
+    executor: E,
+    party_id: Uuid,
+) -> Result<WeddingCloseoutSummary, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query_as(
+        r#"
+        SELECT
+            (SELECT COUNT(*)::bigint FROM transactions t
+             LEFT JOIN wedding_members wm ON wm.id = t.wedding_member_id
+             WHERE wm.wedding_party_id = $1 OR t.wedding_id = $1) AS transaction_count,
+            (SELECT COUNT(*)::bigint FROM transactions t
+             LEFT JOIN wedding_members wm ON wm.id = t.wedding_member_id
+             WHERE (wm.wedding_party_id = $1 OR t.wedding_id = $1)
+               AND LOWER(t.status::text) NOT IN ('fulfilled', 'cancelled')) AS open_transaction_count,
+            (SELECT ROUND(COALESCE(SUM(t.balance_due), 0)::numeric, 2)
+             FROM transactions t
+             LEFT JOIN wedding_members wm ON wm.id = t.wedding_member_id
+             WHERE (wm.wedding_party_id = $1 OR t.wedding_id = $1)
+               AND LOWER(t.status::text) <> 'cancelled') AS balance_due,
+            (SELECT ROUND(COALESCE(SUM(
+                allocation.amount - COALESCE((
+                    SELECT SUM(CASE source_event.event_kind
+                        WHEN 'redemption' THEN source_event.amount
+                        WHEN 'restoration' THEN -source_event.amount
+                        ELSE 0::numeric
+                    END)
+                    FROM customer_open_deposit_source_events source_event
+                    WHERE source_event.source_credit_ledger_id = allocation.held_credit_ledger_id
+                ), 0::numeric)
+             ), 0::numeric), 2)
+             FROM wedding_deposit_workflow_allocations allocation
+             JOIN wedding_deposit_workflows workflow ON workflow.id = allocation.workflow_id
+             WHERE workflow.wedding_party_id = $1
+               AND workflow.status <> 'voided'
+               AND allocation.destination_kind = 'held_for_future_order') AS held_deposit_balance,
+            (SELECT COUNT(*)::bigint
+             FROM transaction_lines tl
+             JOIN transactions t ON t.id = tl.transaction_id
+             LEFT JOIN wedding_members wm ON wm.id = t.wedding_member_id
+             WHERE (wm.wedding_party_id = $1 OR t.wedding_id = $1)
+               AND LOWER(t.status::text) <> 'cancelled'
+               AND tl.fulfillment::text <> 'takeaway'
+               AND COALESCE(tl.order_lifecycle_status::text, 'ntbo') <> 'picked_up') AS open_fulfillment_line_count,
+            (SELECT COUNT(*)::bigint FROM wedding_appointments wa
+             WHERE wa.wedding_party_id = $1
+               AND LOWER(wa.status) NOT IN ('attended', 'missed', 'cancelled')) AS scheduled_appointment_count,
+            (SELECT COUNT(*)::bigint
+             FROM alteration_orders ao
+             JOIN wedding_members wm ON wm.id = ao.wedding_member_id
+             WHERE wm.wedding_party_id = $1
+               AND ao.status::text <> 'picked_up') AS open_alteration_count
+        "#,
+    )
+    .bind(party_id)
+    .fetch_one(executor)
+    .await
+}
+
+async fn get_wedding_closeout_summary(
+    State(state): State<AppState>,
+    Path(party_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<WeddingCloseoutSummary>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM wedding_parties WHERE id = $1 AND closed_at IS NULL)",
+    )
+    .bind(party_id)
+    .fetch_one(&state.db)
+    .await?;
+    if !exists {
+        return Err(WeddingError::PartyNotFound);
+    }
+    Ok(Json(
+        load_wedding_closeout_summary(&state.db, party_id).await?,
+    ))
+}
+
+async fn closeout_wedding(
+    State(state): State<AppState>,
+    Path(party_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<CloseoutWeddingRequest>,
+) -> Result<Json<serde_json::Value>, WeddingError> {
+    let actor = require_weddings_mutate(&state, &headers).await?;
+    let effective = effective_permissions_for_staff(&state.db, actor.id, actor.role)
+        .await
+        .map_err(WeddingError::Database)?;
+    if !staff_can_approve_manager_access(&effective, actor.role) {
+        return Err(WeddingError::Forbidden(
+            "Manager Access is required to close out a wedding without completing its ROS workflow"
+                .to_string(),
+        ));
+    }
+
+    let outcome = body.outcome.trim();
+    if !matches!(
+        outcome,
+        "completed_outside_ros"
+            | "cancelled"
+            | "not_completed"
+            | "legacy_record"
+            | "duplicate_or_test"
+    ) {
+        return Err(WeddingError::BadRequest(
+            "Select a supported wedding closeout outcome".to_string(),
+        ));
+    }
+    let reason = body.reason.trim();
+    if reason.chars().count() < 10 {
+        return Err(WeddingError::BadRequest(
+            "Closeout reason must be at least 10 characters".to_string(),
+        ));
+    }
+    let notes = body
+        .notes
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let mut tx = state.db.begin().await?;
+    let party_name: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(party_name, groom_name)
+        FROM wedding_parties
+        WHERE id = $1 AND closed_at IS NULL AND COALESCE(is_deleted, FALSE) = FALSE
+        FOR UPDATE
+        "#,
+    )
+    .bind(party_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let party_name = party_name.ok_or(WeddingError::PartyNotFound)?;
+    let summary = load_wedding_closeout_summary(&mut *tx, party_id).await?;
+    if summary.has_open_work() && !body.acknowledge_open_work {
+        return Err(WeddingError::BadRequest(
+            "This wedding still has open financial, fulfillment, appointment, or alteration work. Review it and explicitly acknowledge that closeout preserves those records without completing them."
+                .to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE wedding_parties
+        SET is_deleted = TRUE,
+            closed_at = NOW(),
+            closed_by_staff_id = $2,
+            closeout_outcome = $3,
+            closeout_reason = $4,
+            closeout_notes = $5
+        WHERE id = $1
+        "#,
+    )
+    .bind(party_id)
+    .bind(actor.id)
+    .bind(outcome)
+    .bind(reason)
+    .bind(notes)
+    .execute(&mut *tx)
+    .await?;
+
+    wedding_logic::insert_wedding_activity(
+        &mut *tx,
+        party_id,
+        None,
+        &actor.full_name,
+        "WEDDING_CLOSED_OUT",
+        &format!("Wedding closed out as {outcome}: {reason}"),
+        json!({
+            "actor_staff_id": actor.id,
+            "outcome": outcome,
+            "reason": reason,
+            "notes": notes,
+            "open_work_acknowledged": body.acknowledge_open_work,
+            "open_work_summary": &summary,
+        }),
+    )
+    .await?;
+    tx.commit().await?;
+
+    state
+        .wedding_events
+        .parties_updated(wedding_client_sender(&headers).as_deref());
+    spawn_meilisearch_wedding_party(&state, party_id);
+
+    Ok(Json(json!({
+        "wedding_party_id": party_id,
+        "party_name": party_name,
+        "closed": true,
+        "outcome": outcome,
+        "open_work_preserved": summary,
+    })))
+}
+
 async fn add_member(
     State(state): State<AppState>,
     Path(party_id): Path<Uuid>,
     headers: HeaderMap,
     Json(body): Json<CreateMemberRequest>,
 ) -> Result<Json<WeddingMemberApi>, WeddingError> {
-    require_weddings_mutate(&state, &headers).await?;
+    let authenticated_actor = require_weddings_mutate(&state, &headers).await?;
+    let actor_name = authenticated_actor.full_name;
     let pew: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wedding_parties WHERE id = $1)")
             .bind(party_id)
@@ -2075,7 +2351,7 @@ async fn add_member(
         }
     };
 
-    let actor = resolve_actor(log_actor);
+    let actor = actor_name;
     if let Err(e) = wedding_logic::insert_wedding_activity(
         &state.db,
         party_id,
@@ -2108,8 +2384,8 @@ async fn update_member(
     headers: HeaderMap,
     Json(body): Json<UpdateMemberRequest>,
 ) -> Result<Json<WeddingMemberApi>, WeddingError> {
-    require_weddings_mutate(&state, &headers).await?;
-    let log_actor = body.actor_name.clone();
+    let authenticated_actor = require_weddings_mutate(&state, &headers).await?;
+    let log_actor = Some(authenticated_actor.full_name);
     let exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wedding_members WHERE id = $1)")
             .bind(member_id)
@@ -2170,34 +2446,23 @@ async fn update_member(
         return Ok(Json(member));
     }
 
+    let party_id: Uuid =
+        sqlx::query_scalar("SELECT wedding_party_id FROM wedding_members WHERE id = $1")
+            .bind(member_id)
+            .fetch_one(&state.db)
+            .await?;
+    let mut tx = state.db.begin().await?;
     qb.push(" WHERE id = ").push_bind(member_id);
-    qb.build().execute(&state.db).await?;
+    qb.build().execute(&mut *tx).await?;
 
-    if patch_keys.iter().any(|k| {
+    let sync_measurements = patch_keys.iter().any(|k| {
         matches!(
             k.as_str(),
             "suit" | "waist" | "vest" | "shirt" | "shoe" | "measure_date" | "measured"
         )
-    }) {
-        if let Err(e) = crate::logic::customer_measurements::sync_retail_from_wedding_member(
-            &state.db, member_id,
-        )
-        .await
-        {
-            tracing::warn!(
-                error = %e,
-                wedding_member_id = %member_id,
-                "customer measurement retail sync from wedding member failed"
-            );
-        }
-    }
+    });
 
     if !patch_keys.is_empty() {
-        let party_id: Uuid =
-            sqlx::query_scalar("SELECT wedding_party_id FROM wedding_members WHERE id = $1")
-                .bind(member_id)
-                .fetch_one(&state.db)
-                .await?;
         let actor = resolve_actor(log_actor);
         let desc = body
             .activity_description
@@ -2231,8 +2496,8 @@ async fn update_member(
         } else {
             "STATUS_CHANGE"
         };
-        if let Err(e) = wedding_logic::insert_wedding_activity(
-            &state.db,
+        wedding_logic::insert_wedding_activity(
+            &mut *tx,
             party_id,
             Some(member_id),
             &actor,
@@ -2240,9 +2505,21 @@ async fn update_member(
             &desc,
             json!({ "fields": patch_keys }),
         )
+        .await?;
+    }
+    tx.commit().await?;
+
+    if sync_measurements {
+        if let Err(e) = crate::logic::customer_measurements::sync_retail_from_wedding_member(
+            &state.db, member_id,
+        )
         .await
         {
-            tracing::warn!(error = %e, "Wedding activity log failed");
+            tracing::warn!(
+                error = %e,
+                wedding_member_id = %member_id,
+                "customer measurement retail sync from wedding member failed"
+            );
         }
     }
 
@@ -2250,12 +2527,7 @@ async fn update_member(
         .wedding_events
         .parties_updated(wedding_client_sender(&headers).as_deref());
 
-    let party_for_meili: Uuid =
-        sqlx::query_scalar("SELECT wedding_party_id FROM wedding_members WHERE id = $1")
-            .bind(member_id)
-            .fetch_one(&state.db)
-            .await?;
-    spawn_meilisearch_wedding_party(&state, party_for_meili);
+    spawn_meilisearch_wedding_party(&state, party_id);
 
     let member = fetch_member_optional(&state.db, member_id)
         .await?
@@ -2269,7 +2541,7 @@ async fn delete_member_handler(
     Query(q): Query<ActorQuery>,
     headers: HeaderMap,
 ) -> Result<StatusCode, WeddingError> {
-    require_weddings_mutate(&state, &headers).await?;
+    let authenticated_actor = require_weddings_mutate(&state, &headers).await?;
     let mut tx = state.db.begin().await?;
     let row: Option<Uuid> =
         sqlx::query_scalar("SELECT wedding_party_id FROM wedding_members WHERE id = $1")
@@ -2277,7 +2549,7 @@ async fn delete_member_handler(
             .fetch_optional(&mut *tx)
             .await?;
     let party_id = row.ok_or(WeddingError::MemberNotFound)?;
-    let actor = resolve_actor(q.actor_name);
+    let actor = authenticated_actor.full_name;
     wedding_logic::insert_wedding_activity(
         &mut *tx,
         party_id,
@@ -2342,6 +2614,9 @@ async fn create_appointment(
     Json(body): Json<CreateAppointmentRequest>,
 ) -> Result<Json<AppointmentRow>, WeddingError> {
     require_weddings_mutate(&state, &headers).await?;
+    let actor = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(map_wed_perm)?;
     let name_ok = body
         .customer_display_name
         .as_deref()
@@ -2442,6 +2717,24 @@ async fn create_appointment(
     .fetch_one(&mut *tx)
     .await?;
 
+    if let Some(party_id) = party_id {
+        wedding_logic::insert_wedding_activity(
+            &mut *tx,
+            party_id,
+            member_id,
+            &actor.full_name,
+            "APPOINTMENT_CREATED",
+            &format!("{} appointment scheduled", appt_type),
+            json!({
+                "actor_staff_id": actor.id,
+                "appointment_id": id,
+                "starts_at": body.starts_at,
+                "salesperson_staff_id": body.salesperson_staff_id,
+            }),
+        )
+        .await?;
+    }
+
     if let Some((actor_id, reason, message)) = override_actor {
         sqlx::query(
             r#"
@@ -2504,6 +2797,9 @@ async fn update_appointment(
     Json(body): Json<UpdateAppointmentRequest>,
 ) -> Result<Json<AppointmentRow>, WeddingError> {
     require_weddings_mutate(&state, &headers).await?;
+    let actor = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(map_wed_perm)?;
 
     let current: AppointmentRow = sqlx::query_as(
         r#"
@@ -2518,6 +2814,14 @@ async fn update_appointment(
     .ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
 
     let merged_starts = body.starts_at.unwrap_or(current.starts_at);
+    let merged_status = body
+        .status
+        .clone()
+        .unwrap_or_else(|| current.status.clone());
+    let merged_appointment_type = body
+        .appointment_type
+        .clone()
+        .unwrap_or_else(|| current.appointment_type.clone());
     let merged_salesperson_staff_id = body.salesperson_staff_id.or(current.salesperson_staff_id);
     let merged_salesperson = body.salesperson.clone().or_else(|| {
         merged_salesperson_staff_id
@@ -2643,6 +2947,64 @@ async fn update_appointment(
         .await?;
     }
 
+    if body.complete_member_milestone && merged_status.eq_ignore_ascii_case("Attended") {
+        if let (Some(party_id), Some(member_id)) =
+            (current.wedding_party_id, current.wedding_member_id)
+        {
+            let milestone = if merged_appointment_type.eq_ignore_ascii_case("Measurement") {
+                sqlx::query(
+                    "UPDATE wedding_members SET measured = TRUE, measure_date = COALESCE(measure_date, CURRENT_DATE), updated_at = NOW() WHERE id = $1",
+                )
+                .bind(member_id)
+                .execute(&mut *tx)
+                .await?;
+                Some("Measurement")
+            } else if merged_appointment_type.eq_ignore_ascii_case("Fitting") {
+                sqlx::query(
+                    "UPDATE wedding_members SET fitting = TRUE, fitting_date = COALESCE(fitting_date, CURRENT_DATE), updated_at = NOW() WHERE id = $1",
+                )
+                .bind(member_id)
+                .execute(&mut *tx)
+                .await?;
+                Some("Fitting")
+            } else {
+                None
+            };
+            if let Some(milestone) = milestone {
+                wedding_logic::insert_wedding_activity(
+                    &mut *tx,
+                    party_id,
+                    Some(member_id),
+                    &actor.full_name,
+                    "APPOINTMENT_ATTENDED",
+                    &format!("{milestone} appointment attended; member milestone completed"),
+                    json!({
+                        "actor_staff_id": actor.id,
+                        "appointment_id": appointment_id,
+                        "milestone": milestone,
+                    }),
+                )
+                .await?;
+            }
+        }
+    } else if let Some(party_id) = current.wedding_party_id {
+        wedding_logic::insert_wedding_activity(
+            &mut *tx,
+            party_id,
+            current.wedding_member_id,
+            &actor.full_name,
+            "APPOINTMENT_UPDATED",
+            "Wedding appointment updated",
+            json!({
+                "actor_staff_id": actor.id,
+                "appointment_id": appointment_id,
+                "previous_status": current.status,
+                "status": merged_status,
+            }),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     if has_updates {
@@ -2672,6 +3034,9 @@ async fn delete_appointment(
     headers: HeaderMap,
 ) -> Result<StatusCode, WeddingError> {
     require_weddings_mutate(&state, &headers).await?;
+    let actor = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(map_wed_perm)?;
     let mut tx = state.db.begin().await?;
 
     // Fetch before deleting so we can log it and update search index
@@ -2694,7 +3059,7 @@ async fn delete_appointment(
             &mut *tx,
             party_id,
             existing.wedding_member_id,
-            "system",
+            &actor.full_name,
             "APPOINTMENT_DELETED",
             &format!(
                 "Appointment deleted: {} on {}",
@@ -2703,6 +3068,7 @@ async fn delete_appointment(
             ),
             json!({
                 "appointment_id": appointment_id,
+                "actor_staff_id": actor.id,
                 "appointment_type": existing.appointment_type,
                 "starts_at": existing.starts_at,
                 "salesperson": existing.salesperson,

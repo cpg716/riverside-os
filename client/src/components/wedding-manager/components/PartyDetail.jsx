@@ -22,6 +22,7 @@ import StockStatusModal from './StockStatusModal';
 import WeddingReadinessPanel from './WeddingReadinessPanel';
 import { isLegacyIndividualParty } from '../lib/partyLegacy';
 import RosieIcon from '../../common/RosieIcon';
+import WeddingCloseoutModal from './WeddingCloseoutModal';
 
 const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onNewAppointment }) => {
     const { showAlert, showConfirm, selectSalesperson } = useModal();
@@ -50,6 +51,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
     const [readinessByMemberId, setReadinessByMemberId] = useState({});
     const [financialContext, setFinancialContext] = useState(null);
     const [showManagerFinancials, setShowManagerFinancials] = useState(false);
+    const [isCloseoutModalOpen, setIsCloseoutModalOpen] = useState(false);
 
     useEffect(() => {
         if (!party?.id) {
@@ -1015,6 +1017,16 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                 itemName={pendingStockUpdate?.field || 'item'}
                 onSelect={handleStockSave}
             />
+            <WeddingCloseoutModal
+                isOpen={isCloseoutModalOpen}
+                party={party}
+                onClose={() => setIsCloseoutModalOpen(false)}
+                onClosed={() => {
+                    setIsCloseoutModalOpen(false);
+                    if (onRefresh) onRefresh();
+                    onBack();
+                }}
+            />
 
             {/* Top Navigation Bar */}
             <div className="bg-gradient-to-r from-neutral-950 to-neutral-900 border-b border-white/10 sticky top-0 z-20 shadow-lg backdrop-blur-sm bg-opacity-95 text-white print:hidden">
@@ -1064,6 +1076,13 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                                 title="View Party Audit History"
                             >
                                 <Icon name="History" size={16} /> History
+                            </button>
+                            <button type="button"
+                                onClick={() => setIsCloseoutModalOpen(true)}
+                                className="flex items-center gap-2 rounded-lg border-2 border-amber-400/70 bg-amber-500/15 px-4 py-2 text-xs font-black uppercase tracking-wider text-amber-200 shadow-sm transition-all hover:bg-amber-500 hover:text-white active:scale-95"
+                                title="Record a historical outcome and remove this wedding from active tracking"
+                            >
+                                <Icon name="Archive" size={16} /> Close Out
                             </button>
                             <button type="button"
                                 onClick={onPrint}

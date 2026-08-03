@@ -45,10 +45,11 @@ const AppointmentList = ({ memberId, partyId }) => {
 };
 
 import { useModal } from '../hooks/useModal';
-import { dispatchOpenRegisterFromWeddingManager } from '../../../lib/weddingPosBridge';
+import { dispatchOpenRegisterFromWeddingManager, dispatchOpenWeddingTransaction } from '../../../lib/weddingPosBridge';
 import { WEDDING_MEMBER_RETAIL_SIZE_FIELDS } from '../../customers/retailMeasurementLabels';
 import CustomerSearchInput from '../../ui/CustomerSearchInput';
 import VariantSearchInput from '../../ui/VariantSearchInput';
+import WeddingModalPortal from './WeddingModalPortal';
 
 const WEDDING_WORKFLOW_STEPS = [
     { key: 'measured', label: 'Measure' },
@@ -337,7 +338,7 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
     if (!localMember) return null;
 
     return (
-        <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-app-text/40 backdrop-blur-[2px] animate-fade-in">
+        <WeddingModalPortal className="flex items-center justify-center p-4 bg-app-text/40 backdrop-blur-[2px] animate-fade-in">
             <div className="bg-app-surface rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-app-border transition-colors">
                 <div className="bg-app-surface border-b border-app-border/80 p-4 flex justify-between items-center text-app-text sticky top-0 z-10 rounded-t-lg">
                     <h3 className="font-extrabold text-lg flex items-center gap-2 uppercase tracking-tight">
@@ -705,7 +706,14 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                             ) : (
                                                 <div className="space-y-1">
                                                     {financialLines.map((ln, idx) => (
-                                                        <div key={`${ln.kind}-${ln.created_at}-${idx}`} className="flex items-center justify-between text-xs">
+                                                        <button
+                                                            type="button"
+                                                            key={`${ln.kind}-${ln.created_at}-${idx}`}
+                                                            disabled={!ln.transaction_id}
+                                                            onClick={() => ln.transaction_id && dispatchOpenWeddingTransaction(ln.transaction_id)}
+                                                            className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-xs hover:bg-app-surface-2 disabled:cursor-default disabled:hover:bg-transparent"
+                                                            title={ln.transaction_id ? "Open the exact Transaction in Orders" : "Payment activity is shown on its linked Transaction"}
+                                                        >
                                                             <span className="truncate text-app-text">
                                                                 {ln.kind}
                                                                 {ln.kind === "order" && fulfillmentLabel(ln.fulfillment_profile)
@@ -715,7 +723,7 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                                                 {ln.created_at ? new Date(ln.created_at).toLocaleString() : "No date"}
                                                             </span>
                                                             <span className="font-bold text-app-text">{formatMoney(ln.amount)}</span>
-                                                        </div>
+                                                        </button>
                                                     ))}
                                                 </div>
                                             )}
@@ -937,7 +945,7 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                     salesperson: partySalesperson
                 }}
             />
-        </div >
+        </WeddingModalPortal>
     );
 };
 

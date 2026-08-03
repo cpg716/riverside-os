@@ -37,10 +37,10 @@ const PartyList = ({ parties, loading, onPartyClick, currentPage, totalPages, se
             <div className="text-center py-20 bg-app-surface rounded-lg border border-app-border border-dashed">
                 <Icon name={showDeleted ? "Trash2" : "Search"} size={48} className="text-app-text-muted mx-auto mb-4" />
                 <h3 className="text-lg font-bold text-app-text">
-                    {showDeleted ? 'No deleted parties found' : 'No parties found'}
+                    {showDeleted ? 'No closed or archived parties found' : 'No parties found'}
                 </h3>
                 <p className="text-app-text-muted">
-                    {showDeleted ? 'All deleted parties match your filters, or none have been deleted.' : 'Try adjusting your search or filters.'}
+                    {showDeleted ? 'No weddings have been closed out or archived with these filters.' : 'Try adjusting your search or filters.'}
                 </p>
             </div>
         );
@@ -59,24 +59,28 @@ const PartyList = ({ parties, loading, onPartyClick, currentPage, totalPages, se
 
                     const hasUnmeasured = party.members.some(m => !m.measured);
                     const isCritical = urgent && hasUnmeasured;
+                    const archived = Boolean(party.isDeleted);
+                    const closeoutLabel = party.closeoutOutcome
+                        ? party.closeoutOutcome.replaceAll('_', ' ')
+                        : null;
 
                     return (
                         <div
                             key={party.id}
                             role="button"
-                            tabIndex={party.isDeleted === 1 ? -1 : 0}
+                            tabIndex={archived ? -1 : 0}
                             aria-label={`Open wedding party ${party.name || party.partyName || ''}`.trim()}
-                            onClick={() => party.isDeleted !== 1 && onPartyClick(party)}
+                            onClick={() => !archived && onPartyClick(party)}
                             onKeyDown={(event) =>
-                                activateOnEnterOrSpace(event, () => party.isDeleted !== 1 && onPartyClick(party))
+                                activateOnEnterOrSpace(event, () => !archived && onPartyClick(party))
                             }
-                            className={`bg-app-surface rounded-lg shadow-sm hover:shadow-xl transition-all duration-300 border border-app-border cursor-pointer group flex flex-col h-full active:scale-[0.98] hover:-translate-y-1 relative overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${party.isDeleted === 1 ? 'opacity-60 grayscale-[0.5]' : ''} ${isCritical ? 'ring-2 ring-red-500 shadow-lg shadow-red-100' : urgent ? 'ring-1 ring-red-100' : ''}`}
+                            className={`bg-app-surface rounded-lg shadow-sm hover:shadow-xl transition-all duration-300 border border-app-border cursor-pointer group flex flex-col h-full active:scale-[0.98] hover:-translate-y-1 relative overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${archived ? 'opacity-75' : ''} ${isCritical ? 'ring-2 ring-red-500 shadow-lg shadow-red-100' : urgent ? 'ring-1 ring-red-100' : ''}`}
                         >
                             {/* Deleted / Archived Stamp */}
-                            {party.isDeleted === 1 && (
+                            {archived && (
                                 <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none">
-                                    <div className="border-4 border-red-600/30 text-red-600/30 font-black text-4xl px-4 py-2 uppercase tracking-widest rotate-[-12deg] rounded-xl scale-110">
-                                        Deleted
+                                    <div className={`border-4 font-black text-3xl px-4 py-2 uppercase tracking-widest rotate-[-12deg] rounded-xl scale-110 ${party.closedAt ? 'border-amber-600/30 text-amber-700/30' : 'border-red-600/30 text-red-600/30'}`}>
+                                        {party.closedAt ? 'Closed Out' : 'Deleted'}
                                     </div>
                                 </div>
                             )}
@@ -117,6 +121,12 @@ const PartyList = ({ parties, loading, onPartyClick, currentPage, totalPages, se
 
                             <div className="p-5 flex-1 flex flex-col">
                                 <div className="text-sm text-app-text mb-4 space-y-2 flex-1">
+                                    {party.closedAt ? (
+                                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                                            <div className="font-black uppercase tracking-wide">{closeoutLabel}</div>
+                                            <div className="mt-1 line-clamp-2 font-semibold">{party.closeoutReason}</div>
+                                        </div>
+                                    ) : null}
                                     <div className="flex justify-between items-center pb-2 border-b border-app-surface-2">
                                         <span className="text-app-text-muted text-xs uppercase font-bold tracking-wider">Style</span>
                                         <span className="font-semibold text-app-text truncate max-w-[150px]">{party.styleInfo || party.notes || '-'}</span>
@@ -151,7 +161,7 @@ const PartyList = ({ parties, loading, onPartyClick, currentPage, totalPages, se
                                         onClick={(e) => { e.stopPropagation(); onRestore(party); }}
                                         className="flex items-center gap-1.5 text-emerald-700 font-bold hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1 rounded-full transition-colors"
                                     >
-                                        <Icon name="RotateCcw" size={12} /> Restore Party
+                                        <Icon name="RotateCcw" size={12} /> {party.closedAt ? 'Reopen Wedding' : 'Restore Party'}
                                     </button>
                                 ) : (
                                     <span className="flex items-center gap-1 text-app-text font-bold group-hover:translate-x-1 transition-transform">

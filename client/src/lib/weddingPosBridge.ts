@@ -1,5 +1,6 @@
 /** Dispatched from Wedding Manager to open POS with a linked wedding member (wedding_order semantics). */
 export const ROS_OPEN_REGISTER_FROM_WM = "ros-open-register-from-wm";
+export const ROS_OPEN_TRANSACTION_FROM_WM = "ros-open-transaction-from-wm";
 
 export type RosOpenRegisterFromWmMember = {
   id: string;
@@ -24,4 +25,10 @@ export type RosOpenRegisterFromWmDetail = {
 
 export function dispatchOpenRegisterFromWeddingManager(detail: RosOpenRegisterFromWmDetail): void {
   window.dispatchEvent(new CustomEvent(ROS_OPEN_REGISTER_FROM_WM, { detail }));
+}
+
+export function dispatchOpenWeddingTransaction(transactionId: string): void {
+  window.dispatchEvent(
+    new CustomEvent(ROS_OPEN_TRANSACTION_FROM_WM, { detail: { transactionId } }),
+  );
 }

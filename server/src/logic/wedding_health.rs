@@ -473,12 +473,34 @@ pub async fn calculate_wedding_readiness(
     let member_counts = WeddingMemberCounts {
         total: member_rows.len() as i64,
         measured: member_rows.iter().filter(|m| m.measured).count() as i64,
-        ordered: member_rows.iter().filter(|m| m.suit_ordered).count() as i64,
-        received: member_rows.iter().filter(|m| m.received).count() as i64,
+        ordered: member_rows
+            .iter()
+            .filter(|m| {
+                let total = m.needs_measurements_count
+                    + m.ntbo_count
+                    + m.ordered_count
+                    + m.received_count
+                    + m.ready_for_pickup_count
+                    + m.picked_up_count;
+                total > 0 && m.needs_measurements_count + m.ntbo_count == 0
+            })
+            .count() as i64,
+        received: member_rows
+            .iter()
+            .filter(|m| {
+                let total = m.needs_measurements_count
+                    + m.ntbo_count
+                    + m.ordered_count
+                    + m.received_count
+                    + m.ready_for_pickup_count
+                    + m.picked_up_count;
+                total > 0 && m.needs_measurements_count + m.ntbo_count + m.ordered_count == 0
+            })
+            .count() as i64,
         fitting: member_rows.iter().filter(|m| m.fitting).count() as i64,
         pickup_complete: member_rows
             .iter()
-            .filter(|m| m.pickup_status.as_deref() == Some("complete"))
+            .filter(|m| m.open_count == 0 && m.picked_up_count > 0)
             .count() as i64,
     };
 
@@ -709,9 +731,7 @@ fn member_readiness_state(
         });
     }
 
-    if row.pickup_status.as_deref() == Some("complete")
-        || (lifecycle.open == 0 && lifecycle.picked_up > 0)
-    {
+    if lifecycle.open == 0 && lifecycle.picked_up > 0 {
         (
             "complete".to_string(),
             blockers,

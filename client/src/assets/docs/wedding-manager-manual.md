@@ -11,6 +11,26 @@ status: approved
 
 # Wedding Manager
 
+## Authoritative status and audit rules
+
+- **Measured** and **Fitted** may be completed manually, or automatically when a linked Measurement/Fitting appointment is marked Attended.
+- **Ordered, Received, Ready for Pickup, and Picked Up** come from the member's Transaction/Fulfillment Order lines. Open the member and use Register/Orders; the party grid is a status view, not a second fulfillment system.
+- A Pickup appointment marked Attended does not complete pickup. Finish pickup through Orders/Register so inventory, payment, fulfillment, and receipts remain linked.
+- Schedule conflicts require Manager Access and a written override reason. ROS records the authenticated staff member, not a typed display name.
+- Wedding deposits remain owned by the payer and allocated to a beneficiary member. Use the original payer's Orders & Receipts history to resume Deposit Only work.
+
+## Close out an older or incomplete wedding
+
+Use **Close Out** on the wedding header when the event is over, was cancelled, did not proceed, was completed outside ROS, or is only a legacy record. Manager Access is required.
+
+1. Choose the recorded outcome.
+2. Enter a specific operational reason and optional historical notes.
+3. Review the linked Transactions, balance, held deposits, fulfillment lines, appointments, and alterations.
+4. If open work exists, acknowledge that it will remain open in its owning ROS workspace.
+5. Select **Record & Close Wedding**.
+
+Closeout removes the wedding from active Wedding boards but does not fabricate completion, cancel or fulfill merchandise, refund or write off balances, consume deposits, or close appointments/alterations. Find it under **Closed / Archived**. A manager can reopen it; the original closeout remains in Party History.
+
 ## Screenshots
 
 ![Wedding parties workspace](../images/help/wedding-manager/parties.png)

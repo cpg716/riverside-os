@@ -511,10 +511,10 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                                     ? 'bg-red-600 text-white border-red-700 shadow-red-200'
                                                     : 'bg-app-surface text-app-text-muted border-app-border hover:text-red-600 hover:border-red-300'
                                                 }`}
-                                            title={showDeleted ? 'Back to Active Parties' : 'View Deleted Parties'}
+                                            title={showDeleted ? 'Back to Active Parties' : 'View Closed and Archived Parties'}
                                         >
                                             <Icon name={showDeleted ? 'RotateCcw' : 'Trash2'} size={16} />
-                                            <span className="hidden sm:inline">{showDeleted ? 'Show Active' : 'Deleted'}</span>
+                                            <span className="hidden sm:inline">{showDeleted ? 'Show Active' : 'Closed / Archived'}</span>
                                         </button>
                                     </div>
                                 </div>
@@ -555,7 +555,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                 <div className="flex justify-between items-center mb-4">
                                     <h3 className="text-xl font-bold text-app-text flex items-center gap-2">
                                         <Icon name={showDeleted ? "Trash2" : "Users"} className={showDeleted ? "text-red-400" : "text-app-text-muted"} />
-                                        {showDeleted ? 'Deleted Parties' : 'Active Parties'}
+                                        {showDeleted ? 'Closed & Archived Parties' : 'Active Parties'}
                                         {showDeleted && (
                                             <span className="text-xs font-bold text-red-500 bg-red-50 border border-red-200 px-2 py-1 rounded-full">
                                                 Showing Deleted Records
@@ -585,7 +585,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                     searchTerm={debouncedSearchTerm}
                                     showDeleted={showDeleted}
                                     onRestore={async (party) => {
-                                        const confirmed = await showConfirm(`Restore party "${party.name}"? It will reappear in the system.`, 'Restore Party', { variant: 'info', confirmText: 'Yes, Restore' });
+                                        const confirmed = await showConfirm(`Reopen party "${party.name}"? It will return to active wedding tracking, while its prior closeout remains in audit history.`, 'Reopen Wedding Party', { variant: 'info', confirmText: 'Yes, Reopen' });
                                         if (!confirmed) return;
                                         const restoredBy = await selectSalesperson();
                                         if (!restoredBy) return;

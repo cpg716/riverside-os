@@ -214,13 +214,15 @@ const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId
                                 <Icon name="Ruler" size={14} /> {member.measured ? 'DONE' : 'MEASURE'}
                             </button>
                             <button type="button"
-                                onClick={() => toggleStatus(partyId, member.id, 'ordered')}
+                                onClick={() => onMemberClick(member)}
+                                title="Derived from the member's fulfillment lines"
                                 className={`py-3 px-3 rounded-lg text-[10px] font-black border-2 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm ${member.ordered ? 'bg-amber-500 text-white border-amber-600' : 'bg-app-surface text-app-text-muted border-app-border'}`}
                             >
                                 <Icon name="FileText" size={14} /> {member.ordered ? 'DONE' : 'ORDER'}
                             </button>
                             <button type="button"
-                                onClick={() => toggleStatus(partyId, member.id, 'received')}
+                                onClick={() => onMemberClick(member)}
+                                title="Derived from receiving and fulfillment"
                                 className={`py-3 px-3 rounded-lg text-[10px] font-black border-2 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm ${member.received ? 'bg-indigo-600 text-white border-indigo-700' : 'bg-app-surface text-app-text-muted border-app-border'}`}
                             >
                                 <Icon name="Package" size={14} /> {member.received ? 'DONE' : 'RECEIVE'}
@@ -232,7 +234,8 @@ const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId
                                 <Icon name="Scissors" size={14} /> {member.fitting ? 'DONE' : 'FIT'}
                             </button>
                             <button type="button"
-                                onClick={() => toggleStatus(partyId, member.id, 'pickup')}
+                                onClick={() => onMemberClick(member)}
+                                title="Complete pickup through Orders/Register"
                                 className={`py-3 px-3 rounded-lg text-[10px] font-black border-2 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm col-span-2 ${member.pickup === 'partial' ? 'bg-orange-500 text-white border-orange-600' : member.pickup ? 'bg-navy-900 text-white border-navy-950 shadow-sm' : 'bg-app-surface text-app-text-muted border-app-border'}`}
                             >
                                 <Icon name="ShoppingBag" size={14} /> {member.pickup === 'partial' ? 'PARTIAL' : member.pickup ? 'DONE' : 'PICKUP'}

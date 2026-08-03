@@ -77,6 +77,7 @@ const ShipmentsHubSection = lazy(
 );
 import {
   ROS_OPEN_REGISTER_FROM_WM,
+  ROS_OPEN_TRANSACTION_FROM_WM,
   type RosOpenRegisterFromWmDetail,
 } from "./lib/weddingPosBridge";
 import { applyDocumentTheme, resolveThemeMode } from "./lib/rosDocumentTheme";
@@ -255,6 +256,23 @@ function App() {
 
   const onRegisterReconcilingBegun = useCallback(() => {
     setLifecycleStatus("reconciling");
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const transactionId = (event as CustomEvent<{ transactionId?: string }>).detail
+        ?.transactionId;
+      if (!transactionId) return;
+      setTransactionsDeepLinkTxnId(transactionId);
+      setActiveTab("orders");
+      setActiveSubSection("all");
+      setWeddingMode(false);
+      setInsightsMode(false);
+      setPosMode(false);
+    };
+    window.addEventListener(ROS_OPEN_TRANSACTION_FROM_WM, handler as EventListener);
+    return () =>
+      window.removeEventListener(ROS_OPEN_TRANSACTION_FROM_WM, handler as EventListener);
   }, []);
 
   const enterBackofficeShell = useCallback(

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Icon from './Icon';
 import { api } from '../lib/api';
 import StaffMiniSelector from '../../ui/StaffMiniSelector';
+import WeddingModalPortal from './WeddingModalPortal';
 
 const SelectSalespersonModal = ({ isOpen, onClose, onSelect }) => {
     const [salespeople, setSalespeople] = useState([]);
@@ -44,8 +45,8 @@ const SelectSalespersonModal = ({ isOpen, onClose, onSelect }) => {
     const selectedSalespersonId = salespeople.find((sp) => sp.full_name === selected)?.id || '';
 
     return (
-        <div
-            className="fixed inset-0 z-[110] flex items-start justify-center overflow-y-auto p-4 bg-navy-900/60 backdrop-blur-sm animate-in fade-in duration-300 sm:items-center"
+        <WeddingModalPortal
+            className="flex items-start justify-center overflow-y-auto p-4 bg-navy-900/60 backdrop-blur-sm animate-in fade-in duration-300 sm:items-center"
             role="dialog"
             aria-modal="true"
             aria-labelledby="wm-select-salesperson-title"
@@ -109,7 +110,7 @@ const SelectSalespersonModal = ({ isOpen, onClose, onSelect }) => {
                     </p>
                 </div>
             </div>
-        </div>
+        </WeddingModalPortal>
     );
 };
 

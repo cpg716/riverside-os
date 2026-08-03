@@ -52,6 +52,11 @@ pub struct WeddingPartyRow {
     pub groom_phone_clean: Option<String>,
     pub bride_phone_clean: Option<String>,
     pub is_deleted: Option<bool>,
+    pub closed_at: Option<DateTime<Utc>>,
+    pub closed_by_staff_id: Option<Uuid>,
+    pub closeout_outcome: Option<String>,
+    pub closeout_reason: Option<String>,
+    pub closeout_notes: Option<String>,
     pub suit_variant_id: Option<Uuid>,
     /// Whether the suit_variant_id references a valid ROS product
     pub suit_inventory_verified: Option<bool>,
@@ -105,6 +110,13 @@ pub struct WeddingMemberApi {
     pub import_customer_name: Option<String>,
     pub import_customer_phone: Option<String>,
     pub alteration_status: Option<String>,
+    pub lifecycle_needs_measurements: i64,
+    pub lifecycle_ntbo: i64,
+    pub lifecycle_ordered: i64,
+    pub lifecycle_received: i64,
+    pub lifecycle_ready_for_pickup: i64,
+    pub lifecycle_picked_up: i64,
+    pub lifecycle_open: i64,
 }
 
 #[derive(Debug, Serialize)]

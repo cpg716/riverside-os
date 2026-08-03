@@ -59,6 +59,11 @@ fn party_select_sql() -> &'static str {
             wp.groom_phone_clean,
             wp.bride_phone_clean,
             wp.is_deleted,
+            wp.closed_at,
+            wp.closed_by_staff_id,
+            wp.closeout_outcome,
+            wp.closeout_reason,
+            wp.closeout_notes,
             wp.suit_variant_id,
             CASE WHEN wp.suit_variant_id IS NULL THEN NULL
                  WHEN EXISTS(SELECT 1 FROM product_variants pv JOIN products p ON pv.product_id = p.id WHERE pv.id = wp.suit_variant_id AND p.is_active = TRUE) THEN TRUE
@@ -114,9 +119,31 @@ pub async fn load_members_for_party(
             wm.customer_verified,
             wm.import_customer_name,
             wm.import_customer_phone,
-            (SELECT status::text FROM alteration_orders WHERE wedding_member_id = wm.id ORDER BY created_at DESC LIMIT 1) AS alteration_status
+            (SELECT status::text FROM alteration_orders WHERE wedding_member_id = wm.id ORDER BY created_at DESC LIMIT 1) AS alteration_status,
+            COALESCE(lifecycle.needs_measurements, 0)::bigint AS lifecycle_needs_measurements,
+            COALESCE(lifecycle.ntbo, 0)::bigint AS lifecycle_ntbo,
+            COALESCE(lifecycle.ordered, 0)::bigint AS lifecycle_ordered,
+            COALESCE(lifecycle.received, 0)::bigint AS lifecycle_received,
+            COALESCE(lifecycle.ready_for_pickup, 0)::bigint AS lifecycle_ready_for_pickup,
+            COALESCE(lifecycle.picked_up, 0)::bigint AS lifecycle_picked_up,
+            COALESCE(lifecycle.open, 0)::bigint AS lifecycle_open
         FROM wedding_members wm
         JOIN customers c ON c.id = wm.customer_id
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'needs_measurements') AS needs_measurements,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'ntbo') AS ntbo,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'ordered') AS ordered,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'received') AS received,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'ready_for_pickup') AS ready_for_pickup,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'picked_up') AS picked_up,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status <> 'picked_up') AS open
+            FROM transactions t
+            JOIN transaction_lines tl ON tl.transaction_id = t.id
+            WHERE t.wedding_member_id = wm.id
+              AND t.status::text <> 'cancelled'
+              AND tl.fulfillment::text <> 'takeaway'
+        ) lifecycle ON TRUE
         WHERE wm.wedding_party_id = $1
         ORDER BY wm.member_index ASC, wm.created_at ASC
         "#,
@@ -983,9 +1010,31 @@ pub async fn fetch_member_optional(
             wm.customer_verified,
             wm.import_customer_name,
             wm.import_customer_phone,
-            (SELECT status::text FROM alteration_orders WHERE wedding_member_id = wm.id ORDER BY created_at DESC LIMIT 1) AS alteration_status
+            (SELECT status::text FROM alteration_orders WHERE wedding_member_id = wm.id ORDER BY created_at DESC LIMIT 1) AS alteration_status,
+            COALESCE(lifecycle.needs_measurements, 0)::bigint AS lifecycle_needs_measurements,
+            COALESCE(lifecycle.ntbo, 0)::bigint AS lifecycle_ntbo,
+            COALESCE(lifecycle.ordered, 0)::bigint AS lifecycle_ordered,
+            COALESCE(lifecycle.received, 0)::bigint AS lifecycle_received,
+            COALESCE(lifecycle.ready_for_pickup, 0)::bigint AS lifecycle_ready_for_pickup,
+            COALESCE(lifecycle.picked_up, 0)::bigint AS lifecycle_picked_up,
+            COALESCE(lifecycle.open, 0)::bigint AS lifecycle_open
         FROM wedding_members wm
         JOIN customers c ON c.id = wm.customer_id
+        LEFT JOIN LATERAL (
+            SELECT
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'needs_measurements') AS needs_measurements,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'ntbo') AS ntbo,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'ordered') AS ordered,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'received') AS received,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'ready_for_pickup') AS ready_for_pickup,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status = 'picked_up') AS picked_up,
+                COUNT(*) FILTER (WHERE tl.order_lifecycle_status <> 'picked_up') AS open
+            FROM transactions t
+            JOIN transaction_lines tl ON tl.transaction_id = t.id
+            WHERE t.wedding_member_id = wm.id
+              AND t.status::text <> 'cancelled'
+              AND tl.fulfillment::text <> 'takeaway'
+        ) lifecycle ON TRUE
         WHERE wm.id = $1
         "#,
     )

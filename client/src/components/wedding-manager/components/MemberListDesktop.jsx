@@ -216,7 +216,8 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                     </td>
                                     <td className="px-1 py-3 whitespace-nowrap text-center">
                                         <button type="button"
-                                            onClick={() => toggleStatus(partyId, member.id, 'ordered')}
+                                            onClick={() => onMemberClick(member)}
+                                            title="Derived from the member's fulfillment lines. Open member details to build or review the Transaction."
                                             className={`w-full py-2.5 rounded-lg text-xs font-black border-2 transition-all flex items-center justify-center gap-1 min-h-[44px] shadow-sm transform active:scale-95 ${member.ordered ? 'bg-amber-500 text-white border-amber-600 shadow-amber-200' : 'bg-app-surface text-app-text-muted border-app-border hover:border-app-border hover:bg-app-surface-2'}`}
                                         >
                                             {member.ordered ? <><Icon name="FileText" size={14} /> DONE</> : 'PENDING'}
@@ -224,7 +225,8 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                     </td>
                                     <td className="px-1 py-3 whitespace-nowrap text-center">
                                         <button type="button"
-                                            onClick={() => toggleStatus(partyId, member.id, 'received')}
+                                            onClick={() => onMemberClick(member)}
+                                            title="Derived from receiving and fulfillment. Open member details to review the source Transaction."
                                             className={`w-full py-2.5 rounded-lg text-xs font-black border-2 transition-all flex items-center justify-center gap-1 min-h-[44px] shadow-sm transform active:scale-95 ${member.received ? 'bg-indigo-600 text-white border-indigo-700 shadow-indigo-200' : 'bg-app-surface text-app-text-muted border-app-border hover:border-app-border hover:bg-app-surface-2'}`}
                                         >
                                             {member.received ? <><Icon name="Package" size={14} /> DONE</> : 'PENDING'}
@@ -246,7 +248,8 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                     </td>
                                     <td className="px-1 py-3 whitespace-nowrap text-center">
                                         <button type="button"
-                                            onClick={() => toggleStatus(partyId, member.id, 'pickup')}
+                                            onClick={() => onMemberClick(member)}
+                                            title="Derived from fulfillment. Complete pickup through Orders/Register."
                                             className={`w-full py-2.5 rounded-lg text-xs font-black border-2 transition-all flex items-center justify-center gap-1 min-h-[44px] shadow-sm transform active:scale-95 ${member.pickup === 'partial' ? 'bg-orange-500 text-white border-orange-600 shadow-orange-200' : member.pickup ? 'bg-navy-900 text-white border-navy-950 shadow-navy-200' : 'bg-app-surface text-app-text-muted border-app-border hover:border-app-border hover:bg-app-surface-2'}`}
                                         >
                                             {member.pickup === 'partial' ? <><Icon name="ShoppingBag" size={14} /> PARTIAL</> : member.pickup ? <><Icon name="ShoppingBag" size={14} /> DONE</> : 'PENDING'}

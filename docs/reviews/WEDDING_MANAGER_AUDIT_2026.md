@@ -1,4 +1,16 @@
 # Audit Report: Wedding Manager Subsystem (2026)
+## 2026-08-02 closure review
+
+The POS Wedding Hub now treats `transaction_lines.lifecycle_status` as the authority for Ordered, Received, Ready for Pickup, and Picked Up. Legacy member flags remain compatibility fields but are no longer writable from the party grid and no longer satisfy readiness completion.
+
+Appointment create/update/delete activity is attributed to authenticated ROS staff. Linked Measurement/Fitting attendance and its member milestone are committed atomically; Pickup attendance deliberately leaves fulfillment unchanged. Schedule overrides carry the selected `salesperson_staff_id`, require Manager Access and a reason, and retain the existing override audit record.
+
+Party/member updates now use authenticated staff attribution and commit their activity log with the business update. Core wedding modal surfaces use the shared `#drawer-root` modal tier; non-modal full-screen workspaces retain their workspace layout.
+
+Financial behavior remains unchanged: deposits are payer-owned liabilities, beneficiary allocations consume exact source ledger funds, and member builds create separate Transactions/Fulfillment Orders through checkout.
+
+The 2026-08-03 follow-up adds a Manager Access closeout for weddings that passed, were cancelled, did not proceed, were completed outside ROS, or predate complete ROS tracking. Closeout records structured outcome/reason/notes and an open-work snapshot, requires explicit acknowledgment when linked work remains, archives the party, and writes the audit event atomically. It never mutates linked financial or operational records and supports an audited manager reopen path.
+
 **Date:** 2026-04-08
 **Status:** Feature Complete / Event-Driven
 

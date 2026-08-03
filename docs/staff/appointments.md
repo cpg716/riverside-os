@@ -1,5 +1,12 @@
 # Appointments (store calendar)
 
+## Wedding appointment integration
+
+- Select the ROS staff record, not only a typed salesperson name. This preserves schedule validation and attribution.
+- If a conflict is shown, enter the operational reason. The server requires Manager Access and records the staff ID, reason, warning, and appointment.
+- Marking a linked Measurement or Fitting appointment Attended completes the matching wedding-member milestone in the same transaction.
+- Marking a Pickup appointment Attended does **not** mark merchandise picked up. Complete pickup in Orders/Register.
+
 **Audience:** Front desk and managers.
 
 **Where in ROS:** Back Office → **Appointments**. Subsections: **Scheduler**, **Conflicts**.

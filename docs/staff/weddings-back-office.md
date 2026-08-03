@@ -1,5 +1,19 @@
 # Weddings (Back Office)
 
+## Lifecycle source of truth
+
+The Wedding Hub derives Ordered, Received, Ready for Pickup, and Picked Up from each member's non-takeaway Transaction/Fulfillment Order lines. Staff cannot complete those stages by toggling a party-grid flag. Open the member, then continue in Register or Orders so receiving, alterations, shipping, pickup, payments, and receipts retain the same source identifiers.
+
+Measurements and fittings remain operational milestones. Marking a linked Measurement or Fitting appointment Attended updates the appointment and member milestone atomically. Pickup appointments never complete fulfillment; use Orders/Register.
+
+ROS uses the authenticated staff identity for wedding mutations and records party/member updates with their activity entry in the same database transaction. Appointment conflict overrides require Manager Access plus a written reason.
+
+## Historical wedding closeout
+
+For a passed, cancelled, incomplete, duplicate/test, or pre-ROS wedding, use **Close Out** instead of manually marking every workflow stage complete. The manager records an outcome, required reason, optional notes, and explicitly acknowledges any open ROS work shown in the review.
+
+Closeout archives the wedding from active boards and writes an authenticated `WEDDING_CLOSED_OUT` activity entry. It preserves linked Transactions, balances, deposits, fulfillment lines, appointments, alterations, shipments, and customer history without changing their state. Closed weddings are listed under **Closed / Archived** and can be reopened with Manager Access; reopening clears the current closeout marker but retains the historical activity entry.
+
 **Audience:** Wedding managers and consultants.
 
 **Where in ROS:** Back Office → **Weddings**. Subsections: **Action Board**, **Parties**, **Calendar**, **Readiness**, and **Cutover Review**.
