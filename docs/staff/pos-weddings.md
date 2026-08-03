@@ -20,7 +20,7 @@ POS **Weddings** keeps **party lookup**, **balances**, and **next steps** beside
 
 1. POS → **Register**.
 2. Attach the customer profile.
-3. If they belong to a current wedding, confirm the party and role in **Part of the Wedding Order?**
+3. If they belong to a current wedding, use the compact party row to verify party, role, date, and status. Choose **Start Order** for the correct party or **Measure** to open the customer's measurements. When more than one active wedding is listed, Riverside does not select one automatically. After starting, **Wedding party for this sale** can switch the party only while the Cart is empty.
 4. Choose **Yes — Build Wedding Order** for wedding merchandise. Choose **No — Regular Sale** only for an unrelated purchase; **Start Wedding Order** can reopen it.
 5. The cart rail now shows the **Wedding Checklist**. Select this member's exact variation for each needed parent item:
    - **Take now** for in-store items the customer will leave with.

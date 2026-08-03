@@ -354,6 +354,12 @@ test("only an exact register-session and checkout Helcim attempt can import or l
   expect(drawer).toContain(": currentCheckoutRoutingAttemptId;");
   expect(drawer).toContain("const canFinalize =");
   expect(drawer).toContain(
+    "const HELCIM_TERMINAL_ATTENTION_AFTER_MS = 2 * 60 * 1000;",
+  );
+  expect(drawer).toContain(
+    'helcimAttemptBelongsToCurrentCheckout && helcimAttempt?.status === "pending"',
+  );
+  expect(drawer).toContain(
     "const helcimOutcomeBlocksCheckout = helcimAttemptLoading;",
   );
   const checkoutBlockStart = drawer.indexOf(
@@ -370,7 +376,15 @@ test("only an exact register-session and checkout Helcim attempt can import or l
     "helcimRoutingAttemptBelongsToCurrentCheckout ||\n    (helcimAttemptBelongsToCurrentCheckout",
   );
   expect(drawer).toContain("!helcimOutcomeBlocksCheckout &&");
+  expect(drawer).toContain("!currentCheckoutHelcimPending &&");
   expect(drawer).toContain("!rmsNoCreditTenderNeedsApproval;");
+  expect(drawer).toContain("if (currentCheckoutHelcimPending) {");
+  expect(drawer).toContain(
+    "Ready to Save becomes available only after a final result.",
+  );
+  expect(drawer).toContain(
+    'currentCheckoutHelcimPending\n                            ? "WAITING FOR CARD"',
+  );
   expect(drawer).toContain("if (helcimOutcomeBlocksCheckout) {");
   expect(drawer).toContain("disabled={helcimOutcomeBlocksCheckout}");
   expect(drawer).toContain("const helcimAttentionBannerVisible =");

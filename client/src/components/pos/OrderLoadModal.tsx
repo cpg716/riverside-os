@@ -613,7 +613,7 @@ export default function OrderLoadModal({
       { order, items: openItems },
     ]);
     toast(
-      `${openItems.length} item(s) from ${order.display_id} added to the Register cart.${
+      `${openItems.length} item(s) from ${order.display_id} staged for the Register cart.${
         unreadyCount > 0
           ? ` ${unreadyCount} item(s) will require Manager Access before completion.`
           : ""

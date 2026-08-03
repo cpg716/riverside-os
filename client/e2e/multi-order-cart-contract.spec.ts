@@ -59,18 +59,22 @@ test("Update Item variation drawer stays above Customer Orders", () => {
   expect(detailDrawer).toContain("${layerClassName}");
 });
 
-test("starting pickup preserves intentionally staged payments on every order", () => {
+test("starting pickup returns selected items to Cart without forcing Payment", () => {
   const cart = repoFile("client/src/components/pos/Cart.tsx");
+  const pickupHandoff = cart.slice(
+    cart.indexOf("onPickupToCart={async"),
+    cart.indexOf("onCancelledToRefundCart"),
+  );
 
   expect(cart).toContain("stagedOrderPayments={orderPaymentLines}");
-  expect(cart).toContain("setOrderPaymentLines((currentPaymentLines) =>");
-  expect(cart).toContain("const explicitlyStagedTargets = new Set");
-  expect(cart).toContain("...currentPaymentLines");
-  expect(cart).toContain("!explicitlyStagedTargets.has(");
-  expect(cart).toContain("hasSalespersonAttribution(cartLines)");
-  expect(cart).toContain(
-    "Select a salesperson for every new sale line before applying payment.",
+  expect(pickupHandoff).toContain("mergePickupCartLines(");
+  expect(pickupHandoff).toContain(
+    "use Add Payment only if the customer is paying a balance today.",
   );
+  expect(pickupHandoff).not.toContain("const paymentLines");
+  expect(pickupHandoff).not.toContain("setOrderPaymentLines(");
+  expect(pickupHandoff).not.toContain("setCheckoutDrawerOpen(true)");
+  expect(pickupHandoff).not.toContain("hasSalespersonAttribution(cartLines)");
 });
 
 test("starting pickup from a second order merges it into the active cart", () => {

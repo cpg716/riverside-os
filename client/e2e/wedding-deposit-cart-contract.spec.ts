@@ -77,6 +77,9 @@ test("wedding deposits are a removable deposit-only Cart workflow", () => {
   expect(cartSource).toContain('data-testid="pos-action-wedding-deposit"');
   expect(cartSource).toContain("openWeddingDepositTool");
   expect(cartSource).toContain(
+    "memberships.length === 1 ? memberships[0] : null",
+  );
+  expect(cartSource).not.toContain(
     "memberships.find((candidate) => candidate.active) ?? memberships[0]",
   );
   expect(cartSource).toContain('data-testid="pos-wedding-deposit-line"');
@@ -270,7 +273,7 @@ test("selecting a wedding member offers the reusable exact-variation order flow"
   expect(cartSource).toContain("Held wedding deposit available:");
   expect(cartSource).toContain("It remains a liability until staff explicitly applies it at Pay.");
   expect(cartSource).toContain("No Wedding Order, deposit application, or financial record is created by this question.");
-  expect(cartSource).toContain("Start Wedding Order");
+  expect(cartSource).toContain("Start Order");
   expect(cartSource).toContain("weddingOrderPromptHandledCustomerId");
   expect(cartSource).toContain(
     "weddingOrderPromptMembership.customer_id !== customerId",
@@ -302,6 +305,14 @@ test("selecting a wedding member offers the reusable exact-variation order flow"
   expect(confirmationModalSource).toContain("ui-overlay-backdrop");
   expect(confirmationModalSource).toContain("ui-modal");
   expect(cartSource).toContain("overflow-y-auto overscroll-contain");
+  expect(cartSource).toContain("selectableWeddingPurchaseMemberships.length !== 1");
+  expect(cartSource).toContain('data-testid="pos-wedding-party-choice"');
+  expect(cartSource).toContain('data-testid="pos-wedding-party-card"');
+  expect(cartSource).toContain("Measurements for ${membership.party_name}");
+  expect(cartSource).toContain("flex min-h-14 items-center");
+  expect(cartSource).toContain('aria-label="Wedding party for this sale"');
+  expect(cartSource).toContain("visibleWeddingChecklistMemberships.map");
+  expect(cartSource).toContain("activeWeddingPurchaseMembership.wedding_party_id");
   expect(cartSource).toContain('data-testid="pos-register-keypad"');
   expect(cartSource).toContain("h-[22rem] min-h-[22rem] shrink-0");
   expect(cartSource).not.toContain(

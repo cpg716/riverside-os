@@ -87,7 +87,7 @@ If Helcim completed a refund but cannot return stable automatic attachment evide
 
 For a paid order cancellation, **Cancel Order** only stages the negative item lines and refund tender in Pay. The original Transaction Record, returned quantities, inventory, balance, payment allocations, and cancellation audit do not change while the refund is being prepared. They commit together only after **Ready to Save** succeeds; then the **Sale Complete** screen provides the event-scoped refund receipt. If staging fails, the order remains unchanged and the cancellation window shows **Retry Refund Load**.
 
-A normal current card request is shown as **Waiting for card** or **Checking** in Payment Status. Riverside shows **Card outcome review** when that request is taking longer than expected or its result cannot be verified. That review remains available without reserving the Register or terminal against the next payment.
+A normal current card request is shown as **Waiting for card** or **Checking** in Payment Status. Riverside allows about two minutes for the customer to insert or tap the card and complete PIN prompts before showing **Card outcome review**. While that exact checkout is waiting, the final action stays **Not Ready** and cannot record the sale. Riverside shows **Card outcome review** when the request takes longer or its result cannot be verified.
 
 Changing the selected customer clears pickup context loaded for the previous customer before the payment drawer opens. Reopen the intended customer's Transaction Record and select its pickup lines again; a pickup target never carries into another customer's sale.
 
@@ -97,7 +97,7 @@ If a card attempt is canceled and retried, use the current checkout status befor
 
 If the physical terminal was canceled but ROS still says **Waiting for Card**, select **Recover payment** to update that attempt's audit status. You can continue with another allowed tender; the old request remains visible in Payments Health until its outcome is reconciled.
 
-To change tender, select another allowed payment method. Use **Recover payment** to reconcile the earlier attempt and attach any verified approval to its original checkout; the review itself does not lock other tenders or the **Ready to Save** action.
+To change tender, select another allowed payment method. Use **Recover payment** to reconcile the earlier attempt and attach any verified approval to its original checkout. The current sale cannot become **Ready to Save** until its pending card request has a confirmed approval, decline, cancellation, or expiry; this prevents a late approval from arriving after the sale was recorded with another tender.
 
 If the terminal approves but the drawer still shows the card attempt as pending or declined, use **Recover payment** before running the card again or changing tender. ROS sends a unique invoice reference with each terminal request and can recover the approved Helcim transaction by that reference and amount when the terminal response is delayed. A recovered approval is restored to the active checkout payment ledger; finish the sale to post the final Transaction Record. **Retry card** is available only after ROS has a definitive failed/canceled result; the absence of a match by itself is not proof that no charge exists.
 

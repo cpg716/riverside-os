@@ -280,7 +280,7 @@ function isStaleHelcimSessionError(message: string): boolean {
 
 const HELCIM_UNVERIFIED_OUTCOME_MESSAGE =
   "Card outcome is unresolved and remains in Payments Health. Continue the sale or open Restore to reconcile it.";
-const HELCIM_TERMINAL_ATTENTION_AFTER_MS = 15 * 1000;
+const HELCIM_TERMINAL_ATTENTION_AFTER_MS = 2 * 60 * 1000;
 
 function isAmbiguousProviderStartStatus(status: number): boolean {
   // A timeout or server/gateway failure can hide whether the request reached
@@ -1133,6 +1133,8 @@ export default function NexoCheckoutDrawer({
   const helcimAttemptOutcomeUnverified =
     (helcimAttemptBelongsToCurrentCheckout && helcimAttempt?.status === "expired") ||
     Boolean(helcimUnverifiedNotice);
+  const currentCheckoutHelcimPending =
+    helcimAttemptBelongsToCurrentCheckout && helcimAttempt?.status === "pending";
   // Provider attempts remain visible for audit and recovery, but historical or
   // unresolved state must never lock this Register. Only the in-flight API
   // operation disables checkout controls; confirmed approvals are attached by
@@ -1349,6 +1351,7 @@ export default function NexoCheckoutDrawer({
     operator != null &&
     !busy &&
     !helcimOutcomeBlocksCheckout &&
+    !currentCheckoutHelcimPending &&
     !rmsNoCreditTenderNeedsApproval;
 
   useEffect(() => {
@@ -3385,6 +3388,13 @@ export default function NexoCheckoutDrawer({
 
   const handleFinalize = async () => {
     if (!operator) return;
+    if (currentCheckoutHelcimPending) {
+      toast(
+        "Helcim is still waiting for the card outcome. Ready to Save becomes available only after a final result.",
+        "info",
+      );
+      return;
+    }
     if (helcimOutcomeBlocksCheckout) {
       toast(
         "Resolve the active Helcim card request before recording this sale.",
@@ -3452,6 +3462,9 @@ export default function NexoCheckoutDrawer({
   const keypadCents = parseMoneyToCents(keypad || "0");
   const completeDisabledReason = useMemo(() => {
     if (busy) return "Completing sale...";
+    if (currentCheckoutHelcimPending) {
+      return "Waiting for the current Helcim card request to finish.";
+    }
     if (helcimOutcomeBlocksCheckout) {
       return "Resolve the active Helcim card request before recording the sale.";
     }
@@ -3464,7 +3477,7 @@ export default function NexoCheckoutDrawer({
     }
     if (!operator) return "No staff member verified.";
     return "";
-  }, [busy, helcimOutcomeBlocksCheckout, rmsNoCreditTenderNeedsApproval, balanced, takeawaySatisfied, tw, operator]);
+  }, [busy, currentCheckoutHelcimPending, helcimOutcomeBlocksCheckout, rmsNoCreditTenderNeedsApproval, balanced, takeawaySatisfied, tw, operator]);
   const activeTerminalAttemptIdForRefresh =
     helcimAttemptBelongsToCurrentCheckout
       ? helcimAttempt.id
@@ -5417,8 +5430,12 @@ export default function NexoCheckoutDrawer({
                      </div>
                    )}
                    <div className="flex items-center justify-between pt-1">
-                      <span className={`text-2xl font-black tabular-nums italic tracking-tighter ${balanceSettled ? "text-emerald-500" : "text-app-text"}`}>
-                        {balanceSettled ? "READY" : `$${centsToFixed2(Math.abs(tab === "cash" ? cashRounding.rounded : remainingCents))}`}
+                      <span className={`text-2xl font-black tabular-nums italic tracking-tighter ${canFinalize ? "text-emerald-500" : "text-app-text"}`}>
+                        {canFinalize
+                          ? "READY"
+                          : currentCheckoutHelcimPending
+                            ? "WAITING FOR CARD"
+                            : `$${centsToFixed2(Math.abs(tab === "cash" ? cashRounding.rounded : remainingCents))}`}
                       </span>
                    </div>
                 </div>

@@ -1513,6 +1513,12 @@ export default function Cart({
     };
   }, [apiAuth, baseUrl, selectedCustomer?.id, toast]);
 
+  const selectableWeddingPurchaseMemberships = useMemo(() => {
+    const memberships = weddingPurchaseContext?.memberships ?? [];
+    const activeMemberships = memberships.filter((membership) => membership.active);
+    return activeMemberships.length > 0 ? activeMemberships : memberships;
+  }, [weddingPurchaseContext]);
+
   useEffect(() => {
     const customerId = selectedCustomer?.id ?? null;
     if (!customerId) {
@@ -1528,9 +1534,8 @@ export default function Cart({
     ) {
       return;
     }
-    const membership = weddingPurchaseContext?.memberships.find(
-      (candidate) => candidate.active,
-    );
+    if (selectableWeddingPurchaseMemberships.length !== 1) return;
+    const membership = selectableWeddingPurchaseMemberships[0];
     if (!membership) return;
     if (activeWeddingMember?.customer_id === customerId) {
       weddingOrderPromptHandledCustomerId.current = customerId;
@@ -1544,8 +1549,8 @@ export default function Cart({
     isRmsPaymentCart,
     selectedCustomer?.id,
     weddingCollectBuildSession?.phase,
-    weddingPurchaseContext,
     weddingPurchaseLoading,
+    selectableWeddingPurchaseMemberships,
   ]);
 
   const weddingMemberships = useMemo<WeddingMembership[]>(
@@ -1584,6 +1589,28 @@ export default function Cart({
       setActiveWeddingPartyName(membership.party_name);
     },
     [selectedCustomer?.first_name, selectedCustomer?.last_name],
+  );
+
+  const activeWeddingPurchaseMembership = useMemo(
+    () =>
+      selectableWeddingPurchaseMemberships.find(
+        (membership) =>
+          membership.wedding_member_id === activeWeddingMember?.id &&
+          membership.party_name === activeWeddingPartyName,
+      ) ?? null,
+    [
+      activeWeddingMember?.id,
+      activeWeddingPartyName,
+      selectableWeddingPurchaseMemberships,
+    ],
+  );
+
+  const visibleWeddingChecklistMemberships = useMemo(
+    () =>
+      activeWeddingPurchaseMembership
+        ? [activeWeddingPurchaseMembership]
+        : selectableWeddingPurchaseMemberships,
+    [activeWeddingPurchaseMembership, selectableWeddingPurchaseMemberships],
   );
 
   const openWeddingDepositTool = useCallback(() => {
@@ -1625,12 +1652,22 @@ export default function Cart({
       );
       return;
     }
-    const memberships = weddingPurchaseContext?.memberships ?? [];
+    const memberships = selectableWeddingPurchaseMemberships;
     const membership =
-      memberships.find((candidate) => candidate.active) ?? memberships[0];
+      memberships.find(
+        (candidate) =>
+          candidate.wedding_member_id === activeWeddingMember?.id &&
+          candidate.party_name === activeWeddingPartyName,
+      ) ?? (memberships.length === 1 ? memberships[0] : null);
     if (membership) {
       activateWeddingMembership(membership);
       setWeddingDrawerInitialPartyId(membership.wedding_party_id);
+    } else if (memberships.length > 1) {
+      setWeddingDrawerInitialPartyId(null);
+      toast(
+        `${selectedCustomer.first_name} belongs to ${memberships.length} active weddings. Choose the wedding party in Wedding Deposit before entering allocations.`,
+        "info",
+      );
     } else {
       setWeddingDrawerInitialPartyId(null);
       toast(
@@ -1649,6 +1686,8 @@ export default function Cart({
     setWeddingDrawerOpen(true);
   }, [
     activateWeddingMembership,
+    activeWeddingMember?.id,
+    activeWeddingPartyName,
     ensureSaleCashier,
     isEmployeeSale,
     isRmsPaymentCart,
@@ -1658,8 +1697,8 @@ export default function Cart({
     selectedCustomer,
     staffAccountPaymentMeta?.sku,
     toast,
-    weddingPurchaseContext?.memberships,
     weddingPurchaseLoading,
+    selectableWeddingPurchaseMemberships,
   ]);
 
   useEffect(() => {
@@ -5919,17 +5958,53 @@ export default function Cart({
                 <button
                   type="button"
                   onClick={() => {
-                    const firstPartyId =
-                      weddingPurchaseContext.memberships[0]?.wedding_party_id;
-                    if (firstPartyId) onOpenWeddingParty?.(firstPartyId);
+                    if (activeWeddingPurchaseMembership) {
+                      onOpenWeddingParty?.(activeWeddingPurchaseMembership.wedding_party_id);
+                    }
                   }}
                   className="shrink-0 rounded-lg border border-app-border/70 bg-app-surface px-2 py-1 text-[10px] font-black uppercase tracking-wider text-app-text-muted hover:border-app-accent hover:text-app-accent"
                 >
                   Open
                 </button>
               </div>
+              {selectableWeddingPurchaseMemberships.length > 1 ? (
+                <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Wedding party for this sale
+                  <select
+                    aria-label="Wedding party for this sale"
+                    value={activeWeddingPurchaseMembership?.wedding_member_id ?? ""}
+                    onChange={(event) => {
+                      if (hasCheckoutWork) {
+                        toast(
+                          "Finish or clear the current Cart before changing wedding parties. Riverside will not move items or deposits between weddings.",
+                          "error",
+                        );
+                        return;
+                      }
+                      const membership = selectableWeddingPurchaseMemberships.find(
+                        (candidate) => candidate.wedding_member_id === event.target.value,
+                      );
+                      if (!membership) return;
+                      setWeddingDepositOrderSource(null);
+                      setCheckoutAppliedPayments((payments) =>
+                        payments.filter((payment) => payment.method !== "open_deposit"),
+                      );
+                      activateWeddingMembership(membership);
+                      setWeddingDrawerInitialPartyId(membership.wedding_party_id);
+                      toast(`${membership.party_name} selected for this Wedding Order.`, "success");
+                    }}
+                    className="ui-input mt-1 min-h-10 w-full normal-case tracking-normal"
+                  >
+                    {selectableWeddingPurchaseMemberships.map((membership) => (
+                      <option key={membership.wedding_member_id} value={membership.wedding_member_id}>
+                        {membership.party_name} · {membership.role || "Member"} · {membership.event_date}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <div className="space-y-2">
-                {weddingPurchaseContext.memberships.map((membership) => (
+                {visibleWeddingChecklistMemberships.map((membership) => (
                   <div
                     key={membership.wedding_member_id}
                     className="rounded-xl border border-app-border/70 bg-app-surface p-2"
@@ -6101,24 +6176,51 @@ export default function Cart({
           </div>
         ) : weddingPurchaseContext?.memberships.length ? (
           <div className="shrink-0 border-b border-app-border/50 px-2.5 py-2">
-            <div className="rounded-2xl border border-app-accent/25 bg-app-accent/8 p-3 text-xs text-app-text">
-              <p className="font-black">Wedding member linked</p>
-              <p className="mt-1 text-app-text-muted">
-                Start the Wedding Order to load this member&apos;s party items and exact variation choices.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  const membership =
-                    weddingPurchaseContext.memberships.find(
-                      (candidate) => candidate.active,
-                    ) ?? weddingPurchaseContext.memberships[0];
-                  if (membership) setWeddingOrderPromptMembership(membership);
-                }}
-                className="ui-btn-primary mt-2 min-h-10 w-full"
-              >
-                Start Wedding Order
-              </button>
+            <div className="rounded-2xl border border-app-accent/25 bg-app-accent/8 p-2 text-xs text-app-text">
+              <div className="flex items-center justify-between gap-2 px-1">
+                <p className="font-black">Wedding Parties</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  {selectableWeddingPurchaseMemberships.length} linked
+                </p>
+              </div>
+              <div className="mt-1.5 space-y-1.5" data-testid="pos-wedding-party-choice">
+                {selectableWeddingPurchaseMemberships.map((membership) => (
+                  <div
+                    key={membership.wedding_member_id}
+                    data-testid="pos-wedding-party-card"
+                    className="flex min-h-14 items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2 py-1.5 shadow-sm"
+                  >
+                    <div className="min-w-0 flex-1 leading-tight">
+                      <p className="truncate text-[11px] font-black text-app-text">
+                        {membership.party_name}
+                      </p>
+                      <p className="truncate text-[9px] font-bold uppercase tracking-wide text-app-text-muted">
+                        {membership.role || "Member"} · {membership.event_date}
+                      </p>
+                      <p className="text-[9px] font-black uppercase tracking-wide text-app-success">
+                        {membership.active ? "Active" : membership.status || "Linked"}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-stretch gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setWeddingOrderPromptMembership(membership)}
+                        className="min-h-11 rounded-lg border border-app-accent bg-app-accent px-2 text-[9px] font-black uppercase leading-tight tracking-wide text-white"
+                      >
+                        Start Order
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMeasDrawerOpen(true)}
+                        className="min-h-11 rounded-lg border border-amber-300 bg-amber-50 px-2 text-[9px] font-black uppercase leading-tight tracking-wide text-amber-900 hover:bg-amber-100"
+                        aria-label={`Measurements for ${membership.party_name}`}
+                      >
+                        Measure
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         ) : null}
@@ -8774,32 +8876,6 @@ export default function Cart({
                         OrderLifecycleStatus | undefined,
                   })),
                 );
-                const paymentLines: OrderPaymentCartLine[] = loaded
-                  .filter(
-                    ({ detail }) =>
-                      parseMoneyToCents(detail.balance_due ?? "0") > 0,
-                  )
-                  .map(({ detail }) => ({
-                    line_type: "order_payment",
-                    cart_row_id: newCartRowId(),
-                    target_transaction_id: detail.transaction_id,
-                    target_display_id:
-                      detail.transaction_display_id ??
-                      detail.transaction_id.slice(0, 8).toUpperCase(),
-                    customer_id: firstCustomer.id,
-                    customer_name:
-                      `${firstCustomer.first_name} ${firstCustomer.last_name}`.trim(),
-                    amount: detail.balance_due ?? "0.00",
-                    balance_before: detail.balance_due ?? "0.00",
-                    projected_balance_after: "0.00",
-                  }));
-                if (!hasSalespersonAttribution(cartLines)) {
-                  toast(
-                    "Select a salesperson for every new sale line before opening Payment.",
-                    "error",
-                  );
-                  return false;
-                }
                 const incomingTransactionIds = new Set(
                   selectionsForCheckout.map(
                     (selection) => selection.transactionId,
@@ -8870,30 +8946,13 @@ export default function Cart({
                     cartLines,
                   ),
                 );
-                setOrderPaymentLines((currentPaymentLines) => {
-                  const explicitlyStagedTargets = new Set(
-                    currentPaymentLines.map(
-                      (line) => line.target_transaction_id,
-                    ),
-                  );
-                  return [
-                    ...currentPaymentLines,
-                    ...paymentLines.filter(
-                      (line) =>
-                        !explicitlyStagedTargets.has(
-                          line.target_transaction_id,
-                        ),
-                    ),
-                  ];
-                });
-                setCheckoutDrawerOpen(true);
                 const totalPickupItemCount =
                   preservedPickupSelections.reduce(
                     (count, selection) => count + selection.lineIds.length,
                     0,
                   ) + cartLines.length;
                 toast(
-                  `Pickup cart now has ${totalPickupItemCount} item(s) from ${preservedPickupSelections.length + selectionsForCheckout.length} order(s).`,
+                  `Pickup cart now has ${totalPickupItemCount} item(s) from ${preservedPickupSelections.length + selectionsForCheckout.length} order(s). Review the Cart, add any new items, and use Add Payment only if the customer is paying a balance today.`,
                   "success",
                 );
                 return true;
