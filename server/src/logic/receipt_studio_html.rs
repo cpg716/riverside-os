@@ -27,6 +27,22 @@ fn html_escape(s: &str) -> String {
 
 fn build_items_table(order: &ReceiptOrder) -> String {
     let mut rows = String::new();
+    if order.has_wedding_order_items() {
+        let context = order
+            .wedding_order_context_lines()
+            .into_iter()
+            .map(|line| html_escape(&line))
+            .collect::<Vec<_>>()
+            .join("<br>");
+        rows.push_str(&format!(
+            "<tr><td colspan=\"3\" style=\"padding:8px 0\"><strong>Wedding Order</strong>{}</td></tr>",
+            if context.is_empty() {
+                String::new()
+            } else {
+                format!("<br><span style=\"font-size:11px;color:#666\">{context}</span>")
+            }
+        ));
+    }
     for it in &order.items {
         let var = it
             .variation_label
@@ -579,6 +595,8 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
             phone: Some("716-555-0199".to_string()),
             customer_code: Some("ROS-00066736".to_string()),
         }),
+        wedding_party_name: None,
+        wedding_event_date: None,
         items: vec![
             crate::logic::receipt_shared::ReceiptLine {
                 product_name: "Wool suit jacket".to_string(),
@@ -668,6 +686,22 @@ mod tests {
         assert!(html.contains("for James Brown"));
         assert!(html.contains("Held for future order"));
         assert!(html.contains("<strong>710.38</strong>"));
+    }
+
+    #[test]
+    fn wedding_order_html_names_the_party_and_wedding_date() {
+        let mut order = sample_receipt_order_for_preview();
+        order.items[0].fulfillment = crate::models::DbFulfillmentType::WeddingOrder;
+        order.items[0].is_fulfilled = false;
+        order.wedding_party_name = Some("Adams Wedding".to_string());
+        order.wedding_event_date =
+            Some(chrono::NaiveDate::from_ymd_opt(2026, 9, 19).expect("valid wedding date"));
+
+        let html = render_standard_receipt_html(&order, &ReceiptConfig::default(), false);
+
+        assert!(html.contains("Wedding Order"));
+        assert!(html.contains("Party: Adams Wedding"));
+        assert!(html.contains("Wedding Date: 09/19/2026"));
     }
 
     #[test]

@@ -281,6 +281,7 @@ fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: b
 }
 
 fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
+    let mut wedding_context_printed = false;
     for it in &d.items {
         if is_simple_fee_line(it) {
             set_bold(out, true);
@@ -303,6 +304,15 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
             set_bold(out, true);
             push_line(out, label);
             set_bold(out, false);
+        }
+        if receipt_item_section_label(d, it) == "Wedding Order" && !wedding_context_printed {
+            set_bold(out, true);
+            push_line(out, "Wedding Order");
+            set_bold(out, false);
+            for line in d.wedding_order_context_lines() {
+                push_line(out, &line);
+            }
+            wedding_context_printed = true;
         }
         set_bold(out, true);
         for line in wrap_text(it.product_name.trim(), CPL) {
@@ -605,6 +615,14 @@ fn receiptline_item_lines(
         }
 
         out_lines.push(format!("^^^{}", receiptline_escape(label)));
+
+        if label == "Wedding Order" {
+            out_lines.extend(
+                d.wedding_order_context_lines()
+                    .into_iter()
+                    .map(|line| receiptline_escape(&line)),
+            );
+        }
 
         for it in items {
             if let Some(details) = &it.custom_order_details {
@@ -1222,6 +1240,8 @@ mod tests {
             pickup_prior_paid: None,
             pickup_balance_remaining: None,
             customer: None,
+            wedding_party_name: None,
+            wedding_event_date: None,
             items,
             is_tax_exempt: false,
             tax_exempt_reason: None,
@@ -1316,6 +1336,31 @@ mod tests {
         assert!(receiptline.contains("Held for future order"));
         assert!(escpos_text.contains("Wedding Party Deposit for James Brown (Whitrock Wedding)"));
         assert!(escpos_text.contains("$710.38"));
+    }
+
+    #[test]
+    fn wedding_order_receipts_name_the_party_and_wedding_date() {
+        let mut line = receipt_line("Navy wedding suit", "B-WEDDING", None);
+        line.fulfillment = DbFulfillmentType::WeddingOrder;
+        line.is_fulfilled = false;
+        let mut order = receipt_order_with(vec![line]);
+        order.wedding_party_name = Some("Adams Wedding".to_string());
+        order.wedding_event_date =
+            Some(chrono::NaiveDate::from_ymd_opt(2026, 9, 19).expect("valid wedding date"));
+
+        let receiptline = receiptline_item_lines(&order, &ReceiptConfig::default(), false, false);
+        let escpos = String::from_utf8_lossy(&build_receipt_escpos(
+            &order,
+            &ReceiptConfig::default(),
+            HashMap::new(),
+        ))
+        .into_owned();
+
+        for output in [&receiptline, &escpos] {
+            assert!(output.contains("Wedding Order"), "{output}");
+            assert!(output.contains("Party: Adams Wedding"), "{output}");
+            assert!(output.contains("Wedding Date: 09/19/2026"), "{output}");
+        }
     }
 
     #[test]

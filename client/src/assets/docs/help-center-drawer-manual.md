@@ -99,6 +99,8 @@ ROSIE Chat is for casual, live back-and-forth questions about Riverside workflow
 
 ROSIE Chat keeps a short session context, such as the current Help article and the last question/answer summary. This context helps ROSIE stay conversational, but live screen facts, server tool results, Store SOP, and manuals remain the source of truth.
 
+When **Speech On** cannot start, ROSIE keeps the written answer available and shows a short staff-facing message. Continue by text, or ask a manager to open **Settings → ROSIE** and check ROSIE Speech. Raw model paths and speech-engine diagnostics belong in the technical status tools, not the chat panel.
+
 Use **Speech On** only when it is appropriate for ROSIE to speak aloud at the station. Use **Speech Off** when customers or other staff are nearby, or when the conversation should stay silent. Speech Off only stops spoken replies; staff can still type and use the microphone when voice input is available.
 
 ## What to Watch For

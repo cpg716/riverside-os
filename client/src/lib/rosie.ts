@@ -1053,6 +1053,17 @@ function audioBase64ToObjectUrl(audioBase64: string, mimeType: string): string {
   return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 }
 
+function rosieSpeechErrorForStaff(message: string): string {
+  if (
+    /Kokoro|sherpa-onnx|offline-tts|parse-options|InitFrontend|kokoro-(?:model|voices|tokens|data-dir|lang|lexicon)/i.test(
+      message,
+    )
+  ) {
+    return "ROSIE voice output could not start. Text chat is still available; ask a manager to check ROSIE Speech in Settings.";
+  }
+  return message;
+}
+
 export function speakRosieText(
   text: string,
   options?: {
@@ -1137,7 +1148,7 @@ export function speakRosieText(
       options?.on_error?.(
         /HTTP 405/i.test(message)
           ? "The running RiversideOS host build does not expose the ROSIE voice synthesis route yet. Restart or update the host build so satellite playback can use the approved ROSIE voice."
-          : message,
+          : rosieSpeechErrorForStaff(message),
       );
     }
   });

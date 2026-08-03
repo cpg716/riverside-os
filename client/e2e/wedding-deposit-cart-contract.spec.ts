@@ -127,7 +127,10 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(weddingDepositWorkspaceSource).toContain(
     "fundedMembers.map((member)",
   );
-  expect(weddingDepositWorkspaceSource).toContain("Wedding Builder · Orders &amp; Receipts");
+  expect(weddingDepositWorkspaceSource).toContain("Wedding Builder · Review &amp; Reprint");
+  expect(weddingDepositWorkspaceSource).toContain("Previous Deposits &amp; Builds Found");
+  expect(weddingDepositWorkspaceSource).toContain("Build More Items");
+  expect(weddingDepositWorkspaceSource).toContain("onStartAdditionalMemberOrder");
   expect(weddingDepositWorkspaceSource).toContain("One Builder, separate financial records");
   expect(weddingDepositWorkspaceSource).toContain(
     "Drafts never post money",
@@ -194,6 +197,8 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(cartSource).toContain('data-testid="pos-wedding-order-guidance"');
   expect(cartSource).toContain("Order (Wedding), confirm the salesperson");
   expect(cartSource).toContain("Open Wedding Builder");
+  expect(cartSource).toContain("startAdditionalWeddingMemberOrder");
+  expect(cartSource).toContain("prior deposits, Transactions, and receipts are unchanged");
   expect(cartSource).toContain("setWeddingDepositAutoStartMember(true)");
   expect(parkedSalesHookSource).toContain('"ready_to_post"');
   expect(parkedSalesHookSource).toContain('"complete"');
@@ -292,4 +297,9 @@ test("selecting a wedding member offers the reusable exact-variation order flow"
   expect(confirmationModalSource).toContain("ui-overlay-backdrop");
   expect(confirmationModalSource).toContain("ui-modal");
   expect(cartSource).toContain("overflow-y-auto overscroll-contain");
+  expect(cartSource).toContain('data-testid="pos-register-keypad"');
+  expect(cartSource).toContain("h-[22rem] min-h-[22rem] shrink-0");
+  expect(cartSource).not.toContain(
+    "{activeWeddingMember ||\n            parkedRows.length > 0 ||",
+  );
 });

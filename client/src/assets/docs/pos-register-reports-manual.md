@@ -63,6 +63,7 @@ Use this for:
 - Correcting tender types by reviewing the audit log.
 - Monitoring mid-shift velocity without closing the drawer.
 - Confirming whether the activity was **Takeaway**, **Pickup**, **Special Order**, **Custom Order**, **Wedding Order**, **Layaway**, or mixed fulfillment.
+- Daily Sales, printed reports, and CSV exports always use these staff-facing labels. Internal values such as `wedding_order` are never operating instructions.
 - Reviewing split tenders as separate payment lines with amount labels instead of a single collapsed method list.
 
 The result line states how many matching activity records and pickups are loaded out of the exact server-reported count. An activity record may be a sale, payment, or another audited event, so it is not labeled as a transaction count. Detail-derived dashboard boxes show an em dash while more source rows remain; this means the value is not yet complete, not zero. Load the remaining activity or use the complete View, Print, or Export output.

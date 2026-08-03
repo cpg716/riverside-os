@@ -1,0 +1,37 @@
+import { readFileSync } from "node:fs";
+import { expect, test } from "@playwright/test";
+
+const rosieClientSource = readFileSync(
+  new URL("../src/lib/rosie.ts", import.meta.url),
+  "utf8",
+);
+const serverSpeechSource = readFileSync(
+  new URL("../../server/src/logic/rosie_speech.rs", import.meta.url),
+  "utf8",
+);
+const tauriSpeechSource = readFileSync(
+  new URL("../src-tauri/src/rosie_voice.rs", import.meta.url),
+  "utf8",
+);
+const windowsSpeechProbeSource = readFileSync(
+  new URL("../../deployment/windows/watch-rosie-stack.ps1", import.meta.url),
+  "utf8",
+);
+
+test("multilingual Kokoro starts as US English on every Riverside speech path", () => {
+  for (const source of [
+    serverSpeechSource,
+    tauriSpeechSource,
+    windowsSpeechProbeSource,
+  ]) {
+    expect(source).toContain("--kokoro-lang=en-us");
+  }
+});
+
+test("ROSIE Chat converts speech engine diagnostics into staff-facing guidance", () => {
+  expect(rosieClientSource).toContain("function rosieSpeechErrorForStaff");
+  expect(rosieClientSource).toContain(
+    "ROSIE voice output could not start. Text chat is still available; ask a manager to check ROSIE Speech in Settings.",
+  );
+  expect(rosieClientSource).toContain("rosieSpeechErrorForStaff(message)");
+});

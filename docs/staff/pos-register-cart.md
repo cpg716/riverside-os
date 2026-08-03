@@ -94,6 +94,8 @@ When adding or completing a customer profile at the register, the **Address** fi
 
 If the attached customer belongs to a current wedding party, the customer strip shows the wedding membership and Register asks **Part of the Wedding Order?**
 
+After the member is activated, confirm the member and party in the primary **Wedding member linked** banner. Riverside does not repeat the member in a second status chip. The quantity/price keypad keeps its full-size touch layout; if added wedding context makes the rail taller than the screen, scroll the rail instead of expecting smaller keys.
+
 Use the guided flow this way:
 
 1. Confirm the party name and event date with the customer.

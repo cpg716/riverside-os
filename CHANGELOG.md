@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Wedding Deposit History and Additional Builds**: Selecting a payer with prior Wedding Deposit activity now presents a clear Review & Reprint path from the Register toolbar. Staff can reopen payer and member receipts, resume unposted funded orders, and start a fresh Wedding Order for additional items after a member Transaction is posted without changing the earlier deposit or receipt records.
+- **Register Wedding Layout and Staff-Facing Labels**: The Register quantity/price keypad now keeps its full touch-target height when wedding guidance is loaded, and the linked wedding member is identified once in the primary wedding banner instead of repeated in a secondary status chip. Daily Sales and CSV output now present `wedding_order` as **Wedding Order**. Wedding Order receipts print the party name and wedding date with the Wedding Order section.
+- **ROSIE Kokoro Speech Startup**: Riverside and the Windows ROSIE certification probe now identify US English when launching the pinned multilingual Kokoro model. Staff see a concise recovery message instead of raw Sherpa-ONNX command diagnostics if voice output still fails; text chat remains available.
+
 ## [0.96.0] - 2026-08-02
 
 ### Fixed

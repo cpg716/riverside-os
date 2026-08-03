@@ -863,6 +863,14 @@ impl TransactionDetailResponse {
                     customer_code: Some(c.customer_code.clone()),
                 }
             }),
+            wedding_party_name: self
+                .wedding_summary
+                .as_ref()
+                .and_then(|wedding| wedding.party_name.clone()),
+            wedding_event_date: self
+                .wedding_summary
+                .as_ref()
+                .and_then(|wedding| wedding.event_date),
             items: receipt_items,
             fulfillment_method: self.fulfillment_method,
             payments: self
@@ -3289,6 +3297,14 @@ async fn build_refund_event_receipt_order(
                 customer_code: Some(customer.customer_code.clone()),
             }
         }),
+        wedding_party_name: original_detail
+            .wedding_summary
+            .as_ref()
+            .and_then(|wedding| wedding.party_name.clone()),
+        wedding_event_date: original_detail
+            .wedding_summary
+            .as_ref()
+            .and_then(|wedding| wedding.event_date),
         items: receipt_items,
         is_tax_exempt: replacement_detail
             .as_ref()

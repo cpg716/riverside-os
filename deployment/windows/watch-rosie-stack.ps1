@@ -183,6 +183,7 @@ function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$Stt
       "--kokoro-voices=`"$(Join-Path $TtsModelDir 'voices.bin')`"",
       "--kokoro-tokens=`"$(Join-Path $TtsModelDir 'tokens.txt')`"",
       "--kokoro-data-dir=`"$(Join-Path $TtsModelDir 'espeak-ng-data')`"",
+      "--kokoro-lang=en-us",
       "--output-filename=`"$probeWav`"",
       "--sid=5",
       "--speed=1.0",

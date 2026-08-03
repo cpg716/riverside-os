@@ -134,6 +134,7 @@ export default function WeddingDepositWorkspace({
   onClose,
   onAddDeposits,
   onStartMemberOrder,
+  onStartAdditionalMemberOrder,
   onResumeBuilder,
   onPostAllMemberOrders,
   collectBuildSession,
@@ -162,6 +163,7 @@ export default function WeddingDepositWorkspace({
     partyName: string,
     source: { workflowId: string; sourceCreditLedgerId: string; remainingCents: number },
   ) => void;
+  onStartAdditionalMemberOrder: (member: WeddingMember, partyName: string) => void;
   onResumeBuilder: (workflow: DepositWorkflow) => void;
   onPostAllMemberOrders: (workflow: DepositWorkflow) => Promise<boolean>;
   collectBuildSession?: import("../../hooks/useParkedSales").WeddingCollectBuildSession | null;
@@ -721,7 +723,7 @@ export default function WeddingDepositWorkspace({
               })}
             </ol>
             <button type="button" onClick={() => setStep("history")} className={`mt-3 flex w-full items-center gap-2 rounded-2xl border p-3 text-left text-xs font-black ${step === "history" ? "border-app-info bg-app-info/10 text-app-info" : "border-app-border bg-app-surface text-app-text"}`}>
-              <ReceiptText size={16} /> Orders &amp; Receipts
+              <ReceiptText size={16} /> Review &amp; Reprint
             </button>
           </aside>
 
@@ -740,6 +742,24 @@ export default function WeddingDepositWorkspace({
                   <div className="rounded-2xl border border-app-info/30 bg-app-info/8 p-4 text-sm font-bold text-app-info">
                     Loading the linked wedding party…
                   </div>
+                ) : null}
+                {!historyBusy && workflows.length > 0 ? (
+                  <button
+                    type="button"
+                    data-testid="wedding-deposit-existing-activity"
+                    onClick={() => setStep("history")}
+                    className="flex w-full items-center justify-between gap-4 rounded-3xl border-2 border-app-info/40 bg-app-info/8 p-5 text-left transition hover:border-app-info hover:bg-app-info/12"
+                  >
+                    <span>
+                      <span className="block text-lg font-black text-app-text">Previous Deposits &amp; Builds Found</span>
+                      <span className="mt-1 block text-sm text-app-text-muted">
+                        Review {workflows.length} payer workflow{workflows.length === 1 ? "" : "s"}, reprint receipts, resume funded orders, or add more items for a posted member.
+                      </span>
+                    </span>
+                    <span className="inline-flex shrink-0 items-center gap-1 text-xs font-black text-app-info">
+                      Review Activity <ChevronRight size={15} />
+                    </span>
+                  </button>
                 ) : null}
                 <div className="grid gap-4 lg:grid-cols-2">
                   <button
@@ -1051,7 +1071,7 @@ export default function WeddingDepositWorkspace({
 
             {step === "history" ? (
               <div className="space-y-4">
-                <div><h3 className="text-xl font-black text-app-text">Wedding Builder · Orders &amp; Receipts</h3><p className="text-sm text-app-text-muted">Build all remaining member drafts, then create the separate member Transactions with one final action.</p></div>
+                <div><h3 className="text-xl font-black text-app-text">Wedding Builder · Review &amp; Reprint</h3><p className="text-sm text-app-text-muted">Review prior payer activity, reprint payer or member receipts, resume funded orders, or start an additional Wedding Order for a posted member.</p></div>
                 {party ? (
                   <div className="rounded-2xl border-2 border-app-info/30 bg-app-info/8 p-4 text-sm text-app-text">
                     <p className="font-black">Current party activity · {party.party_name}</p>
@@ -1165,6 +1185,31 @@ export default function WeddingDepositWorkspace({
                             <div><p className="text-sm font-black text-app-text">{allocation.beneficiary_name}</p><p className="text-xs text-app-text-muted">{allocation.role} · ${allocation.amount} funded</p><div className="mt-1 flex flex-wrap gap-1.5"><span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${remainingCents > 0 ? "bg-app-info/10 text-app-info" : "bg-app-success/10 text-app-success"}`}>{depositStatus}</span><span className={`rounded-full px-2 py-0.5 text-[10px] font-black ${postedTransactionId ? "bg-app-success/10 text-app-success" : "bg-app-warning/10 text-app-warning"}`}>{orderStatus}</span></div></div>
                             <div className="flex flex-wrap items-center justify-end gap-2">
                               {postedTransactionId ? <button type="button" onClick={() => onOpenReceipt(postedTransactionId)} className="ui-btn-secondary inline-flex items-center gap-1"><ReceiptText size={14} /> Receipt · {postedDisplayId}</button> : null}
+                              {postedTransactionId ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nameParts = allocation.beneficiary_name.trim().split(/\s+/);
+                                    onStartAdditionalMemberOrder(
+                                      {
+                                        id: allocation.wedding_member_id,
+                                        customer_id: allocation.beneficiary_customer_id,
+                                        first_name: nameParts[0] || "Wedding",
+                                        last_name: nameParts.slice(1).join(" ") || "Member",
+                                        role: allocation.role,
+                                        status: "active",
+                                        measured: false,
+                                        suit_ordered: false,
+                                        is_free_suit_promo: false,
+                                      },
+                                      workflow.party_name,
+                                    );
+                                  }}
+                                  className="ui-btn-primary inline-flex items-center gap-1"
+                                >
+                                  <Plus size={14} /> Build More Items
+                                </button>
+                              ) : null}
                               {postedDisplayId ? <span className="rounded-full bg-app-success/10 px-3 py-1 text-xs font-black text-app-success">Posted</span> : null}
                             </div>
                           </div>

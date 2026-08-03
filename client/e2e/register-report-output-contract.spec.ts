@@ -146,6 +146,15 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerReportsSource).toContain("matching activity records");
     expect(registerReportsSource).not.toContain("summaryBooked.amount_label");
     expect(registerReportsSource).not.toContain("summary.amount_label");
+    expect(csvHandler).toContain(
+      'Fulfillment: activityFulfillmentLabel(a) || ""',
+    );
+    expect(registerReportsSource).toContain(
+      'case "wedding_order":\n      return "Wedding Order";',
+    );
+    expect(registerReportsSource).toContain(
+      "fulfillmentDisplayLabel(\n                                                  it.fulfillment",
+    );
   });
 
   test("alterations count as sales while shipping stays outside sales and commissions", () => {

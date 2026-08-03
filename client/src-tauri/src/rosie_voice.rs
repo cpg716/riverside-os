@@ -564,6 +564,7 @@ async fn synthesize_kokoro_to_wav(
                 &format!("--kokoro-voices={}", voices_path.to_string_lossy()),
                 &format!("--kokoro-tokens={}", tokens_path.to_string_lossy()),
                 &format!("--kokoro-data-dir={}", data_dir.to_string_lossy()),
+                "--kokoro-lang=en-us",
                 &format!("--output-filename={}", temp_wav.to_string_lossy()),
                 &format!("--sid={sid}"),
                 &format!("--speed={rate_multiplier}"),

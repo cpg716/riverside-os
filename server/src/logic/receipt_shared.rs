@@ -165,6 +165,9 @@ pub struct ReceiptOrder {
     /// Balance remaining across linked Transaction Records after this pickup checkout.
     pub pickup_balance_remaining: Option<Decimal>,
     pub customer: Option<ReceiptCustomerLine>,
+    /// Wedding context shown with Wedding Order merchandise on customer receipts.
+    pub wedding_party_name: Option<String>,
+    pub wedding_event_date: Option<NaiveDate>,
     pub items: Vec<ReceiptLine>,
     pub is_tax_exempt: bool,
     pub tax_exempt_reason: Option<String>,
@@ -177,6 +180,31 @@ pub struct ReceiptOrder {
 }
 
 impl ReceiptOrder {
+    pub fn has_wedding_order_items(&self) -> bool {
+        self.items
+            .iter()
+            .any(|item| item.fulfillment == DbFulfillmentType::WeddingOrder)
+    }
+
+    pub fn wedding_order_context_lines(&self) -> Vec<String> {
+        if !self.has_wedding_order_items() {
+            return Vec::new();
+        }
+        let mut lines = Vec::new();
+        if let Some(name) = self
+            .wedding_party_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        {
+            lines.push(format!("Party: {name}"));
+        }
+        if let Some(date) = self.wedding_event_date {
+            lines.push(format!("Wedding Date: {}", date.format("%m/%d/%Y")));
+        }
+        lines
+    }
+
     pub fn has_order_payments(&self) -> bool {
         !self.payment_applications.is_empty()
     }

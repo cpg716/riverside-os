@@ -4437,6 +4437,74 @@ export default function Cart({
     ],
   );
 
+  const startAdditionalWeddingMemberOrder = useCallback(
+    (member: WeddingMember, partyName: string) => {
+      if (!ensureSaleCashier()) return;
+      if (
+        hasCheckoutWork ||
+        (weddingCollectBuildSession && weddingCollectBuildSession.phase !== "complete")
+      ) {
+        toast(
+          "Finish, park, or clear the current Cart or Wedding Builder before starting another member order.",
+          "error",
+        );
+        return;
+      }
+      if (
+        !selectCustomerForSale({
+          id: member.customer_id,
+          customer_code: "",
+          first_name: member.first_name,
+          last_name: member.last_name,
+          email: member.customer_email ?? null,
+          phone: member.customer_phone ?? null,
+        })
+      ) {
+        return;
+      }
+      setWeddingCollectBuildSession(null);
+      setWeddingDepositOrderSource(null);
+      setDisbursementMembers([]);
+      setActiveWeddingMember(member);
+      setActiveWeddingPartyName(partyName);
+      setPrimarySalespersonId("");
+      setWeddingDraftTaxExempt(false);
+      setWeddingDraftTaxExemptReason("Out of State");
+      setWeddingDrawerOpen(false);
+      setWeddingDrawerPreferGroupPay(false);
+      setWeddingDrawerInitialPartyId(null);
+      setWeddingDepositAutoStartMember(false);
+      requestProductSearchFocus();
+      toast(
+        `New Wedding Order started for ${member.first_name} ${member.last_name}. Add the additional items and complete normal Payment; prior deposits, Transactions, and receipts are unchanged.`,
+        "success",
+      );
+      void fetch(`${baseUrl}/api/customers/${member.customer_id}`, {
+        headers: { ...apiAuth() },
+      })
+        .then(async (response) => {
+          if (response.ok) updateSelectedCustomerSnapshot(await response.json());
+        })
+        .catch(() => {
+          toast(
+            "The additional Wedding Order is ready, but the latest customer details could not be refreshed. Verify the profile before Payment.",
+            "info",
+          );
+        });
+    },
+    [
+      apiAuth,
+      baseUrl,
+      ensureSaleCashier,
+      hasCheckoutWork,
+      requestProductSearchFocus,
+      selectCustomerForSale,
+      toast,
+      updateSelectedCustomerSnapshot,
+      weddingCollectBuildSession,
+    ],
+  );
+
   const postAllWeddingMemberOrders = useCallback(
     async (workflow: DepositWorkflow): Promise<boolean> => {
       const session = weddingCollectBuildSession;
@@ -4870,20 +4938,12 @@ export default function Cart({
               </div>
             ) : null}
 
-            {activeWeddingMember ||
-            parkedRows.length > 0 ||
+            {parkedRows.length > 0 ||
             pendingAlterationIntakes.length > 0 ||
             pickupReadyAlterations.length > 0 ||
             offlinePendingCount > 0 ||
             failedPrintCount > 0 ? (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-bold text-app-text-muted">
-              {activeWeddingMember ? (
-                <span className="inline-flex items-center gap-1 rounded-lg border border-app-accent/25 bg-app-accent/10 px-2 py-1 font-black uppercase tracking-widest text-app-accent">
-                  <WEDDINGS_ICON size={12} aria-hidden />
-                    {activeWeddingMember.first_name}{" "}
-                    {activeWeddingMember.last_name}
-                </span>
-              ) : null}
               {parkedRows.length > 0 ? (
                 <button
                   type="button"
@@ -5131,7 +5191,7 @@ export default function Cart({
                 onClick={openWeddingDepositTool}
                 title={
                   selectedCustomer
-                    ? "Add deposits for members of this customer's wedding party"
+                    ? "Add deposits, review and reprint receipts, or build more items for this customer's wedding party"
                     : "Select the paying wedding member first"
                 }
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/60 bg-app-info/10 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
@@ -6180,8 +6240,11 @@ export default function Cart({
           </div>
         </div>
 
-        {/* ── Keypad — uses all remaining space ── */}
-        <div className="flex min-h-0 flex-1 flex-col px-2 pb-2 pt-2 sm:px-2.5">
+        {/* ── Keypad — fixed touch height; the rail scrolls instead of shrinking it ── */}
+        <div
+          className="flex h-[22rem] min-h-[22rem] shrink-0 flex-col px-2 pb-2 pt-2 sm:px-2.5"
+          data-testid="pos-register-keypad"
+        >
           {/* Display / mode hint */}
           <div className="mb-2 shrink-0 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2">
             <p className="text-[9px] font-black uppercase leading-snug tracking-widest text-app-text-muted">
@@ -8061,6 +8124,7 @@ export default function Cart({
                 );
               });
           }}
+          onStartAdditionalMemberOrder={startAdditionalWeddingMemberOrder}
           onResumeBuilder={resumeFundedWeddingBuilder}
           onPostAllMemberOrders={postAllWeddingMemberOrders}
           collectBuildSession={weddingCollectBuildSession}

@@ -28,6 +28,11 @@ pub fn format_pos_gift_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptC
         lines.extend(c.identity_lines());
     }
 
+    if order.has_wedding_order_items() {
+        lines.push("Wedding Order".to_string());
+        lines.extend(order.wedding_order_context_lines());
+    }
+
     for it in &order.items {
         let var = it
             .variation_label
@@ -79,6 +84,11 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
 
     if let Some(c) = &order.customer {
         lines.extend(c.identity_lines());
+    }
+
+    if order.has_wedding_order_items() {
+        lines.push("Wedding Order".to_string());
+        lines.extend(order.wedding_order_context_lines());
     }
 
     for it in &order.items {
@@ -246,5 +256,21 @@ mod tests {
         assert!(text.contains(
             "Wedding Party Deposit for James Brown (Whitrock Wedding): 710.38 — Held for future order"
         ));
+    }
+
+    #[test]
+    fn wedding_order_text_names_the_party_and_wedding_date() {
+        let mut order = sample_receipt_order_for_preview();
+        order.items[0].fulfillment = crate::models::DbFulfillmentType::WeddingOrder;
+        order.items[0].is_fulfilled = false;
+        order.wedding_party_name = Some("Adams Wedding".to_string());
+        order.wedding_event_date =
+            Some(chrono::NaiveDate::from_ymd_opt(2026, 9, 19).expect("valid wedding date"));
+
+        let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
+
+        assert!(text.contains("Wedding Order"));
+        assert!(text.contains("Party: Adams Wedding"));
+        assert!(text.contains("Wedding Date: 09/19/2026"));
     }
 }

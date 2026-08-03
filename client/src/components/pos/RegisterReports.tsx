@@ -1759,7 +1759,7 @@ export default function RegisterReports({
           "Reg Price": item?.reg_price ?? "",
           "Sale Price": item?.price ?? "",
           Takeaway: a.is_takeaway ? "Yes" : "No",
-          Fulfillment: a.fulfillment_type || "",
+          Fulfillment: activityFulfillmentLabel(a) || "",
           "Deposit Paid": idx === 0 ? a.deposits_paid || "0" : "",
           "Balance Due": idx === 0 ? a.balance_due || "0" : "",
           "Transaction Total":
@@ -3068,21 +3068,9 @@ export default function RegisterReports({
                                                           : "bg-app-surface-2 text-app-text-muted font-bold"
                                                 }`}
                                               >
-                                                {it.fulfillment === "takeaway"
-                                                  ? "Taken"
-                                                  : it.fulfillment ===
-                                                        "special_order" ||
-                                                      it.fulfillment ===
-                                                        "custom"
-                                                    ? "Ordered"
-                                                    : it.fulfillment ===
-                                                        "layaway"
-                                                      ? "Layaway"
-                                                      : it.fulfillment ===
-                                                          "pickup"
-                                                        ? "Pickup"
-                                                        : it.fulfillment ||
-                                                          "Unknown"}
+                                                {fulfillmentDisplayLabel(
+                                                  it.fulfillment,
+                                                ) || "Unknown"}
                                               </span>
                                             </td>
                                           </tr>
