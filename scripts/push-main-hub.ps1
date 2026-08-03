@@ -300,11 +300,10 @@ function Invoke-MainHubUpdate(
       "-File",
       $installer,
       "-ConfigPath",
-      $ConfigPath,
-      "-PreserveExistingRosie"
+      $ConfigPath
     )
     if ($SkipMigrationsRequested) { $installerArgs += "-SkipMigrations" }
-    if ($SkipRosieSetupRequested) { Write-Warning "-SkipRosieSetup is retained for compatibility; update mode now preserves the installed ROSIE stack." }
+    if ($SkipRosieSetupRequested) { $installerArgs += "-SkipRosieSetup" }
     if ($NoStartRequested) { $installerArgs += "-NoStart" }
 
     Write-Host "Running Main Hub update from $PackagePath"

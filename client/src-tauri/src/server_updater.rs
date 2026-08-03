@@ -31,6 +31,7 @@ pub struct ServerLocalStatus {
 struct GithubAsset {
     name: String,
     browser_download_url: String,
+    digest: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -81,6 +82,59 @@ fn is_main_hub_update_asset(asset_name: &str) -> bool {
 
 fn is_windows_deployment_asset(asset_name: &str) -> bool {
     asset_name.ends_with("-Windows-Deployment.zip")
+}
+
+fn parse_sha256_digest(digest: Option<&str>) -> Result<String, String> {
+    let digest = digest
+        .map(str::trim)
+        .filter(|digest| !digest.is_empty())
+        .ok_or_else(|| {
+            "Main Hub update package is missing its GitHub SHA-256 digest; refusing to install it."
+                .to_string()
+        })?;
+    let value = digest.strip_prefix("sha256:").ok_or_else(|| {
+        format!("Main Hub update package uses an unsupported digest format: {digest}")
+    })?;
+    if value.len() != 64 || !value.chars().all(|character| character.is_ascii_hexdigit()) {
+        return Err("Main Hub update package has an invalid SHA-256 digest.".to_string());
+    }
+    Ok(value.to_ascii_lowercase())
+}
+
+#[cfg(windows)]
+fn verify_downloaded_asset_digest(path: &Path, digest: Option<&str>) -> Result<String, String> {
+    let expected = parse_sha256_digest(digest)?;
+    let hash_script = format!(
+        "(Get-FileHash -LiteralPath '{}' -Algorithm SHA256).Hash",
+        path.to_string_lossy().replace('\'', "''")
+    );
+    let mut hash_cmd = Command::new("powershell");
+    hash_cmd.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        &hash_script,
+    ]);
+    suppress_child_console(&mut hash_cmd);
+    let output = hash_cmd
+        .output()
+        .map_err(|error| format!("Failed to calculate Main Hub package SHA-256: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Could not verify Main Hub package SHA-256: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let actual = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .to_ascii_lowercase();
+    if actual != expected {
+        return Err(format!(
+            "Main Hub update package SHA-256 mismatch. Expected {expected}, downloaded {actual}. Refusing to install it."
+        ));
+    }
+    Ok(actual)
 }
 
 fn select_deployment_asset(
@@ -288,7 +342,8 @@ fn resolve_existing_deployment_config(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_ids_match, candidate_deployment_config_paths, select_deployment_asset, GithubAsset,
+        build_ids_match, candidate_deployment_config_paths, parse_sha256_digest,
+        select_deployment_asset, GithubAsset,
     };
     use std::path::Path;
 
@@ -296,7 +351,20 @@ mod tests {
         GithubAsset {
             name: name.to_string(),
             browser_download_url: format!("https://example.invalid/{name}"),
+            digest: Some(format!("sha256:{}", "a".repeat(64))),
         }
+    }
+
+    #[test]
+    fn github_asset_digest_requires_sha256() {
+        assert_eq!(
+            parse_sha256_digest(Some(&format!("sha256:{}", "A".repeat(64))))
+                .expect("valid SHA-256 digest"),
+            "a".repeat(64)
+        );
+        assert!(parse_sha256_digest(None).is_err());
+        assert!(parse_sha256_digest(Some("md5:abc")).is_err());
+        assert!(parse_sha256_digest(Some("sha256:not-a-digest")).is_err());
     }
 
     #[test]
@@ -472,6 +540,8 @@ pub async fn download_and_run_server_installer(
 
         let res = client
             .get(&url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
             .send()
             .await
             .map_err(|e| format!("Failed to request release metadata from GitHub: {e}"))?;
@@ -492,6 +562,7 @@ pub async fn download_and_run_server_installer(
         let asset =
             select_deployment_asset(release.assets, &tag_name, Some(target_build_short.as_str()))?;
         let asset_name = asset.name.clone();
+        let asset_digest = asset.digest.clone();
 
         let download_url = asset.browser_download_url;
 
@@ -531,6 +602,9 @@ pub async fn download_and_run_server_installer(
                 .map_err(|e| format!("Error writing chunk to file: {e}"))?;
         }
         drop(file);
+
+        let verified_package_digest =
+            verify_downloaded_asset_digest(&zip_path, asset_digest.as_deref())?;
 
         // 3. Extract the ZIP using PowerShell
         let extraction_dir = temp_dir.join("extracted");
@@ -693,7 +767,7 @@ if (Test-Path -Path $serverBin) {{
 
 try {{
     Write-Host 'Step 1: Running install-server.ps1...'
-    ./install-server.ps1 -ConfigPath $configPath -PreserveExistingRosie
+    ./install-server.ps1 -ConfigPath $configPath
     $installRootConfig = Join-Path $installRoot '{config_file}'
     if (Test-Path -Path $installRootConfig) {{
         $configPath = $installRootConfig
@@ -847,12 +921,13 @@ Read-Host 'Press Enter to close this window'
         }
 
         Ok(format!(
-            "Main Hub update launched from {}{} If the elevated PowerShell window is not visible, run {} manually. Transcript: {}. Relaunch Riverside when the update completes.",
+            "Main Hub update launched from {}{} Package SHA-256 {} verified. If the elevated PowerShell window is not visible, run {} manually. Transcript: {}. Relaunch Riverside when the update completes.",
             asset_name,
             verified_build
                 .as_deref()
                 .map(|build| format!(" (verified build {build})."))
                 .unwrap_or_else(|| ". ".to_string()),
+            &verified_package_digest[..12],
             runner_script_path.display(),
             runner_log_path.display()
         ))

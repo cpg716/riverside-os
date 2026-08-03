@@ -170,6 +170,21 @@ for (const copy of [
 const windowsReleaseWorkflow = read(
   ".github/workflows/windows-deployment-package.yml",
 );
+const rosieInstaller = read("deployment/windows/Install-RosieAiStack.ps1");
+const installerLlamaVersion = rosieInstaller.match(/\$LLAMA_VERSION\s*=\s*"([^"]+)"/)?.[1];
+const installerLlamaSha = rosieInstaller.match(/\$LLAMA_ZIP_SHA256\s*=\s*"([a-f0-9]{64})"/)?.[1];
+const workflowLlamaVersion = windowsReleaseWorkflow.match(/LLAMA_CPP_RELEASE:\s*([^\s]+)/)?.[1];
+const workflowLlamaSha = windowsReleaseWorkflow.match(/LLAMA_CPP_WIN_CPU_SHA256:\s*([a-f0-9]{64})/)?.[1];
+if (
+  !installerLlamaVersion ||
+  !installerLlamaSha ||
+  installerLlamaVersion !== workflowLlamaVersion ||
+  installerLlamaSha !== workflowLlamaSha
+) {
+  fail(
+    ".github/workflows/windows-deployment-package.yml: bundled llama.cpp version and SHA256 must match Install-RosieAiStack.ps1 release pins",
+  );
+}
 for (const job of [
   "build-register-updater",
   "build-server-binary",
@@ -633,11 +648,24 @@ for (const copy of [
   "Get-PreservedRosieEnvironment $envPath",
   "Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment",
   "ROSIE scheduled task preserved without restart or re-registration.",
+  "Deferring cleanup of superseded certified ROSIE asset until the Main Hub update is fully ready",
+  "Removing superseded certified ROSIE asset after successful Main Hub update",
 ]) {
   assertIncludes(
     mainHubInstaller,
     copy,
     "Main Hub updates must verify an admin-readable backup before downtime and recover the prior task after failure",
+  );
+}
+const rosieCleanupIndex = mainHubInstallerSource.indexOf(
+  "Removing superseded certified ROSIE asset after successful Main Hub update",
+);
+const installationReadyIndex = mainHubInstallerSource.indexOf(
+  'Write-DeploymentStatus "READY" "Installation completed successfully"',
+);
+if (rosieCleanupIndex < installationReadyIndex || installationReadyIndex < 0) {
+  fail(
+    `${mainHubInstaller}: superseded ROSIE assets must remain available for rollback until the complete Main Hub update is ready`,
   );
 }
 for (const copy of [
@@ -677,25 +705,40 @@ for (const copy of [
     "Main Hub installs must persist and require exact build provenance",
   );
 }
-for (const [path, marker] of [
-  [
-    "deployment/windows/Start-RiversideDeployment.ps1",
-    'if ($Action -eq "Update") { @("-PreserveExistingRosie") }',
-  ],
-  [
-    "deployment/windows/Build-And-Apply-MainHubFastUpdate.ps1",
+for (const path of [
+  "deployment/windows/Start-RiversideDeployment.ps1",
+  "deployment/windows/Build-And-Apply-MainHubFastUpdate.ps1",
+  "deployment/windows/Apply-RiversideLanFleetUpdate.ps1",
+  "scripts/push-main-hub.ps1",
+]) {
+  assertNotIncludes(
+    path,
     '"-PreserveExistingRosie"',
-  ],
-  [
-    "deployment/windows/Apply-RiversideLanFleetUpdate.ps1",
-    '"-PreserveExistingRosie"',
-  ],
-  ["scripts/push-main-hub.ps1", '"-PreserveExistingRosie"'],
+    "Normal Main Hub updates must apply and certify the release-pinned ROSIE stack",
+  );
+}
+for (const copy of [
+  '$sttPin = "$STT_HF_REPO@$STT_HF_REVISION"',
+  '$ttsPin = "$TTS_HF_REPO@$TTS_HF_REVISION"',
+  "Runtime pins match and required binaries are present; reusing installed binaries.",
+  "STT pin matches and required files are present; verifying installed assets in place.",
+  "TTS pin matches and required files are present; verifying installed assets in place.",
+]) {
+  assertIncludes(
+    "deployment/windows/Install-RosieAiStack.ps1",
+    copy,
+    "ROSIE updates must reuse exact runtime and speech pins without unnecessary asset replacement",
+  );
+}
+for (const path of [
+  "deployment/windows/Build-And-Apply-MainHubFastUpdate.ps1",
+  "deployment/windows/Apply-RiversideLanFleetUpdate.ps1",
+  "scripts/push-main-hub.ps1",
 ]) {
   assertIncludes(
     path,
-    marker,
-    "Main Hub update entry points must preserve the installed ROSIE stack",
+    '"-SkipRosieSetup"',
+    "Scripted Main Hub updates may skip ROSIE only through an explicit operator switch",
   );
 }
 for (const passwordSafeScript of [
@@ -831,6 +874,9 @@ for (const copy of [
   "$configPath = $installRootConfig",
   "Exact build SHA is required for a Main Hub update.",
   "Deployment package download failed with HTTP status",
+  "verify_downloaded_asset_digest",
+  "missing its GitHub SHA-256 digest",
+  "Get-FileHash",
 ]) {
   assertIncludes(
     mainHubUpdater,
@@ -857,9 +903,9 @@ if (!renderedMainHubUpdateRunner.includes("/api/ready")) {
     `${mainHubUpdater}: generated update runner must verify database readiness through /api/ready`,
   );
 }
-if (!renderedMainHubUpdateRunner.includes("-PreserveExistingRosie")) {
+if (renderedMainHubUpdateRunner.includes("-PreserveExistingRosie")) {
   fail(
-    `${mainHubUpdater}: generated update runner must preserve installed ROSIE assets and scheduled tasks`,
+    `${mainHubUpdater}: generated update runner must install and certify release-pinned ROSIE assets`,
   );
 }
 if (renderedMainHubUpdateRunner.includes("/api/health")) {

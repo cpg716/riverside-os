@@ -170,7 +170,7 @@ Installer signing and CI notes: [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PW
 
 Use one of these paths:
 
-1. **Routine Main Hub update path:** run **In-app Main Hub update** (`.github/workflows/in-app-main-hub-update.yml`) with `source_ref=main` (or a release tag) and the existing release tag. It dispatches and waits for the verified `main-hub-update` package path, publishing the server/client bundle, migrations, Register/Tauri updater assets, and Main Hub update ZIP.
+1. **Routine Main Hub update path:** run **In-app Main Hub update** (`.github/workflows/in-app-main-hub-update.yml`) with `source_ref=main` (or a release tag) and the existing release tag. It dispatches and waits for the verified `main-hub-update` package path, publishing the server/client bundle, migrations, Register/Tauri updater assets, and Main Hub update ZIP. The in-app installer requires the GitHub SHA-256 asset digest and matching embedded build identity before launching the elevated update.
 2. **Current full release path:** run **Windows deployment package** (`.github/workflows/windows-deployment-package.yml`) for the target version. It publishes the full deployment ZIP plus the signed Windows updater manifests/artifacts to the matching GitHub release.
 3. **Local build path:** on a Windows build machine with Rust/Node prerequisites, build from `client/` with `npm ci` then `npm run tauri:build`.
 

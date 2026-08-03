@@ -137,6 +137,20 @@ fn same_version_rebuild_available(current_sha: &str, latest_sha: Option<&str>) -
     latest_short != current_short
 }
 
+fn update_availability(
+    current_version: &str,
+    latest_version: &str,
+    current_sha: &str,
+    latest_sha: Option<&str>,
+) -> (bool, bool) {
+    let current_version = version_core(current_version);
+    let latest_version = version_core(latest_version);
+    let version_changed = latest_version_is_newer(&latest_version, &current_version);
+    let rebuild_available = latest_version == current_version
+        && same_version_rebuild_available(current_sha, latest_sha);
+    (version_changed || rebuild_available, rebuild_available)
+}
+
 fn should_notify_admin(
     update_available: bool,
     rebuild_available: bool,
@@ -148,7 +162,8 @@ fn should_notify_admin(
 #[cfg(test)]
 mod tests {
     use super::{
-        latest_version_is_newer, same_version_rebuild_available, should_notify_admin, version_core,
+        latest_version_is_newer, same_version_rebuild_available, should_notify_admin,
+        update_availability, version_core,
     };
 
     #[test]
@@ -180,6 +195,22 @@ mod tests {
             Some("aaaa1111dddd")
         ));
         assert!(!same_version_rebuild_available("aaaa1111", None));
+    }
+
+    #[test]
+    fn update_availability_never_treats_an_older_release_as_a_rebuild() {
+        assert_eq!(
+            update_availability("0.96.0", "0.95.5", "aaaa1111", Some("bbbb2222")),
+            (false, false)
+        );
+        assert_eq!(
+            update_availability("0.96.0", "0.96.0", "aaaa1111", Some("bbbb2222")),
+            (true, true)
+        );
+        assert_eq!(
+            update_availability("0.96.0", "0.97.0", "aaaa1111", Some("bbbb2222")),
+            (true, false)
+        );
     }
 
     #[test]
@@ -221,11 +252,12 @@ pub async fn check_for_update(client: &reqwest::Client) -> Result<UpdateCheckRes
     let latest_ver = version_core(&manifest.version);
     let current_ver = version_core(&current);
 
-    let version_changed = latest_version_is_newer(&latest_ver, &current_ver);
-    let rebuild_available = !version_changed
-        && same_version_rebuild_available(&current_sha, manifest.build_sha.as_deref());
-
-    let update_available = version_changed || rebuild_available;
+    let (update_available, rebuild_available) = update_availability(
+        &current_ver,
+        &latest_ver,
+        &current_sha,
+        manifest.build_sha.as_deref(),
+    );
 
     let (safe_window, safe_window_hint) = is_safe_update_window();
 

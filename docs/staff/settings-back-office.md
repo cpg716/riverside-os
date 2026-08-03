@@ -229,7 +229,7 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 
 | Section | What it does |
 |---|---|
-| **Main Hub Server** | Shows current server version and build SHA. Displays whether a newer version or same-version rebuild is available. The update downloads the matching Windows deployment package and verifies its build SHA before launching the elevated runner. Daily update check runs automatically at 2 AM and notifies admin staff. |
+| **Main Hub Server** | Shows current server version and build SHA. Displays whether a newer version or same-version rebuild is available. The update downloads the matching Windows deployment package, verifies its GitHub SHA-256 digest and embedded build SHA, then launches the elevated runner. Daily update check runs automatically at 2 AM and notifies admin staff. |
 | **Windows app (Back Office / Register)** | Check for and install signed Tauri desktop app updates from the Windows app updater release assets. Button is disabled if server has not updated yet. |
 | **PWA update status** | Shows whether the PWA served by the server matches the latest client build. |
 
@@ -243,7 +243,7 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 3. Windows desktop apps (Back Office, Register) update via the same Updates tab.
 4. PWA clients (iPads, phones) auto-update on next page load — no manual action needed.
 
-The Main Hub updater must verify its pre-migration backup before it stops the current server or replaces installed files. If the update reports a backup failure, do not reset or restore the database. Confirm the existing server is healthy, correct the backup error, and rerun only with a fixed package. If an older package left the API offline, use ROS Server Manager or Administrator PowerShell (`Start-ScheduledTask -TaskName "Riverside OS Server"`) on the Main Hub, then confirm `http://127.0.0.1:3000/api/ready` so the database connection is also proven.
+The Main Hub updater must verify the package digest, embedded build identity, and pre-migration backup before it stops the current server or replaces installed files. It also verifies installed ROSIE assets against the release pins, reuses exact matches, and certifies changed model/runtime assets before reporting success. If the update reports a package, backup, or ROSIE certification failure, do not reset or restore the database. Confirm the existing server is healthy, correct the reported failure, and rerun only with a fixed package. If an older package left the API offline, use ROS Server Manager or Administrator PowerShell (`Start-ScheduledTask -TaskName "Riverside OS Server"`) on the Main Hub, then confirm `http://127.0.0.1:3000/api/ready` so the database connection is also proven.
 
 The Main Hub update button remains disabled when the update check does not provide an exact build identifier. Refresh the update check; do not bypass the hold or use a deployment ZIP from another build.
 

@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.96.0] - 2026-08-02
 
+### Fixed
+- **Complete, Verified Main Hub Updates**: Normal Main Hub update paths now
+  install and certify the release-pinned ROSIE stack instead of silently
+  preserving an older model/runtime across a Riverside release. The in-app
+  updater also verifies the GitHub SHA-256 digest before extracting a package,
+  and server update checks no longer mistake an older release with a different
+  build SHA for a same-version rebuild. Superseded ROSIE model files remain
+  available for rollback until the complete Main Hub update passes readiness.
+  Matching ROSIE runtime and speech pins are verified in place without copying
+  bundled assets or downloading them again; speech markers now include the
+  immutable repository revision so only a real pin change triggers replacement.
+- **Updater Release Parity**: The Windows package now bundles the same pinned
+  llama.cpp runtime required by the ROSIE installer, and the release gate fails
+  if either its version or SHA-256 drifts. Development startup also selects a
+  compatible Homebrew PostgreSQL dump/restore pair when available.
+
 ### Changed
 - **ROSIE Local Intelligence Upgrade**: Pinned Google's official Gemma 4 E4B
   QAT Q4_0 model and matching vision projector, enabled provider-governed SSE

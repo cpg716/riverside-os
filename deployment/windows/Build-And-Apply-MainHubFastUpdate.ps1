@@ -10,6 +10,7 @@ param(
   [switch]$SkipToolInstall,
   [switch]$SkipNpmInstall,
   [switch]$SkipMigrations,
+  [switch]$SkipRosieSetup,
   [switch]$NoStart
 )
 
@@ -294,10 +295,10 @@ $installerArgs = @(
   "-File",
   $installer,
   "-ConfigPath",
-  $ConfigPath,
-  "-PreserveExistingRosie"
+  $ConfigPath
 )
 if ($SkipMigrations) { $installerArgs += "-SkipMigrations" }
+if ($SkipRosieSetup) { $installerArgs += "-SkipRosieSetup" }
 if ($NoStart) { $installerArgs += "-NoStart" }
 
 Write-Host ""

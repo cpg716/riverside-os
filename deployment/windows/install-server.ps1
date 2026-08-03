@@ -2261,12 +2261,13 @@ if ($script:postgresReachable) {
   throw "PostgreSQL is not reachable. No server files will be reported ready; fix PostgreSQL and rerun install-server.ps1."
 }
 
-# ROSIE AI stack - download model and set up voice tools for full installs, or
-# preserve the existing ROSIE environment and scheduled task for updates.
+# ROSIE AI stack - apply the release pins for normal installs and updates, or
+# preserve the existing ROSIE environment only when explicitly requested.
 # Runs before the .env is written so the model path can be included.
 $envPath = Join-Path $serverDir ".env"
 $rosieModelPath = $null
 $preservedRosieEnvironment = $null
+$supersededRosieAssets = @()
 $previousRosieEnvironment = Get-PreservedRosieEnvironment $envPath
 if ($PreserveExistingRosie) {
   $preservedRosieEnvironment = $previousRosieEnvironment
@@ -2390,8 +2391,8 @@ if ($PreserveExistingRosie) {
           $oldAsset -ne $rosieModelPath -and
           $oldAsset -ne (Join-Path $managedModelDir "gemma-4-E4B-it-mmproj.gguf")
         ) {
-          Write-Host "Removing superseded certified ROSIE asset: $(Split-Path -Leaf $oldAsset)"
-          Remove-Item $oldAsset -Force
+          Write-Host "Deferring cleanup of superseded certified ROSIE asset until the Main Hub update is fully ready: $(Split-Path -Leaf $oldAsset)"
+          $supersededRosieAssets += $oldAsset
         }
       }
     }
@@ -2414,6 +2415,16 @@ $summary = "Riverside OS Server install complete.`n" +
 Set-Content -Path (Join-Path $installRoot "deployment-summary.txt") -Value $summary -Encoding UTF8
 Write-Host $summary
 Write-DeploymentStatus "READY" "Installation completed successfully"
+foreach ($supersededAsset in @($supersededRosieAssets | Select-Object -Unique)) {
+  try {
+    if (Test-Path $supersededAsset) {
+      Write-Host "Removing superseded certified ROSIE asset after successful Main Hub update: $(Split-Path -Leaf $supersededAsset)"
+      Remove-Item $supersededAsset -Force -ErrorAction Stop
+    }
+  } catch {
+    Write-Warning "Could not remove superseded ROSIE asset '$supersededAsset': $($_.Exception.Message)"
+  }
+}
 Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
   $installFailure = $_

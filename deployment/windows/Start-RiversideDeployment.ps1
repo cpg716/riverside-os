@@ -1112,8 +1112,7 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
   if ($Action -eq "Install" -or $Action -eq "Update") {
     if ($serverRadio.Checked) {
       Add-Log "$Action This Main Hub PC..."
-      $serverInstallerArgs = if ($Action -eq "Update") { @("-PreserveExistingRosie") } else { @() }
-      Invoke-Installer "install-server.ps1" $serverInstallerArgs
+      Invoke-Installer "install-server.ps1" @()
       Invoke-Installer "repair-bootstrap-admin.ps1"
       Add-Log "Server $($Action.ToLowerInvariant()) complete."
       Add-Log "$Action Main Hub desktop app..."

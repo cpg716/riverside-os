@@ -233,6 +233,14 @@ $requiredBinaries = @("sherpa-onnx-offline.exe", "sherpa-onnx-offline-tts.exe")
 $bundledLlama    = Join-Path $pkgBinDir "llama-server.exe"
 $destLlama       = Join-Path $binDestDir "llama-server.exe"
 $llamaVersionFile = Join-Path $rosieRoot "llama_version.txt"
+$versionFile = Join-Path $rosieRoot "sherpa_version.txt"
+$installedVersion = if (Test-Path $versionFile) { Get-Content $versionFile -Raw } else { "" }
+$installedVersion = $installedVersion.Trim()
+$installedLlamaVersion = if (Test-Path $llamaVersionFile) { Get-Content $llamaVersionFile -Raw } else { "" }
+$installedLlamaVersion = $installedLlamaVersion.Trim()
+$missingInstalledSherpa = @($requiredBinaries | Where-Object { -not (Test-Path (Join-Path $binDestDir $_)) })
+$sherpaNeedsInstall = ($installedVersion -ne $SHERPA_VERSION) -or ($missingInstalledSherpa.Count -gt 0)
+$llamaNeedsInstall = ($installedLlamaVersion -ne $LLAMA_VERSION) -or (-not (Test-Path $destLlama))
 
 # Stop any running ROSIE / llama-server processes BEFORE copying binaries.
 # Without this, Windows will refuse to overwrite DLLs that are held open
@@ -247,11 +255,6 @@ Start-Sleep -Seconds 1
 }
 Start-Sleep -Seconds 2
 
-# Check if sherpa version matches
-$versionFile = Join-Path $rosieRoot "sherpa_version.txt"
-$installedVersion = if (Test-Path $versionFile) { Get-Content $versionFile -Raw } else { "" }
-$installedVersion = $installedVersion.Trim()
-
 if ($installedVersion -ne $SHERPA_VERSION) {
   Write-Host "      Sherpa version mismatch (installed: '$installedVersion', script: '$SHERPA_VERSION'). Forcing clean bin update..."
   $requiredBinaries | ForEach-Object {
@@ -260,14 +263,14 @@ if ($installedVersion -ne $SHERPA_VERSION) {
   }
 }
 
-# Copy any binaries that ARE in the package
-if (Test-Path $pkgBinDir) {
+# Copy bundled binaries only when a runtime pin changed or a required binary is missing.
+if ((Test-Path $pkgBinDir) -and ($sherpaNeedsInstall -or $llamaNeedsInstall)) {
   Write-Host "      Copying bundled binaries from package..."
   Copy-Item (Join-Path $pkgBinDir "*") $binDestDir -Force -Recurse -ErrorAction SilentlyContinue
+} elseif (-not $sherpaNeedsInstall -and -not $llamaNeedsInstall) {
+  Write-Host "      Runtime pins match and required binaries are present; reusing installed binaries."
 }
 
-$installedLlamaVersion = if (Test-Path $llamaVersionFile) { Get-Content $llamaVersionFile -Raw } else { "" }
-$installedLlamaVersion = $installedLlamaVersion.Trim()
 if ((Test-Path $destLlama) -and ($installedLlamaVersion -ne $LLAMA_VERSION) -and (-not (Test-Path $bundledLlama))) {
   Write-Host "      llama.cpp version mismatch (installed: '$installedLlamaVersion', script: '$LLAMA_VERSION'). Updating Host LLM runtime..."
   Remove-Item $destLlama -Force -ErrorAction SilentlyContinue
@@ -384,16 +387,22 @@ $pkgSttDir   = Join-Path $pkgRosieDir "stt"
 $sttVersionFile = Join-Path $rosieRoot "stt_version.txt"
 $installedStt = if (Test-Path $sttVersionFile) { Get-Content $sttVersionFile -Raw } else { "" }
 $installedStt = $installedStt.Trim()
+$sttPin = "$STT_HF_REPO@$STT_HF_REVISION"
+$sttPinChanged = -not [string]::IsNullOrWhiteSpace($installedStt) -and $installedStt -ne $sttPin -and $installedStt -ne $STT_HF_REPO
+$sttFilesMissingBefore = @($STT_FILES | Where-Object { -not (Test-Path (Join-Path $sttModelDir $_)) })
+$sttNeedsInstall = $sttPinChanged -or ($sttFilesMissingBefore.Count -gt 0)
 
-if ($installedStt -ne $STT_HF_REPO) {
-  Write-Host "      STT model mismatch (installed: '$installedStt', script: '$STT_HF_REPO'). Forcing clean update..."
+if ($sttPinChanged) {
+  Write-Host "      STT model pin changed (installed: '$installedStt', release: '$sttPin'). Forcing clean update..."
   if (Test-Path $sttModelDir) { Remove-Item $sttModelDir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-# Copy from package if present
-if (Test-Path $pkgSttDir) {
+# Copy from the package only when the pin changed or an installed file is missing.
+if ((Test-Path $pkgSttDir) -and $sttNeedsInstall) {
   Write-Host "      Copying bundled STT models from package..."
   Copy-Item (Join-Path $pkgSttDir "*") $sttDir -Force -Recurse -ErrorAction SilentlyContinue
+} elseif (-not $sttNeedsInstall) {
+  Write-Host "      STT pin matches and required files are present; verifying installed assets in place."
 }
 
 # Download any missing STT files
@@ -408,7 +417,7 @@ if (-not $sttReady) {
   Write-Warning "      Some STT model files could not be downloaded. ROSIE voice input is blocked until setup is repaired."
 } else {
   Write-Host "      STT models ready at: $sttModelDir"
-  $STT_HF_REPO | Out-File -FilePath $sttVersionFile -Encoding utf8
+  $sttPin | Out-File -FilePath $sttVersionFile -Encoding utf8
 }
 
 # ============================================================
@@ -423,16 +432,23 @@ $pkgTtsDir   = Join-Path $pkgRosieDir "tts"
 $ttsVersionFile = Join-Path $rosieRoot "tts_version.txt"
 $installedTts = if (Test-Path $ttsVersionFile) { Get-Content $ttsVersionFile -Raw } else { "" }
 $installedTts = $installedTts.Trim()
+$ttsPin = "$TTS_HF_REPO@$TTS_HF_REVISION"
+$ttsPinChanged = -not [string]::IsNullOrWhiteSpace($installedTts) -and $installedTts -ne $ttsPin -and $installedTts -ne $TTS_HF_REPO
+$ttsRequiredFiles = @($TTS_FILES + $TTS_ESPEAK_FILES)
+$ttsFilesMissingBefore = @($ttsRequiredFiles | Where-Object { -not (Test-Path (Join-Path $ttsModelDir $_)) })
+$ttsNeedsInstall = $ttsPinChanged -or ($ttsFilesMissingBefore.Count -gt 0)
 
-if ($installedTts -ne $TTS_HF_REPO) {
-  Write-Host "      TTS model mismatch (installed: '$installedTts', script: '$TTS_HF_REPO'). Forcing clean update..."
+if ($ttsPinChanged) {
+  Write-Host "      TTS model pin changed (installed: '$installedTts', release: '$ttsPin'). Forcing clean update..."
   if (Test-Path $ttsModelDir) { Remove-Item $ttsModelDir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-# Copy from package if present
-if (Test-Path $pkgTtsDir) {
+# Copy from the package only when the pin changed or an installed file is missing.
+if ((Test-Path $pkgTtsDir) -and $ttsNeedsInstall) {
   Write-Host "      Copying bundled TTS models from package..."
   Copy-Item (Join-Path $pkgTtsDir "*") $ttsDir -Force -Recurse -ErrorAction SilentlyContinue
+} elseif (-not $ttsNeedsInstall) {
+  Write-Host "      TTS pin matches and required files are present; verifying installed assets in place."
 }
 
 # Download any missing TTS files
@@ -445,14 +461,13 @@ foreach ($file in $TTS_ESPEAK_FILES) {
   Get-HfFile $TTS_HF_REPO $TTS_HF_REVISION $file $ttsModelDir $TTS_FILE_SHA256[$file]
 }
 
-$ttsRequiredFiles = @($TTS_FILES + $TTS_ESPEAK_FILES)
 $ttsMissing = @($ttsRequiredFiles | Where-Object { -not (Test-Path (Join-Path $ttsModelDir $_)) })
 $ttsReady = $ttsMissing.Count -eq 0
 if (-not $ttsReady) {
   Write-Warning "      Some TTS model files could not be downloaded. ROSIE voice output is blocked until setup is repaired."
 } else {
   Write-Host "      TTS models ready at: $ttsModelDir"
-  $TTS_HF_REPO | Out-File -FilePath $ttsVersionFile -Encoding utf8
+  $ttsPin | Out-File -FilePath $ttsVersionFile -Encoding utf8
 }
 
 # ============================================================
