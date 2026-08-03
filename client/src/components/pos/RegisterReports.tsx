@@ -678,19 +678,17 @@ function isCreditCardTender(method: string): boolean {
   ]).has(tender);
 }
 
-function activityCreditCardTotalCents(
-  activities: RegisterActivityItem[] | undefined,
+function tenderTotalCents(
+  tenders: RegisterDaySummary["tenders"] | undefined,
+  matches: (method: string) => boolean,
 ): number {
-  return (activities ?? []).reduce((sum, row) => {
-    return (
-      sum +
-      (row.payments ?? []).reduce((paymentSum, payment) => {
-        return isCreditCardTender(payment.method)
-          ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
-          : paymentSum;
-      }, 0)
-    );
-  }, 0);
+  return (tenders ?? []).reduce(
+    (sum, tender) =>
+      matches(tender.payment_method)
+        ? sum + parseRegisterReportMoneyToCents(tender.total_amount)
+        : sum,
+    0,
+  );
 }
 
 function isRmsChargeTender(method: string): boolean {
@@ -701,21 +699,6 @@ function isRmsChargeTender(method: string): boolean {
     tender === "rms90" ||
     tender.includes("rmscharge")
   );
-}
-
-function activityRmsChargeTotalCents(
-  activities: RegisterActivityItem[] | undefined,
-): number {
-  return (activities ?? []).reduce((sum, row) => {
-    return (
-      sum +
-      (row.payments ?? []).reduce((paymentSum, payment) => {
-        return isRmsChargeTender(payment.method)
-          ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
-          : paymentSum;
-      }, 0)
-    );
-  }, 0);
 }
 
 function activityRmsPaymentTotalCents(
@@ -2399,17 +2382,14 @@ export default function RegisterReports({
                       <div className="text-xs font-bold text-app-danger">
                         Credit Card Total
                       </div>
-                      <p
-                        className="text-lg font-black text-app-text"
-                        title={
-                          summaryBooked.activities_has_more
-                            ? "Load all activity to calculate this filtered detail."
-                            : undefined
-                        }
-                      >
-                        {summaryBooked.activities_has_more
-                          ? "—"
-                          : `$${centsToFixed2(activityCreditCardTotalCents(summaryBooked.activities))}`}
+                      <p className="text-lg font-black text-app-text">
+                        $
+                        {centsToFixed2(
+                          tenderTotalCents(
+                            summaryBooked.tenders,
+                            isCreditCardTender,
+                          ),
+                        )}
                       </p>
                     </div>
                   </div>
@@ -2576,9 +2556,9 @@ export default function RegisterReports({
                     RMS Charge
                   </div>
                   <p className="text-base font-black">
-                    {!summaryBooked || summaryBooked.activities_has_more
+                    {!summaryBooked
                       ? "—"
-                      : `$${centsToFixed2(activityRmsChargeTotalCents(summaryBooked.activities))}`}
+                      : `$${centsToFixed2(tenderTotalCents(summaryBooked.tenders, isRmsChargeTender))}`}
                   </p>
                 </div>
                 <div className="ui-metric-cell ui-tint-neutral p-2">

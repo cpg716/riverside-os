@@ -660,6 +660,18 @@ test.describe("Register report output integrity contracts", () => {
       "SUM(pt.amount)::numeric(14,2)::text AS total_amount",
     );
     expect(registerReportsSource).toContain("tenders: periodSummary.tenders");
+    expect(registerReportsSource).toContain(
+      "summaryBooked.tenders,\n                            isCreditCardTender",
+    );
+    expect(registerReportsSource).not.toContain(
+      "activityCreditCardTotalCents(summaryBooked.activities)",
+    );
+    expect(registerReportsSource).toContain(
+      "tenderTotalCents(summaryBooked.tenders, isRmsChargeTender)",
+    );
+    expect(registerDayServerSource).toContain(
+      "NULLIF(oix.size_specs->>'original_unit_price', '')::numeric",
+    );
 
     const dailyPrint = reportPrintSource.slice(
       reportPrintSource.indexOf(

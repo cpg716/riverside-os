@@ -1919,7 +1919,11 @@ async fn fetch_register_day_summary_page_on_connection(
                             ELSE ABS(item_event.subtotal_delta)::text
                         END
                     ),
-                    'reg_price', COALESCE(pvx.retail_price_override, px.base_retail_price)::text,
+                    'reg_price', COALESCE(
+                        NULLIF(oix.size_specs->>'original_unit_price', '')::numeric,
+                        pvx.retail_price_override,
+                        px.base_retail_price
+                    )::text,
                     'product_id', px.id,
                     'fulfillment', oix.fulfillment::text,
                     'is_internal', item_event.is_internal,
@@ -1969,7 +1973,11 @@ async fn fetch_register_day_summary_page_on_connection(
                     'sku', pvx.sku,
                     'quantity', oix.quantity,
                     'price', oix.unit_price::text,
-                    'reg_price', COALESCE(pvx.retail_price_override, px.base_retail_price)::text,
+                    'reg_price', COALESCE(
+                        NULLIF(oix.size_specs->>'original_unit_price', '')::numeric,
+                        pvx.retail_price_override,
+                        px.base_retail_price
+                    )::text,
                     'product_id', px.id,
                     'fulfillment', oix.fulfillment::text,
                     'is_internal', COALESCE(oix.is_internal, false),
