@@ -648,6 +648,7 @@ for (const copy of [
   "Get-PreservedRosieEnvironment $envPath",
   "Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment",
   "ROSIE scheduled task preserved without restart or re-registration.",
+  "The Riverside OS update will continue while ROSIE reports degraded status and the watchdog retries.",
   "Deferring cleanup of superseded certified ROSIE asset until the Main Hub update is fully ready",
   "Removing superseded certified ROSIE asset after successful Main Hub update",
 ]) {
@@ -657,6 +658,27 @@ for (const copy of [
     "Main Hub updates must verify an admin-readable backup before downtime and recover the prior task after failure",
   );
 }
+for (const copy of [
+  'temperature = 0',
+  'seed = 42',
+  '$startupTimeoutSeconds = if ((Get-Item $modelPath).Length -ge 4GB) { 180 } else { 60 }',
+  'Waiting up to $startupTimeoutSeconds seconds for the ROSIE LLM host to load the model',
+  'ROSIE certification details: HTTP healthy=$llmHealthy; LLM functional=$($llmProbe.ready); TTS functional=$($speechProbe.tts_ready); STT functional=$($speechProbe.stt_ready).',
+  'ROSIE LLM detail: $($llmProbe.error)',
+  'ROSIE speech detail: $($speechProbe.error)',
+  '"`"Riverside Rosie health check`""',
+]) {
+  assertIncludes(
+    "deployment/windows/watch-rosie-stack.ps1",
+    copy,
+    "ROSIE certification must allow bounded cold startup and report the exact failing subsystem",
+  );
+}
+assertNotIncludes(
+  mainHubInstaller,
+  'throw "ROSIE functional certification failed.',
+  "ROSIE degradation must not roll back an otherwise healthy Main Hub update",
+);
 const rosieCleanupIndex = mainHubInstallerSource.indexOf(
   "Removing superseded certified ROSIE asset after successful Main Hub update",
 );

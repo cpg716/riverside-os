@@ -361,6 +361,9 @@ pub struct RegisterDaySummary {
     pub cash_collected: String,
     /// Total payments received towards unfulfilled orders or as partial payments.
     pub deposits_collected: String,
+    /// Authoritative payment-day tender totals for the selected effective business-date window.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tenders: Vec<RegisterDayTender>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub weather_days: Vec<RegisterDayWeatherSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -381,6 +384,13 @@ pub struct RegisterDaySummary {
     pub pickups_has_more: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pickups_today: Vec<RegisterActivityItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, sqlx::FromRow)]
+pub struct RegisterDayTender {
+    pub payment_method: String,
+    pub total_amount: String,
+    pub tx_count: i64,
 }
 
 fn default_reporting_basis() -> String {
@@ -1564,24 +1574,51 @@ async fn fetch_register_day_summary_page_on_connection(
         fetch_register_day_weather_on_connection(&mut *connection, from_l, to_l, &tz_name).await?;
     let weather_summary = weather_summary_label(&weather_days);
 
-    // --- Cash and Deposits Dashboard Metrics ---
-    let cash_row: (Option<Decimal>,) = sqlx::query_as(
+    // --- Payment-day tender and deposit metrics ---
+    // Keep these totals on the payment ledger so Daily Sales reconciles to the
+    // Z-Report even when part of a card charge is retained as an open deposit.
+    let tenders: Vec<RegisterDayTender> = sqlx::query_as(
         r#"
-        SELECT SUM(amount)::numeric(14,2)
-        FROM payment_transactions
-        WHERE COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
-          AND COALESCE(effective_date, (created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
-          AND status = 'success'
-          AND LOWER(TRIM(payment_method)) = 'cash'
-          AND ($3::uuid IS NULL OR session_id = $3)
+        SELECT
+            CASE
+                WHEN LOWER(COALESCE(pt.metadata->>'tender_family', '')) = 'card_not_present'
+                  OR EXISTS (
+                      SELECT 1
+                      FROM payment_provider_attempts ppa
+                      WHERE ppa.provider = 'helcim'
+                        AND ppa.raw_audit_reference LIKE 'helcim-pay-js%'
+                        AND (
+                            ppa.id::text = pt.metadata->>'payment_provider_attempt_id'
+                            OR (
+                                pt.provider_transaction_id IS NOT NULL
+                                AND ppa.provider_transaction_id = pt.provider_transaction_id
+                            )
+                        )
+                  )
+                THEN 'card_not_present'
+                ELSE pt.payment_method
+            END AS payment_method,
+            SUM(pt.amount)::numeric(14,2)::text AS total_amount,
+            COUNT(*)::bigint AS tx_count
+        FROM payment_transactions pt
+        WHERE COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+          AND COALESCE(pt.effective_date, (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+          AND pt.status = 'success'
+          AND ($3::uuid IS NULL OR pt.session_id = $3)
+        GROUP BY 1
+        ORDER BY 1
         "#,
     )
     .bind(start_utc)
     .bind(end_utc)
     .bind(register_session_id)
-    .fetch_one(&mut *connection)
+    .fetch_all(&mut *connection)
     .await?;
-    let cash_collected = cash_row.0.unwrap_or(Decimal::ZERO);
+    let cash_collected = tenders
+        .iter()
+        .filter(|tender| tender.payment_method.trim().eq_ignore_ascii_case("cash"))
+        .filter_map(|tender| tender.total_amount.parse::<Decimal>().ok())
+        .sum::<Decimal>();
 
     // Definition of 'Deposit' for dashboard: Payments allocated to orders booked today that aren't takeaway,
     // OR any payment received today where the order was already existing (pre-payment/balance payment).
@@ -3203,6 +3240,7 @@ async fn fetch_register_day_summary_page_on_connection(
         gift_card_load_total: money_label(gift_card_load_total),
         cash_collected: money_label(cash_collected),
         deposits_collected: money_label(deposits_collected),
+        tenders,
         weather_days,
         weather_summary,
         activity_total_count,

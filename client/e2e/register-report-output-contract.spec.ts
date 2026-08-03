@@ -652,6 +652,65 @@ test.describe("Register report output integrity contracts", () => {
     expect(sessionsServerSource).toContain("z_report_snapshot: z_snapshot");
   });
 
+  test("Daily Sales and Z-Reports use the same payment-ledger tender totals", () => {
+    expect(registerDayServerSource).toContain(
+      "pub tenders: Vec<RegisterDayTender>",
+    );
+    expect(registerDayServerSource).toContain(
+      "SUM(pt.amount)::numeric(14,2)::text AS total_amount",
+    );
+    expect(registerReportsSource).toContain("tenders: periodSummary.tenders");
+
+    const dailyPrint = reportPrintSource.slice(
+      reportPrintSource.indexOf(
+        "export async function openProfessionalDailySalesPrint",
+      ),
+    );
+    expect(dailyPrint).toContain("creditCardTenderTotalCents(summary.tenders)");
+    expect(dailyPrint).toContain("creditCardTenderCount(summary.tenders)");
+    expect(dailyPrint).toContain(
+      "tenderTotalCents(\n    summary.tenders,\n    isRmsChargeTender",
+    );
+    expect(dailyPrint).not.toMatch(
+      /const creditCardTotalCents = activities\.reduce/,
+    );
+    expect(dailyPrint).not.toMatch(
+      /const rmsChargeTotalCents = activities\.reduce/,
+    );
+    expect(reportPrintSource).not.toContain(
+      "creditCardTenderTotalCents(opts.tenders) ||",
+    );
+    expect(reportPrintSource).toContain(
+      '${rows.length} activity ${rows.length === 1 ? "entry" : "entries"}',
+    );
+
+    const zReportFromSession = registerReportsSource.slice(
+      registerReportsSource.indexOf("async function openZReportFromSession"),
+      registerReportsSource.indexOf("function registerReportApiError"),
+    );
+    for (const [dailyField, zOption] of [
+      ["sales_count", "salesCount"],
+      ["sales_tax_total", "salesTaxTotal"],
+      ["net_sales", "netSales"],
+      ["shipping_total", "shippingTotal"],
+      ["alterations_total", "alterationsTotal"],
+      ["gift_card_load_count", "giftCardLoadCount"],
+      ["gift_card_load_total", "giftCardLoadTotal"],
+      ["cash_collected", "cashCollected"],
+      ["deposits_collected", "depositsCollected"],
+    ]) {
+      expect(registerReportsSource).toContain(
+        `${dailyField}: periodSummary.${dailyField}`,
+      );
+      expect(zReportFromSession).toContain(
+        `${zOption}: daySummary.${dailyField}`,
+      );
+      expect(closeRegisterSource).toContain(
+        `${zOption}: daySummary.${dailyField}`,
+      );
+    }
+  });
+
   test("closed Z-report Quick Look totals are mandatory before close commits", () => {
     expect(closeRegisterSource).toContain("closedSnapshot?.day_summary ??");
     expect(closeRegisterSource).toContain(

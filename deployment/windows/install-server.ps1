@@ -2366,8 +2366,10 @@ if ($PreserveExistingRosie) {
     $rosieWatchdogSettings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
     Register-ScheduledTask -TaskName $rosieWatchdogTask -Action $rosieWatchdogAction -Trigger @($rosieWatchdogStartup, $rosieWatchdogRepeat) -Principal $rosieWatchdogPrincipal -Settings $rosieWatchdogSettings | Out-Null
     if (-not $NoStart) {
+      $rosieCandidateCertified = $true
       & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $rosieWatchdogDest -InstallRoot $installRoot -FullCertification
       if ($LASTEXITCODE -ne 0) {
+        $rosieCandidateCertified = $false
         if ($previousRosieEnvironment.Count -gt 0) {
           Write-Warning "ROSIE candidate certification failed. Restoring the previous ROSIE environment."
           Restore-RosieEnvironment $envPath $previousRosieEnvironment
@@ -2378,21 +2380,23 @@ if ($PreserveExistingRosie) {
             & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $rosieStartScript -InstallRoot $installRoot | Out-Null
           }
         }
-        throw "ROSIE functional certification failed. See $installRoot\rosie\rosie_status.json."
+        Write-Warning "ROSIE functional certification failed. The Riverside OS update will continue while ROSIE reports degraded status and the watchdog retries. See $installRoot\rosie\rosie_status.json."
       }
-      $managedModelDir = Join-Path $installRoot "rosie\models\gemma-4-e4b"
-      foreach ($key in @("RIVERSIDE_LLAMA_MODEL_PATH", "RIVERSIDE_LLAMA_MMPROJ_PATH")) {
-        if (-not $previousRosieEnvironment.ContainsKey($key)) { continue }
-        $oldAsset = "$($previousRosieEnvironment[$key])".Trim().Trim('"')
-        if (
-          $oldAsset -and
-          (Test-Path $oldAsset) -and
-          [IO.Path]::GetFullPath((Split-Path -Parent $oldAsset)).TrimEnd('\') -eq [IO.Path]::GetFullPath($managedModelDir).TrimEnd('\') -and
-          $oldAsset -ne $rosieModelPath -and
-          $oldAsset -ne (Join-Path $managedModelDir "gemma-4-E4B-it-mmproj.gguf")
-        ) {
-          Write-Host "Deferring cleanup of superseded certified ROSIE asset until the Main Hub update is fully ready: $(Split-Path -Leaf $oldAsset)"
-          $supersededRosieAssets += $oldAsset
+      if ($rosieCandidateCertified) {
+        $managedModelDir = Join-Path $installRoot "rosie\models\gemma-4-e4b"
+        foreach ($key in @("RIVERSIDE_LLAMA_MODEL_PATH", "RIVERSIDE_LLAMA_MMPROJ_PATH")) {
+          if (-not $previousRosieEnvironment.ContainsKey($key)) { continue }
+          $oldAsset = "$($previousRosieEnvironment[$key])".Trim().Trim('"')
+          if (
+            $oldAsset -and
+            (Test-Path $oldAsset) -and
+            [IO.Path]::GetFullPath((Split-Path -Parent $oldAsset)).TrimEnd('\') -eq [IO.Path]::GetFullPath($managedModelDir).TrimEnd('\') -and
+            $oldAsset -ne $rosieModelPath -and
+            $oldAsset -ne (Join-Path $managedModelDir "gemma-4-E4B-it-mmproj.gguf")
+          ) {
+            Write-Host "Deferring cleanup of superseded certified ROSIE asset until the Main Hub update is fully ready: $(Split-Path -Leaf $oldAsset)"
+            $supersededRosieAssets += $oldAsset
+          }
         }
       }
     }

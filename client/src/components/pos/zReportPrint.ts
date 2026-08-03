@@ -100,6 +100,56 @@ type ZReportAuditItem = {
   line_kind?: string | null;
 };
 
+type ReportMetricItem = {
+  quantity: number;
+  unitPrice: string;
+  regularUnitPrice: string;
+  fulfillment?: string | null;
+  lineKind?: string | null;
+};
+
+function summarizeReportItemMetrics(groups: ReportMetricItem[][]) {
+  let alterationCount = 0;
+  let alterationTotalCents = 0;
+  let discountTotalCents = 0;
+  let discountGroupCount = 0;
+  let rmsPaymentTotalCents = 0;
+  let newLayawayCount = 0;
+
+  for (const items of groups) {
+    let groupHasDiscount = false;
+    let groupHasLayaway = false;
+    for (const item of items) {
+      const quantity = Math.max(item.quantity, 0);
+      const unitPriceCents = parseMoneyToCents(item.unitPrice);
+      const regularPriceCents = parseMoneyToCents(item.regularUnitPrice);
+      if (item.lineKind === "alteration_service") {
+        alterationCount += quantity;
+        alterationTotalCents += unitPriceCents * quantity;
+      }
+      if (item.lineKind === "rms_charge_payment") {
+        rmsPaymentTotalCents += unitPriceCents * quantity;
+      }
+      if (regularPriceCents > unitPriceCents) {
+        groupHasDiscount = true;
+        discountTotalCents += (regularPriceCents - unitPriceCents) * quantity;
+      }
+      if (item.fulfillment === "layaway") groupHasLayaway = true;
+    }
+    if (groupHasDiscount) discountGroupCount += 1;
+    if (groupHasLayaway) newLayawayCount += 1;
+  }
+
+  return {
+    alterationCount,
+    alterationTotalCents,
+    discountTotalCents,
+    discountGroupCount,
+    rmsPaymentTotalCents,
+    newLayawayCount,
+  };
+}
+
 function escapeReportHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -325,11 +375,20 @@ function tenderFamilyRows(summary: TenderFamilySummary): string[] {
 }
 
 function creditCardTenderTotalCents(tenders: ZReportTenderRow[]): number {
-  return tenders.reduce((sum, tender) => {
-    return isCreditCardTender(tender.payment_method)
-      ? sum + parseMoneyToCents(tender.total_amount)
-      : sum;
-  }, 0);
+  return tenderTotalCents(tenders, isCreditCardTender);
+}
+
+function tenderTotalCents(
+  tenders: ZReportTenderRow[],
+  matches: (method: string) => boolean,
+): number {
+  return tenders.reduce(
+    (sum, tender) =>
+      matches(tender.payment_method)
+        ? sum + parseMoneyToCents(tender.total_amount)
+        : sum,
+    0,
+  );
 }
 
 function creditCardTenderCount(tenders: ZReportTenderRow[]): number {
@@ -823,16 +882,18 @@ export async function openProfessionalZReportPrint(opts: {
       transaction.transaction_status === "fulfilled" ||
       transactionHasFulfillment(transaction, "pickup"),
   ).length;
-  const alterationCount = transactions.reduce((sum, transaction) => {
-    return (
-      sum +
-      (transaction.items ?? []).reduce((itemSum, item) => {
-        return item.line_kind === "alteration_service"
-          ? itemSum + Math.max(item.quantity, 0)
-          : itemSum;
-      }, 0)
-    );
-  }, 0);
+  const reportItemMetrics = summarizeReportItemMetrics(
+    transactions.map((transaction) =>
+      (transaction.items ?? []).map((item) => ({
+        quantity: item.quantity,
+        unitPrice: item.overridden_unit_price ?? item.unit_price,
+        regularUnitPrice: item.original_unit_price ?? item.unit_price,
+        fulfillment: item.fulfillment,
+        lineKind: item.line_kind,
+      })),
+    ),
+  );
+  const alterationCount = reportItemMetrics.alterationCount;
   const shippingTotalCents = transactions.reduce(
     (sum, transaction) =>
       sum +
@@ -847,87 +908,17 @@ export async function openProfessionalZReportPrint(opts: {
       ),
     0,
   );
-  const alterationTotalCents = transactions.reduce((sum, transaction) => {
-    return (
-      sum +
-      (transaction.items ?? []).reduce((itemSum, item) => {
-        return item.line_kind === "alteration_service"
-          ? itemSum +
-              parseMoneyToCents(item.unit_price) * Math.max(item.quantity, 0)
-          : itemSum;
-      }, 0)
-    );
-  }, 0);
+  const alterationTotalCents = reportItemMetrics.alterationTotalCents;
   const reportShippingTotal =
     opts.shippingTotal ?? formatReportMoney(shippingTotalCents);
   const reportAlterationsTotal =
     opts.alterationsTotal ?? formatReportMoney(alterationTotalCents);
   const reportGiftCardLoadTotal = opts.giftCardLoadTotal ?? "0.00";
-  const discountTotalCents = transactions.reduce((sum, transaction) => {
-    return (
-      sum +
-      (transaction.items ?? []).reduce((itemSum, item) => {
-        const regularCents = parseMoneyToCents(
-          item.original_unit_price ?? item.unit_price,
-        );
-        const saleCents = parseMoneyToCents(
-          item.overridden_unit_price ?? item.unit_price,
-        );
-        return (
-          itemSum +
-          Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0)
-        );
-      }, 0)
-    );
-  }, 0);
-  const discountTransactionCount = transactions.filter((transaction) =>
-    (transaction.items ?? []).some((item) => {
-      const regularCents = parseMoneyToCents(
-        item.original_unit_price ?? item.unit_price,
-      );
-      const saleCents = parseMoneyToCents(
-        item.overridden_unit_price ?? item.unit_price,
-      );
-      return regularCents > saleCents;
-    }),
-  ).length;
-  const transactionCreditCardTotalCents = transactions.reduce(
-    (sum, transaction) => {
-      return (
-        sum +
-        tenderLinesForTransaction(transaction).reduce((paymentSum, payment) => {
-          return isCreditCardTender(payment.payment_method)
-            ? paymentSum + parseMoneyToCents(payment.amount)
-            : paymentSum;
-        }, 0)
-      );
-    },
-    0,
-  );
-  const rmsChargeTotalCents = transactions.reduce((sum, transaction) => {
-    return (
-      sum +
-      tenderLinesForTransaction(transaction).reduce((paymentSum, payment) => {
-        return isRmsChargeTender(payment.payment_method)
-          ? paymentSum + parseMoneyToCents(payment.amount)
-          : paymentSum;
-      }, 0)
-    );
-  }, 0);
-  const rmsPaymentTotalCents = transactions.reduce((sum, transaction) => {
-    return (
-      sum +
-      (transaction.items ?? []).reduce((itemSum, item) => {
-        return item.line_kind === "rms_charge_payment"
-          ? itemSum +
-              parseMoneyToCents(item.unit_price) * Math.max(item.quantity, 0)
-          : itemSum;
-      }, 0)
-    );
-  }, 0);
-  const newLayawayCount = transactions.filter((transaction) =>
-    (transaction.items ?? []).some((item) => item.fulfillment === "layaway"),
-  ).length;
+  const discountTotalCents = reportItemMetrics.discountTotalCents;
+  const discountTransactionCount = reportItemMetrics.discountGroupCount;
+  const rmsChargeTotalCents = tenderTotalCents(opts.tenders, isRmsChargeTender);
+  const rmsPaymentTotalCents = reportItemMetrics.rmsPaymentTotalCents;
+  const newLayawayCount = reportItemMetrics.newLayawayCount;
   const pickupTotalCents = (opts.pickupsToday ?? []).reduce(
     (sum, pickup) =>
       sum +
@@ -938,15 +929,8 @@ export async function openProfessionalZReportPrint(opts: {
   const newOrdersDisplayCount = opts.newOrdersCount ?? newOrderCount;
   const ordersPickedUpDisplayCount =
     opts.ordersPickedUpCount ?? ordersPickedUpCount;
-  const creditCardTotalCents =
-    creditCardTenderTotalCents(opts.tenders) || transactionCreditCardTotalCents;
-  const creditCardTxCount =
-    creditCardTenderCount(opts.tenders) ||
-    transactions.filter((transaction) =>
-      tenderLinesForTransaction(transaction).some((payment) =>
-        isCreditCardTender(payment.payment_method),
-      ),
-    ).length;
+  const creditCardTotalCents = creditCardTenderTotalCents(opts.tenders);
+  const creditCardTxCount = creditCardTenderCount(opts.tenders);
   const tenderFamilySummary = summarizeTenderFamilies(opts.tenders);
   if (rmsPaymentTotalCents !== 0) {
     tenderFamilySummary.informational.push({
@@ -1690,6 +1674,7 @@ export async function openProfessionalDailySalesPrint(opts: {
     merchant_fees_total: string;
     cash_collected: string;
     deposits_collected: string;
+    tenders: ZReportTenderRow[];
     new_appointment_count?: number;
     new_layaway_count?: number;
     pickup_total?: string;
@@ -1909,7 +1894,7 @@ export async function openProfessionalDailySalesPrint(opts: {
           <div class="group-head">
             <div>
               <span class="group-date">${date}</span>
-              <span class="group-count">(${rows.length} transaction${rows.length === 1 ? "" : "s"})</span>
+              <span class="group-count">(${rows.length} activity ${rows.length === 1 ? "entry" : "entries"})</span>
             </div>
             <div class="group-total"><span>Subtotal:</span> ${formatReportMoney(groupSubtotalCents)} <span>Tax:</span> ${formatReportMoney(groupTaxCents)} <span>Total With Tax:</span> ${formatReportMoney(groupTotalWithTaxCents)}</div>
           </div>
@@ -1982,44 +1967,26 @@ export async function openProfessionalDailySalesPrint(opts: {
     parseMoneyToCents(summary.sales_subtotal_no_tax) +
     parseMoneyToCents(summary.sales_tax_total) +
     parseMoneyToCents(summary.shipping_total);
-  const creditCardTotalCents = activities.reduce((sum, row) => {
-    return (
-      sum +
-      (row.payments ?? []).reduce((paymentSum, payment) => {
-        return isCreditCardTender(payment.method)
-          ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
-          : paymentSum;
-      }, 0)
-    );
-  }, 0);
-  const rmsChargeTotalCents = activities.reduce((sum, row) => {
-    return (
-      sum +
-      (row.payments ?? []).reduce((paymentSum, payment) => {
-        return isRmsChargeTender(payment.method)
-          ? paymentSum + parseRegisterReportMoneyToCents(payment.amount_label)
-          : paymentSum;
-      }, 0)
-    );
-  }, 0);
-  const rmsPaymentTotalCents = activities.reduce((sum, row) => {
-    return (
-      sum +
-      (row.items ?? []).reduce((itemSum, item) => {
-        return item.line_kind === "rms_charge_payment"
-          ? itemSum + parseMoneyToCents(item.price) * item.quantity
-          : itemSum;
-      }, 0)
-    );
-  }, 0);
-  const creditCardPaymentCount = activities.filter((row) =>
-    (row.payments ?? []).some((payment) => isCreditCardTender(payment.method)),
-  ).length;
+  const creditCardTotalCents = creditCardTenderTotalCents(summary.tenders);
+  const rmsChargeTotalCents = tenderTotalCents(
+    summary.tenders,
+    isRmsChargeTender,
+  );
+  const reportItemMetrics = summarizeReportItemMetrics(
+    activities.map((row) =>
+      (row.items ?? []).map((item) => ({
+        quantity: item.quantity,
+        unitPrice: item.price,
+        regularUnitPrice: item.reg_price || item.price,
+        fulfillment: item.fulfillment,
+        lineKind: item.line_kind,
+      })),
+    ),
+  );
+  const rmsPaymentTotalCents = reportItemMetrics.rmsPaymentTotalCents;
+  const creditCardPaymentCount = creditCardTenderCount(summary.tenders);
   const newLayawayCount =
-    summary.new_layaway_count ??
-    activities.filter((row) =>
-      (row.items ?? []).some((item) => item.fulfillment === "layaway"),
-    ).length;
+    summary.new_layaway_count ?? reportItemMetrics.newLayawayCount;
   const pickupTotalCents = summary.pickup_total
     ? parseRegisterReportMoneyToCents(summary.pickup_total)
     : pickupsToday.reduce(
@@ -2033,26 +2000,9 @@ export async function openProfessionalDailySalesPrint(opts: {
   const pickupTotalCount = summary.pickup_total_count ?? pickupsToday.length;
   const discountTotalCents = summary.discount_total
     ? parseRegisterReportMoneyToCents(summary.discount_total)
-    : activities.reduce((sum, row) => {
-        const rowDiscount = (row.items ?? []).reduce((itemSum, item) => {
-          const regularCents = parseMoneyToCents(item.reg_price || item.price);
-          const saleCents = parseMoneyToCents(item.price);
-          return (
-            itemSum +
-            Math.max(regularCents - saleCents, 0) * Math.max(item.quantity, 0)
-          );
-        }, 0);
-        return sum + rowDiscount;
-      }, 0);
+    : reportItemMetrics.discountTotalCents;
   const discountCount =
-    summary.discount_count ??
-    activities.filter((row) =>
-      (row.items ?? []).some(
-        (item) =>
-          parseMoneyToCents(item.reg_price || item.price) >
-          parseMoneyToCents(item.price),
-      ),
-    ).length;
+    summary.discount_count ?? reportItemMetrics.discountGroupCount;
   const generatedAt = new Date().toLocaleString();
   const dailyReportTextLines = [
     "RIVERSIDE MEN'S SHOP",

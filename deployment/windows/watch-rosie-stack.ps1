@@ -51,6 +51,8 @@ function Test-RosieLlmFunction([string]$BaseUrl) {
       model = "local"
       stream = $false
       max_tokens = 24
+      temperature = 0
+      seed = 42
       reasoning = $false
       chat_template_kwargs = @{ enable_thinking = $false }
       messages = @(@{ role = "user"; content = "Reply with exactly ROSIE_TEXT_OK" })
@@ -64,6 +66,8 @@ function Test-RosieLlmFunction([string]$BaseUrl) {
       stream = $true
       stream_options = @{ include_usage = $true }
       max_tokens = 24
+      temperature = 0
+      seed = 42
       reasoning = $false
       chat_template_kwargs = @{ enable_thinking = $false }
       messages = @(@{ role = "user"; content = "Reply with exactly ROSIE_STREAM_OK" })
@@ -87,6 +91,8 @@ function Test-RosieLlmFunction([string]$BaseUrl) {
       model = "local"
       stream = $false
       max_tokens = 128
+      temperature = 0
+      seed = 42
       reasoning = $false
       chat_template_kwargs = @{ enable_thinking = $false }
       messages = @(
@@ -119,6 +125,8 @@ function Test-RosieLlmFunction([string]$BaseUrl) {
       model = "local"
       stream = $false
       max_tokens = 24
+      temperature = 0
+      seed = 42
       reasoning = $false
       chat_template_kwargs = @{ enable_thinking = $false }
       messages = @(@{
@@ -187,7 +195,7 @@ function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$Stt
       "--output-filename=`"$probeWav`"",
       "--sid=5",
       "--speed=1.0",
-      "Riverside Rosie health check"
+      "`"Riverside Rosie health check`""
     )
     $ttsProbe = Invoke-BoundedProcess $TtsExe $ttsArgs 60
     $wavReady = $ttsProbe.success -and (Test-Path $probeWav) -and (Get-Item $probeWav).Length -gt 44
@@ -302,8 +310,11 @@ if ($binariesReady -and $llmReady) {
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $startScript -InstallRoot $InstallRoot | Out-Null
       }
     }
-    for ($attempt = 1; $attempt -le 20 -and -not $llmHealthy; $attempt++) {
-      Start-Sleep -Seconds 1
+    $startupTimeoutSeconds = if ((Get-Item $modelPath).Length -ge 4GB) { 180 } else { 60 }
+    $startupDeadline = (Get-Date).AddSeconds($startupTimeoutSeconds)
+    Write-Host "Waiting up to $startupTimeoutSeconds seconds for the ROSIE LLM host to load the model..."
+    while ((Get-Date) -lt $startupDeadline -and -not $llmHealthy) {
+      Start-Sleep -Seconds 2
       $llmHealthy = Test-RosieHttpHealth $baseUrl
     }
   }
@@ -419,6 +430,13 @@ if ($stackReady) {
   Write-Host "ROSIE stack is healthy at $baseUrl."
 } else {
   if (Test-Path $readyFlag) { Remove-Item $readyFlag -Force -ErrorAction SilentlyContinue }
+  Write-Warning "ROSIE certification details: HTTP healthy=$llmHealthy; LLM functional=$($llmProbe.ready); TTS functional=$($speechProbe.tts_ready); STT functional=$($speechProbe.stt_ready)."
+  if (-not [string]::IsNullOrWhiteSpace("$($llmProbe.error)")) {
+    Write-Warning "ROSIE LLM detail: $($llmProbe.error)"
+  }
+  if (-not [string]::IsNullOrWhiteSpace("$($speechProbe.error)")) {
+    Write-Warning "ROSIE speech detail: $($speechProbe.error)"
+  }
   Write-Warning "ROSIE stack is not fully healthy. See $statusPath."
   exit 1
 }

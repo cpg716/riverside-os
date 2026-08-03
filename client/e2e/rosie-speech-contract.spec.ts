@@ -26,6 +26,9 @@ test("multilingual Kokoro starts as US English on every Riverside speech path", 
   ]) {
     expect(source).toContain("--kokoro-lang=en-us");
   }
+  expect(windowsSpeechProbeSource).toContain(
+    '"`"Riverside Rosie health check`""',
+  );
 });
 
 test("ROSIE Chat converts speech engine diagnostics into staff-facing guidance", () => {

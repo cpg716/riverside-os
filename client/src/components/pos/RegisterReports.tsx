@@ -193,6 +193,11 @@ interface RegisterDaySummary {
   gift_card_load_total: string;
   cash_collected: string;
   deposits_collected: string;
+  tenders: Array<{
+    payment_method: string;
+    total_amount: string;
+    tx_count: number;
+  }>;
   weather_days?: RegisterDayWeatherSummary[];
   weather_summary?: string | null;
   activity_total_count?: number;
@@ -1667,6 +1672,7 @@ export default function RegisterReports({
           merchant_fees_total: periodSummary.merchant_fees_total,
           cash_collected: periodSummary.cash_collected,
           deposits_collected: periodSummary.deposits_collected,
+          tenders: periodSummary.tenders,
           new_appointment_count: periodSummary.new_appointment_count,
           new_layaway_count: activityNewLayawayCount(printSummary.activities),
           pickup_total: centsToFixed2(
