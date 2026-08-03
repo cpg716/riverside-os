@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { X, Trash2, Search, Plus } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
 const baseUrl = getBaseUrl();
 
@@ -54,6 +55,7 @@ export default function ComboEditorModal({
   const [categories, setCategories] = useState<CategoryOption[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [productQuery, setProductQuery] = useState("");
+  const debouncedProductQuery = useDebouncedValue(productQuery.trim(), 300);
   const [productResults, setProductResults] = useState<ProductSearchRow[]>([]);
   const [productSearchLoading, setProductSearchLoading] = useState(false);
 
@@ -81,7 +83,7 @@ export default function ComboEditorModal({
   }, [backofficeHeaders, toast]);
 
   useEffect(() => {
-    const query = productQuery.trim();
+    const query = debouncedProductQuery;
     if (query.length < 2) {
       setProductResults([]);
       return;
@@ -109,7 +111,7 @@ export default function ComboEditorModal({
         if (!controller.signal.aborted) setProductSearchLoading(false);
       });
     return () => controller.abort();
-  }, [backofficeHeaders, productQuery]);
+  }, [backofficeHeaders, debouncedProductQuery]);
 
   const addRequirement = useCallback(
     (item: ComboItem) => {

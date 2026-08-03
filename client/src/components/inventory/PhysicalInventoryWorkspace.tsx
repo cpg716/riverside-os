@@ -475,7 +475,11 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     await loadDiscovered(sessionId);
   }, [loadDiscovered, mergeH]);
 
-  const loadReview = useCallback(async (sessionId: string, query = "") => {
+  const loadReview = useCallback(async (
+    sessionId: string,
+    query = "",
+    options?: { signal?: AbortSignal; refreshDiscovered?: boolean },
+  ) => {
     try {
       const params = new URLSearchParams({
         limit: String(REVIEW_ROW_LIMIT),
@@ -484,7 +488,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       if (trimmedQuery) params.set("q", trimmedQuery);
       const res = await fetch(
         `${BASE_URL}/api/inventory/physical/sessions/${sessionId}/review?${params.toString()}`,
-        { headers: mergeH() },
+        { headers: mergeH(), signal: options?.signal },
       );
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -495,8 +499,9 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
       setReviewSummary(data.summary);
       setReviewLoadError(null);
       setLastReviewLoadedAt(new Date().toLocaleString());
-      await loadDiscovered(sessionId);
+      if (options?.refreshDiscovered !== false) await loadDiscovered(sessionId);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       setReviewLoadError(
         error instanceof Error ? error.message : "Could not refresh count review.",
       );
@@ -1004,10 +1009,17 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
 
   useEffect(() => {
     if (!activeSession || activeSession.status !== "reviewing" || phase !== "review") return;
+    const controller = new AbortController();
     const handle = window.setTimeout(() => {
-      void loadReview(activeSession.id, reviewSearch);
+      void loadReview(activeSession.id, reviewSearch, {
+        signal: controller.signal,
+        refreshDiscovered: false,
+      });
     }, 350);
-    return () => window.clearTimeout(handle);
+    return () => {
+      window.clearTimeout(handle);
+      controller.abort();
+    };
   }, [activeSession, loadReview, phase, reviewSearch]);
 
   // ─────────────────────────────────────────────────────────────────────────────

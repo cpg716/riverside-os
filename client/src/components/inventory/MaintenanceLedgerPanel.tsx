@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 // Unused centsToFixed2 removed
 
 interface MaintenanceRow {
@@ -41,31 +42,36 @@ export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({
   const [rows, setRows] = useState<MaintenanceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search.trim(), 300);
 
   const apiHeaders = useMemo(
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     try {
-      const qs = new URLSearchParams({ tx_type: type, search });
+      const qs = new URLSearchParams({ tx_type: type, search: debouncedSearch });
       const res = await fetch(`/api/products/maintenance?${qs}`, {
         headers: apiHeaders,
+        signal,
       });
       if (!res.ok) throw new Error("Fetch failed");
       const data = await res.json();
       setRows(data);
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
       console.error(e);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [type, search, apiHeaders]);
+  }, [type, debouncedSearch, apiHeaders]);
 
   useEffect(() => {
-    loadData();
+    const controller = new AbortController();
+    void loadData(controller.signal);
+    return () => controller.abort();
   }, [loadData]);
 
   const stats = useMemo(() => {

@@ -22,11 +22,47 @@ import WeddingHealthHeatmap from '../components/WeddingHealthHeatmap';
 import CutoverReviewPanel from '../components/CutoverReviewPanel';
 import { useModal } from '../hooks/useModal';
 
+const PartySearchField = ({ value, onSearch }) => {
+    const [draft, setDraft] = useState(value);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => onSearch(draft.trim()), 300);
+        return () => window.clearTimeout(timer);
+    }, [draft, onSearch]);
+
+    return (
+        <div className="flex-1 flex items-center gap-3 w-full bg-app-surface-2 p-2.5 rounded-lg border border-app-border focus-within:ring-2 focus-within:ring-navy-200 focus-within:border-navy-400 transition-all">
+            <Icon name="Search" className="text-app-text-muted" size={20} />
+            <input
+                type="search"
+                aria-label="Search wedding parties"
+                placeholder="Search by Party Name, Member Name..."
+                className="flex-1 outline-none text-app-text placeholder:text-app-text-muted font-medium bg-transparent text-lg"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                style={{ minHeight: '44px' }}
+            />
+            {draft && (
+                <button
+                    type="button"
+                    aria-label="Clear wedding party search"
+                    onClick={() => {
+                        setDraft('');
+                        onSearch('');
+                    }}
+                    className="text-app-text-muted hover:text-app-text p-2"
+                >
+                    <Icon name="X" size={18} />
+                </button>
+            )}
+        </div>
+    );
+};
+
 const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
     const { showAlert, showConfirm, selectSalesperson } = useModal();
     const [parties, setParties] = useState([]);
     // ... (keep existing state)
-    const [searchTerm, setSearchTerm] = useState('');
     const [selectedParty, setSelectedParty] = useState(null);
 
     const [loading, setLoading] = useState(true);
@@ -53,18 +89,11 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
     const [apptInitialData, setApptInitialData] = useState(null);
     const [calendarMode, setCalendarMode] = useState('weekly');
 
-    // Debounce Search - MUST BE BEFORE ANY CONDITIONAL RETURNS
     const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setDebouncedSearchTerm(searchTerm);
-        }, 300);
-        return () => clearTimeout(timer);
-    }, [searchTerm]);
-
     const [isConnected, setIsConnected] = useState(socket.connected);
     const [lastUpdated, setLastUpdated] = useState(new Date());
     const partiesRequestRef = useRef(0);
+    const partiesAbortRef = useRef(null);
     const fetchPartiesRef = useRef(() => Promise.resolve());
 
     // Open a specific party when launched from Customers / global search (ROS deep link).
@@ -139,6 +168,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
     useEffect(() => () => {
         partiesRequestRef.current += 1;
+        partiesAbortRef.current?.abort();
     }, []);
 
     // Render Order Dashboard - NOW AFTER ALL HOOKS
@@ -168,6 +198,9 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
     const fetchParties = async () => {
         const requestId = ++partiesRequestRef.current;
+        partiesAbortRef.current?.abort();
+        const controller = new AbortController();
+        partiesAbortRef.current = controller;
         setLoading(true);
         try {
             let startDate, endDate;
@@ -192,7 +225,8 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                 startDate: showDeleted ? undefined : startDate,
                 endDate: showDeleted ? undefined : endDate,
                 salesperson: salespersonFilter,
-                showDeleted
+                showDeleted,
+                signal: controller.signal,
             });
 
             // Handle both old (array) and new (object) formats for safety
@@ -211,11 +245,13 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
             setLastUpdated(new Date());
 
         } catch (err) {
+            if (err instanceof DOMException && err.name === 'AbortError') return;
             if (requestId !== partiesRequestRef.current) return;
             console.error("Failed to fetch parties:", err);
             setLoadError("Wedding parties could not refresh. Showing the last loaded list.");
         } finally {
             if (requestId === partiesRequestRef.current) setLoading(false);
+            if (partiesAbortRef.current === controller) partiesAbortRef.current = null;
         }
     };
     fetchPartiesRef.current = fetchParties;
@@ -431,22 +467,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                             <>
                                 {/* Search & Filter - Moved to Top */}
                                 <div className="bg-app-surface p-4 rounded-xl shadow-sm border border-app-border mb-8 flex flex-col lg:flex-row items-center gap-4 transition-colors">
-                                    <div className="flex-1 flex items-center gap-3 w-full bg-app-surface-2 p-2.5 rounded-lg border border-app-border focus-within:ring-2 focus-within:ring-navy-200 focus-within:border-navy-400 transition-all">
-                                        <Icon name="Search" className="text-app-text-muted" size={20} />
-                                        <input
-                                            type="text"
-                                            placeholder="Search by Party Name, Member Name..."
-                                            className="flex-1 outline-none text-app-text placeholder:text-app-text-muted font-medium bg-transparent text-lg"
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                            style={{ minHeight: '44px' }} // Touch target size
-                                        />
-                                        {searchTerm && (
-                                            <button type="button" onClick={() => setSearchTerm('')} className="text-app-text-muted hover:text-app-text p-2">
-                                                <Icon name="X" size={18} />
-                                            </button>
-                                        )}
-                                    </div>
+                                    <PartySearchField value={debouncedSearchTerm} onSearch={setDebouncedSearchTerm} />
 
                                     <div className="flex items-center gap-3 w-full lg:w-auto overflow-x-auto pb-2 lg:pb-0 scrollbar-hide">
                                         <div className="min-w-[16rem] flex-shrink-0">
@@ -562,7 +583,9 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                             </span>
                                         )}
                                     </h3>
-                                    <span className="text-sm font-bold text-app-text-muted bg-app-surface px-3 py-1 rounded-full border border-app-border shadow-sm whitespace-nowrap">{totalParties} Parties</span>
+                                    <span className="text-sm font-bold text-app-text-muted bg-app-surface px-3 py-1 rounded-full border border-app-border shadow-sm whitespace-nowrap">
+                                        {loading && parties.length > 0 ? 'Updating… · ' : ''}{totalParties} Parties
+                                    </span>
                                 </div>
 
                                 {loadError && (
@@ -576,7 +599,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
                                 <PartyList
                                     parties={filteredParties}
-                                    loading={loading}
+                                    loading={loading && parties.length === 0}
                                     onPartyClick={handlePartyClick}
                                     currentPage={currentPage}
                                     totalPages={totalPages}

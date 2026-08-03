@@ -5915,9 +5915,13 @@ export default function Cart({
       </div>
 
       <aside
-        className={`relative z-0 flex h-full min-h-0 w-full flex-col overflow-y-auto overscroll-contain border-l border-app-border/80 bg-[color-mix(in_srgb,var(--app-surface-2)_84%,var(--app-bg))] shadow-[-8px_0_32px_-12px_rgba(15,23,42,0.18)] ${checkoutDrawerOpen ? "pointer-events-none select-none opacity-40" : ""}`}
+        className={`relative z-0 flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-app-border/80 bg-[color-mix(in_srgb,var(--app-surface-2)_84%,var(--app-bg))] shadow-[-8px_0_32px_-12px_rgba(15,23,42,0.18)] ${checkoutDrawerOpen ? "pointer-events-none select-none opacity-40" : ""}`}
         aria-label="Customer, sale totals and keypad"
       >
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+          data-testid="pos-checkout-rail-scroll"
+        >
         {/* ── Customer selector (payment rail) ── */}
         <div className="shrink-0 border-b border-app-border/60 px-2.5 pt-2 pb-2">
           <CustomerSelector
@@ -6390,8 +6394,13 @@ export default function Cart({
             </div>
           </div>
         </div>
+        </div>
 
-        {/* ── Keypad — fixed touch height; the rail scrolls instead of shrinking it ── */}
+        <div
+          className="shrink-0 border-t border-app-border/70 bg-app-surface/95 shadow-[0_-10px_40px_-18px_rgba(0,0,0,0.15)] backdrop-blur-sm"
+          data-testid="pos-checkout-dock"
+        >
+        {/* ── Keypad — fixed touch height in the bottom checkout dock ── */}
         <div
           className="flex h-[22rem] min-h-[22rem] shrink-0 flex-col px-2 pb-2 pt-2 sm:px-2.5"
           data-testid="pos-register-keypad"
@@ -6479,7 +6488,7 @@ export default function Cart({
         </div>
 
         {/* ── Pay button ── */}
-        <div className="sticky bottom-0 z-10 shrink-0 border-t border-app-border/70 bg-app-surface/95 p-2.5 shadow-[0_-10px_40px_-18px_rgba(0,0,0,0.15)] backdrop-blur-sm">
+        <div className="shrink-0 border-t border-app-border/70 p-2.5">
            <button
              type="button"
              data-testid="pos-pay-button"
@@ -6598,7 +6607,7 @@ export default function Cart({
                  openCheckoutDrawerWithGuard();
                }
              }}
-            className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${hasCheckoutWork ? "bg-app-success border-app-success text-white hover:brightness-110 shadow-2xl shadow-app-success/40" : "cursor-not-allowed border-app-border bg-app-surface-3 text-app-text-disabled shadow-none"}`}
+            className={`ui-touch-target group relative flex h-[5.125rem] min-h-[5.125rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${hasCheckoutWork ? "bg-app-success border-app-success text-white hover:brightness-110 shadow-2xl shadow-app-success/40" : "cursor-not-allowed border-app-border bg-app-surface-3 text-app-text-disabled shadow-none"}`}
            >
              <div className="flex flex-col items-start pl-3 sm:pl-5">
                 <span className="text-[9px] font-black uppercase tracking-[0.28em] opacity-70">
@@ -6630,6 +6639,7 @@ export default function Cart({
                 </span>
              </div>
            </button>
+        </div>
         </div>
       </aside>
 

@@ -10,6 +10,7 @@ import PromptModal from "../ui/PromptModal";
 import { ClipboardCheck, RefreshCw, Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import RosieInsightSummary from "../help/RosieInsightSummary";
 import RosieIcon from "../common/RosieIcon";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
 const baseUrl = getBaseUrl();
 const PAGE = 100;
@@ -327,14 +328,17 @@ export default function RmsChargeAdminSection({
     }
   }, [apiAuth]);
 
-  const fetchUnmatchedRows = useCallback(async () => {
+  const debouncedUnmatchedSearch = useDebouncedValue(unmatchedSearch.trim(), 300);
+
+  const fetchUnmatchedRows = useCallback(async (signal?: AbortSignal) => {
     setUnmatchedLoading(true);
     try {
       const params = new URLSearchParams();
       params.set("limit", "25");
-      if (unmatchedSearch.trim()) params.set("q", unmatchedSearch.trim());
+      if (debouncedUnmatchedSearch) params.set("q", debouncedUnmatchedSearch);
       const res = await fetch(`${baseUrl}/api/customers/rms-charge/account-list/unmatched?${params.toString()}`, {
         headers: apiAuth(),
+        signal,
       });
       const data = (await res.json().catch(() => ({}))) as Partial<RmsAccountListUnmatchedResponse> & {
         error?: string;
@@ -343,20 +347,27 @@ export default function RmsChargeAdminSection({
       setUnmatchedRows(Array.isArray(data.items) ? data.items : []);
       setUnmatchedTotal(Number(data.total_count ?? 0));
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       toast(error instanceof Error ? error.message : "Could not load unmatched RMS accounts", "error");
       setUnmatchedRows([]);
       setUnmatchedTotal(0);
     } finally {
-      setUnmatchedLoading(false);
+      if (!signal?.aborted) setUnmatchedLoading(false);
     }
-  }, [apiAuth, toast, unmatchedSearch]);
+  }, [apiAuth, toast, debouncedUnmatchedSearch]);
 
   useEffect(() => {
     if (activeTab === "import") {
       void fetchLatestImport();
-      void fetchUnmatchedRows();
     }
-  }, [activeTab, fetchLatestImport, fetchUnmatchedRows]);
+  }, [activeTab, fetchLatestImport]);
+
+  useEffect(() => {
+    if (activeTab !== "import") return;
+    const controller = new AbortController();
+    void fetchUnmatchedRows(controller.signal);
+    return () => controller.abort();
+  }, [activeTab, fetchUnmatchedRows]);
 
   const matchImportedAccount = useCallback(
     async (snapshotId: string, customer: Customer) => {

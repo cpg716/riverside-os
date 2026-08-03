@@ -4,6 +4,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import ReceivingReport from "./ReceivingReport";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
 const baseUrl = getBaseUrl();
 
@@ -88,6 +89,7 @@ export default function InventoryReportsPanel() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [vendorId, setVendorId] = useState("");
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query.trim(), 300);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [rows, setRows] = useState<ReceivingHistoryRow[]>([]);
@@ -96,22 +98,25 @@ export default function InventoryReportsPanel() {
   const [reconciliation, setReconciliation] = useState<ReconciliationResponse | null>(null);
   const [reconciliationLoading, setReconciliationLoading] = useState(false);
 
-  const loadReports = useCallback(async () => {
+  const loadReports = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (vendorId) params.set("vendor_id", vendorId);
-      if (query.trim()) params.set("q", query.trim());
+      if (debouncedQuery) params.set("q", debouncedQuery);
       if (dateFrom) params.set("date_from", dateFrom);
       if (dateTo) params.set("date_to", dateTo);
       const res = await fetch(apiUrl(baseUrl, `/api/purchase-orders/receiving-events?${params}`), {
         headers: backofficeHeaders() as Record<string, string>,
+        signal,
       });
       setRows(res.ok ? ((await res.json()) as ReceivingHistoryRow[]) : []);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) setRows([]);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [backofficeHeaders, dateFrom, dateTo, query, vendorId]);
+  }, [backofficeHeaders, dateFrom, dateTo, debouncedQuery, vendorId]);
 
   const loadReconciliation = useCallback(async () => {
     setReconciliationLoading(true);
@@ -135,9 +140,14 @@ export default function InventoryReportsPanel() {
   }, [backofficeHeaders]);
 
   useEffect(() => {
-    void loadReports();
+    const controller = new AbortController();
+    void loadReports(controller.signal);
+    return () => controller.abort();
+  }, [loadReports]);
+
+  useEffect(() => {
     void loadReconciliation();
-  }, [loadReports, loadReconciliation]);
+  }, [loadReconciliation]);
 
   const groupedFindings = useMemo(() => {
     const grouped = new Map<string, ReconciliationFinding[]>();

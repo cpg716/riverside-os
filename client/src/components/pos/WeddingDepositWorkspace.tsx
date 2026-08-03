@@ -204,7 +204,10 @@ export default function WeddingDepositWorkspace({
   const [historyBusy, setHistoryBusy] = useState(false);
   const [postPaymentAction, setPostPaymentAction] = useState<PostPaymentAction>("build_orders");
   const [error, setError] = useState<string | null>(null);
-  const searchRequest = useRef(0);
+  const partySearchRequest = useRef(0);
+  const partySearchAbort = useRef<AbortController | null>(null);
+  const memberSearchRequest = useRef(0);
+  const memberSearchAbort = useRef<AbortController | null>(null);
   const autoStartedAllocation = useRef<string | null>(null);
 
   const payerName = `${payer.first_name} ${payer.last_name}`.trim();
@@ -395,27 +398,35 @@ export default function WeddingDepositWorkspace({
       setPartyResults([]);
       return;
     }
-    const requestId = ++searchRequest.current;
+    const requestId = ++partySearchRequest.current;
+    partySearchAbort.current?.abort();
+    const controller = new AbortController();
+    partySearchAbort.current = controller;
     const timer = window.setTimeout(async () => {
       setPartyBusy(true);
       try {
         const response = await fetch(
           `${baseUrl}/api/weddings/parties?search=${encodeURIComponent(query)}&limit=20`,
-          { headers: headers() },
+          { headers: headers(), signal: controller.signal },
         );
         if (!response.ok) throw new Error("Wedding search is unavailable.");
         const payload = (await response.json()) as { data?: unknown[] };
-        if (requestId !== searchRequest.current) return;
+        if (requestId !== partySearchRequest.current) return;
         setPartyResults((payload.data ?? []).map(parseParty).filter((row): row is DepositParty => row != null));
       } catch (cause) {
-        if (requestId === searchRequest.current) {
+        if (cause instanceof DOMException && cause.name === "AbortError") return;
+        if (requestId === partySearchRequest.current) {
           setError(cause instanceof Error ? cause.message : "Wedding search is unavailable.");
         }
       } finally {
-        if (requestId === searchRequest.current) setPartyBusy(false);
+        if (requestId === partySearchRequest.current) setPartyBusy(false);
+        if (partySearchAbort.current === controller) partySearchAbort.current = null;
       }
     }, 250);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [baseUrl, headers, isOpen, partySearch]);
 
   useEffect(() => {
@@ -425,24 +436,33 @@ export default function WeddingDepositWorkspace({
       setCustomerResults([]);
       return;
     }
-    const requestId = ++searchRequest.current;
+    const requestId = ++memberSearchRequest.current;
+    memberSearchAbort.current?.abort();
+    const controller = new AbortController();
+    memberSearchAbort.current = controller;
     const timer = window.setTimeout(async () => {
       try {
         const response = await fetch(
           `${baseUrl}/api/customers/search?q=${encodeURIComponent(query)}&limit=20`,
-          { headers: headers() },
+          { headers: headers(), signal: controller.signal },
         );
         if (!response.ok) throw new Error("Customer search is unavailable.");
-        if (requestId === searchRequest.current) {
+        if (requestId === memberSearchRequest.current) {
           setCustomerResults((await response.json()) as CustomerSearchRow[]);
         }
       } catch (cause) {
-        if (requestId === searchRequest.current) {
+        if (cause instanceof DOMException && cause.name === "AbortError") return;
+        if (requestId === memberSearchRequest.current) {
           setError(cause instanceof Error ? cause.message : "Customer search is unavailable.");
         }
+      } finally {
+        if (memberSearchAbort.current === controller) memberSearchAbort.current = null;
       }
     }, 250);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [baseUrl, headers, memberEditorOpen, memberMode, memberSearch]);
 
   const createParty = async () => {

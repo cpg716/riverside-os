@@ -167,10 +167,10 @@ export const socket = createWeddingEventSocket();
 /**
  * @param {string} method
  * @param {string} url
- * @param {{ params?: Record<string, unknown>, body?: unknown }} [opts]
+ * @param {{ params?: Record<string, unknown>, body?: unknown, signal?: AbortSignal }} [opts]
  */
 async function wmJson(method, url, opts = {}) {
-  const { params, body } = opts;
+  const { params, body, signal } = opts;
   let finalUrl = url;
   if (params && typeof params === "object") {
     const p = new URLSearchParams();
@@ -188,7 +188,7 @@ async function wmJson(method, url, opts = {}) {
   const cid = socket.id;
   if (cid) headers.set("x-wedding-client-id", cid);
   /** @type {RequestInit} */
-  const init = { method, headers };
+  const init = { method, headers, signal };
   if (body !== undefined && method !== "GET" && method !== "HEAD") {
     headers.set("Content-Type", "application/json");
     init.body = JSON.stringify(body);
@@ -404,7 +404,10 @@ export const api = {
       salesperson: params.salesperson,
       show_deleted: Boolean(params.showDeleted),
     };
-    const resBody = await wmJson("GET", `${API_URL}/weddings/parties`, { params: query });
+    const resBody = await wmJson("GET", `${API_URL}/weddings/parties`, {
+      params: query,
+      signal: params.signal,
+    });
     const data = (resBody?.data || []).map((row) => mapPartyRowToWmParty(row)).filter(Boolean);
     return {
       data,
@@ -671,7 +674,10 @@ export const api = {
     const params = { q: trimmed };
     if (opts.limit != null) params.limit = opts.limit;
     if (opts.offset != null) params.offset = opts.offset;
-    const json = await wmJson("GET", `${API_URL}/customers/search`, { params });
+    const json = await wmJson("GET", `${API_URL}/customers/search`, {
+      params,
+      signal: opts.signal,
+    });
     return json || [];
   },
   getConflicts: async (date, salesperson, excludeId) => {

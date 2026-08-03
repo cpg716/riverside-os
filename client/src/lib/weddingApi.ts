@@ -48,7 +48,7 @@ export type RosCustomerSearchHit = {
   wedding_member_id?: string | null;
 };
 
-export type WeddingApiFetchOpts = { headers?: HeadersInit };
+export type WeddingApiFetchOpts = { headers?: HeadersInit; signal?: AbortSignal };
 
 export type AppointmentStaffRow = {
   id: string;
@@ -57,11 +57,12 @@ export type AppointmentStaffRow = {
 };
 
 export const weddingApi = {
-  async getParties(params: { search?: string; headers?: Record<string, string> } = {}) {
+  async getParties(params: { search?: string; headers?: Record<string, string>; signal?: AbortSignal } = {}) {
     const q = new URLSearchParams();
     if (params.search) q.set("search", params.search);
     const res = await fetch(`${baseUrl}/api/weddings/parties?${q}`, {
       headers: params.headers,
+      signal: params.signal,
     });
     if (!res.ok) throw new Error("Failed to fetch parties");
     return res.json();
@@ -90,7 +91,7 @@ export const weddingApi = {
   /** ROS customer directory (min 2 chars). Supports `limit` / `offset` (server defaults: 25 / 0; max limit 100). */
   async searchCustomers(
     q: string,
-    opts?: { limit?: number; offset?: number; headers?: HeadersInit },
+    opts?: { limit?: number; offset?: number; headers?: HeadersInit; signal?: AbortSignal },
   ): Promise<RosCustomerSearchHit[]> {
     const trimmed = q.trim();
     if (trimmed.length < 2) return [];
@@ -99,6 +100,7 @@ export const weddingApi = {
     if (opts?.offset != null) params.set("offset", String(opts.offset));
     const res = await fetch(`${baseUrl}/api/customers/search?${params}`, {
       headers: opts?.headers,
+      signal: opts?.signal,
     });
     if (res.status === 400) return [];
     if (!res.ok) throw new Error("Failed to search customers");

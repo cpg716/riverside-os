@@ -23,6 +23,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import RosieIcon from "../common/RosieIcon";
 import { openPrintableHtml } from "../../lib/browserPrint";
@@ -1237,29 +1238,36 @@ export function CustomerRelationshipHubDrawer({
     toast,
   ]);
 
-  const loadCustomerAlterations = useCallback(async () => {
+  const debouncedCustomerAlterationsSearch = useDebouncedValue(
+    customerAlterationsSearch.trim(),
+    300,
+  );
+
+  const loadCustomerAlterations = useCallback(async (signal?: AbortSignal) => {
     setCustomerAlterationsLoading(true);
     setCustomerAlterationsLoadError(null);
     try {
       const params = new URLSearchParams();
       params.set("customer_id", customer.id);
-      const term = customerAlterationsSearch.trim();
+      const term = debouncedCustomerAlterationsSearch;
       if (term) params.set("search", term);
       const res = await fetch(`${baseUrl}/api/alterations?${params}`, {
         headers: apiAuth(),
+        signal,
       });
       if (!res.ok) throw new Error("alterations");
       setCustomerAlterations((await res.json()) as CustomerAlterationSummary[]);
       setCustomerAlterationsLoadError(null);
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       setCustomerAlterations([]);
       setCustomerAlterationsLoadError(
         "Customer alterations could not load right now. Try again in a moment.",
       );
     } finally {
-      setCustomerAlterationsLoading(false);
+      if (!signal?.aborted) setCustomerAlterationsLoading(false);
     }
-  }, [apiAuth, baseUrl, customer.id, customerAlterationsSearch]);
+  }, [apiAuth, baseUrl, customer.id, debouncedCustomerAlterationsSearch]);
 
   const loadOpenSummary = useCallback(async () => {
     try {
@@ -1390,10 +1398,9 @@ export function CustomerRelationshipHubDrawer({
     if (!open || tab !== "alterations" || !permissionsLoaded || !canAlterationsView) {
       return;
     }
-    const timer = window.setTimeout(() => {
-      void loadCustomerAlterations();
-    }, 180);
-    return () => window.clearTimeout(timer);
+    const controller = new AbortController();
+    void loadCustomerAlterations(controller.signal);
+    return () => controller.abort();
   }, [
     open,
     tab,

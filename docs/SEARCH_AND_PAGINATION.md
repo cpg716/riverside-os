@@ -179,6 +179,17 @@ Per-customer Transaction Record list (not a directory search). **`WHERE customer
 | Meilisearch ops | `logic/meilisearch_sync.rs` — `reindex_all_meilisearch`; **`GET`/`POST /api/settings/meilisearch/*`** — `settings.rs` | **Settings → Integrations → Meilisearch**; **`scripts/ros-meilisearch-reindex-local.sh`** |
 | Customer transaction history | `server/src/logic/customer_transaction_history.rs`, `customers.rs` — `get_customer_transaction_history` (**`orders.view`** or POS session) | `CustomerRelationshipHubDrawer.tsx` (**Transactions** tab) |
 
+## Client search interaction contract
+
+Remote staff searches wait briefly for a typing pause and cancel the superseded request when the
+query changes or the surface closes. Search inputs must not refetch on every keystroke, and slower
+PWA responses must not be allowed to overwrite newer results. Large workspaces should retain their
+last loaded rows while a replacement query is in flight instead of replacing the whole workspace
+with a loading skeleton. Local-only filters may update immediately when their data set is already in
+memory.
+
+The focused source contract is `client/e2e/search-fluidity-contract.spec.ts`.
+
 ---
 
 ## Related

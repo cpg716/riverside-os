@@ -160,25 +160,32 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
             return;
         }
 
+        const controller = new AbortController();
         const t = setTimeout(async () => {
             setIsSearching(true);
             try {
                 const rows = await api.searchCustomers(searchTerm, {
                     limit: APPT_CUSTOMER_SEARCH_PAGE,
                     offset: 0,
+                    signal: controller.signal,
                 });
+                if (controller.signal.aborted) return;
                 const list = rows || [];
                 setSearchResults(list);
                 setSearchHasMore(list.length === APPT_CUSTOMER_SEARCH_PAGE);
             } catch (err) {
+                if (err instanceof DOMException && err.name === 'AbortError') return;
                 console.error('Customer search failed:', err);
                 setSearchResults([]);
                 setSearchHasMore(false);
             } finally {
-                setIsSearching(false);
+                if (!controller.signal.aborted) setIsSearching(false);
             }
         }, 300);
-        return () => clearTimeout(t);
+        return () => {
+            clearTimeout(t);
+            controller.abort();
+        };
     }, [formData.memberId, isOpen, searchTerm]);
 
     // Check for conflicts in real-time

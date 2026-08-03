@@ -83,7 +83,7 @@ While a typed search is running, the Register shows **Searching products…** di
 
 The action row below search scrolls by complete action cards. Use its left and right arrow buttons, or the keyboard arrow keys while the row is focused, to reach RMS Pay, Staff Pay, Layaway, and the remaining sale actions without selecting a partially visible card.
 
-The quantity/price keypad keeps the same full touch-target height even when wedding guidance or other sale context is loaded. On shorter screens, scroll the right rail to reach it; Riverside does not compress the keys. Before a cart line is selected, muted numerals and button borders mean **inactive**, not missing. Select a sale line and tap **Qty** or **Sale price** to activate the keypad. The colored **% / −**, **$**, and **Apply** controls use their action colors only while they are available.
+The quantity/price keypad and the larger **Pay** action stay full size in a fixed checkout dock at the bottom of the right rail, even when wedding guidance or other sale context is loaded. On shorter screens, scroll the customer, wedding, and sale-summary area above the keypad; the keypad, total, and contextual **Pay** or **Complete Pickup** action remain in place. Before a cart line is selected, muted numerals and button borders mean **inactive**, not missing. Select a sale line and tap **Qty** or **Sale price** to activate the keypad. The colored **% / −**, **$**, and **Apply** controls use their action colors only while they are available.
 
 For a Register service shortcut:
 

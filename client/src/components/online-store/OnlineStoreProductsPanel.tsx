@@ -138,7 +138,7 @@ export default function OnlineStoreProductsPanel({
     [backofficeHeaders],
   );
 
-  const loadProducts = useCallback(async () => {
+  const loadProducts = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -146,7 +146,7 @@ export default function OnlineStoreProductsPanel({
       if (query.trim()) params.set("search", query.trim());
       const res = await fetch(
         apiUrl(baseUrl, `/api/inventory/control-board?${params.toString()}`),
-        { headers: headers() },
+        { headers: headers(), signal },
       );
       if (!res.ok) {
         toast("Could not load web merchandising products.", "error");
@@ -180,18 +180,23 @@ export default function OnlineStoreProductsPanel({
         }
         return next;
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
       toast("Could not load web merchandising products.", "error");
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   }, [baseUrl, headers, query, toast]);
 
   useEffect(() => {
+    const controller = new AbortController();
     const t = window.setTimeout(() => {
-      void loadProducts();
+      void loadProducts(controller.signal);
     }, 250);
-    return () => window.clearTimeout(t);
+    return () => {
+      window.clearTimeout(t);
+      controller.abort();
+    };
   }, [loadProducts]);
 
   const products = useMemo(() => groupProducts(rows), [rows]);

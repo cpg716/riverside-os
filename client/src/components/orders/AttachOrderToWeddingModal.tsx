@@ -5,6 +5,7 @@ import { weddingApi } from "../../lib/weddingApi";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
 interface PartyRow {
   id: string;
@@ -35,6 +36,7 @@ export default function AttachOrderToWeddingModal({
   const [mode, setMode] = useState<"search" | "create">("search");
   const [parties, setParties] = useState<PartyRow[]>([]);
   const [partySearch, setPartySearch] = useState("");
+  const debouncedPartySearch = useDebouncedValue(partySearch.trim(), 300);
   const [selectedPartyId, setSelectedPartyId] = useState<string | null>(null);
   const [role, setRole] = useState("Groomsman");
   const [loading, setLoading] = useState(false);
@@ -45,23 +47,26 @@ export default function AttachOrderToWeddingModal({
   const [newGroomName, setNewGroomName] = useState("");
   const [newEventDate, setNewEventDate] = useState("");
 
-  const fetchParties = useCallback(async () => {
+  const fetchParties = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     try {
       // getParties returns a specialized paginated structure
-      const data = await weddingApi.getParties({ search: partySearch, headers });
+      const data = await weddingApi.getParties({ search: debouncedPartySearch, headers, signal });
       // The API structure is { data: [ { party: {...}, members: [...] }, ... ] }
       setParties(data.data.map((p: { party: PartyRow }) => p.party));
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       console.error(err);
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [partySearch, headers]);
+  }, [debouncedPartySearch, headers]);
 
   useEffect(() => {
     if (isOpen && mode === "search") {
-      void fetchParties();
+      const controller = new AbortController();
+      void fetchParties(controller.signal);
+      return () => controller.abort();
     }
   }, [isOpen, mode, fetchParties]);
 

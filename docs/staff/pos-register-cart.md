@@ -94,7 +94,7 @@ When adding or completing a customer profile at the register, the **Address** fi
 
 If the attached customer belongs to a current wedding party, the customer strip shows the wedding membership and Register asks **Part of the Wedding Order?**
 
-After the member is activated, confirm the member and party in the primary **Wedding member linked** banner. Riverside does not repeat the member in a second status chip. The quantity/price keypad keeps its full-size touch layout; if added wedding context makes the rail taller than the screen, scroll the rail instead of expecting smaller keys.
+After the member is activated, confirm the member and party in the primary **Wedding member linked** banner. Riverside does not repeat the member in a second status chip. The quantity/price keypad and the larger payment action stay full size in the fixed bottom checkout dock. If added wedding context makes the rail taller than the screen, scroll only the customer, wedding, and sale-summary area above the keypad; the keypad and **Pay**, **Complete Pickup**, or other contextual action remain in place.
 
 Use the guided flow this way:
 

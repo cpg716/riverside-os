@@ -40,6 +40,9 @@ In POS, the trigger is intentionally tighter so it does not crowd the header. Th
 5. Use **Arrow Up** / **Arrow Down** to change the highlighted result.
 6. For some customer flows, **Alt+Enter** sends the customer to the register instead of opening the customer drawer.
 
+Search begins after a short typing pause. Keep typing naturally; ROS cancels an older lookup when a
+newer query replaces it, which is especially helpful on PWA workstations with slower connections.
+
 ## What kinds of results you may see
 
 | Result type | What it helps with |
@@ -132,4 +135,4 @@ Examples:
 
 Universal Search shows confirmed Riverside results as soon as they arrive. Optional ROSIE shortcuts may appear afterward, but they do not delay or replace the record results. Phone matching for weddings requires a complete phone-like entry; digits embedded in a name or identifier are treated as part of that literal text.
 
-**Last reviewed:** 2026-07-22
+**Last reviewed:** 2026-08-03
