@@ -893,6 +893,35 @@ impl TransactionDetailResponse {
 mod tests {
     use super::*;
 
+    fn refund_line(total: Decimal) -> TransactionReturnLineBody {
+        TransactionReturnLineBody {
+            transaction_line_id: Uuid::new_v4(),
+            quantity: 1,
+            reason: Some("test return".to_string()),
+            restock: Some(true),
+            refund_subtotal: Some(total),
+            refund_state_tax: Some(Decimal::ZERO),
+            refund_local_tax: Some(Decimal::ZERO),
+            refund_total: Some(total),
+        }
+    }
+
+    #[test]
+    fn split_refund_first_tender_may_be_less_than_itemized_return_total() {
+        let lines = vec![refund_line(Decimal::new(20237, 2))];
+        assert!(
+            validate_return_line_financial_total_at_least(&lines, Decimal::new(16218, 2),).is_ok()
+        );
+    }
+
+    #[test]
+    fn split_refund_first_tender_cannot_exceed_itemized_return_total() {
+        let lines = vec![refund_line(Decimal::new(16218, 2))];
+        assert!(
+            validate_return_line_financial_total_at_least(&lines, Decimal::new(20237, 2),).is_err()
+        );
+    }
+
     #[test]
     fn cancelled_refund_receipt_uses_original_merchandise_and_exact_credit() {
         let mut detail = sample_transaction_detail(vec![sample_item(1, 0)]);
@@ -2246,6 +2275,7 @@ mod tests {
             session_id,
             payment_method: "card".to_string(),
             amount: Decimal::new(10000, 2),
+            refund_tender_id: None,
             cancel_transaction: true,
             refund_event_id: None,
             tender_amount: None,
@@ -3700,6 +3730,10 @@ pub struct ProcessRefundRequest {
     pub session_id: Uuid,
     pub payment_method: String,
     pub amount: Decimal,
+    /// Stable client identity for one tender in a split refund. This makes each
+    /// source independently idempotent while all tenders share one return event.
+    #[serde(default)]
+    pub refund_tender_id: Option<String>,
     /// When true, a paid cancellation is committed atomically with this refund.
     /// No transaction status or financial state changes during cart staging.
     #[serde(default)]
@@ -3774,6 +3808,8 @@ pub struct ExchangeRefundRemainderBody {
     pub payment_method: String,
     pub amount: Decimal,
     #[serde(default)]
+    pub refund_tender_id: Option<String>,
+    #[serde(default)]
     pub tender_amount: Option<Decimal>,
     #[serde(default)]
     pub rounding_adjustment: Option<Decimal>,
@@ -3795,6 +3831,10 @@ pub struct ExchangeSettlementRequest {
     pub return_lines: Vec<TransactionReturnLineBody>,
     #[serde(default)]
     pub refund_remainder: Option<ExchangeRefundRemainderBody>,
+    /// All non-provider refund sources used for the remaining exchange credit.
+    /// `refund_remainder` remains accepted for older register builds.
+    #[serde(default)]
+    pub refund_remainders: Vec<ExchangeRefundRemainderBody>,
     /// Card refund completed by the provider workflow immediately after this settlement.
     #[serde(default)]
     pub deferred_card_refund_amount: Option<Decimal>,
@@ -4138,11 +4178,30 @@ async fn validate_deferred_refund_event_in_tx(
                 .to_string(),
         ));
     };
-    if deferred_amount.round_dp(2) != exact_refund_amount {
+    let already_refunded: Decimal = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(COALESCE(
+            NULLIF(pt.metadata->>'exact_refund_amount', '')::numeric,
+            ABS(pa.amount_allocated)
+        )), 0)::numeric(14,2)
+        FROM payment_transactions pt
+        INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
+        WHERE pa.target_transaction_id = $1
+          AND pt.metadata->>'refund_event_id' = $2
+          AND pt.payment_provider = 'helcim'
+          AND pa.amount_allocated < 0
+          AND pt.status IN ('success', 'approved', 'captured')
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(refund_event_id.to_string())
+    .fetch_one(&mut **tx)
+    .await?;
+    let remaining_deferred = (deferred_amount - already_refunded).round_dp(2);
+    if exact_refund_amount > remaining_deferred || exact_refund_amount <= Decimal::ZERO {
         return Err(TransactionError::InvalidPayload(format!(
-            "the deferred refund event authorizes ${} to the original card, not ${}",
-            deferred_amount.round_dp(2),
-            exact_refund_amount
+            "the deferred refund event has ${} remaining for the original card, not ${}",
+            remaining_deferred, exact_refund_amount
         )));
     }
 
@@ -4172,6 +4231,7 @@ async fn validate_deferred_refund_event_in_tx(
 
 #[derive(Debug, FromRow)]
 struct CompletedRefundEventRow {
+    refund_event_id: Uuid,
     payment_transaction_id: Uuid,
     refund_amount: Decimal,
     tender_amount: Decimal,
@@ -4187,11 +4247,13 @@ struct CompletedRefundEventRow {
 async fn completed_refund_event_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     transaction_id: Uuid,
-    refund_event_id: Uuid,
+    refund_event_id: Option<Uuid>,
+    refund_tender_id: Option<&str>,
 ) -> Result<Option<CompletedRefundEventRow>, TransactionError> {
     sqlx::query_as(
         r#"
         SELECT
+            NULLIF(pt.metadata->>'refund_event_id', '')::uuid AS refund_event_id,
             pt.id AS payment_transaction_id,
             COALESCE(
                 NULLIF(pt.metadata->>'exact_refund_amount', '')::numeric,
@@ -4208,7 +4270,8 @@ async fn completed_refund_event_in_tx(
         FROM payment_transactions pt
         INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
         WHERE pa.target_transaction_id = $1
-          AND pt.metadata->>'refund_event_id' = $2
+          AND ($2::uuid IS NULL OR pt.metadata->>'refund_event_id' = $2::text)
+          AND ($3::text IS NULL OR pt.metadata->>'refund_tender_id' = $3)
           AND COALESCE(pt.metadata->>'kind', '') <> 'exchange_credit_relief'
           AND pa.amount_allocated < 0
           AND pt.status IN ('success', 'approved', 'captured')
@@ -4217,7 +4280,8 @@ async fn completed_refund_event_in_tx(
         "#,
     )
     .bind(transaction_id)
-    .bind(refund_event_id.to_string())
+    .bind(refund_event_id)
+    .bind(refund_tender_id)
     .fetch_optional(&mut **tx)
     .await
     .map_err(TransactionError::Database)
@@ -7716,6 +7780,15 @@ async fn process_refund(
             "amount must be positive".to_string(),
         ));
     }
+    if body
+        .refund_tender_id
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty() || value.len() > 128)
+    {
+        return Err(TransactionError::InvalidPayload(
+            "refund_tender_id must be between 1 and 128 characters".to_string(),
+        ));
+    }
 
     let method_l = body.payment_method.trim().to_ascii_lowercase();
     let refund_method = RefundPaymentMethod::parse(&method_l)?;
@@ -7741,7 +7814,11 @@ async fn process_refund(
     let check_number = required_refund_check_number(refund_method, body.check_number.as_deref())?;
     let exact_refund_amount = body.amount.round_dp(2);
     let mut refund_event_id = body.refund_event_id.unwrap_or_else(Uuid::new_v4);
-    validate_return_line_financial_total(&body.return_lines, exact_refund_amount)?;
+    if body.refund_tender_id.is_some() && !body.return_lines.is_empty() {
+        validate_return_line_financial_total_at_least(&body.return_lines, exact_refund_amount)?;
+    } else {
+        validate_return_line_financial_total(&body.return_lines, exact_refund_amount)?;
+    }
     let (cash_tender_amount, cash_rounding_adjustment) = cash_refund_tender_amount(
         &body.payment_method,
         exact_refund_amount,
@@ -7822,6 +7899,38 @@ async fn process_refund(
             "register session is not open".to_string(),
         ));
     }
+    if let Some(refund_tender_id) = body.refund_tender_id.as_deref() {
+        if let Some(existing) =
+            completed_refund_event_in_tx(&mut tx, transaction_id, None, Some(refund_tender_id))
+                .await?
+        {
+            if existing.refund_amount.round_dp(2) != exact_refund_amount
+                || !existing
+                    .payment_method
+                    .eq_ignore_ascii_case(body.payment_method.trim())
+            {
+                return Err(TransactionError::InvalidPayload(
+                    "this refund tender was already recorded with different financial details"
+                        .to_string(),
+                ));
+            }
+            tx.rollback().await?;
+            return Ok(Json(process_refund_response(
+                transaction_id,
+                existing.payment_transaction_id,
+                existing.refund_event_id,
+                existing.refund_amount,
+                existing.tender_amount,
+                existing.payment_method,
+                existing.payment_provider,
+                existing.provider_status,
+                existing.provider_refund_id,
+                existing.original_provider_transaction_id,
+                existing.card_brand,
+                existing.card_last4,
+            )));
+        }
+    }
     if body.refund_event_id.is_none() && body.return_lines.is_empty() {
         let has_itemized_lines: bool = sqlx::query_scalar(
             r#"
@@ -7865,8 +7974,13 @@ async fn process_refund(
     } else {
         None
     };
-    if let Some(existing) =
-        completed_refund_event_in_tx(&mut tx, transaction_id, refund_event_id).await?
+    if let Some(existing) = completed_refund_event_in_tx(
+        &mut tx,
+        transaction_id,
+        Some(refund_event_id),
+        body.refund_tender_id.as_deref(),
+    )
+    .await?
     {
         if existing.refund_amount.round_dp(2) != exact_refund_amount
             || !existing
@@ -7882,7 +7996,7 @@ async fn process_refund(
         return Ok(Json(process_refund_response(
             transaction_id,
             existing.payment_transaction_id,
-            refund_event_id,
+            existing.refund_event_id,
             existing.refund_amount,
             existing.tender_amount,
             existing.payment_method,
@@ -8052,6 +8166,12 @@ async fn process_refund(
         "transaction_id": transaction_id,
         "refund_event_id": refund_event_id,
     });
+    if let (Some(object), Some(refund_tender_id)) = (
+        refund_metadata.as_object_mut(),
+        body.refund_tender_id.as_deref(),
+    ) {
+        object.insert("refund_tender_id".to_string(), json!(refund_tender_id));
+    }
     if let (Some(object), Some(context)) = (
         refund_metadata.as_object_mut(),
         deferred_event_context.as_ref(),
@@ -8544,6 +8664,7 @@ async fn process_refund(
                     "card_last4": card_last4,
                     "external_refund_processor": "external_card",
                     "refund_event_id": refund_event_id,
+                    "refund_tender_id": body.refund_tender_id,
                     "transaction_id": transaction_id,
                     "wedding_member_customer_id": refund.customer_id,
                     "refund_recipient_customer_id": refund_recipient_customer_id,
@@ -10443,6 +10564,11 @@ async fn execute_exchange_settlement(
             )
         }
     };
+    let refund_remainders = body
+        .refund_remainders
+        .iter()
+        .chain(body.refund_remainder.iter())
+        .collect::<Vec<_>>();
 
     if recovery_already_resolved {
         let audit = recovery_audit.as_ref().ok_or_else(|| {
@@ -10510,11 +10636,11 @@ async fn execute_exchange_settlement(
         let deferred_card_refund_due_amount =
             deferred_card_refund_due_in_tx(&mut tx, transaction_id, deferred_card_refund_amount)
                 .await?;
-        let refund_remainder_amount = body
-            .refund_remainder
-            .as_ref()
+        let refund_remainder_amount = refund_remainders
+            .iter()
             .map(|remainder| remainder.amount.round_dp(2))
-            .unwrap_or(Decimal::ZERO);
+            .sum::<Decimal>()
+            .round_dp(2);
         tx.commit().await?;
         return Ok(Json(json!({
             "status": "ok",
@@ -10538,7 +10664,7 @@ async fn execute_exchange_settlement(
             "exchange credit amount cannot be negative".to_string(),
         ));
     }
-    if let Some(remainder) = &body.refund_remainder {
+    for remainder in &refund_remainders {
         if remainder.amount <= Decimal::ZERO {
             return Err(TransactionError::InvalidPayload(
                 "refund remainder amount must be positive".to_string(),
@@ -10560,22 +10686,25 @@ async fn execute_exchange_settlement(
         }
     }
 
-    let refund_remainder_amount = body
-        .refund_remainder
-        .as_ref()
+    let refund_remainder_amount = refund_remainders
+        .iter()
         .map(|remainder| remainder.amount.round_dp(2))
-        .unwrap_or(Decimal::ZERO);
-    let (refund_remainder_tender_amount, refund_remainder_rounding_adjustment) =
-        if let Some(remainder) = &body.refund_remainder {
-            cash_refund_tender_amount(
-                &remainder.payment_method,
-                refund_remainder_amount,
-                remainder.tender_amount,
-                remainder.rounding_adjustment,
-            )?
-        } else {
-            (Decimal::ZERO, Decimal::ZERO)
-        };
+        .sum::<Decimal>()
+        .round_dp(2);
+    let mut refund_remainder_tender_amount = Decimal::ZERO;
+    let mut refund_remainder_rounding_adjustment = Decimal::ZERO;
+    for remainder in &refund_remainders {
+        let (tender_amount, rounding_adjustment) = cash_refund_tender_amount(
+            &remainder.payment_method,
+            remainder.amount.round_dp(2),
+            remainder.tender_amount,
+            remainder.rounding_adjustment,
+        )?;
+        refund_remainder_tender_amount += tender_amount;
+        refund_remainder_rounding_adjustment += rounding_adjustment;
+    }
+    refund_remainder_tender_amount = refund_remainder_tender_amount.round_dp(2);
+    refund_remainder_rounding_adjustment = refund_remainder_rounding_adjustment.round_dp(2);
     let deferred_card_refund_amount = body
         .deferred_card_refund_amount
         .unwrap_or(Decimal::ZERO)
@@ -10853,10 +10982,10 @@ async fn execute_exchange_settlement(
             SELECT COALESCE(SUM(pa.amount_allocated), 0)::numeric(14,2)
             FROM payment_allocations pa
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-            WHERE pa.target_transaction_id = $1
+            WHERE pt.metadata->>'checkout_transaction_id' = $1::text
               AND pt.session_id = $2
               AND LOWER(pt.payment_method) = 'exchange_credit'
-              AND pa.metadata->>'original_transaction_id' = $3
+              AND pt.metadata->>'original_transaction_id' = $3
               AND pa.amount_allocated > 0
             "#,
         )
@@ -10950,7 +11079,14 @@ async fn execute_exchange_settlement(
         .await?;
     }
 
-    if let Some(remainder) = &body.refund_remainder {
+    for remainder in &refund_remainders {
+        let exact_remainder_amount = remainder.amount.round_dp(2);
+        let (remainder_tender_amount, remainder_rounding_adjustment) = cash_refund_tender_amount(
+            &remainder.payment_method,
+            exact_remainder_amount,
+            remainder.tender_amount,
+            remainder.rounding_adjustment,
+        )?;
         let refund_method = RefundPaymentMethod::parse(&remainder.payment_method)?;
         let check_number =
             required_refund_check_number(refund_method, remainder.check_number.as_deref())?;
@@ -10961,6 +11097,12 @@ async fn execute_exchange_settlement(
             "refund_event_id": refund_event_id,
             "refund_queue_id": refund.id,
         });
+        if let (Some(object), Some(refund_tender_id)) = (
+            refund_metadata.as_object_mut(),
+            remainder.refund_tender_id.as_deref(),
+        ) {
+            object.insert("refund_tender_id".to_string(), json!(refund_tender_id));
+        }
 
         if refund_method == RefundPaymentMethod::GiftCard {
             let code = remainder
@@ -10976,7 +11118,7 @@ async fn execute_exchange_settlement(
             let refund_plan = gift_card_ops::credit_gift_card_in_tx(
                 &mut tx,
                 code,
-                refund_remainder_amount,
+                exact_remainder_amount,
                 transaction_id,
                 posting_session_id,
             )
@@ -11012,7 +11154,7 @@ async fn execute_exchange_settlement(
             let balance_after = store_credit::credit_refund_in_tx(
                 &mut tx,
                 customer_id,
-                refund_remainder_amount,
+                exact_remainder_amount,
                 transaction_id,
                 "exchange_refund_remainder",
             )
@@ -11041,15 +11183,15 @@ async fn execute_exchange_settlement(
         if let Some(object) = refund_metadata.as_object_mut() {
             object.insert(
                 "exact_refund_amount".to_string(),
-                json!(refund_remainder_amount),
+                json!(exact_remainder_amount),
             );
             object.insert(
                 "cash_tender_amount".to_string(),
-                json!(refund_remainder_tender_amount),
+                json!(remainder_tender_amount),
             );
             object.insert(
                 "cash_rounding_adjustment".to_string(),
-                json!(refund_remainder_rounding_adjustment),
+                json!(remainder_rounding_adjustment),
             );
             if let Some(final_cash_due) = remainder.final_cash_due {
                 object.insert("final_cash_due".to_string(), json!(final_cash_due));
@@ -11074,7 +11216,7 @@ async fn execute_exchange_settlement(
         .bind(refund.customer_id)
         .bind(DbTransactionCategory::RetailSale)
         .bind(remainder.payment_method.trim())
-        .bind(-refund_remainder_tender_amount)
+        .bind(-remainder_tender_amount)
         .bind(refund_metadata)
         .bind(check_number.clone())
         .fetch_one(&mut *tx)
@@ -11088,7 +11230,7 @@ async fn execute_exchange_settlement(
         )
         .bind(refund_payment_id)
         .bind(transaction_id)
-        .bind(-refund_remainder_tender_amount)
+        .bind(-remainder_tender_amount)
         .bind(json!({
             "kind": "exchange_refund_remainder",
             "refund_event_id": refund_event_id,
@@ -12974,6 +13116,35 @@ fn validate_return_line_financial_total(
             "return line refund total {} must equal settlement total {}",
             supplied_total.round_dp(2),
             expected_total.round_dp(2)
+        )));
+    }
+    Ok(())
+}
+
+fn validate_return_line_financial_total_at_least(
+    lines: &[TransactionReturnLineBody],
+    first_tender_total: Decimal,
+) -> Result<(), TransactionError> {
+    let supplied_count = lines
+        .iter()
+        .filter(|line| line.refund_total.is_some())
+        .count();
+    if supplied_count == 0 {
+        return Ok(());
+    }
+    if supplied_count != lines.len() {
+        return Err(TransactionError::InvalidPayload(
+            "every return line must include its exact refund financials".to_string(),
+        ));
+    }
+    let supplied_total = lines.iter().fold(Decimal::ZERO, |sum, line| {
+        sum + line.refund_total.unwrap_or_default()
+    });
+    if supplied_total.round_dp(2) < first_tender_total.round_dp(2) {
+        return Err(TransactionError::InvalidPayload(format!(
+            "return line refund total {} cannot be less than the first refund tender {}",
+            supplied_total.round_dp(2),
+            first_tender_total.round_dp(2)
         )));
     }
     Ok(())

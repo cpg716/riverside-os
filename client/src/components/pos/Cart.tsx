@@ -1286,9 +1286,6 @@ export default function Cart({
     setSelectedLineKey(returnCreditLines[0]?.cart_row_id ?? null);
     setCheckoutAppliedPayments([]);
     setCheckoutDepositLedger("");
-    setOrderPaymentLines([]);
-    setEditingOrderPaymentLine(null);
-    setEditingOrderPaymentAmount("");
     setPosShipping(null);
     if (args.action === "refund") {
       setCheckoutDrawerOpen(true);
@@ -2672,12 +2669,121 @@ export default function Cart({
     toast,
     weddingDepositSalespersonId,
   ]);
-  useEffect(() => {
-    if (!pendingReturnTender || orderPaymentLines.length === 0) return;
-    setOrderPaymentLines([]);
-    setEditingOrderPaymentLine(null);
-    setEditingOrderPaymentAmount("");
-  }, [orderPaymentLines.length, pendingReturnTender]);
+  const processLinkedCardRefundBeforeFinalize = useCallback(
+    async (refundTender: AppliedPaymentLine): Promise<AppliedPaymentLine | null> => {
+      if (!pendingReturnTender?.returnOnly || !sessionId) {
+        toast(
+          "The linked Helcim refund is not attached to an active return. Reload it from the Transaction Record.",
+          "error",
+        );
+        return null;
+      }
+      const refundCents = Math.abs(refundTender.amountCents);
+      try {
+        const response = await fetch(
+          `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/refunds/process`,
+          {
+            method: "POST",
+            headers: {
+              ...apiAuth(),
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              session_id: sessionId,
+              payment_method: refundTender.method,
+              amount: centsToFixed2(refundCents),
+              tender_amount: centsToFixed2(refundCents),
+              refund_tender_id: refundTender.id,
+              cancel_transaction:
+                pendingReturnTender.cancelTransaction &&
+                checkoutAppliedPayments.length === 0 &&
+                refundCents === pendingReturnTender.refundAmountCents,
+              return_lines:
+                pendingReturnTender.returnLinesAlreadyRecorded ||
+                checkoutAppliedPayments.some(
+                  (line) => line.metadata?.refund_preprocessed === true,
+                )
+                ? []
+                : pendingReturnTender.returnLines.map((line) => ({
+                    transaction_line_id: line.transaction_line_id,
+                    quantity: line.quantity,
+                    reason: line.reason ?? "refund",
+                    restock: line.restock ?? undefined,
+                    refund_subtotal: centsToFixed2(
+                      line.refund_subtotal_cents ?? 0,
+                    ),
+                    refund_state_tax: centsToFixed2(
+                      line.refund_state_tax_cents ?? 0,
+                    ),
+                    refund_local_tax: centsToFixed2(
+                      line.refund_local_tax_cents ?? 0,
+                    ),
+                    refund_total: centsToFixed2(
+                      line.refund_total_cents ?? 0,
+                    ),
+                  })),
+            }),
+          },
+        );
+        const payload = (await response.json().catch(() => ({}))) as unknown;
+        if (!response.ok) {
+          const errorPayload = payload as { error?: string };
+          toast(
+            errorPayload.error ??
+              "Helcim did not approve the refund. Nothing was added to Payment.",
+            "error",
+          );
+          return null;
+        }
+        const result = parseRefundProcessResult(payload);
+        const providerStatus = result?.provider_status?.trim().toLowerCase();
+        if (
+          !result ||
+          result.payment_provider?.trim().toLowerCase() !== "helcim" ||
+          (providerStatus !== "approved" && providerStatus !== "captured") ||
+          !result.provider_refund_id?.trim() ||
+          !result.refund_event_id.trim()
+        ) {
+          toast(
+            "Helcim returned without complete approved ledger evidence. Record Sale remains locked; review the refund queue before retrying.",
+            "error",
+          );
+          return null;
+        }
+        toast(
+          "Helcim refund approved and verified in the ROS refund ledger. Record Sale is now available when the refund is fully balanced.",
+          "success",
+        );
+        return {
+          ...refundTender,
+          label: "HELCIM REFUND — APPROVED",
+          metadata: {
+            ...refundTender.metadata,
+            payment_provider: "helcim",
+            provider_status: providerStatus,
+            provider_transaction_id: result.provider_refund_id,
+            refund_event_id: result.refund_event_id,
+            payment_transaction_id: result.payment_transaction_id,
+            refund_preprocessed: true,
+          },
+        };
+      } catch {
+        toast(
+          "Helcim refund verification could not reach ROS. Nothing was added to Payment; check the connection and retry.",
+          "error",
+        );
+        return null;
+      }
+    },
+    [
+      apiAuth,
+      baseUrl,
+      checkoutAppliedPayments,
+      pendingReturnTender,
+      sessionId,
+      toast,
+    ],
+  );
   const belowCostManualDiscountLines = useMemo(() => {
     const automaticReasons = new Set([
       "customer profile discount",
@@ -6763,6 +6869,7 @@ export default function Cart({
         customerTaxExemptId={selectedCustomer?.tax_exempt_id ?? null}
         returnOnlyRefundMode={pendingReturnTender?.returnOnly ?? false}
         deferCardRefund={Boolean(pendingReturnTender)}
+        onProcessLinkedCardRefund={processLinkedCardRefundBeforeFinalize}
         originalHelcimTransactionIdForRefund={
           pendingReturnTender?.originalHelcimTransactionIdForRefund ?? null
         }
@@ -6788,12 +6895,11 @@ export default function Cart({
             if (!pendingReturnTender.returnOnly) {
               if (
                 posShipping ||
-                orderPaymentLines.length > 0 ||
                 disbursementMembers.length > 0 ||
                 pendingAlterationIntakes.length > 0
               ) {
                 toast(
-                  "Clear shipping, order payments, wedding disbursements, and alteration intake before settling an exchange.",
+                  "Clear shipping, wedding disbursements, and alteration intake before settling an exchange.",
                   "error",
                 );
                 return;
@@ -6815,14 +6921,14 @@ export default function Cart({
               const replacementLines = lines.filter(
                 (line) => !line.return_tender_original_transaction_id,
               );
-              if (replacementLines.length === 0) {
+              if (replacementLines.length === 0 && orderPaymentLines.length === 0) {
                 toast(
-                  "Add replacement items before continuing an exchange, or refund the customer only.",
+                  "Add replacement items or a Transaction payment before continuing an exchange, or refund the customer only.",
                   "error",
                 );
                 return;
               }
-              if (!hasSalespersonAttribution()) {
+              if (replacementLines.length > 0 && !hasSalespersonAttribution(replacementLines)) {
                 toast(
                   "Select a salesperson for the replacement sale, or assign one on a line, so commissions can be calculated.",
                   "error",
@@ -6831,16 +6937,29 @@ export default function Cart({
               }
               const replacementTotals =
                 calculateStandaloneLineTotals(replacementLines);
-              if (replacementTotals.orderTotalCents <= 0) {
+              const orderPaymentTotalCents = orderPaymentLines.reduce(
+                (sum, line) => sum + parseMoneyToCents(line.amount),
+                0,
+              );
+              const exchangeDestinationTotalCents =
+                replacementTotals.orderTotalCents + orderPaymentTotalCents;
+              if (exchangeDestinationTotalCents <= 0) {
                 toast(
-                  "Replacement sale total must be positive before settling an exchange.",
+                  "Replacement items and Transaction payments must total more than $0.00 before settling an exchange.",
                   "error",
                 );
                 return;
               }
+              const exchangeDestinationTotals = {
+                ...replacementTotals,
+                orderPaymentCents: orderPaymentTotalCents,
+                collectTotalCents:
+                  replacementTotals.collectTotalCents + orderPaymentTotalCents,
+                totalCents: replacementTotals.totalCents + orderPaymentTotalCents,
+              };
               const exchangeCreditAppliedCents = Math.min(
                 pendingReturnTender.refundAmountCents,
-                replacementTotals.orderTotalCents,
+                exchangeDestinationTotalCents,
               );
               const roundingAdjustmentCents =
                 ledger.roundingAdjustmentCents ?? 0;
@@ -6866,16 +6985,6 @@ export default function Cart({
                   ledger.tenderMethod === "cash" &&
                   ledger.finalCashDueCents === 0 &&
                   roundingAdjustmentCents !== 0;
-                if (
-                  !cashRoundsToZero &&
-                  (refundTenders.length !== 1 || applied.length !== 1)
-                ) {
-                  toast(
-                    "Use one refund tender for the remaining exchange credit.",
-                    "error",
-                  );
-                  return;
-                }
                 if (cashRoundsToZero && applied.length > 0) {
                   toast(
                     "Clear payment lines when the cash refund rounds to $0.00.",
@@ -6922,17 +7031,27 @@ export default function Cart({
                       label: "Cash refund",
                     }
                   : null;
-              const refundTender = refundTenders[0] ?? zeroCashRefundTender;
-              const refundRemainderCents =
-                pendingReturnTender.refundAmountCents -
-                exchangeCreditAppliedCents;
-              const linkedCardRemainder =
-                refundTender?.method === "card_credit" ||
-                refundTender?.method === "card_present" ||
-                refundTender?.method === "card_terminal" ||
-                refundTender?.method === "card_not_present" ||
-                refundTender?.method === "card_saved" ||
-                refundTender?.method === "card_terminal_manual";
+              const effectiveRefundTenders =
+                refundTenders.length > 0
+                  ? refundTenders
+                  : zeroCashRefundTender
+                    ? [zeroCashRefundTender]
+                    : [];
+              const isLinkedCardRefund = (payment: AppliedPaymentLine) =>
+                payment.method === "card_credit" ||
+                payment.method === "card_present" ||
+                payment.method === "card_terminal" ||
+                payment.method === "card_not_present" ||
+                payment.method === "card_saved" ||
+                payment.method === "card_terminal_manual";
+              const linkedCardRefunds = effectiveRefundTenders.filter(isLinkedCardRefund);
+              const localRefunds = effectiveRefundTenders.filter(
+                (payment) => !isLinkedCardRefund(payment),
+              );
+              const linkedCardRemainderCents = linkedCardRefunds.reduce(
+                (sum, payment) => sum + Math.abs(payment.amountCents),
+                0,
+              );
               const exchangeSettlement = {
                 original_transaction_id:
                   pendingReturnTender.originalTransactionId,
@@ -6940,8 +7059,8 @@ export default function Cart({
                   exchangeCreditAppliedCents,
                 ),
                 deferred_card_refund_amount:
-                  refundTender && linkedCardRemainder
-                    ? centsToFixed2(refundRemainderCents)
+                  linkedCardRemainderCents > 0
+                    ? centsToFixed2(linkedCardRemainderCents)
                     : undefined,
                 return_lines: pendingReturnTender.returnLines.map((line) => ({
                   transaction_line_id: line.transaction_line_id,
@@ -6959,16 +7078,20 @@ export default function Cart({
                   ),
                   refund_total: centsToFixed2(line.refund_total_cents ?? 0),
                 })),
-                refund_remainder:
-                  refundTender && !linkedCardRemainder
-                  ? {
+                refund_remainders: localRefunds.map((refundTender) => {
+                  const isCashTender = refundTender.method === "cash";
+                  return {
                       payment_method: refundTender.method,
-                      amount: centsToFixed2(refundRemainderCents),
+                      refund_tender_id: refundTender.id,
+                      amount: centsToFixed2(
+                        Math.abs(refundTender.amountCents) +
+                          (isCashTender ? roundingAdjustmentCents : 0),
+                      ),
                         tender_amount: centsToFixed2(
                           Math.abs(refundTender.amountCents),
                         ),
                         rounding_adjustment: centsToFixed2(
-                          roundingAdjustmentCents,
+                          isCashTender ? roundingAdjustmentCents : 0,
                         ),
                       final_cash_due:
                         ledger.finalCashDueCents != null
@@ -6980,8 +7103,8 @@ export default function Cart({
                           ? refundTender.metadata.check_number
                           : undefined,
                       gift_card_code: refundTender.gift_card_code,
-                    }
-                  : undefined,
+                    };
+                }),
               };
               const replacementTransactionId = await executeCheckout(
                 checkoutApplied,
@@ -6993,7 +7116,7 @@ export default function Cart({
                 checkoutOrderOptions || undefined,
                 {
                   linesOverride: replacementLines,
-                  totalsOverride: replacementTotals,
+                  totalsOverride: exchangeDestinationTotals,
                   clearAfterCheckout: false,
                   emitSaleCompleted: false,
                   showSuccessToast: false,
@@ -7032,7 +7155,7 @@ export default function Cart({
                 const exchangeRefundEventId =
                   parseRefundEventId(settlementPayload);
                 if (!exchangeRefundEventId) {
-                  setLastReceiptOrderPaymentLines([]);
+                  setLastReceiptOrderPaymentLines(orderPaymentLines);
                   setLastReceiptExchangeReturnTransactionId(
                     pendingReturnTender.originalTransactionId,
                   );
@@ -7042,7 +7165,7 @@ export default function Cart({
                     pendingReturnTender.originalTransactionId,
                   );
                   setLastPendingRefundAmountCents(
-                    linkedCardRemainder ? refundRemainderCents : null,
+                    linkedCardRemainderCents > 0 ? linkedCardRemainderCents : null,
                   );
                   setLastReceiptTransactionLineIds([]);
                   setCheckoutTransactionId(replacementTransactionId);
@@ -7054,13 +7177,11 @@ export default function Cart({
                   return;
                 }
                 let cardRefundPending = false;
+                let pendingCardRefundCents = 0;
                 let cardRefundConfirmationNeedsReview = false;
                 let refundResult: RefundProcessResult | null = null;
-                if (
-                  refundTender &&
-                  linkedCardRemainder &&
-                  refundRemainderCents > 0
-                ) {
+                for (const [index, refundTender] of linkedCardRefunds.entries()) {
+                  const tenderRefundCents = Math.abs(refundTender.amountCents);
                   const cardRefundRes = await fetch(
                     `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/refunds/process`,
                     {
@@ -7072,8 +7193,9 @@ export default function Cart({
                       body: JSON.stringify({
                         session_id: sessionId,
                         refund_event_id: exchangeRefundEventId,
+                        refund_tender_id: refundTender.id,
                         payment_method: refundTender.method,
-                        amount: centsToFixed2(refundRemainderCents),
+                        amount: centsToFixed2(tenderRefundCents),
                         check_number: refundTender.metadata?.check_number,
                         manager_staff_id:
                           refundTender.metadata?.manager_staff_id,
@@ -7092,6 +7214,12 @@ export default function Cart({
                   if (!cardRefundRes.ok) {
                     const payload = cardRefundPayload as { error?: string };
                     cardRefundPending = true;
+                    pendingCardRefundCents = linkedCardRefunds
+                      .slice(index)
+                      .reduce(
+                        (sum, payment) => sum + Math.abs(payment.amountCents),
+                        0,
+                      );
                     toast(
                       `${payload.error ?? "The original-card refund needs attention."} The exchange and inventory return were saved; retry the remaining refund from the refund queue.`,
                       "error",
@@ -7100,8 +7228,9 @@ export default function Cart({
                     refundResult = parseRefundProcessResult(cardRefundPayload);
                     cardRefundConfirmationNeedsReview = !refundResult;
                   }
+                  if (cardRefundPending) break;
                 }
-                setLastReceiptOrderPaymentLines([]);
+                setLastReceiptOrderPaymentLines(orderPaymentLines);
                 setLastReceiptExchangeReturnTransactionId(
                   pendingReturnTender.originalTransactionId,
                 );
@@ -7111,7 +7240,7 @@ export default function Cart({
                   pendingReturnTender.originalTransactionId,
                 );
                 setLastPendingRefundAmountCents(
-                  cardRefundPending ? refundRemainderCents : null,
+                  cardRefundPending ? pendingCardRefundCents : null,
                 );
                 setLastReceiptTransactionLineIds([]);
                 setCheckoutTransactionId(replacementTransactionId);
@@ -7156,13 +7285,6 @@ export default function Cart({
               ledger.tenderMethod === "cash" &&
               ledger.finalCashDueCents === 0 &&
               roundingAdjustmentCents !== 0;
-            if (!cashRoundsToZero && applied.length !== 1) {
-              toast(
-                "Use one refund tender for this return so the original Transaction Record stays clear.",
-                "error",
-              );
-              return;
-            }
             if (cashRoundsToZero && applied.length > 0) {
               toast(
                 "Clear payment lines when the cash refund rounds to $0.00.",
@@ -7170,24 +7292,35 @@ export default function Cart({
               );
               return;
             }
-            const primaryTender =
-              applied[0] ??
-              (cashRoundsToZero
-                ? ({
-                    id: `cash-rounding-refund-${pendingReturnTender.originalTransactionId}`,
-                    method: "cash",
-                    amountCents: 0,
-                    label: "Cash refund",
-                  } satisfies AppliedPaymentLine)
-                : undefined);
-            if (!primaryTender) {
+            const refundTenders: AppliedPaymentLine[] =
+              applied.length > 0
+                ? [...applied].sort((left, right) =>
+                    Number(Boolean(right.metadata?.refund_preprocessed)) -
+                    Number(Boolean(left.metadata?.refund_preprocessed)),
+                  )
+                : cashRoundsToZero
+                  ? [{
+                      id: `cash-rounding-refund-${pendingReturnTender.originalTransactionId}`,
+                      method: "cash",
+                      amountCents: 0,
+                      label: "Cash refund",
+                    }]
+                  : [];
+            if (refundTenders.length === 0) {
               toast("Select a refund tender before finishing.", "error");
               return;
             }
             try {
-              const refundRes = await fetch(
-                `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/refunds/process`,
-                {
+              let refundPayload: unknown = null;
+              let refundEventId: string | null = null;
+              for (const [index, refundTender] of refundTenders.entries()) {
+                const isCashTender = refundTender.method === "cash";
+                const exactTenderCents =
+                  Math.abs(refundTender.amountCents) +
+                  (isCashTender ? roundingAdjustmentCents : 0);
+                const refundRes = await fetch(
+                  `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/refunds/process`,
+                  {
                   method: "POST",
                   headers: {
                     ...apiAuth(),
@@ -7195,27 +7328,33 @@ export default function Cart({
                   },
                   body: JSON.stringify({
                     session_id: sessionId,
-                    payment_method: primaryTender.method,
-                    amount: centsToFixed2(
-                      pendingReturnTender.refundAmountCents,
+                    payment_method: refundTender.method,
+                    amount: centsToFixed2(exactTenderCents),
+                    refund_tender_id: refundTender.id,
+                    tender_amount: centsToFixed2(
+                      Math.abs(refundTender.amountCents),
                     ),
-                    tender_amount: centsToFixed2(Math.abs(totalAppliedCents)),
-                    rounding_adjustment: centsToFixed2(roundingAdjustmentCents),
+                    rounding_adjustment: centsToFixed2(
+                      isCashTender ? roundingAdjustmentCents : 0,
+                    ),
                     final_cash_due:
-                      ledger.finalCashDueCents != null
+                      isCashTender && ledger.finalCashDueCents != null
                         ? centsToFixed2(ledger.finalCashDueCents)
                         : undefined,
-                    gift_card_code: primaryTender.gift_card_code,
-                    check_number: primaryTender.metadata?.check_number,
-                    manager_staff_id: primaryTender.metadata?.manager_staff_id,
+                    gift_card_code: refundTender.gift_card_code,
+                    check_number: refundTender.metadata?.check_number,
+                    manager_staff_id: refundTender.metadata?.manager_staff_id,
                     manager_approval_reference:
-                      primaryTender.metadata?.manager_approval_reference,
-                    manager_reason: primaryTender.metadata?.manager_reason,
-                    card_last4: primaryTender.metadata?.card_last4,
+                      refundTender.metadata?.manager_approval_reference,
+                    manager_reason: refundTender.metadata?.manager_reason,
+                    card_last4: refundTender.metadata?.card_last4,
                     external_refund_reference:
-                      primaryTender.metadata?.external_refund_reference,
-                    cancel_transaction: pendingReturnTender.cancelTransaction,
-                    return_lines: pendingReturnTender.returnLinesAlreadyRecorded
+                      refundTender.metadata?.external_refund_reference,
+                    cancel_transaction:
+                      pendingReturnTender.cancelTransaction &&
+                      index === refundTenders.length - 1,
+                    return_lines:
+                      pendingReturnTender.returnLinesAlreadyRecorded || index > 0
                       ? []
                       : pendingReturnTender.returnLines.map((line) => ({
                           transaction_line_id: line.transaction_line_id,
@@ -7236,27 +7375,26 @@ export default function Cart({
                           ),
                         })),
                   }),
-                },
-              );
-              if (!refundRes.ok) {
-                const payload = (await refundRes.json().catch(() => ({}))) as {
-                  error?: string;
-                };
-                toast(
-                  payload.error ?? "Refund failed. Check tender and try again.",
-                  "error",
+                  },
                 );
-                return;
+                if (!refundRes.ok) {
+                  const payload = (await refundRes.json().catch(() => ({}))) as {
+                    error?: string;
+                  };
+                  toast(
+                    `${payload.error ?? "Refund failed. Check tender and try again."}${index > 0 ? " Earlier refund sources were saved; retrying will resume without duplicating them." : ""}`,
+                    "error",
+                  );
+                  return;
+                }
+                refundPayload = (await refundRes.json().catch(() => null)) as unknown;
+                refundEventId = parseRefundEventId(refundPayload) ?? refundEventId;
               }
-              const refundPayload = (await refundRes
-                .json()
-                .catch(() => null)) as unknown;
               const refundResult = parseRefundProcessResult(refundPayload);
               setLastReceiptOrderPaymentLines([]);
               setLastReceiptExchangeReturnTransactionId(null);
               setLastRefundEventId(
-                refundResult?.refund_event_id ??
-                  parseRefundEventId(refundPayload),
+                refundResult?.refund_event_id ?? refundEventId,
               );
               setLastRefundResult(refundResult);
               setLastReceiptEventTransactionId(

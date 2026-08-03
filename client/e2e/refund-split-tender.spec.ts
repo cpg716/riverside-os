@@ -95,7 +95,11 @@ async function doCheckout(
     fixture: SeedFixtureResponse;
     amountPaid?: string;
     paymentMethod?: string;
-    paymentSplits?: Array<{ payment_method: string; amount: string }>;
+    paymentSplits?: Array<{
+      payment_method: string;
+      amount: string;
+      check_number?: string;
+    }>;
   },
 ): Promise<CheckoutResponse & { grossStr: string }> {
   const { grossStr } = getGrossTotal(options.fixture);
@@ -221,6 +225,7 @@ async function doRefund(
     managerReason?: string;
     externalRefundReference?: string;
     checkNumber?: string;
+    refundTenderId?: string;
   },
 ): Promise<{ status: number; body: unknown }> {
   const isManualExternalCard = options.paymentMethod === "card_terminal_manual";
@@ -254,6 +259,7 @@ async function doRefund(
       session_id: options.sessionId,
       payment_method: options.paymentMethod ?? "cash",
       amount: options.amount,
+      refund_tender_id: options.refundTenderId,
       gift_card_code: options.giftCardCode,
       manager_staff_id: options.managerStaffId,
       manager_pin: isManualExternalCard ? undefined : options.managerPin,
@@ -742,6 +748,80 @@ test.describe("refund split-tender capacity contract", () => {
     const refundRow = artifacts.payment_rows.find((r) => r.payment_method === "cash" && (r.metadata as Record<string, unknown>)["kind"] === "order_refund");
     expect(refundRow).toBeTruthy();
     expect((refundRow!.metadata as Record<string, unknown>)["transaction_id"]).toBe(checkout.transaction_id);
+  });
+
+  test("one return event records multiple refund sources without duplicating a retried tender", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Multi Source Refund");
+    const grossCents = getGrossTotal(fixture).grossCents;
+    const cashCents = Math.floor(grossCents / 2);
+    const checkCents = grossCents - cashCents;
+
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+      paymentMethod: "split",
+      paymentSplits: [
+        { payment_method: "cash", amount: (cashCents / 100).toFixed(2) },
+        {
+          payment_method: "check",
+          amount: (checkCents / 100).toFixed(2),
+          check_number: "SPLIT-SALE-2",
+        },
+      ],
+    });
+    const lines = await getTransactionLines(request, checkout.transaction_id);
+    await openRefundQueueFromVoid(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      lineId: lines[0]!.transaction_line_id,
+      qty: 1,
+    });
+
+    const first = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: (cashCents / 100).toFixed(2),
+      paymentMethod: "cash",
+      refundTenderId: "split-refund-cash",
+    });
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+
+    const retry = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: (cashCents / 100).toFixed(2),
+      paymentMethod: "cash",
+      refundTenderId: "split-refund-cash",
+    });
+    expect(retry.status, JSON.stringify(retry.body)).toBe(200);
+
+    const second = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: (checkCents / 100).toFixed(2),
+      paymentMethod: "check",
+      checkNumber: "SPLIT-REFUND-2",
+      refundTenderId: "split-refund-check",
+    });
+    expect(second.status, JSON.stringify(second.body)).toBe(200);
+
+    const artifacts = await getArtifacts(request, checkout.transaction_id);
+    const refundAllocations = artifacts.allocation_rows.filter(
+      (row) => moneyToCents(row.amount_allocated) < 0,
+    );
+    expect(refundAllocations).toHaveLength(2);
+    expect(
+      refundAllocations.reduce(
+        (sum, row) => sum + moneyToCents(row.amount_allocated),
+        0,
+      ),
+    ).toBe(-grossCents);
   });
 
   test("refund API rejects unsupported tenders before writing a payment", async ({ request }) => {

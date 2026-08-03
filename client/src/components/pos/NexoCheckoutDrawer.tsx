@@ -626,6 +626,9 @@ export interface NexoCheckoutDrawerProps {
   refundTransactionId?: string | null;
   returnOnlyRefundMode?: boolean;
   deferCardRefund?: boolean;
+  onProcessLinkedCardRefund?: (
+    line: AppliedPaymentLine,
+  ) => Promise<AppliedPaymentLine | null>;
   authoritativeDepositCents?: number;
   profileBlocksCheckout: boolean;
   onOpenProfileGate: () => void;
@@ -685,6 +688,7 @@ export default function NexoCheckoutDrawer({
   refundTransactionId = null,
   returnOnlyRefundMode = false,
   deferCardRefund = false,
+  onProcessLinkedCardRefund,
   authoritativeDepositCents = 0,
   profileBlocksCheckout,
   onOpenProfileGate,
@@ -751,6 +755,7 @@ export default function NexoCheckoutDrawer({
   const [helcimAttempt, setHelcimAttempt] = useState<HelcimAttempt | null>(null);
   const [helcimUnverifiedNotice, setHelcimUnverifiedNotice] = useState<string | null>(null);
   const [helcimAttemptLoading, setHelcimAttemptLoading] = useState(false);
+  const [linkedRefundProcessing, setLinkedRefundProcessing] = useState(false);
   const [earlierTerminalAttemptRefreshing, setEarlierTerminalAttemptRefreshing] = useState(false);
   const [physicalTerminalCancelAttemptId, setPhysicalTerminalCancelAttemptId] = useState<string | null>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
@@ -1403,6 +1408,7 @@ export default function NexoCheckoutDrawer({
     balanced &&
     operator != null &&
     !busy &&
+    !linkedRefundProcessing &&
     !helcimOutcomeBlocksCheckout &&
     !currentCheckoutHelcimPending &&
     !rmsNoCreditTenderNeedsApproval;
@@ -3095,21 +3101,31 @@ export default function NexoCheckoutDrawer({
           );
           return;
         }
-        setApplied((prev) => [
-          ...prev,
-          {
-            id: newId(),
-            method: "card_credit",
-            amountCents: amtCents,
-            label: "HELCIM REFUND — PENDING APPROVAL",
-            metadata: {
-              payment_provider: "helcim",
-              tender_family: "helcim_refund",
-              refund_original_transaction_id: originalTransactionId,
-              refund_processing: "server_settlement",
-            },
+        const pendingRefund: AppliedPaymentLine = {
+          id: newId(),
+          method: "card_credit",
+          amountCents: amtCents,
+          label: "HELCIM REFUND — PENDING APPROVAL",
+          metadata: {
+            payment_provider: "helcim",
+            tender_family: "helcim_refund",
+            refund_original_transaction_id: originalTransactionId,
+            refund_processing: "server_settlement",
           },
-        ]);
+        };
+        if (returnOnlyRefundMode && onProcessLinkedCardRefund) {
+          setLinkedRefundProcessing(true);
+          try {
+            const approvedRefund = await onProcessLinkedCardRefund(pendingRefund);
+            if (approvedRefund) {
+              setApplied((prev) => [...prev, approvedRefund]);
+            }
+          } finally {
+            setLinkedRefundProcessing(false);
+          }
+        } else {
+          setApplied((prev) => [...prev, pendingRefund]);
+        }
         setKeypad("");
         return;
       }
@@ -3426,7 +3442,7 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
-  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptBelongsToCurrentCheckout, helcimOutcomeBlocksCheckout, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalInUseByEarlierCheckoutOnCurrentRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, terminalOverrideApproval, registerLane, registerSessionId, registerSessionIdentity, refundOriginalTransactionId, deferCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, checkoutIdentity, toast, applied, setApplied, addApprovedHelcimAttempt, beforeApplyTender, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, rmsNoCreditApproval, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
+  }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptBelongsToCurrentCheckout, helcimOutcomeBlocksCheckout, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalInUseByEarlierCheckoutOnCurrentRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, terminalOverrideApproval, registerLane, registerSessionId, registerSessionIdentity, refundOriginalTransactionId, deferCardRefund, returnOnlyRefundMode, onProcessLinkedCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, checkoutIdentity, toast, applied, setApplied, addApprovedHelcimAttempt, beforeApplyTender, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, rmsNoCreditApproval, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {
     if (isApprovedProviderPayment(line)) {
@@ -4705,8 +4721,9 @@ export default function NexoCheckoutDrawer({
                         provider, or transaction ID entry is needed.
                       </p>
                       <p className="mt-2 text-[11px] font-bold text-app-text-muted">
-                        ROS stages this refund for server settlement through the original
-                        Transaction Record and preserves the return audit trail.
+                        {returnOnlyRefundMode
+                          ? "Apply Refund sends the refund to Helcim now. Record Sale unlocks only after ROS verifies the approved provider response in the refund ledger."
+                          : "ROS stages this exchange refund for server settlement through the original Transaction Record and preserves the return audit trail."}
                       </p>
                       {refundRecipientName ? (
                         <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] font-black text-amber-900 dark:text-amber-100">
@@ -4907,6 +4924,7 @@ export default function NexoCheckoutDrawer({
                           (tab === "card_credit" &&
                             (providerSettingsLoading ||
                               helcimAttemptLoading ||
+                              linkedRefundProcessing ||
                               refundOriginalTransactionId.trim().length === 0 ||
                               !deferCardRefund ||
                               (providerSettings?.active_provider === "helcim" &&
