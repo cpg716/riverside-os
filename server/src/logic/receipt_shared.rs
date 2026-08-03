@@ -112,6 +112,16 @@ pub struct ReceiptPaymentApplication {
     pub remaining_balance: Decimal,
 }
 
+impl ReceiptPaymentApplication {
+    pub fn activity_label(&self) -> &'static str {
+        if self.remaining_balance > Decimal::ZERO {
+            "Deposit on Order"
+        } else {
+            "Payment in Full on Order"
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ReceiptWeddingPartyDeposit {
     pub party_name: String,
@@ -238,10 +248,24 @@ impl ReceiptOrder {
     }
 
     pub fn order_payment_heading(&self) -> &'static str {
-        if self.payment_applications.len() == 1 {
-            "Payment on Order"
+        let has_deposit = self
+            .payment_applications
+            .iter()
+            .any(|application| application.remaining_balance > Decimal::ZERO);
+        let has_paid_in_full = self
+            .payment_applications
+            .iter()
+            .any(|application| application.remaining_balance <= Decimal::ZERO);
+        if has_deposit && has_paid_in_full {
+            "Order Deposits and Payments in Full"
+        } else if has_deposit && self.payment_applications.len() == 1 {
+            "Deposit on Order"
+        } else if has_deposit {
+            "Deposits on Orders"
+        } else if self.payment_applications.len() == 1 {
+            "Payment in Full on Order"
         } else {
-            "Payments on Orders"
+            "Payments in Full on Orders"
         }
     }
 }

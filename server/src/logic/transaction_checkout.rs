@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, RoundingStrategy};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -188,6 +188,12 @@ pub struct BackdateApproval {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+pub struct OrderDepositOverrideApproval {
+    pub manager_staff_id: Uuid,
+    pub manager_approval_reference: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CheckoutOrderPayment {
     pub client_line_id: String,
     pub target_transaction_id: Uuid,
@@ -239,6 +245,11 @@ pub struct CheckoutRequest {
     /// server-side and recorded with the transaction for audit/QBO review.
     #[serde(default)]
     pub backdate_approval: Option<BackdateApproval>,
+    /// Required when a deferred Order is recorded below the 25% minimum deposit.
+    /// The reference points to a checkout-bound Manager Access event; no PIN is
+    /// accepted or persisted in the checkout payload.
+    #[serde(default)]
+    pub order_deposit_override: Option<OrderDepositOverrideApproval>,
     /// Consumed at checkout (single use); amount included in `total_price` validation.
     #[serde(default)]
     pub shipping_rate_quote_id: Option<Uuid>,
@@ -349,6 +360,7 @@ fn checkout_processing_intent_fingerprint(
         "checkout_client_id": payload.checkout_client_id,
         "booked_at_local": payload.booked_at_local,
         "backdate_approval": payload.backdate_approval,
+        "order_deposit_override": payload.order_deposit_override,
         "shipping_rate_quote_id": payload.shipping_rate_quote_id,
         "shipping_links": payload.shipping_links,
         "fulfillment_mode": payload.fulfillment_mode,
@@ -646,6 +658,55 @@ async fn backdate_approval_was_logged(
     .bind(approval.approved_by_staff_id)
     .bind(booked_at_local)
     .bind(session_id)
+    .fetch_one(pool)
+    .await?)
+}
+
+fn minimum_order_deposit(total_price: Decimal) -> Decimal {
+    (total_price.max(Decimal::ZERO) * Decimal::new(25, 2))
+        .round_dp_with_strategy(2, RoundingStrategy::ToPositiveInfinity)
+}
+
+fn order_deposit_requirement_met(total_price: Decimal, amount_paid: Decimal) -> bool {
+    amount_paid.round_dp(2) >= minimum_order_deposit(total_price)
+}
+
+async fn order_deposit_override_was_logged(
+    pool: &PgPool,
+    approval: &OrderDepositOverrideApproval,
+    customer_id: Uuid,
+    session_id: Uuid,
+    checkout_client_id: Uuid,
+    transaction_total: Decimal,
+    amount_paid: Decimal,
+    minimum_deposit: Decimal,
+) -> Result<bool, CheckoutError> {
+    Ok(sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM staff_access_log
+            WHERE id = $1
+              AND staff_id = $2
+              AND event_kind = 'pos_order_deposit_override'
+              AND created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+              AND metadata->>'customer_id' = $3::text
+              AND metadata->>'register_session_id' = $4::text
+              AND metadata->>'checkout_client_id' = $5::text
+              AND metadata->>'transaction_total' = $6
+              AND metadata->>'amount_paid' = $7
+              AND metadata->>'minimum_deposit' = $8
+        )
+        "#,
+    )
+    .bind(approval.manager_approval_reference)
+    .bind(approval.manager_staff_id)
+    .bind(customer_id)
+    .bind(session_id)
+    .bind(checkout_client_id)
+    .bind(format!("{transaction_total:.2}"))
+    .bind(format!("{amount_paid:.2}"))
+    .bind(format!("{minimum_deposit:.2}"))
     .fetch_one(pool)
     .await?)
 }
@@ -1352,7 +1413,6 @@ fn build_payment_allocation_plan(
         if split_remaining <= Decimal::ZERO {
             continue;
         }
-
         if current_remaining > Decimal::ZERO {
             let amount = split_remaining.min(current_remaining).round_dp(2);
             if amount > Decimal::ZERO {
@@ -4298,16 +4358,65 @@ async fn execute_checkout_internal(
                 "Layaway requires a linked customer".to_string(),
             ));
         }
-        let min_deposit = (payload.total_price * Decimal::new(25, 2)).round_dp(2);
-        if amount_toward_order < min_deposit {
-            let can_override = pricing_limits::is_admin_or_manager(pool, payload.operator_staff_id)
-                .await
-                .map_err(CheckoutError::Database)?;
-            if !can_override {
-                return Err(CheckoutError::InvalidPayload(format!(
-                    "Layaway requires a 25% minimum deposit (${min_deposit:.2}). Amount collected (${amount_toward_order:.2}) is insufficient."
-                )));
-            }
+    }
+
+    let has_deferred_current_lines = payload.items.iter().any(|i| {
+        matches!(
+            i.fulfillment,
+            DbFulfillmentType::SpecialOrder
+                | DbFulfillmentType::Custom
+                | DbFulfillmentType::WeddingOrder
+                | DbFulfillmentType::Layaway
+        )
+    });
+    let minimum_deposit = minimum_order_deposit(payload.total_price);
+    if !refund_checkout
+        && has_deferred_current_lines
+        && !order_deposit_requirement_met(payload.total_price, amount_toward_order)
+    {
+        let approval = payload.order_deposit_override.as_ref().ok_or_else(|| {
+            CheckoutError::InvalidPayload(format!(
+                "Orders require a 25% minimum deposit (${minimum_deposit:.2}). Amount collected toward this Transaction (${amount_toward_order:.2}) is insufficient; use Manager Access to approve Override Deposit."
+            ))
+        })?;
+        let customer_id = payload.customer_id.ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "Order deposit override requires a linked customer".to_string(),
+            )
+        })?;
+        let checkout_client_id = payload.checkout_client_id.ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "Order deposit override requires a checkout identity".to_string(),
+            )
+        })?;
+        if !order_deposit_override_was_logged(
+            pool,
+            approval,
+            customer_id,
+            payload.session_id,
+            checkout_client_id,
+            payload.total_price.round_dp(2),
+            amount_toward_order,
+            minimum_deposit,
+        )
+        .await?
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "Order deposit override expired or does not match this checkout; request Manager Access again"
+                    .to_string(),
+            ));
+        }
+        if let Some(obj) = transaction_financing_metadata.as_object_mut() {
+            obj.insert(
+                "order_deposit_override".to_string(),
+                json!({
+                    "manager_staff_id": approval.manager_staff_id,
+                    "manager_approval_reference": approval.manager_approval_reference,
+                    "minimum_deposit": minimum_deposit.to_string(),
+                    "amount_paid": amount_toward_order.to_string(),
+                    "reason": "Manager approved Order below the 25% minimum deposit",
+                }),
+            );
         }
     }
 
@@ -4322,15 +4431,6 @@ async fn execute_checkout_internal(
         .items
         .iter()
         .all(|i| i.fulfillment == DbFulfillmentType::Takeaway);
-    let has_deferred_current_lines = payload.items.iter().any(|i| {
-        matches!(
-            i.fulfillment,
-            DbFulfillmentType::SpecialOrder
-                | DbFulfillmentType::Custom
-                | DbFulfillmentType::WeddingOrder
-                | DbFulfillmentType::Layaway
-        )
-    });
     let current_transaction_deposit_allocation = if !refund_checkout && has_deferred_current_lines {
         (amount_toward_order - takeaway_total)
             .round_dp(2)
@@ -7306,17 +7406,18 @@ mod tests {
         checkout_request_fingerprints, checkout_total_matches, evaluate_combo_incentives,
         exact_order_payment_helcim_replay_shape, execute_checkout, fetch_variant_pos_line_kind,
         helcim_attempt_comparison_cents, helcim_checkout_references,
-        helcim_tender_method_matches_amount, is_fee_only_shipping_quote, parse_combo_reward_amount,
-        payment_effective_date, resolve_payment_splits, strip_sensitive_checkout_request,
-        strip_sensitive_payment_metadata, tender_sum_excluding_deposit_ledger,
-        validate_checkout_alteration_intakes, validate_checkout_item_quantity,
-        validate_checkout_replay_fingerprints, validate_exchange_checkout_intent,
-        validate_helcim_attempt_checkout_binding, validate_open_deposit_scope,
-        validate_order_payment_against_target, validate_order_payment_shape,
-        validate_processing_intent_fingerprint, validate_wedding_disbursement_against_balance,
-        CheckoutAlterationIntake, CheckoutDone, CheckoutItem, CheckoutOrderPayment,
-        CheckoutPaymentSplit, CheckoutRequest, ExistingOrderPaymentTarget, ResolvedOrderPayment,
-        ResolvedPaymentSplit, WeddingDisbursement, EMPLOYEE_DISCOUNT_REASON,
+        helcim_tender_method_matches_amount, is_fee_only_shipping_quote, minimum_order_deposit,
+        order_deposit_requirement_met, parse_combo_reward_amount, payment_effective_date,
+        resolve_payment_splits, strip_sensitive_checkout_request, strip_sensitive_payment_metadata,
+        tender_sum_excluding_deposit_ledger, validate_checkout_alteration_intakes,
+        validate_checkout_item_quantity, validate_checkout_replay_fingerprints,
+        validate_exchange_checkout_intent, validate_helcim_attempt_checkout_binding,
+        validate_open_deposit_scope, validate_order_payment_against_target,
+        validate_order_payment_shape, validate_processing_intent_fingerprint,
+        validate_wedding_disbursement_against_balance, CheckoutAlterationIntake, CheckoutDone,
+        CheckoutItem, CheckoutOrderPayment, CheckoutPaymentSplit, CheckoutRequest,
+        ExistingOrderPaymentTarget, ResolvedOrderPayment, ResolvedPaymentSplit,
+        WeddingDisbursement, EMPLOYEE_DISCOUNT_REASON,
     };
     use crate::logic::customer_open_deposit;
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
@@ -7388,6 +7489,7 @@ mod tests {
             target_transaction_id: None,
             booked_at_local: None,
             backdate_approval: None,
+            order_deposit_override: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: false,
@@ -8351,6 +8453,7 @@ mod tests {
             checkout_client_id: Some(checkout_client_id),
             booked_at_local: None,
             backdate_approval: None,
+            order_deposit_override: None,
             shipping_rate_quote_id: None,
             shipping_links: Vec::new(),
             fulfillment_mode: None,
@@ -9032,6 +9135,17 @@ mod tests {
     }
 
     #[test]
+    fn transaction_checkout_order_minimum_deposit_rounds_up_to_the_cent() {
+        assert_eq!(minimum_order_deposit(dec!(100.00)), dec!(25.00));
+        assert_eq!(minimum_order_deposit(dec!(100.01)), dec!(25.01));
+        assert_eq!(minimum_order_deposit(dec!(0.01)), dec!(0.01));
+        assert_eq!(minimum_order_deposit(Decimal::ZERO), Decimal::ZERO);
+        assert!(!order_deposit_requirement_met(dec!(100.00), dec!(24.99)));
+        assert!(order_deposit_requirement_met(dec!(100.00), dec!(25.00)));
+        assert!(order_deposit_requirement_met(dec!(100.00), dec!(100.00)));
+    }
+
+    #[test]
     fn transaction_checkout_allocation_plan_splits_current_sale_and_existing_order() {
         let current_tx_id = Uuid::new_v4();
         let customer_id = Uuid::new_v4();
@@ -9691,6 +9805,7 @@ mod tests {
             target_transaction_id: None,
             booked_at_local: None,
             backdate_approval: None,
+            order_deposit_override: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,
@@ -9908,6 +10023,7 @@ mod tests {
             target_transaction_id: None,
             booked_at_local: None,
             backdate_approval: None,
+            order_deposit_override: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,
@@ -10280,6 +10396,7 @@ mod tests {
             target_transaction_id: None,
             booked_at_local: None,
             backdate_approval: None,
+            order_deposit_override: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,
@@ -10381,6 +10498,7 @@ mod tests {
             target_transaction_id: None,
             booked_at_local: None,
             backdate_approval: None,
+            order_deposit_override: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,
@@ -10919,6 +11037,7 @@ mod tests {
             target_transaction_id: None,
             booked_at_local: None,
             backdate_approval: None,
+            order_deposit_override: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,
@@ -11254,6 +11373,7 @@ mod tests {
             target_transaction_id: None,
             booked_at_local: None,
             backdate_approval: None,
+            order_deposit_override: None,
             is_rush: false,
             need_by_date: None,
             is_tax_exempt: true,

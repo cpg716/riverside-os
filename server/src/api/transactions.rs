@@ -1619,7 +1619,7 @@ mod tests {
         for output in rendered {
             assert!(output.contains("Picked-up Suit"));
             assert!(output.contains("SHIPPING FEE"));
-            assert!(output.contains("Payment on Order"));
+            assert!(output.contains("Payment in Full on Order"));
             assert!(output.contains("Current checkout total"));
             assert!(output.contains("Previously paid"));
             assert!(output.contains("Balance remaining"));
@@ -1688,7 +1688,7 @@ mod tests {
             target_transaction_id: Uuid::new_v4(),
             target_display_id: "TXN-ORDER".to_string(),
             amount: Decimal::new(5000, 2),
-            remaining_balance: Decimal::ZERO,
+            remaining_balance: Decimal::new(5000, 2),
         }];
         detail.total_price = Decimal::ZERO;
         detail.amount_paid = Decimal::ZERO;
@@ -1734,7 +1734,7 @@ mod tests {
             crate::logic::receipt_plain_text::format_pos_receipt_text_message(&receipt, &cfg),
         ];
         for output in rendered {
-            assert!(output.contains("Payment on Order"));
+            assert!(output.contains("Deposit on Order"));
             assert!(output.contains("Order TXN-ORDER"));
             assert!(output.contains("Total charged today"));
             assert!(output.contains("Paid today"));

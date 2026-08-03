@@ -174,8 +174,11 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
         lines.push(format!("{}:", order.order_payment_heading()));
         for app in &order.payment_applications {
             lines.push(format!(
-                "Order {}: {} (remaining balance {})",
-                app.target_display_id, app.amount, app.remaining_balance
+                "{} {}: {} (remaining balance {})",
+                app.activity_label(),
+                app.target_display_id,
+                app.amount,
+                app.remaining_balance
             ));
         }
     }

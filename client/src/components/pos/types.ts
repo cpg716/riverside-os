@@ -312,6 +312,10 @@ export interface CheckoutPayload {
     approved_by_staff_id: string;
     reason: string;
   };
+  order_deposit_override?: {
+    manager_staff_id: string;
+    manager_approval_reference: string;
+  };
   /** Binds server `store_shipping_rate_quote` into checkout totals. */
   shipping_rate_quote_id?: string | null;
   /** Existing Transaction Records covered by this shipping charge. */

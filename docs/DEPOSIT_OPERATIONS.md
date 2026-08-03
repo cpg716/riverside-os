@@ -13,7 +13,7 @@ This document covers every deposit form the system supports, how the POS registe
 3. [POS Register: How to Take a Deposit](#pos-register-how-to-take-a-deposit)
 4. [Split Deposit (Wedding Group Pay)](#split-deposit-wedding-group-pay)
 5. [Open Deposits (Pre-Paid Member Credits)](#open-deposits-pre-paid-member-credits)
-6. [Deposit-Only Completion (No Tenders)](#deposit-only-completion-no-tenders)
+6. [Deposit Override (Below 25% or No Tender)](#deposit-override-below-25-or-no-tender)
 7. [Mixed Carts (Takeaway + Deferred Items)](#mixed-carts-takeaway--deferred-items)
 8. [Interim Payments on Open Transactions](#interim-payments-on-open-transactions)
 9. [Transaction Release at Fulfillment](#transaction-release-at-fulfillment)
@@ -39,9 +39,9 @@ See [`BOOKED_VS_FULFILLED.md`](BOOKED_VS_FULFILLED.md) for the full recognition 
 
 | Type | Transaction Context | When Used | Minimum |
 |------|--------------|-----------|---------|
-| **Layaway Deposit** | In-stock items held on a layaway shelf | Customer reserves floor merchandise for future pickup | 25% of sale total (admin override allowed) |
-| **Order Deposit** | Items not yet in stock; must be procured | Customer commits to purchasing items the store will order from a vendor | Store policy (typically 50%) |
-| **Wedding Transaction Deposit** | Special order tied to a wedding party + event date | Groom, groomsmen, or sponsor commits to formalwear orders | Store policy |
+| **Layaway Deposit** | In-stock items held on a layaway shelf | Customer reserves floor merchandise for future pickup | 25% of Transaction total; Manager Access override allowed |
+| **Order Deposit** | Items not yet in stock; must be procured | Customer commits to purchasing items the store will order from a vendor | 25% of Transaction total; Manager Access override allowed |
+| **Wedding / Custom Transaction Deposit** | Deferred Wedding or Custom Fulfillment Order | Customer commits to merchandise that will be fulfilled later | 25% of Transaction total; Manager Access override allowed |
 | **Split Deposit** | Wedding group pay across multiple party members | One payer covers deposits for several members in a single transaction | Per-member amount entered at register |
 | **Open Deposit** | Credit held on a customer account (not store credit) | Group pay disbursement targets a member with no open transaction yet | Exact disbursement amount |
 
@@ -57,9 +57,9 @@ See [`BOOKED_VS_FULFILLED.md`](BOOKED_VS_FULFILLED.md) for the full recognition 
 4. Tap **Pay** / **Complete Sale** to open the **Payment Ledger** drawer.
 5. On the keypad, type the amount the customer will pay today (e.g., `100` for $100.00).
 6. Apply the customer's tender normally, or tap **Apply deposit** first when you want the ledger to set a specific deposit target before taking the tender.
-7. Riverside treats any money paid toward an Order, Layaway, Custom, or Wedding transaction before pickup/fulfillment as a deposit liability even when **Apply deposit** was not tapped.
+7. Riverside calls and records a payment as a **Deposit** whenever it leaves a balance due on an Order, Layaway, Custom, or Wedding Transaction, even when **Apply deposit** was not tapped. A payment that brings the balance to `$0.00` is staff-facing **Payment in Full**. Because the merchandise is still unfulfilled, its accounting remains in deposit liability until fulfillment.
 8. If the cart also has takeaway merchandise, cover the takeaway amount with real tender first; only the remaining paid amount on deferred items is treated as deposit.
-9. When the balance reaches `$0.00` for the amount being collected today, the green **Complete Sale** button activates.
+9. **Record Sale** stays neutral and unavailable until at least 25% of the current Transaction total is paid. A manager can select **Override Deposit** and approve Manager Access to record the Order below 25%, including with no down payment.
    - **Checks**: When selecting the **CHECK** tab, you MUST enter the **Check #** in the provided field before applying the payment to ensure accurate transaction tracking.
 10. Finalize and print the receipt.
 
@@ -147,25 +147,15 @@ When a group pay disbursement targets a wedding member who has no open order row
 
 ---
 
-## Deposit-Only Completion (No Tenders)
+## Deposit Override (Below 25% or No Tender)
 
-In certain scenarios, a cashier may record a deposit commitment **without** collecting any money at the register today. This is the "deposit-only" path:
+Orders normally require a real payment of at least 25% of the current Transaction total. **Record Sale** does not turn green below that amount.
 
-### When It's Allowed
-
-- The cart contains **only** order / wedding order lines (no takeaway items).
-- `allowDepositOnlyComplete` is `true` (set automatically by Cart.tsx when these conditions are met).
-- The cashier enters a deposit amount via **Apply deposit** but does **not** apply any cash/card tenders.
-
-### How It Works
-
-- The server receives a synthetic `deposit_ledger` payment split with the committed amount.
-- No real money changes hands at the register — the deposit is a recorded commitment.
-- The transaction is created with the deposit on the ledger, and the customer's balance reflects the full amount still owed.
-
-### When It's **Not** Allowed
-
-- If the cart contains any **takeaway** items (`takeawayDueCents > 0`), real tenders must cover at least the takeaway portion. The customer cannot walk out with merchandise on a ledger-only deposit.
+- Select **Override Deposit** at the top of Payment when store policy permits a smaller deposit or no down payment.
+- A manager must approve with Manager Access. The approval is bound to the exact customer, Register session, checkout identity, Transaction total, amount paid, and minimum deposit, and is recorded for audit.
+- A `$0.00` override creates no payment and no synthetic deposit. The open Transaction simply retains its full balance.
+- Any real payment that leaves a balance is marked and displayed as a **Deposit**. A payment that closes the balance is displayed as **Payment in Full**, while unfulfilled Order funds remain in deposit liability until fulfillment.
+- Takeaway merchandise still requires real tender or the selected customer's eligible held funds. An override cannot let merchandise leave unpaid.
 
 ---
 
@@ -176,11 +166,11 @@ A single cart can contain both immediate-pickup (takeaway) items and deferred-fu
 | Component | Paid by | Example |
 |-----------|---------|---------|
 | Takeaway items + their tax | Real tenders (card/cash) or the selected customer's held wedding deposit | $50 sweater taken home today |
-| Deposit on deferred items | Real tenders or deposit ledger | $100 deposit on a $200 order suit |
+| Deposit on deferred items | Real tenders or eligible held funds | $100 deposit on a $200 order suit |
 
 The **Balance remaining** in the payment ledger reflects: `deposit amount + takeaway total - tenders applied`.
 
-The cashier must apply tender or the selected customer's held wedding deposit to cover the takeaway goods, plus any requested new deposit. The deposit-only (no-tender) path is blocked when takeaway items are in the cart.
+The cashier must apply tender or the selected customer's held wedding deposit to cover the takeaway goods, plus any requested new deposit. Manager Access can waive the 25% Order minimum, but never the paid-takeaway requirement.
 
 ---
 
@@ -192,8 +182,8 @@ After the initial deposit, customers return to make additional payments toward t
 2. Find the customer → open their **Transactions** tab.
 3. Select the open transaction → tap **Make Payment**.
 4. Enter the payment amount and tender it.
-5. Each interim payment is also recorded as `liability_deposit` — revenue is still deferred.
-6. When the balance reaches `$0.00`, the transaction is ready for fulfillment / pickup.
+5. Each interim payment that leaves a balance is marked and displayed as a **Deposit** and remains deferred from revenue.
+6. A payment that brings the balance to `$0.00` is displayed as **Payment in Full**, and the Transaction is ready for fulfillment / pickup. Its accounting remains deferred until fulfillment.
 
 ---
 
@@ -262,7 +252,7 @@ Direct layaway cash/card deposits follow this same new-inflow path on the paymen
 
 | File | Role |
 |------|------|
-| `client/src/components/pos/NexoCheckoutDrawer.tsx` | Payment ledger UI: keypad, Apply deposit, Apply payment, balance calculation, deposit-only completion, Revenue Protocol summary |
+| `client/src/components/pos/NexoCheckoutDrawer.tsx` | Payment ledger UI: keypad, Apply deposit, Apply payment, 25% guard, Manager Access override, and deposit display |
 | `client/src/components/pos/Cart.tsx` | Cart orchestration: `executeCheckout`, `allowCheckoutDepositKeypad`, disbursement members, open deposit prompt |
 | `server/src/logic/transaction_checkout.rs` | Backend checkout: payment split parsing, `applied_deposit_amount` validation, `deposit_ledger` / `open_deposit` handling, wedding disbursement allocation |
 | `server/src/logic/qbo_journal.rs` | QBO journal: `liability_deposit` debit on release, `income_forfeited_deposit` on forfeiture, category-level release aggregation |

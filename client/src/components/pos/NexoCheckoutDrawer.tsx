@@ -642,6 +642,10 @@ export interface NexoCheckoutDrawerProps {
       roundingAdjustmentCents?: number;
       finalCashDueCents?: number;
       tenderMethod?: string;
+      orderDepositOverride?: {
+        managerStaffId: string;
+        approvalReference: string;
+      };
     },
   ) => Promise<void>;
   allowStoreCredit?: boolean;
@@ -731,6 +735,14 @@ export default function NexoCheckoutDrawer({
   const [rmsNoCreditApprovalOpen, setRmsNoCreditApprovalOpen] = useState(false);
   const [rmsNoCreditApproval, setRmsNoCreditApproval] =
     useState<RmsNoCreditManagerApproval | null>(null);
+  const [orderDepositApprovalOpen, setOrderDepositApprovalOpen] = useState(false);
+  const [orderDepositApproval, setOrderDepositApproval] = useState<{
+    managerStaffId: string;
+    approvalReference: string;
+    checkoutClientId: string;
+    currentSaleAmountCents: number;
+    currentTransactionPaidCents: number;
+  } | null>(null);
   const [providerSettings, setProviderSettings] = useState<PaymentProviderSettings | null>(null);
   const [providerSettingsLoading, setProviderSettingsLoading] = useState(false);
   const [providerSettingsError, setProviderSettingsError] = useState<string | null>(null);
@@ -1050,6 +1062,8 @@ export default function NexoCheckoutDrawer({
     setRmsProgramPickerOpen(false);
     setRmsNoCreditApprovalOpen(false);
     setRmsNoCreditApproval(null);
+    setOrderDepositApproval(null);
+    setOrderDepositApprovalOpen(false);
     setStaffAccount(null);
     setStaffAccountLoading(false);
     setStaffAccountError(null);
@@ -1228,6 +1242,41 @@ export default function NexoCheckoutDrawer({
   }, [depositDisplayCents, effectiveTotalDue]);
 
   const remainingCents = useMemo(() => sessionTargetCents - paidSoFarCents, [paidSoFarCents, sessionTargetCents]);
+  const currentSaleTotalCents = Math.max(
+    0,
+    Math.round(
+      currentSaleAmountCents -
+        (isTaxExempt ? stateTaxCents + localTaxCents : 0),
+    ),
+  );
+  const externalAllocationCents = Math.max(
+    0,
+    effectiveTotalDue - currentSaleTotalCents,
+  );
+  const currentTransactionPaidCents = Math.max(
+    0,
+    Math.min(currentSaleTotalCents, paidSoFarCents - externalAllocationCents),
+  );
+  const minimumOrderDepositCents = Math.ceil(currentSaleTotalCents / 4);
+  const orderDepositPolicyApplies =
+    hasLaterItems && currentSaleTotalCents > 0 && effectiveTotalDue >= 0;
+  const orderDepositThresholdMet =
+    !orderDepositPolicyApplies ||
+    currentTransactionPaidCents >= minimumOrderDepositCents;
+  const orderDepositOverrideApproved = Boolean(
+    orderDepositApproval &&
+      checkoutClientId &&
+      orderDepositApproval.checkoutClientId === checkoutClientId &&
+      orderDepositApproval.currentSaleAmountCents === currentSaleTotalCents &&
+      orderDepositApproval.currentTransactionPaidCents ===
+        currentTransactionPaidCents,
+  );
+  const orderDepositGateSatisfied =
+    orderDepositThresholdMet || orderDepositOverrideApproved;
+  const currentPaymentIsDeposit =
+    orderDepositPolicyApplies &&
+    currentTransactionPaidCents > 0 &&
+    currentTransactionPaidCents < currentSaleTotalCents;
 
   const cashRounding = useMemo(() => {
     if (!cashRoundingEnabled || tab !== "cash" || remainingCents === 0) {
@@ -1332,8 +1381,12 @@ export default function NexoCheckoutDrawer({
    * 2. Any takeaway items are paid with tenders AND a deposit protocol is established for the remainder.
    */
   const balanced =
-    (balanceSettled && takeawaySatisfied) ||
-    (takeawaySatisfied && hasLaterItems && (depositDisplayCents > 0 || allowDepositOnlyComplete));
+    (balanceSettled && takeawaySatisfied && orderDepositGateSatisfied) ||
+    (takeawaySatisfied &&
+      orderDepositPolicyApplies &&
+      orderDepositGateSatisfied &&
+      (orderDepositThresholdMet ||
+        (allowDepositOnlyComplete && orderDepositOverrideApproved)));
 
   const rmsNoCreditTenderNeedsApproval = useMemo(
     () =>
@@ -3441,6 +3494,16 @@ export default function NexoCheckoutDrawer({
       roundingAdjustmentCents: finalRoundingCents,
       finalCashDueCents: finalCashDue,
       tenderMethod: tab,
+      orderDepositOverride:
+        orderDepositPolicyApplies &&
+        !orderDepositThresholdMet &&
+        orderDepositOverrideApproved &&
+        orderDepositApproval
+          ? {
+              managerStaffId: orderDepositApproval.managerStaffId,
+              approvalReference: orderDepositApproval.approvalReference,
+            }
+          : undefined,
     });
   };
 
@@ -3473,11 +3536,14 @@ export default function NexoCheckoutDrawer({
     }
     if (!balanced) {
       if (tw > 0 && !takeawaySatisfied) return `Tenders must cover takeaway total ($${centsToFixed2(tw)})`;
+      if (orderDepositPolicyApplies && !orderDepositGateSatisfied) {
+        return `Order deposit must reach 25% ($${centsToFixed2(minimumOrderDepositCents)}) or receive Manager Access approval.`;
+      }
       return "Balance remaining or deposit protocol required.";
     }
     if (!operator) return "No staff member verified.";
     return "";
-  }, [busy, currentCheckoutHelcimPending, helcimOutcomeBlocksCheckout, rmsNoCreditTenderNeedsApproval, balanced, takeawaySatisfied, tw, operator]);
+  }, [busy, currentCheckoutHelcimPending, helcimOutcomeBlocksCheckout, rmsNoCreditTenderNeedsApproval, balanced, takeawaySatisfied, tw, orderDepositPolicyApplies, orderDepositGateSatisfied, minimumOrderDepositCents, operator]);
   const activeTerminalAttemptIdForRefresh =
     helcimAttemptBelongsToCurrentCheckout
       ? helcimAttempt.id
@@ -4496,6 +4562,56 @@ export default function NexoCheckoutDrawer({
             </div>
 
             <div className="flex min-w-0 flex-none flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+              {orderDepositPolicyApplies ? (
+                <div
+                  className={`rounded-2xl border p-4 shadow-sm ${
+                    orderDepositThresholdMet
+                      ? "border-emerald-500/30 bg-emerald-500/10"
+                      : orderDepositOverrideApproved
+                        ? "border-amber-500/35 bg-amber-500/10"
+                        : "border-rose-500/35 bg-rose-500/10"
+                  }`}
+                  data-testid="pos-order-deposit-gate"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">
+                        25% Order Deposit Required
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                        ${centsToFixed2(currentTransactionPaidCents)} paid toward this Transaction · ${centsToFixed2(minimumOrderDepositCents)} minimum
+                      </p>
+                      <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
+                        {orderDepositThresholdMet
+                          ? currentPaymentIsDeposit
+                            ? "This partial payment is recorded as a deposit."
+                            : "The minimum deposit is covered."
+                          : orderDepositOverrideApproved
+                            ? "Manager Access approved recording this Order below the minimum deposit."
+                            : "Record Sale stays locked and non-green until the minimum is paid or Manager Access approves an override."}
+                      </p>
+                    </div>
+                    {!orderDepositThresholdMet ? (
+                      <button
+                        type="button"
+                        data-testid="pos-order-deposit-override"
+                        disabled={busy || helcimOutcomeBlocksCheckout}
+                        onClick={() => setOrderDepositApprovalOpen(true)}
+                        className={`min-h-11 shrink-0 rounded-xl px-4 text-[10px] font-black uppercase tracking-widest text-white transition-colors disabled:opacity-50 ${
+                          orderDepositOverrideApproved
+                            ? "bg-emerald-600"
+                            : "bg-amber-600 hover:bg-amber-700"
+                        }`}
+                      >
+                        {orderDepositOverrideApproved
+                          ? "Deposit Override Approved"
+                          : "Override Deposit"}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
               {heldOpenDeposit && heldOpenDeposit.balanceCents > 0 && (
                 <div className="rounded-2xl border border-indigo-500/30 bg-indigo-500/10 p-4 shadow-sm">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -5401,11 +5517,15 @@ export default function NexoCheckoutDrawer({
                         </div>
                      </div>
                    ))}
-                   {depositDisplayCents > 0 && (
+                   {(currentPaymentIsDeposit || depositDisplayCents > 0) && (
                      <div className="flex flex-col gap-2">
                        <div className="flex items-center justify-between p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
-                          <span className="text-[10px] font-black uppercase italic text-indigo-700 dark:text-indigo-300">Partial Payment Today</span>
-                          <span className="text-[11px] font-black tabular-nums text-app-text">${centsToFixed2(depositDisplayCents)}</span>
+                          <span className="text-[10px] font-black uppercase italic text-indigo-700 dark:text-indigo-300">
+                            {currentPaymentIsDeposit ? "Deposit Today" : "Deposit Target"}
+                          </span>
+                          <span className="text-[11px] font-black tabular-nums text-app-text">
+                            ${centsToFixed2(currentPaymentIsDeposit ? currentTransactionPaidCents : depositDisplayCents)}
+                          </span>
                        </div>
                        {onOpenSplitDeposit && (
                          <button
@@ -5480,6 +5600,58 @@ export default function NexoCheckoutDrawer({
           </div>
         </div>
       </div>
+      <ManagerApprovalModal
+        isOpen={orderDepositApprovalOpen}
+        onClose={() => setOrderDepositApprovalOpen(false)}
+        title="Override order deposit"
+        message={`This Order has $${centsToFixed2(currentTransactionPaidCents)} paid toward a required $${centsToFixed2(minimumOrderDepositCents)} minimum deposit. Manager Access can authorize Record Sale below 25%, including no down payment. The approval is limited to this checkout and recorded in the audit log.`}
+        onApprove={async (pin, managerId) => {
+          if (!registerSessionId || !checkoutClientId || !customerId) {
+            toast(
+              "The Register session, checkout identity, or customer is missing. Close Pay and review the Order.",
+              "error",
+            );
+            return false;
+          }
+          const approvalRes = await fetch(`${baseUrl}/api/staff/verify-pin`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...mergedPosStaffHeaders(backofficeHeaders),
+            },
+            body: JSON.stringify({
+              pin,
+              staff_id: managerId,
+              authorize_action: "pos_order_deposit_override",
+              authorize_metadata: {
+                register_session_id: registerSessionId,
+                checkout_client_id: checkoutClientId,
+                customer_id: customerId,
+                transaction_total: centsToFixed2(currentSaleTotalCents),
+                amount_paid: centsToFixed2(currentTransactionPaidCents),
+                minimum_deposit: centsToFixed2(minimumOrderDepositCents),
+              },
+            }),
+          });
+          const approvalPayload = (await approvalRes.json().catch(() => ({}))) as {
+            error?: string;
+            manager_approval_reference?: string;
+          };
+          if (!approvalRes.ok || !approvalPayload.manager_approval_reference) {
+            toast(approvalPayload.error ?? "Manager Access was not approved.", "error");
+            return false;
+          }
+          setOrderDepositApproval({
+            managerStaffId: managerId,
+            approvalReference: approvalPayload.manager_approval_reference,
+            checkoutClientId,
+            currentSaleAmountCents: currentSaleTotalCents,
+            currentTransactionPaidCents,
+          });
+          toast("Manager Access approved the order deposit override.", "success");
+          return true;
+        }}
+      />
       <ManagerApprovalModal
         isOpen={terminalOverrideApprovalOpen}
         onClose={() => setTerminalOverrideApprovalOpen(false)}

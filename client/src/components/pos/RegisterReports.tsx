@@ -2952,7 +2952,7 @@ export default function RegisterReports({
                               {row.kind === "payment" ? (
                                 <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4">
                                   <div className="text-sm font-black text-app-text">
-                                    Payment on Order {row.subtitle || "—"}
+                                    {row.title} {row.subtitle || "—"}
                                   </div>
                                   <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs font-bold text-app-text-muted">
                                     <span>
@@ -3083,7 +3083,11 @@ export default function RegisterReports({
                                       >
                                         <div className="flex items-center justify-between gap-3 text-sm font-black text-app-text">
                                           <span>
-                                            Payment on Order{" "}
+                                            {parseRegisterReportMoneyToCents(
+                                              application.remaining_balance,
+                                            ) > 0
+                                              ? "Deposit on Order"
+                                              : "Payment in Full on Order"}{" "}
                                             {application.target_display_id}
                                           </span>
                                           <span className="tabular-nums text-app-success">

@@ -278,6 +278,10 @@ export function useCartCheckout({
       taxExemptReason?: string;
       roundingAdjustmentCents?: number;
       finalCashDueCents?: number;
+      orderDepositOverride?: {
+        managerStaffId: string;
+        approvalReference: string;
+      };
     },
     options?: PosOrderOptions,
     execution?: CheckoutExecutionOverrides,
@@ -663,6 +667,14 @@ export function useCartCheckout({
           ? {
               approved_by_staff_id: backdateApproval.approvedByStaffId,
               reason: backdateApproval.reason,
+            }
+          : undefined,
+        order_deposit_override: ledgerSignals.orderDepositOverride
+          ? {
+              manager_staff_id:
+                ledgerSignals.orderDepositOverride.managerStaffId,
+              manager_approval_reference:
+                ledgerSignals.orderDepositOverride.approvalReference,
             }
           : undefined,
         is_rush: options?.is_rush ?? checkoutLines.some((l) => l.is_rush),

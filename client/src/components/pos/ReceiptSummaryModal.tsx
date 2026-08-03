@@ -1669,19 +1669,22 @@ export default function ReceiptSummaryModal({
                         {loadedGiftCards.join(", ")}
                       </div>
                     ) : null}
-                    {displayedOrderPayments.map((payment) => (
-                      <div
-                        key={payment.key}
-                        className="flex items-baseline justify-between gap-3 text-[10px] font-bold text-app-text"
-                      >
-                        <span className="min-w-0 truncate">
-                          Payment on Order {payment.targetDisplayId}
-                        </span>
-                        <span className="shrink-0 tabular-nums">
-                          ${payment.amount} · ${payment.remainingBalance} due
-                        </span>
-                      </div>
-                    ))}
+                    {displayedOrderPayments.map((payment) => {
+                      const isDeposit = parseMoneyToCents(payment.remainingBalance) > 0;
+                      return (
+                        <div
+                          key={payment.key}
+                          className="flex items-baseline justify-between gap-3 text-[10px] font-bold text-app-text"
+                        >
+                          <span className="min-w-0 truncate">
+                            {isDeposit ? "Deposit" : "Payment in Full"} on Order {payment.targetDisplayId}
+                          </span>
+                          <span className="shrink-0 tabular-nums">
+                            ${payment.amount} · ${payment.remainingBalance} due
+                          </span>
+                        </div>
+                      );
+                    })}
                     {pickupApplications.map((pickup) => {
                       const itemCount = pickup.items.reduce(
                         (sum, item) => sum + Math.max(0, item.quantity),

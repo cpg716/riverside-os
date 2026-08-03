@@ -472,7 +472,7 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
             push_line(
                 out,
                 &right_pair(
-                    &format!("Order {}", app.target_display_id),
+                    &format!("{} {}", app.activity_label(), app.target_display_id),
                     &money(app.amount),
                 ),
             );
@@ -840,7 +840,8 @@ fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
     }
     for app in &d.payment_applications {
         lines.push(format!(
-            "Order {} | {}",
+            "{} {} | {}",
+            app.activity_label(),
             receiptline_escape(&app.target_display_id),
             money(app.amount)
         ));

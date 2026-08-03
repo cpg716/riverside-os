@@ -3020,8 +3020,10 @@ async fn fetch_register_day_summary_page_on_connection(
                 "Return / Refund".to_string()
             } else if p.is_shipping_only_sale {
                 "Shipping Sale".to_string()
+            } else if p.target_balance_due > Decimal::ZERO {
+                "Deposit on Order".to_string()
             } else {
-                "Payment on Order".to_string()
+                "Payment in Full on Order".to_string()
             },
             subtitle: p.target_display_id.clone(),
             transaction_id: p.target_transaction_id,

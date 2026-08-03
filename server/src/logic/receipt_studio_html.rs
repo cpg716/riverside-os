@@ -100,7 +100,8 @@ fn build_payment_applications(order: &ReceiptOrder) -> String {
         .iter()
         .map(|app| {
             format!(
-                "<div style=\"display:flex;justify-content:space-between;gap:12px\"><span>Order {}</span><span>{} · remaining balance {}</span></div>",
+                "<div style=\"display:flex;justify-content:space-between;gap:12px\"><span>{} {}</span><span>{} · remaining balance {}</span></div>",
+                app.activity_label(),
                 html_escape(&app.target_display_id),
                 app.amount,
                 app.remaining_balance

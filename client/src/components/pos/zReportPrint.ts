@@ -1841,7 +1841,7 @@ export async function openProfessionalDailySalesPrint(opts: {
             .map(
               (application) => `
                 <div class="print-item-row">
-                  <span><strong>Payment on Order ${escapeReportHtml(application.target_display_id)}</strong><br><span class="muted">Remaining order balance: ${formatReportMoney(application.remaining_balance)}</span></span>
+                  <span><strong>${parseRegisterReportMoneyToCents(application.remaining_balance) > 0 ? "Deposit on Order" : "Payment in Full on Order"} ${escapeReportHtml(application.target_display_id)}</strong><br><span class="muted">Remaining order balance: ${formatReportMoney(application.remaining_balance)}</span></span>
                   <strong>${formatReportMoney(application.amount_label)}</strong>
                 </div>
               `,
@@ -1867,7 +1867,7 @@ export async function openProfessionalDailySalesPrint(opts: {
             <div class="section-label">${row.kind === "payment" ? "Payment Details" : "Line Items"}</div>
             ${
               row.kind === "payment"
-                ? `<div style="padding:18px 0;"><strong>Payment on Order ${escapeReportHtml(row.subtitle || "—")}</strong><div class="muted" style="margin-top:6px;">Payment receipt: ${escapeReportHtml(row.short_id || "—")}</div></div>`
+                ? `<div style="padding:18px 0;"><strong>${escapeReportHtml(row.title)} ${escapeReportHtml(row.subtitle || "—")}</strong><div class="muted" style="margin-top:6px;">Payment receipt: ${escapeReportHtml(row.short_id || "—")}</div></div>`
                 : `${itemsHtml || `<div class="muted" style="padding:18px 0;text-align:center;">No item details recorded for this transaction</div>`}${orderPaymentRows}`
             }
           </div>
@@ -2079,11 +2079,11 @@ export async function openProfessionalDailySalesPrint(opts: {
           const details = [
             row.short_id ? `Transaction: ${row.short_id}` : "",
             row.kind === "payment"
-              ? `Payment on Order: ${textValue(row.subtitle)}`
+              ? `${textValue(row.title)}: ${textValue(row.subtitle)}`
               : "",
             ...(row.payment_applications ?? []).map(
               (application) =>
-                `Payment on Order ${textValue(application.target_display_id)}: ${formatReportMoney(application.amount_label)} | Remaining order balance: ${formatReportMoney(application.remaining_balance)}`,
+                `${parseRegisterReportMoneyToCents(application.remaining_balance) > 0 ? "Deposit on Order" : "Payment in Full on Order"} ${textValue(application.target_display_id)}: ${formatReportMoney(application.amount_label)} | Remaining order balance: ${formatReportMoney(application.remaining_balance)}`,
             ),
             row.imported_at
               ? `Imported at: ${new Date(row.imported_at).toLocaleString()}`
