@@ -163,7 +163,7 @@ test("POS dashboard keeps the POS rail fixed while the workspace scrolls", async
 
   const posShell = page.getByTestId("pos-shell-root");
   await expect(posShell).toHaveAttribute("data-pos-active-tab", "pos-dashboard");
-  await expect(page.getByText(/Today(?:'|’)s priorities/i)).toBeVisible({
+  await expect(page.getByRole("heading", { name: "Priority Feed" })).toBeVisible({
     timeout: 20_000,
   });
   await expect(page.getByTestId("pos-dashboard-scroll")).toBeVisible();

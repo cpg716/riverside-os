@@ -220,7 +220,10 @@ async function expectOrderLoadedInRegister(
   page: Parameters<typeof signInToBackOffice>[0],
   order: SeededOrder,
 ) {
-  const customerOrders = page.getByText("Customer Orders", { exact: true });
+  const customerOrders = page.getByRole("heading", {
+    name: "Customer Orders",
+    exact: true,
+  });
   const cashierOverlay = page.getByTestId("pos-sale-cashier-overlay");
 
   await expect
@@ -238,9 +241,7 @@ async function expectOrderLoadedInRegister(
     await ensurePosSaleCashierSignedIn(page);
   }
 
-  await expect(page.getByText("Customer Orders", { exact: true })).toBeVisible({
-    timeout: 20_000,
-  });
+  await expect(customerOrders).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(order.displayId).first()).toBeVisible();
   await page
     .getByRole("button", { name: /view order details|view lines/i })
