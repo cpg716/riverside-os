@@ -28,6 +28,42 @@ pub struct OrderLineCancellationLinePreview {
     pub state_tax_credit: Decimal,
     pub local_tax_credit: Decimal,
     pub total_credit: Decimal,
+    pub inventory_disposition: String,
+    #[serde(skip_serializing)]
+    variant_id: Uuid,
+    #[serde(skip_serializing)]
+    inventory_bucket: CancellationInventoryBucket,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum CancellationInventoryBucket {
+    None,
+    ReservedStock,
+    Layaway,
+}
+
+fn cancellation_inventory_bucket(
+    fulfillment: DbFulfillmentType,
+    lifecycle: DbOrderItemLifecycleStatus,
+    has_received_at: bool,
+) -> CancellationInventoryBucket {
+    if fulfillment == DbFulfillmentType::Layaway {
+        CancellationInventoryBucket::Layaway
+    } else if matches!(
+        fulfillment,
+        DbFulfillmentType::SpecialOrder
+            | DbFulfillmentType::Custom
+            | DbFulfillmentType::WeddingOrder
+    ) && (has_received_at
+        || matches!(
+            lifecycle,
+            DbOrderItemLifecycleStatus::Received | DbOrderItemLifecycleStatus::ReadyForPickup
+        ))
+    {
+        CancellationInventoryBucket::ReservedStock
+    } else {
+        CancellationInventoryBucket::None
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,6 +104,7 @@ type HeaderRow = (
 );
 
 type LineRow = (
+    Uuid,
     Uuid,
     i32,
     i32,
@@ -174,6 +211,7 @@ pub async fn preview_in_tx(
         r#"
         SELECT
             line.id,
+            line.variant_id,
             line.quantity,
             COALESCE((
                 SELECT SUM(returned.quantity_returned)::int
@@ -222,6 +260,7 @@ pub async fn preview_in_tx(
 
     for (
         line_id,
+        variant_id,
         sold_quantity,
         removed_quantity,
         fulfillment,
@@ -255,20 +294,23 @@ pub async fn preview_in_tx(
                 "{product_name} is already marked Picked Up. Use Return / Exchange instead."
             )));
         }
-        let has_procurement_activity = po_line_id.is_some()
-            || vendor_id.is_some()
-            || received_at.is_some()
-            || matches!(
-                lifecycle,
-                DbOrderItemLifecycleStatus::Ordered
-                    | DbOrderItemLifecycleStatus::Received
-                    | DbOrderItemLifecycleStatus::ReadyForPickup
-            );
-        if has_procurement_activity {
-            return Err(OrderLineCancellationError::BadRequest(format!(
-                "{product_name} already has vendor, purchase-order, or receiving activity. Resolve that commitment before cancelling the customer Order item."
-            )));
-        }
+        let inventory_bucket =
+            cancellation_inventory_bucket(fulfillment, lifecycle, received_at.is_some());
+        let inventory_disposition = match inventory_bucket {
+            CancellationInventoryBucket::ReservedStock => {
+                "Received item stays on hand and its customer reservation is released.".to_string()
+            }
+            CancellationInventoryBucket::Layaway => {
+                "Layaway hold is released and the item returns to available stock.".to_string()
+            }
+            CancellationInventoryBucket::None if po_line_id.is_some() || vendor_id.is_some() => {
+                "Customer commitment is cancelled; the existing vendor/PO commitment remains for receiving follow-up."
+                    .to_string()
+            }
+            CancellationInventoryBucket::None => {
+                "No received inventory or customer stock reservation changes.".to_string()
+            }
+        };
 
         let quantity = Decimal::from(requested_quantity);
         let subtotal = (unit_price * quantity).round_dp(2);
@@ -287,6 +329,9 @@ pub async fn preview_in_tx(
             state_tax_credit: state,
             local_tax_credit: local,
             total_credit,
+            inventory_disposition,
+            variant_id,
+            inventory_bucket,
         });
     }
 
@@ -364,6 +409,58 @@ pub async fn apply_in_tx(
         }
     })?;
 
+    let mut inventory_releases = Vec::with_capacity(preview.lines.len());
+    for line in &preview.lines {
+        let (bucket, released_quantity) = match line.inventory_bucket {
+            CancellationInventoryBucket::None => ("none", 0),
+            CancellationInventoryBucket::ReservedStock => {
+                let current: i32 = sqlx::query_scalar(
+                    "SELECT reserved_stock FROM product_variants WHERE id = $1 FOR UPDATE",
+                )
+                .bind(line.variant_id)
+                .fetch_one(&mut **tx)
+                .await?;
+                let released = current.max(0).min(line.quantity);
+                if released > 0 {
+                    sqlx::query(
+                        "UPDATE product_variants SET reserved_stock = reserved_stock - $1 WHERE id = $2",
+                    )
+                    .bind(released)
+                    .bind(line.variant_id)
+                    .execute(&mut **tx)
+                    .await?;
+                }
+                ("reserved_stock", released)
+            }
+            CancellationInventoryBucket::Layaway => {
+                let current: i32 = sqlx::query_scalar(
+                    "SELECT on_layaway FROM product_variants WHERE id = $1 FOR UPDATE",
+                )
+                .bind(line.variant_id)
+                .fetch_one(&mut **tx)
+                .await?;
+                let released = current.max(0).min(line.quantity);
+                if released > 0 {
+                    sqlx::query(
+                        "UPDATE product_variants SET on_layaway = on_layaway - $1 WHERE id = $2",
+                    )
+                    .bind(released)
+                    .bind(line.variant_id)
+                    .execute(&mut **tx)
+                    .await?;
+                }
+                ("on_layaway", released)
+            }
+        };
+        inventory_releases.push(json!({
+            "transaction_line_id": line.transaction_line_id,
+            "variant_id": line.variant_id,
+            "bucket": bucket,
+            "quantity_released": released_quantity,
+            "disposition": line.inventory_disposition,
+        }));
+    }
+
     let customer_id: Option<Uuid> =
         sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
             .bind(transaction_id)
@@ -395,6 +492,7 @@ pub async fn apply_in_tx(
         "balance_due_after": preview.balance_due_after,
         "refund_due": preview.refund_due,
         "cancelled_by_staff_id": staff_id,
+        "inventory_releases": inventory_releases,
         "lines": preview.lines,
     }))
     .execute(&mut **tx)
@@ -407,7 +505,8 @@ pub async fn apply_in_tx(
 mod tests {
     use rust_decimal_macros::dec;
 
-    use super::financial_effect;
+    use super::{cancellation_inventory_bucket, financial_effect, CancellationInventoryBucket};
+    use crate::models::{DbFulfillmentType, DbOrderItemLifecycleStatus};
 
     #[test]
     fn cancellation_credit_first_reduces_unpaid_balance() {
@@ -429,5 +528,25 @@ mod tests {
         assert_eq!(revised_total, dec!(40.00));
         assert_eq!(balance_after, dec!(0));
         assert_eq!(refund_due, dec!(60.00));
+    }
+
+    #[test]
+    fn ready_order_releases_reserved_stock_without_removing_on_hand() {
+        assert_eq!(
+            cancellation_inventory_bucket(
+                DbFulfillmentType::SpecialOrder,
+                DbOrderItemLifecycleStatus::ReadyForPickup,
+                true,
+            ),
+            CancellationInventoryBucket::ReservedStock,
+        );
+        assert_eq!(
+            cancellation_inventory_bucket(
+                DbFulfillmentType::Layaway,
+                DbOrderItemLifecycleStatus::Ntbo,
+                false,
+            ),
+            CancellationInventoryBucket::Layaway,
+        );
     }
 }

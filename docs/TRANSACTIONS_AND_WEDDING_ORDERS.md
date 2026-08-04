@@ -19,7 +19,7 @@ Multi-step variation selection uses one shared side-panel contract across Cart a
 
 ## Cancelling some unfulfilled Order items
 
-Open the Transaction Record in **Customer Orders** and choose **Cancel Order Items**. Select only the unfulfilled Special, Custom, Wedding, or Layaway lines being removed and enter a specific reason. Riverside previews the live financial result before anything changes:
+In the Register, open **Customer Orders**, choose **View Order Details**, and select **Cancel Item** directly below **Update Item** on the unfulfilled Special, Custom, Wedding, or Layaway line. Enter a specific reason. Riverside previews the live financial result before anything changes:
 
 - the selected merchandise and tax credit;
 - how much credit reduces the existing unpaid balance;
@@ -27,7 +27,7 @@ Open the Transaction Record in **Customer Orders** and choose **Cancel Order Ite
 - the balance still due after cancellation; and
 - the actual refund due, if payments exceed the revised total.
 
-Confirmation records the lines as cancelled rather than returned/restocked. Cancelled Wedding Order lines stop counting as open Wedding fulfillment work because the Wedding Hub continues reading canonical Transaction-line state. If an overpayment exists, ROS creates one auditable refund obligation and sends staff to the normal multi-source Pay workflow. Original-card Helcim money is not considered refunded until provider approval and committed refund-ledger evidence exist. Lines already tied to procurement, receiving, or customer-ready work must have that commitment resolved before cancellation.
+Confirmation records the lines as cancelled rather than customer-returned merchandise. Cancelled Wedding Order lines stop counting as open Wedding fulfillment work because the Wedding Hub continues reading canonical Transaction-line state. If an overpayment exists, ROS creates one auditable refund obligation and sends staff to the normal multi-source Pay workflow. Original-card Helcim money is not considered refunded until provider approval and committed refund-ledger evidence exist. Received or Ready-for-Pickup goods remain physically on hand while their customer reservation is released; Layaway holds return to available inventory. Existing vendor/PO commitments remain recorded for receiving follow-up.
 
 ### Payment receipt versus allocation target
 

@@ -143,6 +143,14 @@ pub async fn load_members_for_party(
             WHERE t.wedding_member_id = wm.id
               AND t.status::text <> 'cancelled'
               AND tl.fulfillment::text <> 'takeaway'
+              AND GREATEST(
+                    tl.quantity - COALESCE((
+                        SELECT SUM(trl.quantity_returned)::int
+                        FROM transaction_return_lines trl
+                        WHERE trl.transaction_line_id = tl.id
+                    ), 0),
+                    0
+                  ) > 0
         ) lifecycle ON TRUE
         WHERE wm.wedding_party_id = $1
         ORDER BY wm.member_index ASC, wm.created_at ASC
@@ -1101,6 +1109,14 @@ pub async fn fetch_member_optional(
             WHERE t.wedding_member_id = wm.id
               AND t.status::text <> 'cancelled'
               AND tl.fulfillment::text <> 'takeaway'
+              AND GREATEST(
+                    tl.quantity - COALESCE((
+                        SELECT SUM(trl.quantity_returned)::int
+                        FROM transaction_return_lines trl
+                        WHERE trl.transaction_line_id = tl.id
+                    ), 0),
+                    0
+                  ) > 0
         ) lifecycle ON TRUE
         WHERE wm.id = $1
         "#,

@@ -59,6 +59,22 @@ test("Update Item variation drawer stays above Customer Orders", () => {
   expect(detailDrawer).toContain("${layerClassName}");
 });
 
+test("Register Customer Orders exposes audited line cancellation and refund handoff", () => {
+  const modal = repoFile("client/src/components/pos/OrderLoadModal.tsx");
+  const cart = repoFile("client/src/components/pos/Cart.tsx");
+  const server = repoFile("server/src/logic/order_line_cancellation.rs");
+
+  expect(modal).toContain("Cancel Item");
+  expect(modal).toContain("Review Balance & Refund");
+  expect(modal).toContain("inventory_disposition");
+  expect(modal).toContain("credit_applied_to_balance");
+  expect(modal).toContain("onRecordedRefundToCart");
+  expect(cart).toContain("RETURN_TRANSACTION_REFUND_HANDOFF");
+  expect(server).toContain("balance_due - cancellation_total");
+  expect(server).toContain("reserved_stock = reserved_stock - $1");
+  expect(server).toContain("on_layaway = on_layaway - $1");
+});
+
 test("starting pickup returns selected items to Cart without forcing Payment", () => {
   const cart = repoFile("client/src/components/pos/Cart.tsx");
   const pickupHandoff = cart.slice(

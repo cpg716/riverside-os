@@ -345,6 +345,14 @@ pub async fn calculate_wedding_readiness(
             LEFT JOIN purchase_orders po ON po.id = tl.po_id
             WHERE wp.id = $1
               AND tl.fulfillment::text <> 'takeaway'
+              AND GREATEST(
+                    tl.quantity - COALESCE((
+                        SELECT SUM(trl.quantity_returned)::int
+                        FROM transaction_return_lines trl
+                        WHERE trl.transaction_line_id = tl.id
+                    ), 0),
+                    0
+                  ) > 0
         )
         SELECT
             COUNT(*) FILTER (WHERE lifecycle_status = 'needs_measurements')::bigint AS needs_measurements_count,
@@ -439,6 +447,14 @@ pub async fn calculate_wedding_readiness(
             WHERE t.wedding_member_id IS NOT NULL
               AND t.status::text <> 'cancelled'
               AND tl.fulfillment::text <> 'takeaway'
+              AND GREATEST(
+                    tl.quantity - COALESCE((
+                        SELECT SUM(trl.quantity_returned)::int
+                        FROM transaction_return_lines trl
+                        WHERE trl.transaction_line_id = tl.id
+                    ), 0),
+                    0
+                  ) > 0
             GROUP BY t.wedding_member_id
         )
         SELECT

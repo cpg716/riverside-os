@@ -63,6 +63,7 @@ export interface OrderItem {
   product_name: string;
   variation_label: string | null;
   quantity: number;
+  quantity_returned?: number;
   unit_price: string;
   fulfillment: string;
   order_lifecycle_status?: string | null;
@@ -116,6 +117,25 @@ interface OrderLoadModalProps {
   ) => Promise<boolean>;
   onPickupToCart?: (selections: PickupSelection[]) => Promise<boolean>;
   onCancelledToRefundCart?: (order: CustomerOrder) => Promise<boolean>;
+  onRecordedRefundToCart?: (order: CustomerOrder) => Promise<boolean>;
+}
+
+interface OrderItemCancellationPreview {
+  original_balance_due: string;
+  cancellation_total: string;
+  credit_applied_to_balance: string;
+  revised_total: string;
+  balance_due_after: string;
+  refund_due: string;
+  amount_paid: string;
+  lines: Array<{
+    transaction_line_id: string;
+    product_name: string;
+    sku: string;
+    quantity: number;
+    total_credit: string;
+    inventory_disposition: string;
+  }>;
 }
 
 const fulfillmentLabel = (fulfillment: string) => {
@@ -143,8 +163,13 @@ const orderReleaseMode = (order?: CustomerOrder | null): ReleaseMode =>
 const releaseLabel = (mode: ReleaseMode) =>
   mode === "ship" ? "Ship" : "Pick Up";
 
+const remainingOrderItemQuantity = (item: OrderItem) =>
+  Math.max(0, item.quantity - Math.max(0, item.quantity_returned ?? 0));
+
 const isCompletedOrderItem = (item: OrderItem) =>
-  item.is_fulfilled || item.order_lifecycle_status === "picked_up";
+  item.is_fulfilled ||
+  item.order_lifecycle_status === "picked_up" ||
+  remainingOrderItemQuantity(item) === 0;
 
 export default function OrderLoadModal({
   isOpen,
@@ -161,6 +186,7 @@ export default function OrderLoadModal({
   onDeleteOrderItem,
   onPickupToCart,
   onCancelledToRefundCart,
+  onRecordedRefundToCart,
 }: OrderLoadModalProps) {
   const { toast } = useToast();
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
@@ -194,6 +220,11 @@ export default function OrderLoadModal({
   } | null>(null);
   const [cancelOrder, setCancelOrder] = useState<CustomerOrder | null>(null);
   const [cancelRefundLoadPending, setCancelRefundLoadPending] = useState(false);
+  const [cancelItem, setCancelItem] = useState<OrderItem | null>(null);
+  const [cancelItemReason, setCancelItemReason] = useState("");
+  const [cancelItemPreview, setCancelItemPreview] =
+    useState<OrderItemCancellationPreview | null>(null);
+  const [cancelItemError, setCancelItemError] = useState<string | null>(null);
   const [pickupSelection, setPickupSelection] = useState<
     Record<string, boolean>
   >({});
@@ -229,7 +260,9 @@ export default function OrderLoadModal({
       );
     }
     const data = (await res.json()) as OrderItem[];
-    return Array.isArray(data) ? data : [];
+    return Array.isArray(data)
+      ? data.filter((item) => remainingOrderItemQuantity(item) > 0)
+      : [];
   };
 
   const loadOrderItems = async (orderId: string) => {
@@ -807,6 +840,133 @@ export default function OrderLoadModal({
     try {
       const ok = await onDeleteOrderItem(selectedOrder, item);
       if (ok && selectedOrder.id) await loadOrderItems(selectedOrder.id);
+    } finally {
+      setOrderMutationBusy(false);
+    }
+  };
+
+  const openCancelItem = (item: OrderItem) => {
+    setCancelItem(item);
+    setCancelItemReason("");
+    setCancelItemPreview(null);
+    setCancelItemError(null);
+  };
+
+  const cancellationRequest = () => ({
+    lines: cancelItem
+      ? [
+          {
+            transaction_line_id: cancelItem.transaction_line_id,
+            quantity: remainingOrderItemQuantity(cancelItem),
+          },
+        ]
+      : [],
+    reason: cancelItemReason.trim(),
+  });
+
+  const reviewItemCancellation = async () => {
+    if (!selectedOrder || !cancelItem) return;
+    setOrderMutationBusy(true);
+    setCancelItemError(null);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/transactions/${selectedOrder.id}/order-line-cancellations/preview`,
+        {
+          method: "POST",
+          headers: { ...apiAuth(), "Content-Type": "application/json" },
+          body: JSON.stringify(cancellationRequest()),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as
+        | OrderItemCancellationPreview
+        | { error?: string };
+      if (!res.ok) {
+        setCancelItemPreview(null);
+        setCancelItemError(
+          "error" in body && body.error
+            ? body.error
+            : "Riverside could not review this cancellation.",
+        );
+        return;
+      }
+      setCancelItemPreview(body as OrderItemCancellationPreview);
+    } catch {
+      setCancelItemError(
+        "The Main Hub could not be reached. No Order item was cancelled.",
+      );
+    } finally {
+      setOrderMutationBusy(false);
+    }
+  };
+
+  const confirmItemCancellation = async () => {
+    if (
+      !selectedOrder ||
+      !cancelItem ||
+      !cancelItemPreview ||
+      cancelItemReason.trim().length < 12
+    )
+      return;
+    setOrderMutationBusy(true);
+    setCancelItemError(null);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/transactions/${selectedOrder.id}/order-line-cancellations`,
+        {
+          method: "POST",
+          headers: { ...apiAuth(), "Content-Type": "application/json" },
+          body: JSON.stringify(cancellationRequest()),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as
+        | OrderItemCancellationPreview
+        | { error?: string };
+      if (!res.ok) {
+        setCancelItemError(
+          "error" in body && body.error
+            ? body.error
+            : "Riverside did not cancel this Order item.",
+        );
+        return;
+      }
+      const result = body as OrderItemCancellationPreview;
+      const refreshedOrder: CustomerOrder = {
+        ...selectedOrder,
+        total_price: result.revised_total,
+        amount_paid: result.amount_paid,
+        balance_due: result.balance_due_after,
+      };
+      setOrders((current) =>
+        current.map((order) =>
+          order.id === selectedOrder.id ? refreshedOrder : order,
+        ),
+      );
+      await loadOrderItems(selectedOrder.id);
+      setCancelItem(null);
+      setCancelItemPreview(null);
+      setCancelItemReason("");
+
+      if (parseMoneyToCents(result.refund_due) > 0) {
+        toast(
+          `Item cancelled. ${formatCurrency(result.refund_due)} is actually due back to the customer. Complete the refund sources in Pay.`,
+          "success",
+        );
+        if (onRecordedRefundToCart) {
+          onClose();
+          await onRecordedRefundToCart(refreshedOrder);
+        }
+      } else {
+        toast(
+          parseMoneyToCents(result.balance_due_after) > 0
+            ? `Item cancelled. Its credit reduced the Order balance to ${formatCurrency(result.balance_due_after)}; no refund is due.`
+            : "Item cancelled. The revised Order is paid in full and no refund is due.",
+          "success",
+        );
+      }
+    } catch {
+      setCancelItemError(
+        "The Main Hub did not confirm the result. Refresh Customer Orders before retrying.",
+      );
     } finally {
       setOrderMutationBusy(false);
     }
@@ -1394,6 +1554,16 @@ export default function OrderLoadModal({
                                 <RefreshCw size={13} />
                                 Update Item
                               </button>
+                              <button
+                                type="button"
+                                data-testid={`pos-order-cancel-item-${item.transaction_line_id}`}
+                                disabled={orderMutationBusy}
+                                onClick={() => openCancelItem(item)}
+                                className="mt-2 flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-app-danger/30 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger transition-colors hover:bg-app-danger/15 disabled:opacity-50"
+                              >
+                                <Ban size={13} />
+                                Cancel Item
+                              </button>
                             </div>
                             <input
                               aria-label={`Quantity for ${item.sku}`}
@@ -1515,7 +1685,9 @@ export default function OrderLoadModal({
                               <Save size={12} />
                               Save Line
                             </button>
-                            {onDeleteOrderItem ? (
+                            {onDeleteOrderItem &&
+                            selectedOrder &&
+                            parseMoneyToCents(selectedOrder.amount_paid) <= 0 ? (
                               <button
                                 type="button"
                                 disabled={orderMutationBusy}
@@ -1523,7 +1695,7 @@ export default function OrderLoadModal({
                                 className="col-span-2 flex min-h-9 items-center justify-center gap-2 rounded-lg border border-app-danger/20 bg-app-danger/10 px-2 text-[10px] font-black uppercase tracking-widest text-app-danger disabled:opacity-50"
                               >
                                 <Trash2 size={12} />
-                                Delete Line
+                                Delete Unpaid Line
                               </button>
                             ) : null}
                           </div>
@@ -1743,6 +1915,146 @@ export default function OrderLoadModal({
           variant="danger"
         />
       )}
+      {cancelItem && selectedOrder ? (
+        <div className="ui-overlay-backdrop !z-[300] flex items-center justify-center p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="register-cancel-item-title"
+            className="ui-modal flex max-h-[92vh] w-full max-w-2xl flex-col"
+          >
+            <div className="ui-modal-header flex items-start justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
+                  Customer Orders
+                </p>
+                <h2
+                  id="register-cancel-item-title"
+                  className="mt-1 text-xl font-black text-app-text"
+                >
+                  Cancel Item
+                </h2>
+                <p className="mt-2 text-sm font-bold text-app-text">
+                  {cancelItem.product_name}
+                </p>
+                <p className="text-xs font-semibold text-app-text-muted">
+                  {cancelItem.sku} · Qty {remainingOrderItemQuantity(cancelItem)} · {selectedOrder.display_id}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close item cancellation"
+                disabled={orderMutationBusy}
+                onClick={() => {
+                  setCancelItem(null);
+                  setCancelItemPreview(null);
+                  setCancelItemError(null);
+                }}
+                className="rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="ui-modal-body min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+              <p className="rounded-xl border border-app-info/25 bg-app-info/10 p-3 text-sm font-semibold text-app-text">
+                Riverside removes the item from this Order, releases its customer inventory hold when applicable, and applies the item credit to any unpaid balance first. Only a real overpayment becomes a refund.
+              </p>
+
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Cancellation reason
+                <textarea
+                  value={cancelItemReason}
+                  disabled={orderMutationBusy}
+                  onChange={(event) => {
+                    setCancelItemReason(event.target.value);
+                    setCancelItemPreview(null);
+                    setCancelItemError(null);
+                  }}
+                  placeholder="Why is this Order item being cancelled? (minimum 12 characters)"
+                  className="mt-1 min-h-24 w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm font-semibold normal-case tracking-normal text-app-text"
+                />
+              </label>
+
+              {cancelItemPreview ? (
+                <div className="space-y-3 rounded-2xl border border-app-border bg-app-surface-2 p-4">
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    {[
+                      ["Balance Before", cancelItemPreview.original_balance_due],
+                      ["Item Credit", cancelItemPreview.cancellation_total],
+                      ["Balance After", cancelItemPreview.balance_due_after],
+                      ["Refund Due", cancelItemPreview.refund_due],
+                    ].map(([label, amount]) => (
+                      <div key={label} className="rounded-xl border border-app-border bg-app-surface p-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          {label}
+                        </p>
+                        <p className="mt-1 font-mono text-base font-black text-app-text">
+                          {formatCurrency(amount)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-sm font-bold text-app-text">
+                    {parseMoneyToCents(cancelItemPreview.refund_due) > 0
+                      ? `${formatCurrency(cancelItemPreview.credit_applied_to_balance)} applies to the prior balance. ${formatCurrency(cancelItemPreview.refund_due)} must be completed through Pay.`
+                      : `${formatCurrency(cancelItemPreview.credit_applied_to_balance)} reduces the prior balance. No money will be sent to the customer.`}
+                  </p>
+                  <p className="rounded-lg border border-app-success/20 bg-app-success/10 p-3 text-xs font-semibold text-app-text">
+                    {cancelItemPreview.lines[0]?.inventory_disposition}
+                  </p>
+                </div>
+              ) : null}
+
+              {cancelItemError ? (
+                <p className="rounded-xl border border-app-danger/25 bg-app-danger/10 p-3 text-sm font-bold text-app-danger">
+                  {cancelItemError}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="ui-modal-footer flex gap-3">
+              <button
+                type="button"
+                disabled={orderMutationBusy}
+                onClick={() => {
+                  setCancelItem(null);
+                  setCancelItemPreview(null);
+                  setCancelItemError(null);
+                }}
+                className="ui-btn-secondary flex-1"
+              >
+                Keep Item
+              </button>
+              {cancelItemPreview ? (
+                <button
+                  type="button"
+                  disabled={
+                    orderMutationBusy || cancelItemReason.trim().length < 12
+                  }
+                  onClick={() => void confirmItemCancellation()}
+                  className="flex-1 rounded-xl border-b-4 border-app-danger bg-app-danger px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"
+                >
+                  {orderMutationBusy
+                    ? "Cancelling…"
+                    : parseMoneyToCents(cancelItemPreview.refund_due) > 0
+                      ? "Cancel Item & Continue to Refund"
+                      : "Confirm Item Cancellation"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={orderMutationBusy}
+                  onClick={() => void reviewItemCancellation()}
+                  className="ui-btn-primary flex-1"
+                >
+                  {orderMutationBusy ? "Reviewing…" : "Review Balance & Refund"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>,
     document.getElementById("drawer-root")!,
   );

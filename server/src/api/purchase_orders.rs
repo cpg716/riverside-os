@@ -1478,6 +1478,14 @@ async fn receive_po(
                   AND oi.is_fulfilled = FALSE
                   AND oi.unit_cost = 0
                   AND o.status NOT IN ('cancelled')
+                  AND GREATEST(
+                        oi.quantity - COALESCE((
+                            SELECT SUM(trl.quantity_returned)::int
+                            FROM transaction_return_lines trl
+                            WHERE trl.transaction_line_id = oi.id
+                        ), 0),
+                        0
+                      ) > 0
                 ORDER BY o.booked_at, oi.id
             )
             UPDATE transaction_lines oi
@@ -1498,7 +1506,14 @@ async fn receive_po(
         // already promised to a customer — they are NOT available for walk-in sales.
         let open_special_qty: Option<i64> = sqlx::query_scalar(
             r#"
-            SELECT COALESCE(SUM(oi.quantity)::bigint, 0)
+            SELECT COALESCE(SUM(GREATEST(
+                oi.quantity - COALESCE((
+                    SELECT SUM(trl.quantity_returned)::int
+                    FROM transaction_return_lines trl
+                    WHERE trl.transaction_line_id = oi.id
+                ), 0),
+                0
+            ))::bigint, 0)
             FROM transaction_lines oi
             INNER JOIN transactions o ON o.id = oi.transaction_id
             WHERE oi.variant_id = $1

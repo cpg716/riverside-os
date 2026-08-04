@@ -9083,6 +9083,16 @@ export default function Cart({
                 true,
               )
             }
+            onRecordedRefundToCart={(order) =>
+              loadTransactionIntoRegister(
+                order.id,
+                false,
+                true,
+                undefined,
+                RETURN_TRANSACTION_REFUND_HANDOFF,
+                false,
+              )
+            }
           />
 
           <OrderReviewModal

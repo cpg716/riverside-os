@@ -81,7 +81,7 @@ Use **Cancel Order Items** on the Transaction Record when the customer is droppi
 4. Confirm the cancellation. Riverside applies the credit to the unpaid balance first.
 5. If **Actual Refund Due** is greater than zero, finish every refund source in Pay. Original Card remains pending until Helcim approval is verified in the ROS ledger.
 
-An item value is not automatically a cash refund. If the customer still owed at least that amount, the cancellation reduces what they owe. If the revised Transaction is overpaid, only the overpayment is refundable. Items already ordered from a vendor, attached to a PO, received, or ready for pickup must have that operational commitment resolved before the cancellation can continue.
+An item value is not automatically a cash refund. If the customer still owed at least that amount, the cancellation reduces what they owe. If the revised Transaction is overpaid, only the overpayment is refundable. Received or Ready-for-Pickup goods stay on hand and Riverside releases that customer's reservation. Layaway goods return to available stock. Existing vendor or PO commitments remain recorded for receiving follow-up.
 - A merchandise refund cannot finish unless its exact returned lines, quantities, subtotal, and tax remain attached through tender. If Pay says the item details are incomplete, close Pay and reload the return from the original Transaction Record. If an older completed refund shows **0 units**, do not refund again; a manager or support operator must use the audited refund-line repair against that existing refund event.
 - **Void sale** (unpaid mistake carts) differs from **refund after payment** — permission and SOP differ.
 
