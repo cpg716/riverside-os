@@ -956,7 +956,6 @@ function checkDesktopAndPwaUpdateWiring() {
     updater.includes("./install-server.ps1 -ConfigPath") &&
       updater.includes("verify_downloaded_asset_digest") &&
       updater.includes("missing its GitHub SHA-256 digest") &&
-      updater.includes("./repair-bootstrap-admin.ps1 -ConfigPath") &&
       updater.includes("./install-register.ps1 -ConfigPath") &&
       updater.includes("-StationMode mainhub") &&
       updater.includes("Start-Transcript") &&
@@ -967,9 +966,9 @@ function checkDesktopAndPwaUpdateWiring() {
       updater.includes("verify_deployment_package_build") &&
       updater.includes("sourceGitSha") &&
       updater.includes("Deployment package build mismatch"),
-    "Main Hub in-app updater runs server, bootstrap, local desktop app, transcript, pinned ROSIE certification, package-digest verification, and database-readiness steps",
+    "Main Hub in-app updater runs server, local desktop app, transcript, pinned ROSIE certification, package-digest verification, and database-readiness steps",
     updaterFile,
-    "Main Hub updates must cover server/API, migrations, bootstrap admin, local desktop app config, readiness proof, and exact build selection.",
+    "Main Hub updates must cover server/API, migrations, local desktop app config, readiness proof, and exact build selection; bootstrap-admin recovery remains a separate lockout-only action.",
   );
 
   const updatePanel = "client/src/components/settings/UpdateManagerPanel.tsx";
