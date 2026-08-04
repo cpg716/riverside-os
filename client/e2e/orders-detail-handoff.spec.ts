@@ -207,6 +207,7 @@ async function openPosOrdersSection(
 
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
   await expect(posNav).toBeVisible({ timeout: 20_000 });
+  await posNav.getByTestId("pos-sidebar-group-work").click();
   await posNav.getByRole("button", { name: "Orders", exact: true }).click();
 }
 
@@ -433,9 +434,9 @@ test.describe("Orders detail drawer and POS handoff", () => {
       .click();
     await expect(cancellation).toContainText("Cancellation Credit");
     await expect(cancellation).toContainText("Actual Refund Due");
-    await expect(cancellation.getByText("$0.00", { exact: true })).toBeVisible();
+    await expect(cancellation.getByText("$75.00", { exact: true })).toBeVisible();
     await cancellation
-      .getByRole("button", { name: "Confirm Item Cancellation" })
+      .getByRole("button", { name: "Cancel Items & Continue to Refund" })
       .click();
 
     await expect(drawer.getByText("Cancelled Order Items")).toBeVisible({
