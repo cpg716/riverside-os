@@ -1017,7 +1017,7 @@ test.describe("Orders custom vs special contract", () => {
       customerId: beneficiaryFixture.customer.id,
       sku: beneficiaryFixture.product.sku,
       fulfillment: "special_order",
-      amountPaid: "0.00",
+      amountPaid: "75.00",
     });
     expect(orderCheckout.status()).toBe(200);
     const orderBody = (await orderCheckout.json()) as CheckoutResponse;
@@ -1051,7 +1051,7 @@ test.describe("Orders custom vs special contract", () => {
 
     const afterDetail = await fetchTransactionDetail(request, orderBody.transaction_id);
     expect(afterDetail.financial_summary?.total_allocated_payments).toBe("50.00");
-    expect(afterDetail.financial_summary?.total_applied_deposit_amount).toBe("50.00");
+    expect(afterDetail.financial_summary?.total_applied_deposit_amount).toBe("125.00");
     expect(parseMoneyToCents(afterDetail.balance_due ?? "0.00")).toBe(
       beforeBalanceCents - 5000,
     );
@@ -1064,13 +1064,13 @@ test.describe("Orders custom vs special contract", () => {
         line.amount === "50.00",
     );
     expect(groupPayLine?.wedding_member_id).toBe(attachedMember.id);
-    expect(financialContext.summary.total_paid).toBe("50.00");
+    expect(financialContext.summary.total_paid).toBe("125.00");
     const beneficiaryFinancial = financialContext.members.find(
       (member) => member.wedding_member_id === attachedMember.id,
     );
     expect(beneficiaryFinancial?.transaction_count).toBe(1);
-    expect(beneficiaryFinancial?.payment_count).toBe(1);
-    expect(beneficiaryFinancial?.paid_total).toBe("50.00");
+    expect(beneficiaryFinancial?.payment_count).toBe(2);
+    expect(beneficiaryFinancial?.paid_total).toBe("125.00");
   });
 
   test("special orders keep deposit balance and pickup status distinct", async ({
@@ -1091,17 +1091,17 @@ test.describe("Orders custom vs special contract", () => {
       customerId: fixture.customer.id,
       sku: fixture.product.sku,
       fulfillment: "special_order",
-      amountPaid: "50.00",
-      appliedDepositAmount: "50.00",
+      amountPaid: "75.00",
+      appliedDepositAmount: "75.00",
     });
     expect(depositCheckout.status()).toBe(200);
     const depositBody = (await depositCheckout.json()) as CheckoutResponse;
 
     const depositDetail = await fetchTransactionDetail(request, depositBody.transaction_id);
     expect(String(depositDetail.status).toLowerCase()).toBe("open");
-    expect(depositDetail.amount_paid).toBe("50.00");
+    expect(depositDetail.amount_paid).toBe("75.00");
     expect(depositDetail.balance_due).not.toBe("0.00");
-    expect(depositDetail.financial_summary?.total_applied_deposit_amount).toBe("50.00");
+    expect(depositDetail.financial_summary?.total_applied_deposit_amount).toBe("75.00");
   });
 
   test("odd-cent special orders accept a partial deposit without false overage drift", async ({

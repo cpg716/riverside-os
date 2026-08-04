@@ -159,7 +159,7 @@ test("CNP and Manual Card retain distinct ledger and reporting identities", () =
 
   expect(refundModal).toContain('<option value="card_not_present">');
   expect(refundModal).not.toContain('<option value="card_manual">');
-  const linkedRefundStart = cart.indexOf("const linkedCardRemainder =");
+  const linkedRefundStart = cart.indexOf("const isLinkedCardRefund =");
   const linkedRefundEnd = cart.indexOf(
     "const exchangeSettlement =",
     linkedRefundStart,
@@ -168,10 +168,10 @@ test("CNP and Manual Card retain distinct ledger and reporting identities", () =
   expect(linkedRefundStart).toBeGreaterThan(-1);
   expect(linkedRefundEnd).toBeGreaterThan(linkedRefundStart);
   expect(linkedRefundMethods).toContain(
-    'refundTender?.method === "card_not_present"',
+    'payment.method === "card_not_present"',
   );
   expect(linkedRefundMethods).not.toContain(
-    'refundTender?.method === "card_manual"',
+    'payment.method === "card_manual"',
   );
   expect(transactionsApi).toContain(
     '"card_manual" | "card_terminal_manual" => Ok(Self::RecordedExternalCard)',

@@ -427,12 +427,12 @@ test.describe("checkout tender financial contract", () => {
       operatorStaffId,
       customerId: fixture.customer.id,
       fulfillment: "special_order",
-      amountPaid: "50.00",
-      paymentSplits: [{ payment_method: "cash", amount: "50.00" }],
+      amountPaid: "75.00",
+      paymentSplits: [{ payment_method: "cash", amount: "75.00" }],
     });
     const orderCheckout = await expectSuccessfulCheckout(orderRes);
     const orderBefore = await fetchTransactionDetail(request, orderCheckout.transaction_id);
-    expect(orderBefore.balance_due).toBe("194.69");
+    expect(orderBefore.balance_due).toBe("169.69");
     await assignQboDate(
       request,
       orderCheckout.transaction_id,
@@ -445,10 +445,10 @@ test.describe("checkout tender financial contract", () => {
       sessionToken,
       operatorStaffId,
       customerId: fixture.customer.id,
-      amountPaid: "439.38",
+      amountPaid: "414.38",
       paymentSplits: [
         { payment_method: "cash", amount: "100.00" },
-        { payment_method: "check", amount: "339.38", check_number: "CHK-E2E-400" },
+        { payment_method: "check", amount: "314.38", check_number: "CHK-E2E-400" },
       ],
       orderPayments: [
         {
@@ -456,8 +456,8 @@ test.describe("checkout tender financial contract", () => {
           target_transaction_id: orderCheckout.transaction_id,
           target_display_id: orderBefore.transaction_display_id,
           customer_id: fixture.customer.id,
-          amount: "194.69",
-          balance_before: "194.69",
+          amount: "169.69",
+          balance_before: "169.69",
           projected_balance_after: "0.00",
         },
       ],
@@ -474,7 +474,7 @@ test.describe("checkout tender financial contract", () => {
     expect(currentDetail.payment_applications).toEqual([
       expect.objectContaining({
         target_display_id: expect.stringMatching(/^ORD-\d+$/),
-        amount: "194.69",
+        amount: "169.69",
         remaining_balance: "0",
       }),
     ]);
@@ -484,7 +484,7 @@ test.describe("checkout tender financial contract", () => {
         (sum, payment) => sum + moneyToCents(payment.amount),
         0,
       ),
-    ).toBe(43_938);
+    ).toBe(41_438);
     expect(
       currentDetail.payments.filter(
         (payment) => payment.method.toLowerCase() === "check",
@@ -517,7 +517,7 @@ test.describe("checkout tender financial contract", () => {
         {
           method: "check",
           target: orderCheckout.transaction_id,
-          amount: "194.69",
+          amount: "169.69",
           check: "CHK-E2E-400",
         },
       ]),
@@ -532,9 +532,9 @@ test.describe("checkout tender financial contract", () => {
       target_transaction_id: orderCheckout.transaction_id,
       target_display_id: expect.stringMatching(/^ORD-\d+$/),
       customer_id: fixture.customer.id,
-      balance_before: "194.69",
+      balance_before: "169.69",
       projected_balance_after: "0.00",
-      applied_deposit_amount: "194.69",
+      applied_deposit_amount: "169.69",
     });
 
     const activityParams = new URLSearchParams({
@@ -566,7 +566,7 @@ test.describe("checkout tender financial contract", () => {
           transaction_id: orderCheckout.transaction_id,
           receipt_transaction_id: currentCheckout.transaction_id,
           short_id: currentCheckout.transaction_display_id,
-          transaction_total: "194.69",
+          transaction_total: "169.69",
           balance_due: "0",
         }),
       ]),
@@ -592,8 +592,8 @@ test.describe("checkout tender financial contract", () => {
         operatorStaffId,
         customerId: fixture.customer.id,
         fulfillment: "special_order",
-        amountPaid: "50.00",
-        paymentSplits: [{ payment_method: "cash", amount: "50.00" }],
+        amountPaid: "75.00",
+        paymentSplits: [{ payment_method: "cash", amount: "75.00" }],
       }),
     );
     const secondOrderCheckout = await expectSuccessfulCheckout(
@@ -616,7 +616,7 @@ test.describe("checkout tender financial contract", () => {
       request,
       secondOrderCheckout.transaction_id,
     );
-    expect(firstOrderBefore.balance_due).toBe("194.69");
+    expect(firstOrderBefore.balance_due).toBe("169.69");
     expect(secondOrderBefore.balance_due).toBe("169.69");
 
     const paymentCheckout = await expectSuccessfulCheckout(
@@ -626,16 +626,16 @@ test.describe("checkout tender financial contract", () => {
         sessionToken,
         operatorStaffId,
         customerId: fixture.customer.id,
-        amountPaid: "609.07",
-        paymentSplits: [{ payment_method: "cash", amount: "609.07" }],
+        amountPaid: "584.07",
+        paymentSplits: [{ payment_method: "cash", amount: "584.07" }],
         orderPayments: [
           {
             client_line_id: "first-existing-order",
             target_transaction_id: firstOrderCheckout.transaction_id,
             target_display_id: firstOrderBefore.transaction_display_id,
             customer_id: fixture.customer.id,
-            amount: "194.69",
-            balance_before: "194.69",
+            amount: "169.69",
+            balance_before: "169.69",
             projected_balance_after: "0.00",
           },
           {
@@ -671,7 +671,7 @@ test.describe("checkout tender financial contract", () => {
         expect.objectContaining({
           target_transaction_id: firstOrderCheckout.transaction_id,
           target_display_id: expect.stringMatching(/^ORD-\d+$/),
-          amount: "194.69",
+          amount: "169.69",
           remaining_balance: "0",
         }),
         expect.objectContaining({

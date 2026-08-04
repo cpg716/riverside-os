@@ -87,7 +87,8 @@ async function createSpecialOrder(
         wedding_member_id: null,
         payment_method: "cash",
         total_price: total,
-        amount_paid: "0.00",
+        amount_paid: "75.00",
+        applied_deposit_amount: "75.00",
         checkout_client_id: crypto.randomUUID(),
         items: [
           {
@@ -101,7 +102,13 @@ async function createSpecialOrder(
             local_tax: localTax,
           },
         ],
-        payment_splits: [],
+        payment_splits: [
+          {
+            payment_method: "cash",
+            amount: "75.00",
+            applied_deposit_amount: "75.00",
+          },
+        ],
       },
       failOnStatusCode: false,
     },
