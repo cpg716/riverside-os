@@ -4502,6 +4502,41 @@ struct PosVariantRow {
     variation_label: Option<String>,
     stock_on_hand: i32,
     retail_price: Decimal,
+    #[serde(skip_serializing)]
+    gruppo_bravo_vest: bool,
+}
+
+fn gruppo_bravo_vest_size_label(value: &str) -> Option<&'static str> {
+    let normalized = value.trim().to_ascii_uppercase();
+    match normalized.as_str() {
+        "S" | "SMALL" => Some("SMALL (36-38)"),
+        "M" | "MEDIUM" => Some("MEDIUM (40-42)"),
+        "L" | "LARGE" => Some("LARGE (44-46)"),
+        "XL" | "X-LARGE" | "X LARGE" => Some("X-LARGE (48-50)"),
+        "2XL" | "XXL" => Some("2XL (52-54)"),
+        _ => match normalized
+            .chars()
+            .take_while(|character| character.is_ascii_digit())
+            .collect::<String>()
+            .parse::<u8>()
+            .ok()
+        {
+            Some(36..=38) => Some("SMALL (36-38)"),
+            Some(40..=42) => Some("MEDIUM (40-42)"),
+            Some(44..=46) => Some("LARGE (44-46)"),
+            Some(48..=50) => Some("X-LARGE (48-50)"),
+            Some(52..=54) => Some("2XL (52-54)"),
+            _ => None,
+        },
+    }
+}
+
+fn gruppo_bravo_vest_display_label(label: &str) -> String {
+    label
+        .split(" / ")
+        .map(|value| gruppo_bravo_vest_size_label(value).unwrap_or(value))
+        .collect::<Vec<_>>()
+        .join(" / ")
 }
 
 async fn list_pos_variants(
@@ -4520,16 +4555,25 @@ async fn list_pos_variants(
             ProductError::Unauthorized(msg)
         })?;
 
-    let rows = sqlx::query_as::<_, PosVariantRow>(
+    let mut rows = sqlx::query_as::<_, PosVariantRow>(
         r#"
         SELECT
             pv.id AS variant_id,
             pv.sku,
             pv.variation_label,
             pv.stock_on_hand,
-            COALESCE(pv.retail_price_override, p.base_retail_price) AS retail_price
+            COALESCE(pv.retail_price_override, p.base_retail_price) AS retail_price,
+            (
+              LOWER(COALESCE(c.name, '')) = 'vests'
+              AND (
+                LOWER(COALESCE(pvendor.name, '')) LIKE '%gruppo bravo%'
+                OR LOWER(COALESCE(p.brand, '')) LIKE '%gruppo bravo%'
+                OR LOWER(p.name) LIKE '%gruppo bravo%'
+              )
+            ) AS gruppo_bravo_vest
         FROM product_variants pv
         INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN vendors pvendor ON pvendor.id = p.primary_vendor_id
         WHERE p.id = $1
           AND p.is_active = true
@@ -4549,6 +4593,15 @@ async fn list_pos_variants(
     .bind(5_000_i64)
     .fetch_all(&state.db)
     .await?;
+
+    for row in &mut rows {
+        if row.gruppo_bravo_vest {
+            row.variation_label = row
+                .variation_label
+                .as_deref()
+                .map(gruppo_bravo_vest_display_label);
+        }
+    }
 
     Ok(Json(rows))
 }
@@ -5005,10 +5058,10 @@ async fn delete_product_web_image(
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_skus_do_not_exist, load_product_normalization_review, patch_product_model,
-        patch_variant_pricing, pos_parent_search_term_groups, validate_create_product_payload,
-        CreateProductRequest, CreateVariantInput, PatchProductModelRequest, ProductError,
-        VariantPricingPatch,
+        ensure_skus_do_not_exist, gruppo_bravo_vest_display_label,
+        load_product_normalization_review, patch_product_model, patch_variant_pricing,
+        pos_parent_search_term_groups, validate_create_product_payload, CreateProductRequest,
+        CreateVariantInput, PatchProductModelRequest, ProductError, VariantPricingPatch,
     };
     use crate::api::{store_account_rate::StoreAccountRateState, AppState};
     use crate::auth::permissions::CATALOG_EDIT;
@@ -5074,6 +5127,26 @@ mod tests {
         assert_eq!(groups[0], vec!["40901/1".to_string()]);
         assert!(groups[1].contains(&"slacks".to_string()));
         assert!(groups[1].contains(&"trousers".to_string()));
+    }
+
+    #[test]
+    fn gruppo_bravo_vest_sizes_use_staff_facing_ranges() {
+        assert_eq!(
+            gruppo_bravo_vest_display_label("66050-1 / S / 2BV"),
+            "66050-1 / SMALL (36-38) / 2BV"
+        );
+        assert_eq!(
+            gruppo_bravo_vest_display_label("66050-1 / 40 R / 2BV"),
+            "66050-1 / MEDIUM (40-42) / 2BV"
+        );
+        assert_eq!(
+            gruppo_bravo_vest_display_label("66050-1 / 45L / 2BV"),
+            "66050-1 / LARGE (44-46) / 2BV"
+        );
+        assert_eq!(
+            gruppo_bravo_vest_display_label("66050-1 / XXL / ROLAND"),
+            "66050-1 / 2XL (52-54) / ROLAND"
+        );
     }
 
     async fn connect_test_db() -> PgPool {
