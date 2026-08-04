@@ -268,7 +268,7 @@ function expectBalancedJournal(proposed: QboStagingRow): void {
 }
 
 test.describe("checkout tender financial contract", () => {
-  test("paid order item removal preserves refund evidence and replacement nets the credit", async ({
+  test("paid order item cancellation preserves refund evidence and replacement nets the credit", async ({
     request,
   }) => {
     test.setTimeout(120_000);
@@ -293,15 +293,27 @@ test.describe("checkout tender financial contract", () => {
     const originalLine = before.items[0];
     expect(originalLine).toBeTruthy();
 
-    const removeRes = await request.delete(
-      `${apiBase()}/api/transactions/${order.transaction_id}/items/${originalLine.transaction_line_id}`,
+    const removeRes = await request.post(
+      `${apiBase()}/api/transactions/${order.transaction_id}/order-line-cancellations`,
       {
-        headers: staffHeaders(),
+        headers: {
+          ...staffHeaders(),
+          "Content-Type": "application/json",
+        },
+        data: {
+          lines: [
+            {
+              transaction_line_id: originalLine.transaction_line_id,
+              quantity: 1,
+            },
+          ],
+          reason: "E2E replacement financial contract",
+        },
         failOnStatusCode: false,
       },
     );
     const removeText = await removeRes.text();
-    expect(removeRes.status(), removeText.slice(0, 1000)).toBe(204);
+    expect(removeRes.status(), removeText.slice(0, 1000)).toBe(200);
 
     const afterRemoval = await fetchTransactionDetail(request, order.transaction_id);
     const preservedLine = afterRemoval.items.find(

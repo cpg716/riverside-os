@@ -489,7 +489,7 @@ test.describe("POS exchange wizard", () => {
     });
   });
 
-  test("partial-paid exchange carries the paid original price and tax into the cart", async ({
+  test("fulfilled exchange carries the paid original price and tax into the cart", async ({
     page,
     request,
   }) => {
@@ -519,12 +519,12 @@ test.describe("POS exchange wizard", () => {
           customer_id: null,
           payment_method: "cash",
           total_price: "326.25",
-          amount_paid: "108.75",
+          amount_paid: "326.25",
           items: [
             {
               product_id: productId,
               variant_id: variantId,
-              fulfillment: "special_order",
+              fulfillment: "takeaway",
               quantity: 3,
               unit_price: "100.00",
               unit_cost: "40.00",
@@ -536,8 +536,7 @@ test.describe("POS exchange wizard", () => {
           payment_splits: [
             {
               payment_method: "cash",
-              amount: "108.75",
-              applied_deposit_amount: "108.75",
+              amount: "326.25",
             },
           ],
         },
