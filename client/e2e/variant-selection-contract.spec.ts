@@ -109,6 +109,17 @@ test("shared variation drawer keeps item progress visible and supports back/edit
   expect(picker).toContain('data-testid="variant-final-unit-price"');
   expect(picker).toContain("Regular unit price");
   expect(picker).toContain("Final unit price");
+  expect(picker).toContain('data-testid="variant-selection-scroll-region"');
+  expect(picker).toContain('data-testid="variant-pricing-pinpad"');
+  expect(picker).toContain("contentContained");
+  expect(picker).not.toContain("Product Confirmation Identity");
+  const pinpadStart = picker.indexOf('data-testid="variant-pricing-pinpad"');
+  const pinpadMarkup = picker.slice(
+    pinpadStart,
+    picker.indexOf("</DetailDrawer>"),
+  );
+  expect(pinpadMarkup).toContain('className="shrink-0');
+  expect(pinpadMarkup).not.toContain("overflow-y-auto");
   expect(picker).toContain("!isCurrentVariant || hasPriceChange");
   expect(cart).toContain("<VariantSelectionModal");
   expect(orderModal).toContain("<VariantSelectionModal");
