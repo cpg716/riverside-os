@@ -69,7 +69,7 @@ export default function TransactionSearchInput({
     try {
       // Use the standard transactions listing with search param
       const res = await fetch(
-        `${baseUrl}/api/transactions?search=${encodeURIComponent(q)}&limit=10`,
+        `${baseUrl}/api/transactions?search=${encodeURIComponent(q)}&show_closed=true&limit=10`,
         { headers: mergedPosStaffHeaders(backofficeHeaders), signal: controller.signal }
       );
       if (!res.ok) throw new Error(`Transaction search failed with status ${res.status}`);
