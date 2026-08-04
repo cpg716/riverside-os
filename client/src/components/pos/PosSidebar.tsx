@@ -106,7 +106,7 @@ export default function PosSidebar({
             {isActive && !collapsed ? (
               <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r-full bg-app-accent" />
             ) : null}
-            <span className="relative flex h-[24px] w-[24px] shrink-0 items-center justify-center">
+            <span className="relative flex h-[26px] w-[26px] shrink-0 items-center justify-center">
               <Icon
                 {...getNavIconProps(isActive)}
                 aria-hidden
@@ -184,7 +184,7 @@ export default function PosSidebar({
 
 
         {/* Nav */}
-        <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain pr-1" aria-label="POS Navigation">
+        <nav className="no-scrollbar flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain" aria-label="POS Navigation">
           {tabs.map((tab) => renderTab(tab))}
         </nav>
       </div>

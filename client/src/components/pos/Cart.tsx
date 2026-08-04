@@ -5171,7 +5171,7 @@ export default function Cart({
 
           {/* Product search */}
           <div
-            className="relative w-full rounded-2xl border border-app-border bg-app-surface p-1.5 shadow-sm"
+            className="relative w-full rounded-2xl border border-app-accent/30 bg-gradient-to-r from-app-info/10 via-app-surface to-app-accent/10 p-1.5 shadow-sm"
             onBlur={(event) => {
               const nextFocus = event.relatedTarget;
                 if (
@@ -5259,7 +5259,7 @@ export default function Cart({
                     ? "View customer open orders"
                     : "Select a customer to view open orders"
                 }
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/60 bg-app-info/10 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/70 bg-app-info/20 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <ORDER_HISTORY_ICON
                   size={20}
@@ -5279,7 +5279,7 @@ export default function Cart({
                   setWeddingDrawerOpen(true);
                 }}
                 title={activeWeddingMember ? `Wedding — currently ${activeWeddingMember.first_name} ${activeWeddingMember.last_name}` : "Wedding — select a party member and add items"}
-                className={`ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px] ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:bg-app-surface hover:text-app-accent"}`}
+                className={`ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px] ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-accent/70 bg-app-accent/20 text-app-accent hover:bg-app-accent hover:text-white"}`}
               >
                 <WEDDINGS_ICON size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
@@ -5295,7 +5295,7 @@ export default function Cart({
                     ? "Add deposits, review and reprint receipts, or build more items for this customer's wedding party"
                     : "Select the paying wedding member first"
                 }
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/60 bg-app-info/10 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-violet-500/60 bg-violet-500/20 px-2 text-center text-violet-700 shadow-sm ring-1 ring-black/5 transition-all hover:bg-violet-600 hover:text-white active:scale-95 dark:text-violet-200 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <Heart size={20} aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
@@ -5313,7 +5313,7 @@ export default function Cart({
                       ? "Start alteration intake"
                       : "Select a customer to start alteration intake"
                   }
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-accent/60 bg-app-accent/10 px-2 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-warning/70 bg-app-warning/20 px-2 text-center text-app-warning shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-warning hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <Scissors size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
@@ -5325,7 +5325,7 @@ export default function Cart({
                 data-testid="pos-exchange-wizard-trigger"
                 onClick={() => setExchangeWizardOpen(true)}
                 title="Exchange or return"
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-2 text-center text-app-text shadow-sm ring-1 ring-black/5 transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/15 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <ArrowLeftRight size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
@@ -5336,7 +5336,7 @@ export default function Cart({
                 type="button"
                 onClick={() => setShowAllSaleActions((current) => !current)}
                 aria-expanded={showAllSaleActions}
-                className="ui-touch-target flex min-h-[86px] flex-col items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-2 text-center text-app-text shadow-sm transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
+                className="ui-touch-target flex min-h-[86px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/40 bg-app-info/10 px-2 text-center text-app-info shadow-sm transition-all hover:border-app-info/70 hover:bg-app-info/20 active:scale-95"
               >
                 <Grid3X3 size={20} aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">

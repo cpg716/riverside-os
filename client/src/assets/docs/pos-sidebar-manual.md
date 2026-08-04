@@ -41,13 +41,13 @@ Use the direct POS destinations to move between register-side tools without open
 
 ## Operational detail
 
-The POS rail is organized in daily workflow order and scrolls when the full permitted menu is taller than the screen. It can still collapse to an icon rail, but every destination remains a direct selection without opening **Work** or **More** first. Use Register for the live sale, Dashboard for between-customer priorities, and supporting hubs only when they are part of the current transaction. If a tool is missing, it is usually controlled by Staff Access or POS mode restrictions, not a broken sidebar.
+The POS rail is organized in daily workflow order and scrolls when the full permitted menu is taller than the screen. Its scrollbar stays visually hidden so the collapsed rail preserves the full icon and touch area; use a mouse wheel, trackpad, or touch gesture to reach additional destinations. It can still collapse to an icon rail, but every destination remains a direct selection without opening **Work** or **More** first. Use Register for the live sale, Dashboard for between-customer priorities, and supporting hubs only when they are part of the current transaction. If a tool is missing, it is usually controlled by Staff Access or POS mode restrictions, not a broken sidebar.
 
 
 ## What to watch for
 
 - Administrative receiving, vendor, purchasing, and product-maintenance tools remain in Back Office Inventory.
-- The expanded POS rail shows the full permitted menu and uses a visible scrolling region when needed.
+- The POS rail remains scrollable when needed without placing a wide scrollbar beside the navigation icons.
 - If a section is not visible, the signed-in staff member may not have permission for that workflow.
 
 ## Related workflows

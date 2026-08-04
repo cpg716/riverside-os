@@ -72,6 +72,19 @@ async function openClickablePosRail(page: Parameters<typeof signInToBackOffice>[
 test("POS navigation uses the narrowed POS-native section contract", async ({ page }) => {
   const posNav = await openClickablePosRail(page);
 
+  await expect
+    .poll(() => posNav.evaluate((element) => getComputedStyle(element).scrollbarWidth))
+    .toBe("none");
+  await expect(page.getByRole("button", { name: "Start Wedding Sale" })).toHaveClass(
+    /bg-app-accent\/20/,
+  );
+  await expect(page.getByTestId("pos-alteration-intake-trigger")).toHaveClass(
+    /bg-app-warning\/20/,
+  );
+  await expect(page.getByTestId("pos-exchange-wizard-trigger")).toHaveClass(
+    /bg-app-danger\/15/,
+  );
+
   await posNav.getByRole("button", { name: "Customers", exact: true }).click();
   await expect(posNav.getByRole("button", { name: "All", exact: true })).toBeVisible();
   await expect(posNav.getByRole("button", { name: "Add", exact: true })).toBeVisible();
