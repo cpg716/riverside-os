@@ -205,9 +205,18 @@ async function openPosOrdersSection(
   await ensurePosRegisterSessionOpen(page);
   await ensurePosSaleCashierSignedIn(page);
 
+  await openPosOrdersFromNavigation(page);
+}
+
+async function openPosOrdersFromNavigation(
+  page: Parameters<typeof signInToBackOffice>[0],
+) {
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
   await expect(posNav).toBeVisible({ timeout: 20_000 });
-  await posNav.getByTestId("pos-sidebar-group-work").click();
+  const workGroup = posNav.getByTestId("pos-sidebar-group-work");
+  if ((await workGroup.getAttribute("aria-expanded")) !== "true") {
+    await workGroup.click();
+  }
   await posNav.getByRole("button", { name: "Orders", exact: true }).click();
 }
 
@@ -439,10 +448,13 @@ test.describe("Orders detail drawer and POS handoff", () => {
       .getByRole("button", { name: "Cancel Items & Continue to Refund" })
       .click();
 
-    await expect(drawer.getByText("Cancelled Order Items")).toBeVisible({
-      timeout: 20_000,
-    });
-    await expect(drawer.getByText("Cancelled", { exact: true }).first()).toBeVisible();
+    await ensurePosSaleCashierSignedIn(page);
+    const checkoutDrawer = page.getByRole("dialog", { name: /checkout/i });
+    await expect(checkoutDrawer).toBeVisible({ timeout: 20_000 });
+    await expect(checkoutDrawer).toContainText("Balance Due");
+    await expect(
+      checkoutDrawer.getByTestId("pos-finalize-checkout"),
+    ).toBeVisible();
   });
 
   test("Back Office drawer edits a line and rerenders the saved values", async ({
@@ -535,10 +547,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     );
     expect(patchRes.status()).toBe(200);
 
-    await page
-      .getByRole("navigation", { name: "POS Navigation" })
-      .getByRole("button", { name: "Orders", exact: true })
-      .click();
+    await openPosOrdersFromNavigation(page);
     orderRow = page.locator("tr", { hasText: order.displayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 20_000 });
     await orderRow.click();
