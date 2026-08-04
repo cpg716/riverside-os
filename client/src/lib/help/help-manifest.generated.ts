@@ -408,7 +408,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-sidebar",
     title: "POS Sidebar",
-    summary: "Use five clear POS destinations: Dashboard, Register, Customers, Work, and More & Operations.",
+    summary: "Open every permitted POS destination directly from one scrollable navigation rail.",
     markdown: manual_47_raw,
     tags: ["pos-sidebar","pos","navigation","register"],
   },

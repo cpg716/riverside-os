@@ -1,10 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  BriefcaseBusiness,
-  ChevronLeft,
-  ChevronRight,
-  Grid3X3,
-} from "lucide-react";
+import { useMemo } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import SidebarRailTooltip from "../ui/SidebarRailTooltip";
 import RiversideJustLogo from "../../assets/images/logo1.png";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -22,27 +17,6 @@ interface PosSidebarProps {
   onSubSectionChange?: (section: string) => void;
 }
 
-const WORK_TAB_IDS = new Set<PosTabId>([
-  "weddings",
-  "alterations",
-  "orders",
-  "tasks",
-  "customer-notifications",
-  "podium-inbox",
-]);
-
-const MORE_TAB_IDS = new Set<PosTabId>([
-  "rms-charge",
-  "inventory",
-  "payments",
-  "reports",
-  "gift-cards",
-  "loyalty",
-  "layaways",
-  "shipping",
-  "settings",
-]);
-
 export default function PosSidebar({
   activeTab,
   onTabChange,
@@ -53,10 +27,6 @@ export default function PosSidebar({
 }: PosSidebarProps) {
   const { hasPermission, permissionsLoaded } =
     useBackofficeAuth();
-  const [openGroup, setOpenGroup] = useState<"work" | "more" | null>(() =>
-    WORK_TAB_IDS.has(activeTab) ? "work" : MORE_TAB_IDS.has(activeTab) ? "more" : null,
-  );
-
 
   const tabs = useMemo(() => {
     const out: {
@@ -108,27 +78,13 @@ export default function PosSidebar({
     return out;
   }, [hasPermission, permissionsLoaded]);
 
-  useEffect(() => {
-    if (WORK_TAB_IDS.has(activeTab)) setOpenGroup("work");
-    if (MORE_TAB_IDS.has(activeTab)) setOpenGroup("more");
-  }, [activeTab]);
-
-  const primaryTabs = tabs.filter((tab) =>
-    tab.id === "pos-dashboard" || tab.id === "register" || tab.id === "customers",
-  );
-  const workTabs = tabs.filter((tab) => WORK_TAB_IDS.has(tab.id));
-  const moreTabs = tabs.filter((tab) => MORE_TAB_IDS.has(tab.id));
-
-  const renderTab = (
-    tab: (typeof tabs)[number],
-    compact = false,
-  ) => {
+  const renderTab = (tab: (typeof tabs)[number]) => {
     const Icon = tab.icon;
     const isActive = activeTab === tab.id;
     const subItems = POS_SIDEBAR_SUB_SECTIONS[tab.id] ?? [];
 
     return (
-      <div key={tab.id} className={compact ? "min-w-0" : undefined}>
+      <div key={tab.id}>
         <SidebarRailTooltip enabled={collapsed} label={`${tab.label} (POS)`}>
           <button
             type="button"
@@ -140,16 +96,14 @@ export default function PosSidebar({
             className={`ui-touch-target group relative flex cursor-pointer items-center rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${
               collapsed
                 ? "h-11 w-full justify-center"
-                : compact
-                  ? "min-h-11 w-full flex-col justify-center gap-1 px-1 py-2 text-center"
-                  : "min-h-11 w-full gap-2.5 px-3 py-3"
+                : "min-h-11 w-full gap-2.5 px-3 py-3"
             } ${
               isActive
                 ? "border border-app-accent/35 bg-app-accent/10 text-app-text shadow-sm active:scale-[0.99]"
                 : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text hover:shadow-sm active:scale-[0.99]"
             }`}
           >
-            {isActive && !collapsed && !compact ? (
+            {isActive && !collapsed ? (
               <span className="absolute bottom-2 left-0 top-2 w-1 rounded-r-full bg-app-accent" />
             ) : null}
             <span className="relative flex h-[24px] w-[24px] shrink-0 items-center justify-center">
@@ -160,7 +114,7 @@ export default function PosSidebar({
               />
             </span>
             {!collapsed ? (
-              <span className={`${compact ? "line-clamp-2 text-[9px] leading-tight" : "truncate text-sm"} ${isActive ? "font-black" : "font-semibold"}`}>
+              <span className={`truncate text-sm ${isActive ? "font-black" : "font-semibold"}`}>
                 {tab.label}
               </span>
             ) : null}
@@ -168,7 +122,7 @@ export default function PosSidebar({
         </SidebarRailTooltip>
 
         {isActive && !collapsed && subItems.length > 0 ? (
-          <div className={`${compact ? "col-span-2" : "ml-3"} mb-2 mt-1 flex flex-col gap-0.5 border-l-2 border-app-border/40 pl-3`}>
+          <div className="mb-2 ml-3 mt-1 flex flex-col gap-0.5 border-l-2 border-app-border/40 pl-3">
             {subItems
               .filter((sub) =>
                 subSectionVisible(
@@ -231,49 +185,7 @@ export default function PosSidebar({
 
         {/* Nav */}
         <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain pr-1" aria-label="POS Navigation">
-          {primaryTabs.map((tab) => renderTab(tab))}
-          {([
-            { id: "work" as const, label: "Work", icon: BriefcaseBusiness, tabs: workTabs },
-            { id: "more" as const, label: "More & Operations", icon: Grid3X3, tabs: moreTabs },
-          ]).map((group) => {
-            const GroupIcon = group.icon;
-            const expanded = !collapsed && openGroup === group.id;
-            const containsActive = group.tabs.some((tab) => tab.id === activeTab);
-            return (
-              <div key={group.id}>
-                <button
-                  type="button"
-                  data-testid={`pos-sidebar-group-${group.id}`}
-                  onClick={() => {
-                    if (collapsed) onToggleCollapse();
-                    setOpenGroup((current) => current === group.id && !collapsed ? null : group.id);
-                  }}
-                  className={`ui-touch-target flex w-full items-center rounded-xl border px-3 text-left transition-all ${
-                    collapsed ? "justify-center px-0" : "justify-between"
-                  } ${
-                    containsActive
-                      ? "border-app-accent/30 bg-app-accent/10 text-app-accent"
-                      : "border-transparent text-app-text-muted hover:border-app-border hover:bg-app-surface-2 hover:text-app-text"
-                  }`}
-                  aria-expanded={expanded}
-                  aria-label={collapsed ? `Open ${group.label}` : group.label}
-                >
-                  <span className="flex items-center gap-2.5">
-                    <GroupIcon size={20} aria-hidden />
-                    {!collapsed ? <span className="text-sm font-black">{group.label}</span> : null}
-                  </span>
-                  {!collapsed ? (
-                    <ChevronRight size={16} className={expanded ? "rotate-90 transition-transform" : "transition-transform"} />
-                  ) : null}
-                </button>
-                {expanded ? (
-                  <div className="mt-1 grid grid-cols-2 gap-1 border-l-2 border-app-border/40 pl-2">
-                    {group.tabs.map((tab) => renderTab(tab, true))}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
+          {tabs.map((tab) => renderTab(tab))}
         </nav>
       </div>
 

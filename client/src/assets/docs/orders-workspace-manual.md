@@ -25,6 +25,7 @@ The Orders workspace is the main place to review Special, Custom, and Wedding or
 - Review **Open Orders** or switch to **Transaction Records** for complete sale history.
 - Filter order work by **Special Order**, **Custom**, or **Wedding**.
 - Open order work to see items, balances, and available actions.
+- To cancel unfulfilled lines, open the Order and select **Cancel Order Items** beside the **Items** heading, or **Cancel Ordered Item** beside one eligible line. The action appears only for staff with order-modification access and only while at least one line remains eligible.
 - Open an order to see order progress, pickup readiness, balances, and release-blocking cues at a glance.
 - Edit an open order item directly in the drawer when staff need to adjust quantity, price, or pickup type, or perform a Suit Component Swap when changing parts of a suit to a different product variation/SKU (recording inventory updates and QBO ledger cost/retail deltas automatically).
 - The Transaction timeline identifies the item, SKU, quantity, and saved price for additions, and shows before/after price or quantity values for edits. Confirm the saved value shown there before leaving the order.

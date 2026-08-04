@@ -32,6 +32,9 @@ test("deferred Orders require a checkout-bound 25 percent deposit or Manager Acc
   );
   expect(paymentDrawerSource).toContain('data-testid="pos-order-deposit-gate"');
   expect(paymentDrawerSource).toContain('data-testid="pos-order-deposit-override"');
+  expect(paymentDrawerSource).toContain('"Deposit Met"');
+  expect(paymentDrawerSource).toContain('"Need 25% Deposit"');
+  expect(paymentDrawerSource).toContain('"No Deposit"');
   expect(paymentDrawerSource).toContain('authorize_action: "pos_order_deposit_override"');
   expect(paymentDrawerSource).toContain("orderDepositGateSatisfied");
   expect(checkoutHookSource).toContain("order_deposit_override:");

@@ -213,10 +213,6 @@ async function openPosOrdersFromNavigation(
 ) {
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
   await expect(posNav).toBeVisible({ timeout: 20_000 });
-  const workGroup = posNav.getByTestId("pos-sidebar-group-work");
-  if ((await workGroup.getAttribute("aria-expanded")) !== "true") {
-    await workGroup.click();
-  }
   await posNav.getByRole("button", { name: "Orders", exact: true }).click();
 }
 
@@ -425,10 +421,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
     await orderRow.click();
 
     const drawer = page.getByRole("dialog", { name: "Order Detail" });
-    await drawer
-      .getByRole("button", { name: "Cancel Ordered Item", exact: true })
-      .first()
-      .click();
+    await drawer.getByTestId("order-items-cancel-action").click();
     const cancellation = page.getByRole("dialog", {
       name: "Cancel Ordered Items",
     });

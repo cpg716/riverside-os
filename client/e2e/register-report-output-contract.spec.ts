@@ -789,4 +789,16 @@ test.describe("Register report output integrity contracts", () => {
       'Register {registerOrdinal ?? "0"}',
     );
   });
+
+  test("POS and Back Office retain their audience-specific operational dashboards", () => {
+    expect(registerDashboardSource).toContain('title="Wedding Pulse"');
+    expect(registerDashboardSource).toContain('title="Weather"');
+    expect(registerDashboardSource).toContain("<SalesByHourSnapshotCard");
+    expect(registerDashboardSource).toContain('title="Alterations"');
+    expect(operationsHomeSource).toContain(
+      "useState(true)",
+    );
+    expect(operationsHomeSource).toContain('title="What Changed Today"');
+    expect(operationsHomeSource).toContain('title="What Needs Attention"');
+  });
 });

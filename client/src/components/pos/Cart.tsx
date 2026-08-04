@@ -5251,6 +5251,27 @@ export default function Cart({
             >
               <button
                 type="button"
+                data-testid="pos-action-customer-orders"
+                disabled={!selectedCustomer}
+                onClick={() => setOrderLoadOpen(true)}
+                title={
+                  selectedCustomer
+                    ? "View customer open orders"
+                    : "Select a customer to view open orders"
+                }
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/60 bg-app-info/10 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+              >
+                <ORDER_HISTORY_ICON
+                  size={20}
+                  className="shrink-0"
+                  aria-hidden
+                />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
+                  Customer Orders
+                </span>
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setWeddingDrawerInitialPartyId(null);
                   setWeddingDepositInitialView("deposit");
@@ -5301,33 +5322,6 @@ export default function Cart({
               </button>
               <button
                 type="button"
-                data-testid="pos-action-custom-order"
-                onClick={() => {
-                  if (!ensureSaleCashier()) return;
-                  if (!selectedCustomer) {
-                      toast(
-                        "Select or create a customer before starting a custom order.",
-                        "error",
-                      );
-                    return;
-                  }
-                  setPendingCustomItem(null);
-                  setCustomPromptOpen(true);
-                }}
-                  title={
-                    selectedCustomer
-                      ? "Start a custom order"
-                      : "Select a customer to start a custom order"
-                  }
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-warning/60 bg-app-warning/10 px-2 text-center text-app-warning shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-warning hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
-              >
-                <Pencil size={20} />
-                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Start Custom Order
-                </span>
-              </button>
-              <button
-                type="button"
                 data-testid="pos-exchange-wizard-trigger"
                 onClick={() => setExchangeWizardOpen(true)}
                 title="Exchange or return"
@@ -5374,28 +5368,39 @@ export default function Cart({
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 [&>button]:!min-h-[92px] [&>button]:!w-full [&>button]:!basis-auto">
               <button
                 type="button"
-                disabled={!selectedCustomer}
-                onClick={() => setOrderLoadOpen(true)}
+                data-testid="pos-action-custom-order"
+                onClick={() => {
+                  if (!ensureSaleCashier()) return;
+                  if (!selectedCustomer) {
+                    toast(
+                      "Select or create a customer before starting a custom order.",
+                      "error",
+                    );
+                    return;
+                  }
+                  setShowAllSaleActions(false);
+                  setPendingCustomItem(null);
+                  setCustomPromptOpen(true);
+                }}
                   title={
                     selectedCustomer
-                      ? "View customer open orders"
-                      : "Select a customer to view open orders"
+                      ? "Start a custom order"
+                      : "Select a customer to start a custom order"
                   }
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/60 bg-app-info/10 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-warning/60 bg-app-warning/10 px-2 text-center text-app-warning shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-warning hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                  <ORDER_HISTORY_ICON
-                    size={20}
-                    className="shrink-0"
-                    aria-hidden
-                  />
+                <Pencil size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Open Customer Orders
+                  Start Custom Order
                 </span>
               </button>
               <button
                 type="button"
                 data-testid="pos-action-gift-card"
-                onClick={() => setGiftCardLoadOpen(true)}
+                onClick={() => {
+                  setShowAllSaleActions(false);
+                  setGiftCardLoadOpen(true);
+                }}
                 title="Enter load amount, then scan or type the card code"
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-success/60 bg-app-success/10 px-2 text-center text-app-success shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-success hover:text-white dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
@@ -5442,6 +5447,7 @@ export default function Cart({
                       return;
                     }
                   }
+                  setShowAllSaleActions(false);
                   setRmsPaymentOpen(true);
                 }}
                 title="Add an RMS Charge Payment to collect payment on customer account"
@@ -5490,6 +5496,7 @@ export default function Cart({
                       return;
                     }
                   }
+                  setShowAllSaleActions(false);
                   setStaffAccountPaymentOpen(true);
                 }}
                 title="Collect payment on a linked employee Staff Account"
@@ -5510,6 +5517,7 @@ export default function Cart({
                           l.fulfillment === "layaway" ? "takeaway" : "layaway",
                       })),
                     );
+                    setShowAllSaleActions(false);
                 }}
                   className={`ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px] ${lines.some((l) => l.fulfillment === "layaway") ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-app-border bg-app-surface-2 text-app-text hover:border-app-warning/50 hover:bg-app-surface hover:text-app-warning"}`}
               >
@@ -5520,7 +5528,10 @@ export default function Cart({
               </button>
               <button
                 type="button"
-                onClick={() => setOrderReviewOpen(true)}
+                onClick={() => {
+                  setShowAllSaleActions(false);
+                  setOrderReviewOpen(true);
+                }}
                 disabled={!hasSpecialOrWeddingLines}
                   title={
                     hasSpecialOrWeddingLines
@@ -5545,7 +5556,8 @@ export default function Cart({
                       );
                      return;
                    }
-                    const label = selectedCustomer
+                   setShowAllSaleActions(false);
+                   const label = selectedCustomer
                       ? `Sale for ${selectedCustomer.first_name} ${selectedCustomer.last_name}`
                       : "Untitled Sale";
                    setParkSaleDraftLabel(label);
@@ -5567,6 +5579,7 @@ export default function Cart({
                   !providerCheckoutIdentityHeld
                 }
                 onClick={() => {
+                  setShowAllSaleActions(false);
                   setShowClearConfirm(true);
                 }}
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/10 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"

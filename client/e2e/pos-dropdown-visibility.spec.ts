@@ -271,10 +271,19 @@ test("POS product search explains no matches and action cards are not clipped", 
   await expect(page.getByText("No products found", { exact: true })).toHaveCount(0);
 
   const actionToolbar = page.getByRole("toolbar", { name: "Cart actions" });
+  await expect(actionToolbar.getByRole("button").first()).toContainText(
+    "Customer Orders",
+  );
   await actionToolbar.getByRole("button", { name: "More Actions", exact: true }).click();
   const moreActionsDialog = page.getByRole("dialog", { name: "More sale actions" });
-  await expect(moreActionsDialog.getByRole("button", { name: /Open Customer Orders/i })).toBeVisible();
-  await moreActionsDialog.getByRole("button", { name: "Close more sale actions" }).click();
+  await expect(
+    moreActionsDialog.getByRole("button", { name: /Start Custom Order/i }),
+  ).toBeVisible();
+  await moreActionsDialog.getByTestId("pos-action-gift-card").click();
+  await expect(moreActionsDialog).toBeHidden();
+  const giftCardDialog = page.getByRole("dialog", { name: "Gift card" });
+  await expect(giftCardDialog).toBeVisible();
+  await giftCardDialog.getByRole("button", { name: "Close" }).click();
   const clippedVisibleActions = await actionToolbar.evaluate((toolbar) => {
     const bounds = toolbar.getBoundingClientRect();
     return Array.from(toolbar.children)

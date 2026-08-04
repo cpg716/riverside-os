@@ -2379,30 +2379,45 @@ export default function TransactionDetailDrawer({
                     {detail.items.filter((item) => !item.is_internal).length})
                   </h3>
                 </div>
-                {orderActions?.canModify &&
-                !isOrderStatus(detail.status, "cancelled") &&
-                orderActions.setSku &&
-                orderActions.addBySku ? (
-                  <div className="flex min-w-[280px] items-center gap-2">
-                    <VariantSearchInput
-                      className="h-9 min-w-[220px] rounded-lg border border-app-border bg-app-surface px-3 text-[11px] font-semibold outline-none"
-                      placeholder="Search item or SKU..."
-                      onSelect={(variant) => {
-                        orderActions.setSku?.(variant.sku);
-                        void orderActions.addBySku?.(variant.sku);
-                      }}
-                    />
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {orderActions?.canModify &&
+                  cancellableOrderLines.length > 0 &&
+                  !isOrderStatus(detail.status, "cancelled") ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        void handleAddBySku();
-                      }}
-                      className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all duration-150 hover:border-app-accent/30 hover:bg-app-surface-2 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20"
+                      data-testid="order-items-cancel-action"
+                      onClick={() => openCancellation()}
+                      className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-app-warning/30 bg-app-warning/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-warning transition-colors hover:bg-app-warning/15"
                     >
-                      Add
+                      <Trash2 size={14} />
+                      Cancel Order Items
                     </button>
-                  </div>
-                ) : null}
+                  ) : null}
+                  {orderActions?.canModify &&
+                  !isOrderStatus(detail.status, "cancelled") &&
+                  orderActions.setSku &&
+                  orderActions.addBySku ? (
+                    <div className="flex min-w-[280px] items-center gap-2">
+                      <VariantSearchInput
+                        className="h-9 min-w-[220px] rounded-lg border border-app-border bg-app-surface px-3 text-[11px] font-semibold outline-none"
+                        placeholder="Search item or SKU..."
+                        onSelect={(variant) => {
+                          orderActions.setSku?.(variant.sku);
+                          void orderActions.addBySku?.(variant.sku);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleAddBySku();
+                        }}
+                        className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all duration-150 hover:border-app-accent/30 hover:bg-app-surface-2 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
               <div className="mt-4 space-y-3">
                 {[

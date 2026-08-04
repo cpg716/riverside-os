@@ -4,12 +4,17 @@ import {
   ArrowRight,
   Bell,
   ChevronRight,
+  Cloud,
+  CloudRain,
   ClipboardCheck,
   DollarSign,
   Heart,
   Package,
   PackageCheck,
+  Scissors,
   ShoppingCart,
+  Snowflake,
+  Sun,
   Zap,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -30,6 +35,7 @@ import {
 } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import CompassMemberDetailDrawer from "../operations/CompassMemberDetailDrawer";
+import SalesByHourSnapshotCard from "../reports/SalesByHourSnapshotCard";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
 import DashboardGridCard from "../ui/DashboardGridCard";
 import DashboardStatsCard from "../ui/DashboardStatsCard";
@@ -60,6 +66,21 @@ interface MorningCompassBundle {
   today_floor_staff?: TodayFloorStaffRow[];
 }
 
+interface WeatherForecastPayload {
+  days: Array<{
+    temp_high: number;
+    temp_low: number;
+    condition: string;
+  }>;
+  current?: {
+    temp: number;
+    feels_like: number;
+    condition: string;
+  } | null;
+  source?: string;
+  location?: string;
+}
+
 function roleHeadline(role: string | null): string {
   if (role === "sales_support") return "Sales Support";
   if (role === "salesperson") return "Sales Specialist";
@@ -83,8 +104,14 @@ export interface RegisterDashboardProps {
 }
 
 export default function RegisterDashboard({
+  registerLane,
+  registerOrdinal,
+  cashierName,
   onGoToRegister,
+  onGoToWeddings,
   onGoToOrders,
+  onGoToAlterations,
+  onGoToInventory,
   onGoToTasks,
   onOpenOrderInRegister,
   onOpenWeddingParty,
@@ -94,6 +121,7 @@ export default function RegisterDashboard({
     backofficeHeaders,
     hasPermission,
     permissionsLoaded,
+    staffDisplayName,
     staffRole,
   } = useBackofficeAuth();
   const { notifications, openDrawer, unread } = useNotificationCenter();
@@ -108,6 +136,7 @@ export default function RegisterDashboard({
   const [taskDrawerId, setTaskDrawerId] = useState<string | null>(null);
   const [compass, setCompass] = useState<MorningCompassBundle | null>(null);
   const [compassDrawerRow, setCompassDrawerRow] = useState<CompassActionRow | null>(null);
+  const [forecast, setForecast] = useState<WeatherForecastPayload | null>(null);
   const [todayBookedSales, setTodayBookedSales] = useState<{ total: string; count: number } | null>(null);
 
   // Keep this card on the same canonical booked Daily Sales calculation used
@@ -172,15 +201,29 @@ export default function RegisterDashboard({
     } catch { /* ignore */ }
   }, [apiAuth, hasPermission, permissionsLoaded]);
 
+  const loadWeather = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/weather/forecast`);
+      if (res.ok) setForecast((await res.json()) as WeatherForecastPayload);
+    } catch {
+      // Weather is supplementary; the operational dashboard remains usable.
+    }
+  }, []);
+
   useEffect(() => {
     void loadTasks();
   }, [loadTasks, refreshSignal]);
 
   useEffect(() => { void loadCompass(); }, [loadCompass, refreshSignal]);
   useEffect(() => { void loadTodaySales(); }, [loadTodaySales, refreshSignal]);
+  useEffect(() => { void loadWeather(); }, [loadWeather, refreshSignal]);
 
   const headline = useMemo(() => roleHeadline(staffRole), [staffRole]);
+  const canOpenWeddingManager =
+    permissionsLoaded && hasPermission("wedding_manager.open");
   const canOpenTasks = permissionsLoaded && hasPermission("tasks.complete");
+  const canOpenAlterations =
+    permissionsLoaded && hasPermission("alterations.manage");
 
   const activeNotifications = useMemo(
     () =>
@@ -207,6 +250,9 @@ export default function RegisterDashboard({
   );
 
   const stats = compass?.stats;
+  const alterationAlerts = activeNotifications.filter((row) =>
+    semanticNotificationKind(row).includes("alteration"),
+  );
   const inventoryAlerts = activeNotifications.filter((row) => {
     const kind = semanticNotificationKind(row);
     return (
@@ -215,6 +261,18 @@ export default function RegisterDashboard({
       kind.startsWith("po_")
     );
   });
+  const todayWeather = forecast?.days?.[0];
+  const currentWeather = forecast?.current;
+  const weatherCondition = (
+    currentWeather?.condition ?? todayWeather?.condition ?? ""
+  ).toLowerCase();
+  const WeatherIcon = weatherCondition.includes("snow")
+    ? Snowflake
+    : weatherCondition.includes("rain")
+      ? CloudRain
+      : weatherCondition.includes("cloud")
+        ? Cloud
+        : Sun;
 
   return (
     <>
@@ -223,10 +281,24 @@ export default function RegisterDashboard({
         {/* Header Section */}
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="min-w-0 space-y-2">
-            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-app-text-muted">Today&apos;s priorities</p>
+            <p className="text-[10px] font-black uppercase tracking-[0.28em] text-app-text-muted">
+              Register command center
+            </p>
             <h1 className="truncate text-3xl font-black tracking-tight text-app-text lg:text-4xl">
-              {headline} <span className="text-app-text-muted font-medium mx-2">·</span> <span className="text-app-accent">Ready to serve</span>
+              {headline}{" "}
+              <span className="mx-2 font-medium text-app-text-muted">·</span>
+              <span className="text-app-accent">
+                {staffDisplayName.trim() || cashierName?.trim() || "Staff"}
+              </span>
             </h1>
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-app-success" />
+              <p className="text-xs font-bold text-app-text-muted">
+                Register #{registerLane ?? "?"}
+                {registerOrdinal != null ? ` · Session #${registerOrdinal}` : ""}
+                {" · System Online"}
+              </p>
+            </div>
           </div>
 
           <button
@@ -241,7 +313,7 @@ export default function RegisterDashboard({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
           <DashboardStatsCard
             title="Today's Sales"
             value={todayBookedSales == null ? "Not loaded" : formatUsdFromCents(parseMoneyToCents(todayBookedSales.total))}
@@ -252,7 +324,7 @@ export default function RegisterDashboard({
               label: "booked today",
             }}
             className="min-h-[138px] p-4"
-            onClick={undefined}
+            onClick={onGoToRegister}
             ariaLabel="Today's booked sales total"
           />
           <DashboardStatsCard
@@ -279,6 +351,16 @@ export default function RegisterDashboard({
             ariaLabel="Open Orders"
           />
           <DashboardStatsCard
+            title="Alterations"
+            value={alterationAlerts.length}
+            icon={Scissors}
+            color={alterationAlerts.length > 0 ? "rose" : "green"}
+            trend={{ value: alterationAlerts.length, label: "in inbox" }}
+            className="min-h-[138px] p-4"
+            onClick={canOpenAlterations ? onGoToAlterations : undefined}
+            ariaLabel="Open Alterations"
+          />
+          <DashboardStatsCard
             title="Tasks"
             value={taskOpen.length}
             icon={ClipboardCheck}
@@ -289,19 +371,19 @@ export default function RegisterDashboard({
             ariaLabel="Open Tasks"
           />
           <DashboardStatsCard
-            title="Operational Alerts"
+            title="Inventory Alerts"
             value={inventoryAlerts.length}
             icon={Package}
             color={inventoryAlerts.length > 0 ? "orange" : "green"}
             trend={{ value: activeNotifications.length, label: "total alerts" }}
             className="min-h-[138px] p-4"
-            onClick={openDrawer}
-            ariaLabel="Open Operational Alerts"
+            onClick={onGoToInventory ?? openDrawer}
+            ariaLabel="Open Inventory Alerts"
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-6">
-           <div>
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+           <div className="space-y-6 xl:col-span-8">
               <DashboardGridCard
                 title="Priority Feed"
                 subtitle="Tap any row to open its source workflow"
@@ -360,6 +442,134 @@ export default function RegisterDashboard({
                   )}
               </DashboardGridCard>
 
+              <DashboardGridCard
+                title="Wedding Pulse"
+                subtitle="Open measurement, order, and pickup follow-up"
+                icon={Heart}
+                actionLabel={
+                  canOpenWeddingManager ? "Open Wedding Manager" : undefined
+                }
+                onAction={canOpenWeddingManager ? onGoToWeddings : undefined}
+              >
+                {canOpenWeddingManager ? (
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <button
+                      type="button"
+                      onClick={onGoToWeddings}
+                      className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left transition-all hover:border-app-accent/40 hover:bg-app-accent/5"
+                    >
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Needs measure
+                      </p>
+                      <p className="mt-2 text-3xl font-black text-app-text">
+                        {stats?.needs_measure ?? 0}
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onGoToWeddings}
+                      className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left transition-all hover:border-app-accent/40 hover:bg-app-accent/5"
+                    >
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Needs order
+                      </p>
+                      <p className="mt-2 text-3xl font-black text-app-text">
+                        {stats?.needs_order ?? 0}
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onGoToOrders}
+                      className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left transition-all hover:border-app-danger/40 hover:bg-app-danger/5"
+                    >
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
+                        Overdue pickup
+                      </p>
+                      <p className="mt-2 text-3xl font-black text-app-danger">
+                        {stats?.overdue_pickups ?? 0}
+                      </p>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-sm font-semibold text-app-text-muted">
+                    Wedding Manager access is not included for this staff role.
+                  </div>
+                )}
+              </DashboardGridCard>
+           </div>
+
+           <div className="space-y-6 xl:col-span-4">
+             <DashboardGridCard title="Weather" icon={WeatherIcon}>
+               <div className="flex items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 px-4 py-4">
+                 <div>
+                   <div className="mb-1 flex items-center gap-2">
+                     <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
+                       {forecast?.location?.trim() || "Store weather"}
+                     </span>
+                     <div
+                       className={`h-1 w-1 rounded-full ${
+                         forecast?.source === "mock"
+                           ? "bg-app-warning"
+                           : "bg-app-success"
+                       }`}
+                     />
+                   </div>
+                   <p className="text-3xl font-bold text-app-text">
+                     {currentWeather != null
+                       ? `${currentWeather.temp.toFixed(0)}°`
+                       : todayWeather
+                         ? `${todayWeather.temp_high.toFixed(0)}°`
+                         : "—"}
+                   </p>
+                   <p className="mt-1 text-xs font-bold uppercase tracking-widest text-app-text-muted">
+                     {weatherCondition || "Weather unavailable"}
+                   </p>
+                   {forecast?.source === "mock" ? (
+                     <p className="mt-2 text-[11px] font-medium ui-caution-text">
+                       Fallback conditions; live weather is unavailable.
+                     </p>
+                   ) : null}
+                 </div>
+                 <WeatherIcon size={48} className="text-app-accent opacity-20" />
+               </div>
+             </DashboardGridCard>
+
+             <SalesByHourSnapshotCard
+               authHeaders={apiAuth}
+               canLoad={
+                 permissionsLoaded &&
+                 (hasPermission("register.reports") ||
+                   hasPermission("insights.view"))
+               }
+               refreshSignal={refreshSignal}
+             />
+
+             {activeNotifications.length > 0 ? (
+               <DashboardGridCard
+                 title="Notifications"
+                 icon={Bell}
+                 actionLabel="Open inbox"
+                 onAction={openDrawer}
+               >
+                 <div className="space-y-3">
+                   {activeNotifications.slice(0, 3).map((row) => (
+                     <button
+                       type="button"
+                       key={row.staff_notification_id}
+                       onClick={openDrawer}
+                       className="w-full rounded-xl border border-app-border p-3 text-left transition-all hover:border-app-accent/30"
+                     >
+                       <p className="truncate text-xs font-bold text-app-text">
+                         {row.title}
+                       </p>
+                       <p className="mt-1 truncate text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
+                         {row.read_at ? "Reviewed" : "New"} · open inbox for source
+                       </p>
+                     </button>
+                   ))}
+                 </div>
+               </DashboardGridCard>
+             ) : null}
            </div>
         </div>
       </div>

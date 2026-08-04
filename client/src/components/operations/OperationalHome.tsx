@@ -592,7 +592,7 @@ export default function OperationalHome({
     { id: string; title_snapshot: string; due_date: string | null }[]
   >([]);
   const [taskDrawerId, setTaskDrawerId] = useState<string | null>(null);
-  const [showOperationalDetail, setShowOperationalDetail] = useState(false);
+  const [showOperationalDetail, setShowOperationalDetail] = useState(true);
   const [feedLoadErrors, setFeedLoadErrors] = useState<
     Partial<Record<OperationalFeedKey, string>>
   >({});

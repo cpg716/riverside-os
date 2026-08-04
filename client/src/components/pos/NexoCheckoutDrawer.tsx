@@ -4580,31 +4580,34 @@ export default function NexoCheckoutDrawer({
             <div className="flex min-w-0 flex-none flex-col gap-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
               {orderDepositPolicyApplies ? (
                 <div
-                  className={`rounded-2xl border p-4 shadow-sm ${
+                  className={`rounded-xl border px-3 py-2 ${
                     orderDepositThresholdMet
                       ? "border-emerald-500/30 bg-emerald-500/10"
                       : orderDepositOverrideApproved
-                        ? "border-amber-500/35 bg-amber-500/10"
+                        ? "border-emerald-500/30 bg-emerald-500/10"
                         : "border-rose-500/35 bg-rose-500/10"
                   }`}
                   data-testid="pos-order-deposit-gate"
                 >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">
-                        25% Order Deposit Required
-                      </p>
-                      <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                        ${centsToFixed2(currentTransactionPaidCents)} paid toward this Transaction · ${centsToFixed2(minimumOrderDepositCents)} minimum
-                      </p>
-                      <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
+                  <div className="flex min-h-10 flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <p className={`shrink-0 text-[11px] font-black uppercase tracking-[0.16em] ${
+                        orderDepositThresholdMet || orderDepositOverrideApproved
+                          ? "text-app-success"
+                          : "text-app-danger"
+                      }`}>
                         {orderDepositThresholdMet
-                          ? currentPaymentIsDeposit
-                            ? "This partial payment is recorded as a deposit."
-                            : "The minimum deposit is covered."
+                          ? "Deposit Met"
                           : orderDepositOverrideApproved
-                            ? "Manager Access approved recording this Order below the minimum deposit."
-                            : "Record Sale stays locked and non-green until the minimum is paid or Manager Access approves an override."}
+                            ? currentTransactionPaidCents === 0
+                              ? "No Deposit Approved"
+                              : "Deposit Override Approved"
+                            : currentTransactionPaidCents === 0
+                              ? "No Deposit"
+                              : "Need 25% Deposit"}
+                      </p>
+                      <p className="truncate text-[11px] font-semibold text-app-text-muted">
+                        Paid ${centsToFixed2(currentTransactionPaidCents)} · Minimum ${centsToFixed2(minimumOrderDepositCents)}
                       </p>
                     </div>
                     {!orderDepositThresholdMet ? (
@@ -4613,15 +4616,15 @@ export default function NexoCheckoutDrawer({
                         data-testid="pos-order-deposit-override"
                         disabled={busy || helcimOutcomeBlocksCheckout}
                         onClick={() => setOrderDepositApprovalOpen(true)}
-                        className={`min-h-11 shrink-0 rounded-xl px-4 text-[10px] font-black uppercase tracking-widest text-white transition-colors disabled:opacity-50 ${
+                        className={`min-h-9 shrink-0 rounded-lg px-3 text-[9px] font-black uppercase tracking-widest text-white transition-colors disabled:opacity-50 ${
                           orderDepositOverrideApproved
                             ? "bg-emerald-600"
                             : "bg-amber-600 hover:bg-amber-700"
                         }`}
                       >
                         {orderDepositOverrideApproved
-                          ? "Deposit Override Approved"
-                          : "Override Deposit"}
+                          ? "Manager Access Approved"
+                          : "Manager Access"}
                       </button>
                     ) : null}
                   </div>

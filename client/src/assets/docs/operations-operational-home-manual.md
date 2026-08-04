@@ -31,6 +31,8 @@ Operations Home is the staff command center for the day. It keeps deterministic 
 4. Follow the card or row into the owning workflow before taking action.
 5. Use Daily Operational Briefing only after the deterministic cards are understood.
 
+The full operational view opens by default for Back Office staff. Use **Hide operational detail** only when you intentionally want a shorter Action Board view; this is a display preference, not a replacement for the management dashboard.
+
 ## Operational Timeline
 
 Open **Operations → Timeline** when the manager needs the planning view instead of the summary dashboard. Timeline combines existing source workflows into one visual surface: appointments, wedding readiness, pickup commitments, alteration due dates, tasks, receiving commitments, physical inventory sessions, QBO review, register close work, and open alerts.
@@ -69,7 +71,7 @@ Do not assume the store has no blockers just because a degraded feed is quiet.
 
 ## Operational detail
 
-Operations Home is the daily command surface. Use it to decide what needs attention first, then open the underlying workspace for the actual action. Treat cards and queues as summaries: if a count or row looks surprising, drill into the source record before making a customer promise, register close, inventory, or manager decision.
+Operations Home is the Back Office daily command surface. Its store-wide management context is distinct from the POS dashboard used by register staff, even when both views use the same authoritative store facts. Use it to decide what needs attention first, then open the underlying workspace for the actual action. Treat cards and queues as summaries: if a count or row looks surprising, drill into the source record before making a customer promise, register close, inventory, or manager decision.
 
 
 ## What to watch for
