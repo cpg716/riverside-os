@@ -105,6 +105,16 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
             it.sku.trim(),
             var
         ));
+        if it.custom_item_type.as_deref() == Some("linked_pickup") {
+            if let Some(source_label) = it
+                .discount_event_label
+                .as_deref()
+                .map(str::trim)
+                .filter(|label| !label.is_empty())
+            {
+                lines.push(source_label.to_string());
+            }
+        }
     }
 
     lines.push(String::from("---"));
@@ -275,5 +285,16 @@ mod tests {
         assert!(text.contains("Wedding Order"));
         assert!(text.contains("Party: Adams Wedding"));
         assert!(text.contains("Wedding Date: 09/19/2026"));
+    }
+
+    #[test]
+    fn linked_pickup_text_names_the_source_order() {
+        let mut order = sample_receipt_order_for_preview();
+        order.items[0].custom_item_type = Some("linked_pickup".to_string());
+        order.items[0].discount_event_label = Some("Picked up from ORD-100001".to_string());
+
+        let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
+
+        assert!(text.contains("Picked up from ORD-100001"));
     }
 }

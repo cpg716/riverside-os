@@ -419,6 +419,7 @@ interface CustomerOrderHistoryItem {
   is_fulfillment_order?: boolean;
   is_exchange?: boolean;
   has_returns?: boolean;
+  receipt_activity?: "sale" | "payment" | "pickup" | "pickup_payment";
   is_counterpoint_import?: boolean;
   counterpoint_customer_code?: string | null;
 }
@@ -427,6 +428,21 @@ interface CustomerOpenSummary {
   orders: number | null;
   layaways: number | null;
   alterations: number | null;
+}
+
+function receiptActivityLabel(
+  activity: CustomerOrderHistoryItem["receipt_activity"],
+): string | null {
+  switch (activity) {
+    case "payment":
+      return "Payment Receipt";
+    case "pickup":
+      return "Pickup Receipt";
+    case "pickup_payment":
+      return "Pickup + Payment Receipt";
+    default:
+      return null;
+  }
 }
 
 interface CustomerRmsChargeStatus {
@@ -865,6 +881,8 @@ export function CustomerRelationshipHubDrawer({
   const [selectedTransactionId, setSelectedTransactionId] = useState<
     string | null
   >(null);
+  const [historyReceiptTransactionId, setHistoryReceiptTransactionId] =
+    useState<string | null>(null);
   const [orderHistoryRows, setOrderHistoryRows] = useState<
     CustomerOrderHistoryItem[]
   >([]);
@@ -2469,7 +2487,7 @@ export function CustomerRelationshipHubDrawer({
             </h3>
             <p className="mb-3 text-xs text-app-text-muted">
               {tab === "transactions"
-                ? "Customer notes, visits, and past purchases stay together here. Complete sale records include takeaways, gift cards, alterations, payments, refunds, and order payments."
+                ? "Customer notes, visits, and every completed receipt event stay together here. Reprint sales, deposits, payments, pickups, refunds, and exchanges from the exact event record."
                 : "All special orders, custom work, and wedding items for this customer, including fulfilled records."}{" "}
               Showing {customer.first_name} {customer.last_name} ·{" "}
               {customer.customer_code}
@@ -2553,7 +2571,10 @@ export function CustomerRelationshipHubDrawer({
                           <button
                             type="button"
                             className="mt-1 w-full text-left text-sm font-semibold text-app-accent hover:underline"
-                            onClick={() => setSelectedTransactionId(ev.reference_id!)}
+                            onClick={() => {
+                              setHistoryReceiptTransactionId(null);
+                              setSelectedTransactionId(ev.reference_id!);
+                            }}
                           >
                             {ev.summary}
                           </button>
@@ -2641,6 +2662,11 @@ export function CustomerRelationshipHubDrawer({
                             Returned Item
                           </p>
                         ) : null}
+                        {receiptActivityLabel(row.receipt_activity) ? (
+                          <p className="mt-1 text-[9px] font-black uppercase tracking-widest text-app-info">
+                            {receiptActivityLabel(row.receipt_activity)}
+                          </p>
+                        ) : null}
                         <p className="mt-1 text-[11px] text-app-text-muted">
                           {readableDateTime(row.booked_at)}
                         </p>
@@ -2675,16 +2701,30 @@ export function CustomerRelationshipHubDrawer({
                         {row.primary_salesperson_name ?? "—"}
                       </p>
                     </div>
-                    <div className="mt-3">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={() => {
+                          setHistoryReceiptTransactionId(null);
                           setSelectedTransactionId(row.transaction_id);
                         }}
                         className="min-h-11 rounded-lg border border-app-success/20 bg-app-success/10 px-3 py-2 text-xs font-black uppercase tracking-wide text-app-success"
                       >
                         {tab === "transactions" ? "Open Transaction Record" : "Open Order"}
                       </button>
+                      {tab === "transactions" ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setHistoryReceiptTransactionId(row.transaction_id);
+                            setSelectedTransactionId(row.transaction_id);
+                          }}
+                          className="flex min-h-11 items-center gap-2 rounded-lg border border-app-accent/25 bg-app-accent/10 px-3 py-2 text-xs font-black uppercase tracking-wide text-app-accent"
+                        >
+                          <Printer size={14} aria-hidden />
+                          Reprint Receipt
+                        </button>
+                      ) : null}
                     </div>
                   </article>
                 ))}
@@ -2730,6 +2770,11 @@ export function CustomerRelationshipHubDrawer({
                                 Returned Item
                               </span>
                             ) : null}
+                            {receiptActivityLabel(row.receipt_activity) ? (
+                              <span className="rounded bg-app-info/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-info">
+                                {receiptActivityLabel(row.receipt_activity)}
+                              </span>
+                            ) : null}
                             {row.is_counterpoint_import ? (
                               <span className="rounded bg-zinc-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-zinc-600">
                                 Imported from Counterpoint
@@ -2764,17 +2809,35 @@ export function CustomerRelationshipHubDrawer({
                           {row.primary_salesperson_name ?? "—"}
                         </td>
                         <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedTransactionId(row.transaction_id);
-                            }}
-                            className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-success"
-                          >
-                            {tab === "transactions"
-                              ? "Open Transaction Record"
-                              : "Open Order"}
-                          </button>
+                          <div className="flex flex-col gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setHistoryReceiptTransactionId(null);
+                                setSelectedTransactionId(row.transaction_id);
+                              }}
+                              className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-success"
+                            >
+                              {tab === "transactions"
+                                ? "Open Transaction Record"
+                                : "Open Order"}
+                            </button>
+                            {tab === "transactions" ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setHistoryReceiptTransactionId(
+                                    row.transaction_id,
+                                  );
+                                  setSelectedTransactionId(row.transaction_id);
+                                }}
+                                className="inline-flex items-center justify-center gap-1 rounded-lg border border-app-accent/25 bg-app-accent/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-accent"
+                              >
+                                <Printer size={12} aria-hidden />
+                                Reprint Receipt
+                              </button>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -5245,9 +5308,16 @@ export function CustomerRelationshipHubDrawer({
       <TransactionDetailDrawer
         orderId={selectedTransactionId}
         isOpen={selectedTransactionId !== null}
-        onClose={() => setSelectedTransactionId(null)}
+        onClose={() => {
+          setHistoryReceiptTransactionId(null);
+          setSelectedTransactionId(null);
+        }}
         layerClassName="z-[110]"
         recordContext={tab === "orders" ? "order" : "transaction"}
+        openReceiptOnLoad={
+          historyReceiptTransactionId !== null &&
+          historyReceiptTransactionId === selectedTransactionId
+        }
         onOpenTransactionInBackoffice={backofficeOrderOpener}
       />
     </DetailDrawer>

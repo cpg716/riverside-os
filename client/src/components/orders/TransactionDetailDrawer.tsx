@@ -257,6 +257,8 @@ interface TransactionDetailDrawerProps {
   onLifecycleChanged?: () => Promise<void> | void;
   /** Elevates the drawer when it is opened from another drawer or modal. */
   layerClassName?: string;
+  /** Opens the exact historical receipt after the Transaction Record loads. */
+  openReceiptOnLoad?: boolean;
 }
 
 function formatAuditKind(kind: string): string {
@@ -1044,6 +1046,7 @@ export default function TransactionDetailDrawer({
   orderActions,
   onLifecycleChanged,
   layerClassName,
+  openReceiptOnLoad = false,
 }: TransactionDetailDrawerProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
@@ -1062,6 +1065,9 @@ export default function TransactionDetailDrawer({
     string | null
   >(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [autoOpenedReceiptOrderId, setAutoOpenedReceiptOrderId] = useState<
+    string | null
+  >(null);
   const [editingLineId, setEditingLineId] = useState<string | null>(null);
   const [suitSwapTarget, setSuitSwapTarget] =
     useState<TransactionDrawerItem | null>(null);
@@ -1198,6 +1204,30 @@ export default function TransactionDetailDrawer({
       setInternalErrorMessage(null);
     }
   }, [isOpen, orderId, load, usesControlledData]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setAutoOpenedReceiptOrderId(null);
+      setShowReceiptModal(false);
+      return;
+    }
+    if (
+      openReceiptOnLoad &&
+      orderId &&
+      detail &&
+      detail.transaction_id === orderId &&
+      autoOpenedReceiptOrderId !== orderId
+    ) {
+      setAutoOpenedReceiptOrderId(orderId);
+      setShowReceiptModal(true);
+    }
+  }, [
+    autoOpenedReceiptOrderId,
+    detail,
+    isOpen,
+    openReceiptOnLoad,
+    orderId,
+  ]);
 
   const summary = useMemo(
     () => (detail ? fulfillmentSummary(detail) : null),

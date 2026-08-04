@@ -27,6 +27,9 @@ const transactionsApi = repoFile("server/src/api/transactions.rs");
 const customerRelationshipHub = repoFile(
   "client/src/components/customers/CustomerRelationshipHubDrawer.tsx",
 );
+const customerTransactionHistory = repoFile(
+  "server/src/logic/customer_transaction_history.rs",
+);
 const posShell = repoFile("client/src/components/layout/PosShell.tsx");
 const registerOverlay = repoFile(
   "client/src/components/pos/RegisterOverlay.tsx",
@@ -213,6 +216,25 @@ test("transaction history reprints settled exchanges through the event receipt",
   expect(customerRelationshipHub).toContain("has_returns?: boolean");
   expect(customerRelationshipHub).toContain("row.has_returns");
   expect(customerRelationshipHub).toContain("Returned Item");
+});
+
+test("customer History exposes every completed receipt event for reprint", () => {
+  expect(customerTransactionHistory).toContain("pub receipt_activity: String");
+  expect(customerTransactionHistory).toContain("THEN 'pickup_payment'");
+  expect(customerTransactionHistory).toContain("THEN 'pickup'");
+  expect(customerTransactionHistory).toContain("THEN 'payment'");
+  expect(customerTransactionHistory).toContain(
+    "authoritative receipt events for payments and pickups",
+  );
+  expect(customerTransactionHistory).not.toContain("tl_payment_shell");
+  expect(customerRelationshipHub).toContain("Reprint Receipt");
+  expect(customerRelationshipHub).toContain("setHistoryReceiptTransactionId(");
+  expect(customerRelationshipHub).toContain("openReceiptOnLoad={");
+  expect(transactionDetailDrawer).toContain("openReceiptOnLoad?: boolean");
+  expect(transactionDetailDrawer).toContain("setShowReceiptModal(true)");
+  expect(transactionDetailDrawer).toContain(
+    "refundEventId={detail?.receipt_refund_event_id ?? null}",
+  );
 });
 
 test("historical receipt entry points do not reuse checkout completion actions", () => {

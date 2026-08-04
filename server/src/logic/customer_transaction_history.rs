@@ -40,6 +40,7 @@ pub struct CustomerTransactionHistoryItem {
     pub is_fulfillment_order: bool,
     pub is_exchange: bool,
     pub has_returns: bool,
+    pub receipt_activity: String,
     pub is_counterpoint_import: bool,
     pub counterpoint_customer_code: Option<String>,
     pub primary_salesperson_name: Option<String>,
@@ -65,6 +66,7 @@ struct Row {
     is_fulfillment_order: bool,
     is_exchange: bool,
     has_returns: bool,
+    receipt_activity: String,
     is_counterpoint_import: bool,
     counterpoint_customer_code: Option<String>,
     primary_salesperson_name: Option<String>,
@@ -122,6 +124,36 @@ pub async fn query_customer_transaction_history(
                 WHERE returned_line.transaction_id = o.id
                   AND trl.quantity_returned > 0
             ) AS has_returns,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM transaction_activity_log pickup_activity
+                    WHERE pickup_activity.event_kind = 'pickup'
+                      AND pickup_activity.metadata->>'checkout_transaction_id' = o.id::text
+                ) AND EXISTS (
+                    SELECT 1
+                    FROM payment_transactions receipt_payment
+                    INNER JOIN payment_allocations receipt_allocation
+                        ON receipt_allocation.transaction_id = receipt_payment.id
+                    WHERE receipt_payment.metadata->>'checkout_transaction_id' = o.id::text
+                      AND receipt_allocation.metadata->>'kind' = 'existing_order_payment'
+                ) THEN 'pickup_payment'
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM transaction_activity_log pickup_activity
+                    WHERE pickup_activity.event_kind = 'pickup'
+                      AND pickup_activity.metadata->>'checkout_transaction_id' = o.id::text
+                ) THEN 'pickup'
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM payment_transactions receipt_payment
+                    INNER JOIN payment_allocations receipt_allocation
+                        ON receipt_allocation.transaction_id = receipt_payment.id
+                    WHERE receipt_payment.metadata->>'checkout_transaction_id' = o.id::text
+                      AND receipt_allocation.metadata->>'kind' = 'existing_order_payment'
+                ) THEN 'payment'
+                ELSE 'sale'
+            END AS receipt_activity,
             o.is_counterpoint_import,
             CASE
                 WHEN c.customer_created_source = 'counterpoint'
@@ -178,24 +210,10 @@ pub async fn query_customer_transaction_history(
     match q.record_scope {
         CustomerHistoryRecordScope::Transactions => {
             // Counterpoint tickets belong in Transactions; Counterpoint open docs do not.
-            // Payment/deposit-only Counterpoint ticket artifacts are not purchases.
+            // Completed zero-total checkout records remain visible because they are the
+            // authoritative receipt events for payments and pickups.
             qb.push(
                 r#" AND o.counterpoint_doc_ref IS NULL
-                AND NOT (
-                    COALESCE(o.total_price, 0) = 0
-                    AND COALESCE(o.amount_paid, 0) = 0
-                    AND COALESCE(o.balance_due, 0) = 0
-                    AND NOT EXISTS (
-                        SELECT 1
-                        FROM transaction_lines tl_payment_shell
-                        WHERE tl_payment_shell.transaction_id = o.id
-                    )
-                    AND EXISTS (
-                        SELECT 1
-                        FROM payment_transactions pt_payment_shell
-                        WHERE pt_payment_shell.metadata->>'checkout_transaction_id' = o.id::text
-                    )
-                )
                 AND NOT (
                     COALESCE(o.is_counterpoint_import, false)
                     AND o.counterpoint_ticket_ref IS NOT NULL
@@ -253,6 +271,7 @@ pub async fn query_customer_transaction_history(
             is_fulfillment_order: r.is_fulfillment_order,
             is_exchange: r.is_exchange,
             has_returns: r.has_returns,
+            receipt_activity: r.receipt_activity,
             is_counterpoint_import: r.is_counterpoint_import,
             counterpoint_customer_code: r.counterpoint_customer_code,
             primary_salesperson_name: r.primary_salesperson_name,

@@ -49,15 +49,31 @@ fn build_items_table(order: &ReceiptOrder) -> String {
             .as_deref()
             .map(|v| format!(" ({})", html_escape(v)))
             .unwrap_or_default();
+        let pickup_source = if it.custom_item_type.as_deref() == Some("linked_pickup") {
+            it.discount_event_label
+                .as_deref()
+                .map(str::trim)
+                .filter(|label| !label.is_empty())
+                .map(|label| {
+                    format!(
+                        "<br><span style=\"font-size:11px;color:#666\">{}</span>",
+                        html_escape(label)
+                    )
+                })
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         rows.push_str(&format!(
             "<tr>\
-               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0;width:58%\"><strong>{}</strong>{}<br><span style=\"font-size:11px;color:#666\">SKU {}</span></td>\
+               <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0;width:58%\"><strong>{}</strong>{}<br><span style=\"font-size:11px;color:#666\">SKU {}</span>{}</td>\
                <td style=\"text-align:center;padding-left:8px;width:14%\">{}</td>\
                <td style=\"text-align:right;padding-left:8px;width:28%\">{}</td>\
              </tr>",
             html_escape(&it.product_name),
             var,
             html_escape(&it.sku),
+            pickup_source,
             it.quantity,
             it.unit_price
         ));
@@ -668,6 +684,17 @@ mod tests {
 
         assert!(!items.contains("Counterpoint imported discount"));
         assert!(items.contains("Wool suit jacket"));
+    }
+
+    #[test]
+    fn linked_pickup_html_names_the_source_order() {
+        let mut order = sample_receipt_order_for_preview();
+        order.items[0].custom_item_type = Some("linked_pickup".to_string());
+        order.items[0].discount_event_label = Some("Picked up from ORD-100001".to_string());
+
+        let items = build_items_table(&order);
+
+        assert!(items.contains("Picked up from ORD-100001"));
     }
 
     #[test]

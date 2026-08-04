@@ -56,6 +56,8 @@ This applies to Transaction Records, fulfillment-order work, alterations, loyalt
 
 Transaction Records and Orders with returned merchandise are marked **Returned Item**. Settled exchange transactions are also marked **Exchange**. Opening the original record shows the returned quantity on the affected line; opening either side of a settled exchange and choosing **Reprint Receipt** produces the combined return/exchange customer receipt, including both the returned item and its replacement.
 
+The **History** tab keeps each completed receipt event, including payment-only, deposit, pickup-only, pickup-and-payment, sale, return, and exchange receipts. Select **Reprint Receipt** on the event row to reopen the exact customer receipt that was completed at that time. Payment and pickup events remain separate from the original Order receipt so reprinting never substitutes old merchandise or tender activity.
+
 Wedding split deposits are visible on the beneficiary member's customer profile. If the member already has an open Transaction Record, History shows the amount allocated to that member rather than the payer's combined party tender. If the member has no open Transaction Record yet, the profile shows **Deposit waiting** and History records the wedding deposit amount and payer name. Applying that held deposit later adds a separate deposit-applied entry.
 
 ## Linked profiles

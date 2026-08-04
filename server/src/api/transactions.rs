@@ -12704,6 +12704,10 @@ pub(crate) async fn load_transaction_detail(
         SELECT
             target.id,
             COALESCE(
+                string_agg(
+                    DISTINCT NULLIF(TRIM(fo.display_id), ''),
+                    ', ' ORDER BY NULLIF(TRIM(fo.display_id), '')
+                ),
                 NULLIF(TRIM(target.display_id), ''),
                 target.counterpoint_doc_ref,
                 target.counterpoint_ticket_ref,
@@ -12724,6 +12728,7 @@ pub(crate) async fn load_transaction_detail(
             COALESCE(activity.metadata->'delivered_item_ids', '[]'::jsonb)
         ) delivered(line_id)
         INNER JOIN transaction_lines tl ON tl.id = delivered.line_id::uuid
+        LEFT JOIN fulfillment_orders fo ON fo.id = tl.fulfillment_order_id
         LEFT JOIN products p ON p.id = tl.product_id
         LEFT JOIN product_variants pv ON pv.id = tl.variant_id
         WHERE activity.event_kind = 'pickup'

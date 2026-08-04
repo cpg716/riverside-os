@@ -337,6 +337,16 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
             };
             push_line(out, &format!("{label}: {var}"));
         }
+        if is_linked_pickup_line(it) {
+            if let Some(source_label) = it
+                .discount_event_label
+                .as_deref()
+                .map(str::trim)
+                .filter(|label| !label.is_empty())
+            {
+                push_line(out, source_label);
+            }
+        }
         if gift {
             push_line(out, &format!("SKU {}", it.sku));
         } else {
@@ -691,6 +701,16 @@ fn receiptline_item_lines(
                         "Variation"
                     };
                     out_lines.push(format!("{label}: {} |", receiptline_escape(v)));
+                }
+                if is_linked_pickup_line(it) {
+                    if let Some(source_label) = it
+                        .discount_event_label
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|source_label| !source_label.is_empty())
+                    {
+                        out_lines.push(format!("{} |", receiptline_escape(source_label)));
+                    }
                 }
                 if is_pickup && label == "PICKED UP" {
                     out_lines.push(format!("Order Date: {} |", receipt_date(d, cfg)));
@@ -1445,6 +1465,32 @@ mod tests {
         assert!(markdown.contains("Mantoni Classic Fit DrShirt"));
         assert!(!markdown.contains("^^^Special Order"));
         assert!(!markdown.contains("Gruppo Bravo Slacks"));
+    }
+
+    #[test]
+    fn linked_pickups_print_each_source_order_reference() {
+        let mut first = receipt_line("First picked-up suit", "SKU-ORDER-A", Some("linked_pickup"));
+        first.discount_event_label = Some("Picked up from ORD-100001".to_string());
+        let mut second = receipt_line(
+            "Second picked-up suit",
+            "SKU-ORDER-B",
+            Some("linked_pickup"),
+        );
+        second.discount_event_label = Some("Picked up from ORD-100002".to_string());
+        let order = receipt_order_with(vec![first, second]);
+
+        let thermal = String::from_utf8(build_receipt_escpos(
+            &order,
+            &ReceiptConfig::default(),
+            HashMap::new(),
+        ))
+        .expect("receipt bytes are text apart from printer controls");
+        let markdown = receiptline_item_lines(&order, &ReceiptConfig::default(), false, false);
+
+        for source in ["ORD-100001", "ORD-100002"] {
+            assert!(thermal.contains(&format!("Picked up from {source}")));
+            assert!(markdown.contains(&format!("Picked up from {source} |")));
+        }
     }
 
     #[test]

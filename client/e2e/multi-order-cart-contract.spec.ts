@@ -96,14 +96,14 @@ test("starting pickup from a second order merges it into the active cart", () =>
   expect(pickupHandoff).not.toContain("setLines(cartLines)");
 });
 
-test("reopening Customer Orders and adding order B retains order A", () => {
+test("multiple items from different orders remain in one pickup cart", () => {
   const selectionA: PickupTransactionSelection = {
     transactionId: "order-a",
-    lineIds: ["line-a"],
+    lineIds: ["line-a-1", "line-a-2"],
   };
   const selectionB: PickupTransactionSelection = {
     transactionId: "order-b",
-    lineIds: ["line-b"],
+    lineIds: ["line-b-1", "line-b-2"],
   };
   const pickupLine = (
     transactionLineId: string,
@@ -130,7 +130,10 @@ test("reopening Customer Orders and adding order B retains order A", () => {
     lines,
     selections,
     [selectionA],
-    [pickupLine("line-a", "cart-a")],
+    [
+      pickupLine("line-a-1", "cart-a-1"),
+      pickupLine("line-a-2", "cart-a-2"),
+    ],
   );
   selections = mergePickupTransactionSelections(selections, [selectionA]);
 
@@ -138,14 +141,19 @@ test("reopening Customer Orders and adding order B retains order A", () => {
     lines,
     selections,
     [selectionB],
-    [pickupLine("line-b", "cart-b")],
+    [
+      pickupLine("line-b-1", "cart-b-1"),
+      pickupLine("line-b-2", "cart-b-2"),
+    ],
   );
   selections = mergePickupTransactionSelections(selections, [selectionB]);
 
   expect(selections).toEqual([selectionA, selectionB]);
   expect(lines.map((line) => line.transaction_line_id)).toEqual([
-    "line-a",
-    "line-b",
+    "line-a-1",
+    "line-a-2",
+    "line-b-1",
+    "line-b-2",
   ]);
 });
 
@@ -225,6 +233,12 @@ test("a restored cart retains every source order and selected pickup line", () =
   expect(transactions).toContain('"already_completed": true');
   expect(transactions).toContain(
     "No inventory, revenue, commission, or audit activity was recorded again.",
+  );
+  expect(transactions).toContain(
+    "LEFT JOIN fulfillment_orders fo ON fo.id = tl.fulfillment_order_id",
+  );
+  expect(transactions).toContain(
+    "DISTINCT NULLIF(TRIM(fo.display_id), '')",
   );
 });
 
