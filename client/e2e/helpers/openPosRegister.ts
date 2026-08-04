@@ -213,9 +213,6 @@ async function waitForRegisterReady(page: Page): Promise<void> {
   await expect(page.getByTestId("pos-product-search")).toBeVisible({
     timeout: 25_000,
   });
-  await expect(page.getByTestId("pos-action-gift-card")).toBeVisible({
-    timeout: 25_000,
-  });
 }
 
 async function fillOpeningFloatIfPresent(

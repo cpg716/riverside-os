@@ -4298,7 +4298,9 @@ async fn browse_customers(
                           AND cg.code = $7::text
                     )
                   )
-                ORDER BY last_name ASC, first_name ASC, id ASC
+                -- Qualify the source columns so PostgreSQL can use
+                -- idx_customers_names instead of sorting the COALESCE aliases.
+                ORDER BY c.last_name ASC, c.first_name ASC, c.id ASC
                 LIMIT $8 OFFSET $9
             ),
             browse_base AS (

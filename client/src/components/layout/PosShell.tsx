@@ -31,9 +31,6 @@ import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import type { SidebarTabId } from "./sidebarSections";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { ArrowLeft } from "lucide-react";
-import { getAppIcon, APP_ICON_SIZES } from "../../lib/icons";
-
-const REGISTER_ICON = getAppIcon("register");
 
 /** Idle timeout: register open — 10 minutes of no interaction locks the session */
 const REGISTER_IDLE_MS = 10 * 60 * 1000;
@@ -295,11 +292,6 @@ export default function PosShell({
           </div>
         )}
 
-        {isRegisterOpen && registerLane != null && (
-          <div className="hidden px-4 h-8 xl:flex items-center gap-2 rounded-full bg-app-surface-2 border border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted italic shadow-inner">
-            <REGISTER_ICON size={APP_ICON_SIZES.badge} className="text-app-accent" /> Register #{registerLane}
-          </div>
-        )}
       </div>
     );
     return () => setSlotContent(null);
@@ -534,6 +526,7 @@ export default function PosShell({
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Order Hub...</div>}>
                 <OrdersWorkspace
                   activeSection="open"
+                  surface="pos"
                   refreshSignal={refreshSignal}
                   onOpenInRegister={(orderId, forPickup, returnLineId) => {
                     setPendingPosTransactionId(orderId);
@@ -603,14 +596,14 @@ export default function PosShell({
           {activePosTab === "gift-cards" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Gift Card Hub...</div>}>
-                <GiftCardsWorkspace activeSection="inventory" />
+                <GiftCardsWorkspace activeSection="inventory" surface="pos" />
               </Suspense>
             </div>
           )}
           {activePosTab === "loyalty" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Loyalty Hub...</div>}>
-                <LoyaltyWorkspace activeSection="eligible" />
+                <LoyaltyWorkspace activeSection="eligible" surface="pos" />
               </Suspense>
             </div>
           )}
@@ -619,6 +612,7 @@ export default function PosShell({
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Shipping...</div>}>
                 <ShipmentsHubSection
+                  surface="pos"
                   onOpenTransactionInBackoffice={(orderId) => {
                     setPendingPosTransactionId(orderId);
                     clearPendingPosCustomer();

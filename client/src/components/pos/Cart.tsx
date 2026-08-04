@@ -15,10 +15,8 @@ import {
   Scissors,
   CreditCard,
   Pencil,
-  AlertTriangle,
   Printer,
-  ChevronLeft,
-  ChevronRight,
+  Grid3X3,
   Heart,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
@@ -818,20 +816,12 @@ export default function Cart({
     setExchangeWizardInitialTransactionId,
   ] = useState<string | null>(null);
 
-  // --- Offline queue & print retry badges ---
-  const [offlinePendingCount, setOfflinePendingCount] = useState(0);
+  // Offline checkout state is owned by the global status bar; the cart only
+  // tracks print failures that need a contextual cart action.
   const [failedPrintCount, setFailedPrintCount] = useState(0);
 
   useEffect(() => {
-    const poll = async () => {
-      try {
-        const { getCheckoutQueueSummary } =
-          await import("../../lib/offlineQueue");
-        const summary = await getCheckoutQueueSummary();
-        setOfflinePendingCount(summary.pendingCount);
-      } catch {
-        /* ignore */
-      }
+    const pollPrintQueue = async () => {
       try {
         const { getFailedPrintJobs } =
           await import("../../lib/printRetryQueue");
@@ -841,14 +831,12 @@ export default function Cart({
         /* ignore */
       }
     };
-    void poll();
-    const interval = setInterval(poll, 10000);
-    const onQueueChange = () => void poll();
-    window.addEventListener("queue_changed", onQueueChange);
+    void pollPrintQueue();
+    const interval = setInterval(pollPrintQueue, 10000);
+    const onQueueChange = () => void pollPrintQueue();
     window.addEventListener("print_queue_changed", onQueueChange);
     return () => {
       clearInterval(interval);
-      window.removeEventListener("queue_changed", onQueueChange);
       window.removeEventListener("print_queue_changed", onQueueChange);
     };
   }, []);
@@ -3119,71 +3107,16 @@ export default function Cart({
   ]);
 
   // pendingExchangeOriginalOrderIdRef removed
-  const actionRibbonRef = useRef<HTMLDivElement | null>(null);
   const didInitialProductSearchFocusRef = useRef(false);
   const initialTransactionApplyingRef = useRef<string | null>(null);
   const initialTransactionAppliedRef = useRef<string | null>(null);
-  const [actionRibbonCanScrollLeft, setActionRibbonCanScrollLeft] =
-    useState(false);
-  const [actionRibbonCanScrollRight, setActionRibbonCanScrollRight] =
-    useState(false);
+  const [showAllSaleActions, setShowAllSaleActions] = useState(false);
   const [exchangeWizardOpen, setExchangeWizardOpen] = useState(false);
   const [
     exchangeWizardInitialReturnLineId,
     setExchangeWizardInitialReturnLineId,
   ] = useState<string | null>(null);
   const [shippingModalOpen, setShippingModalOpen] = useState(false);
-
-  const updateActionRibbonScrollState = useCallback(() => {
-    const ribbon = actionRibbonRef.current;
-    if (!ribbon) {
-      setActionRibbonCanScrollLeft(false);
-      setActionRibbonCanScrollRight(false);
-      return;
-    }
-    const maxScrollLeft = ribbon.scrollWidth - ribbon.clientWidth;
-    setActionRibbonCanScrollLeft(ribbon.scrollLeft > 1);
-    setActionRibbonCanScrollRight(ribbon.scrollLeft < maxScrollLeft - 1);
-  }, []);
-
-  const scrollActionRibbon = useCallback(
-    (direction: "left" | "right" | "start" | "end") => {
-    const ribbon = actionRibbonRef.current;
-    if (!ribbon) return;
-    if (direction === "start" || direction === "end") {
-      ribbon.scrollTo({
-        left: direction === "start" ? 0 : ribbon.scrollWidth,
-        behavior: "smooth",
-      });
-      window.requestAnimationFrame(updateActionRibbonScrollState);
-      return;
-    }
-    ribbon.scrollBy({
-        left:
-          direction === "left"
-            ? -ribbon.clientWidth * 0.75
-            : ribbon.clientWidth * 0.75,
-      behavior: "smooth",
-    });
-    window.requestAnimationFrame(updateActionRibbonScrollState);
-    },
-    [updateActionRibbonScrollState],
-  );
-
-  useEffect(() => {
-    updateActionRibbonScrollState();
-    const ribbon = actionRibbonRef.current;
-    if (!ribbon) return;
-    const handleResize = () => updateActionRibbonScrollState();
-    ribbon.addEventListener("scroll", updateActionRibbonScrollState, {
-      passive: true,
-    });
-    window.addEventListener("resize", handleResize);
-    return () => {
-      ribbon.removeEventListener("scroll", updateActionRibbonScrollState);
-      window.removeEventListener("resize", handleResize);
-    };
-  }, [updateActionRibbonScrollState]);
 
   const handleTransactionBarcode = useCallback(
     async (receiptCode: string) => {
@@ -5121,7 +5054,6 @@ export default function Cart({
             {parkedRows.length > 0 ||
             pendingAlterationIntakes.length > 0 ||
             pickupReadyAlterations.length > 0 ||
-            offlinePendingCount > 0 ||
             failedPrintCount > 0 ? (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-bold text-app-text-muted">
               {parkedRows.length > 0 ? (
@@ -5147,12 +5079,6 @@ export default function Cart({
                   <Scissors size={12} aria-hidden />
                     {pickupReadyAlterations.length} alteration pickup
                     {pickupReadyAlterations.length === 1 ? "" : "s"} included
-                </span>
-              ) : null}
-              {offlinePendingCount > 0 ? (
-                <span className="inline-flex items-center gap-1 rounded-lg border border-app-warning/25 bg-app-warning/10 px-2 py-1 font-black uppercase tracking-widest text-app-warning">
-                  <AlertTriangle size={12} aria-hidden />
-                  {offlinePendingCount} syncing
                 </span>
               ) : null}
               {failedPrintCount > 0 ? (
@@ -5317,37 +5243,11 @@ export default function Cart({
           </div>
 
           {/* Sale tools row */}
-          <div className="flex items-center gap-3 border-t border-app-border/50 pt-3">
-            <button
-              type="button"
-              aria-label="Scroll cart actions left"
-              onClick={() => scrollActionRibbon("left")}
-              disabled={!actionRibbonCanScrollLeft}
-              className="ui-touch-target flex h-16 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-70"
-            >
-              <ChevronLeft size={22} aria-hidden />
-            </button>
+          <div className="border-t border-app-border/50 pt-3">
             <div
-              ref={actionRibbonRef}
               role="toolbar"
               aria-label="Cart actions"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowLeft") {
-                  event.preventDefault();
-                  scrollActionRibbon("left");
-                } else if (event.key === "ArrowRight") {
-                  event.preventDefault();
-                  scrollActionRibbon("right");
-                } else if (event.key === "Home") {
-                  event.preventDefault();
-                  scrollActionRibbon("start");
-                } else if (event.key === "End") {
-                  event.preventDefault();
-                  scrollActionRibbon("end");
-                }
-              }}
-              className="flex min-w-0 flex-1 snap-x snap-mandatory gap-3 overflow-x-auto rounded-xl pr-1 outline-none focus-visible:ring-2 focus-visible:ring-app-accent/60 [&>button]:!grow-0 [&>button]:snap-start"
+              className="grid min-w-0 grid-cols-3 gap-2 rounded-xl sm:grid-cols-6 [&>button]:!min-h-[78px] [&>button]:!w-full [&>button]:!basis-auto"
             >
               <button
                 type="button"
@@ -5362,7 +5262,7 @@ export default function Cart({
               >
                 <WEDDINGS_ICON size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Wedding
+                  Start Wedding Sale
                 </span>
               </button>
               <button
@@ -5378,7 +5278,7 @@ export default function Cart({
               >
                 <Heart size={20} aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Wedding Deposit
+                  Collect Deposit
                 </span>
               </button>
               <button
@@ -5396,7 +5296,7 @@ export default function Cart({
               >
                 <Scissors size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Alteration
+                  Start Alteration
                 </span>
               </button>
               <button
@@ -5423,7 +5323,7 @@ export default function Cart({
               >
                 <Pencil size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Custom
+                  Start Custom Order
                 </span>
               </button>
               <button
@@ -5435,9 +5335,43 @@ export default function Cart({
               >
                 <ArrowLeftRight size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Return
+                  Return / Exchange
                 </span>
               </button>
+              <button
+                type="button"
+                onClick={() => setShowAllSaleActions((current) => !current)}
+                aria-expanded={showAllSaleActions}
+                className="ui-touch-target flex min-h-[86px] flex-col items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-2 text-center text-app-text shadow-sm transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
+              >
+                <Grid3X3 size={20} aria-hidden />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
+                  More Actions
+                </span>
+              </button>
+              {showAllSaleActions ? createPortal(
+                <div className="ui-overlay-backdrop !z-[200] flex items-center justify-center p-4">
+                  <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="more-sale-actions-title"
+                    className="ui-modal max-h-[min(42rem,calc(100dvh-2rem))] w-full max-w-4xl overflow-y-auto p-5"
+                  >
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.24em] text-app-text-muted">Register tools</p>
+                        <h2 id="more-sale-actions-title" className="text-xl font-black text-app-text">More sale actions</h2>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowAllSaleActions(false)}
+                        className="ui-touch-target flex items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text-muted hover:text-app-text"
+                        aria-label="Close more sale actions"
+                      >
+                        <X size={20} aria-hidden />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 [&>button]:!min-h-[92px] [&>button]:!w-full [&>button]:!basis-auto">
               <button
                 type="button"
                 disabled={!selectedCustomer}
@@ -5455,7 +5389,7 @@ export default function Cart({
                     aria-hidden
                   />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Orders
+                  Open Customer Orders
                 </span>
               </button>
               <button
@@ -5467,7 +5401,7 @@ export default function Cart({
               >
                 <GIFT_CARDS_ICON size={20} className="shrink-0" aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Gift Card
+                  Load Gift Card
                 </span>
               </button>
               <button
@@ -5515,7 +5449,7 @@ export default function Cart({
               >
                 <CreditCard size={20} className="shrink-0" aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  RMS Pay
+                  Pay RMS Account
                 </span>
               </button>
               <button
@@ -5563,7 +5497,7 @@ export default function Cart({
               >
                 <CreditCard size={20} className="shrink-0" aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Staff Pay
+                  Pay Staff Account
                 </span>
               </button>
               <button
@@ -5642,16 +5576,12 @@ export default function Cart({
                   Clear Sale
                 </span>
               </button>
+                    </div>
+                  </div>
+                </div>,
+                document.getElementById("drawer-root") ?? document.body,
+              ) : null}
             </div>
-            <button
-              type="button"
-              aria-label="Scroll cart actions right"
-              onClick={() => scrollActionRibbon("right")}
-              disabled={!actionRibbonCanScrollRight}
-              className="ui-touch-target flex h-16 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text shadow-sm transition-all hover:bg-app-surface disabled:cursor-not-allowed disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-70"
-            >
-              <ChevronRight size={22} aria-hidden />
-            </button>
           </div>
           {pendingAlterationIntakes.length > 0 ? (
             <div
@@ -6427,7 +6357,7 @@ export default function Cart({
                 </button>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-app-text-muted">
+            {hasCheckoutWork ? <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-app-text-muted">
               <div className="flex items-baseline justify-between gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 <span>Subtotal</span>
                 <span className="tabular-nums font-bold text-app-text">
@@ -6508,7 +6438,12 @@ export default function Cart({
                   </span>
                 </div>
               ) : null}
-            </div>
+            </div> : (
+              <div className="rounded-xl border border-dashed border-app-border bg-app-surface-2 px-3 py-5 text-center">
+                <p className="text-xs font-black uppercase tracking-widest text-app-text-muted">No items in this sale</p>
+                <p className="mt-1 text-[10px] font-semibold text-app-text-muted">Scan or search for an item to begin.</p>
+              </div>
+            )}
           </div>
         </div>
         </div>

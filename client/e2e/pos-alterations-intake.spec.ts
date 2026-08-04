@@ -410,6 +410,7 @@ test.describe("POS alteration intake", () => {
       unit_price: "0.00",
     });
 
+    await page.getByTestId("pos-sidebar-group-work").click();
     await page.getByTestId("pos-sidebar-tab-alterations").click();
     const intakeSection = page.getByTestId("alteration-workbench-section-intake");
     await expect(intakeSection.getByText("Shorten Sleeves").first()).toBeVisible({ timeout: 20_000 });

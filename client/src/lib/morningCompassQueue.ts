@@ -208,8 +208,28 @@ export function buildMorningCompassQueue(input: {
     });
   }
 
+  const notificationBundles = new Set<string>();
   for (const n of notifications) {
     if (n.archived_at) continue;
+    const entityKey = [
+      "transaction_id",
+      "order_id",
+      "customer_id",
+      "wedding_party_id",
+      "alteration_id",
+      "purchase_order_id",
+    ]
+      .map((key) => {
+        const value = n.deep_link?.[key];
+        return typeof value === "string" && value.trim() ? `${key}:${value.trim()}` : "";
+      })
+      .filter(Boolean)
+      .join("|");
+    const bundleKey = [n.source, n.kind, String(n.deep_link?.type ?? ""), entityKey]
+      .map((value) => value.trim().toLowerCase())
+      .join("|");
+    if (notificationBundles.has(bundleKey)) continue;
+    notificationBundles.add(bundleKey);
     const { sortKey, tier } = notificationSortKey(n);
     items.push({
       kind: "notification",

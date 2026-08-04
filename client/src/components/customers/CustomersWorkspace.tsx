@@ -187,6 +187,8 @@ export default function CustomersWorkspace({
   onMessagingFocusConsumed,
   surface = "backoffice",
 }: CustomersWorkspaceProps) {
+  const posSurface = surface === "pos";
+  const browsePageSize = posSurface ? 25 : BROWSE_PAGE_SIZE;
   const { backofficeHeaders, hasPermission, permissionsLoaded } =
     useBackofficeAuth();
   const apiAuth = useCallback(
@@ -436,7 +438,7 @@ export default function CustomersWorkspace({
         p.set("group_code", groupFilterCode.trim());
       }
       p.set("wedding_within_days", "30");
-      p.set("limit", String(BROWSE_PAGE_SIZE));
+      p.set("limit", String(browsePageSize));
       p.set("offset", String(offset));
       return p;
     },
@@ -448,6 +450,7 @@ export default function CustomersWorkspace({
       lifecycleFilter,
       _weddingPartyQuery,
       groupFilterCode,
+      browsePageSize,
     ],
   );
 
@@ -489,6 +492,10 @@ export default function CustomersWorkspace({
   browseFiltersKeyRef.current = browseFiltersKey;
 
   useEffect(() => {
+    if (posSurface) {
+      setCustomerGroups([]);
+      return;
+    }
     if (!canRequestCustomerData) {
       setCustomerGroups([]);
       return;
@@ -509,7 +516,7 @@ export default function CustomersWorkspace({
         /* ignore */
       }
     })();
-  }, [apiAuth, canRequestCustomerData]);
+  }, [apiAuth, canRequestCustomerData, posSurface]);
 
   const loadFirstPage = useCallback(
     async (clearList: boolean) => {
@@ -540,7 +547,7 @@ export default function CustomersWorkspace({
         const data = await fetchBrowsePage(0, controller.signal);
         if (requestId !== browseRequestRef.current) return;
         setRows(data);
-        setHasMore(data.length === BROWSE_PAGE_SIZE);
+        setHasMore(data.length === browsePageSize);
         setBrowseLoadFailed(false);
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -556,7 +563,7 @@ export default function CustomersWorkspace({
         if (browseAbortRef.current === controller) browseAbortRef.current = null;
       }
     },
-    [canRequestCustomerData, fetchBrowsePage, toast],
+    [browsePageSize, canRequestCustomerData, fetchBrowsePage, toast],
   );
 
   useEffect(() => {
@@ -571,7 +578,7 @@ export default function CustomersWorkspace({
   }, []);
 
   const fetchPipelineStats = useCallback(async () => {
-    if (!canRequestCustomerData) return;
+    if (!canRequestCustomerData || posSurface) return;
     try {
       const res = await fetch(`${baseUrl}/api/customers/pipeline-stats`, {
         headers: apiAuth(),
@@ -582,7 +589,7 @@ export default function CustomersWorkspace({
     } catch {
       /* ignore */
     }
-  }, [apiAuth, canRequestCustomerData]);
+  }, [apiAuth, canRequestCustomerData, posSurface]);
 
   const refresh = useCallback(() => {
     void loadFirstPage(false);
@@ -612,7 +619,7 @@ export default function CustomersWorkspace({
         const existing = new Set(prev.map((row) => row.id));
         return [...prev, ...data.filter((row) => !existing.has(row.id))];
       });
-      setHasMore(data.length === BROWSE_PAGE_SIZE);
+      setHasMore(data.length === browsePageSize);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
       if (requestId !== loadMoreRequestRef.current) return;
@@ -621,7 +628,7 @@ export default function CustomersWorkspace({
       if (requestId === loadMoreRequestRef.current) setLoadingMore(false);
       if (loadMoreAbortRef.current === controller) loadMoreAbortRef.current = null;
     }
-  }, [browseFiltersKey, hasMore, loadingMore, loading, rows.length, fetchBrowsePage, toast]);
+  }, [browseFiltersKey, browsePageSize, hasMore, loadingMore, loading, rows.length, fetchBrowsePage, toast]);
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -1026,8 +1033,8 @@ export default function CustomersWorkspace({
   return (
     <div className="ui-page flex-1 p-0 bg-transparent flex flex-col">
       <div className="flex flex-1 flex-col bg-transparent">
-        {/* Pipeline Strip */}
-        <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
+        {/* Management summaries stay in Back Office; POS opens directly into lookup. */}
+        {!posSurface ? <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
           {[
             {
               label: "Customer Profiles",
@@ -1085,9 +1092,9 @@ export default function CustomersWorkspace({
               </div>
             </div>
           ))}
-        </div>
+        </div> : null}
 
-        <div className="px-4 sm:px-6">
+        {!posSurface ? <div className="px-4 sm:px-6">
           <div className="ui-card ui-tint-warning px-4 py-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -1122,7 +1129,7 @@ export default function CustomersWorkspace({
               ))}
             </div>
           </div>
-        </div>
+        </div> : null}
 
         <div className="flex flex-1 flex-col p-3 sm:p-6 lg:p-8 animate-workspace-snap">
           <div className="ui-card flex flex-col overflow-hidden">
@@ -1143,7 +1150,7 @@ export default function CustomersWorkspace({
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                <div className="relative group w-full sm:w-64">
+                {!posSurface ? <div className="relative group w-full sm:w-64">
                   {_weddingPartyQuery ? (
                     <div className="flex h-9 items-center justify-between rounded-xl border border-app-accent bg-app-accent/5 px-3">
                       <span className="truncate text-[10px] font-black uppercase tracking-widest text-app-accent">
@@ -1166,7 +1173,7 @@ export default function CustomersWorkspace({
                       }
                     />
                   )}
-                </div>
+                </div> : null}
 
                 <button
                   type="button"
@@ -1177,26 +1184,28 @@ export default function CustomersWorkspace({
                   Add Customer
                 </button>
 
-                <button
+                {!posSurface ? <button
                   type="button"
                   onClick={onPickImportFile}
                   className="flex items-center justify-center rounded-xl bg-app-surface-2 p-2.5 text-app-text-muted border border-app-border hover:bg-app-surface transition-colors"
                   title="Import CSV"
                 >
                   <Upload size={18} />
-                </button>
-                <input
+                </button> : null}
+                {!posSurface ? <input
                   type="file"
                   ref={importFileRef}
                   className="hidden"
                   accept=".csv"
                   onChange={onImportFileChange}
-                />
+                /> : null}
 
                 <button
                   type="button"
                   onClick={() => void refresh()}
                   className={`flex items-center justify-center rounded-xl bg-app-surface-2 p-2.5 text-app-text-muted border border-app-border hover:bg-app-surface transition-colors ${loading ? "animate-spin" : ""}`}
+                  aria-label="Refresh customers"
+                  title="Refresh customers"
                 >
                   <Activity size={18} />
                 </button>
@@ -1204,7 +1213,7 @@ export default function CustomersWorkspace({
             </div>
 
             {/* Filter Row */}
-            <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-5">
+            {!posSurface ? <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-5">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-50 mr-2">
                   Quick Filters
@@ -1269,7 +1278,11 @@ export default function CustomersWorkspace({
               <div className="text-[10px] font-black uppercase tracking-widest text-app-text-disabled">
                 {rows.length} records detected
               </div>
-            </div>
+            </div> : (
+              <div className="border-b border-app-border bg-app-surface-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted lg:px-5">
+                {loading ? "Finding customers…" : `${rows.length} recent or matching customer${rows.length === 1 ? "" : "s"}`}
+              </div>
+            )}
 
             <div className="grid gap-3 p-3 lg:hidden">
               {browseLoadFailed && (
@@ -1303,13 +1316,13 @@ export default function CustomersWorkspace({
                           {r.company_name ? ` · ${r.company_name}` : ""}
                         </p>
                       </button>
-                      <input
+                      {!posSurface ? <input
                         type="checkbox"
                         checked={selected.has(r.id)}
                         onChange={() => toggleSelect(r.id)}
                         className="mt-1 h-5 w-5 rounded border-app-border text-app-accent focus:ring-0"
                         aria-label={`Select ${r.first_name} ${r.last_name}`}
-                      />
+                      /> : null}
                     </div>
 
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -1455,7 +1468,7 @@ export default function CustomersWorkspace({
               <table className="w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-app-surface-3 text-[11px] font-black uppercase tracking-[0.13em] text-app-text-muted transition-colors">
-                    <th className="w-12 px-4 py-3 border-b border-app-border">
+                    {!posSurface ? <th className="w-12 px-4 py-3 border-b border-app-border">
                       <input
                         type="checkbox"
                         checked={
@@ -1464,7 +1477,7 @@ export default function CustomersWorkspace({
                         onChange={toggleSelectAll}
                         className="h-4 w-4 rounded border-app-border text-app-accent focus:ring-0"
                       />
-                    </th>
+                    </th> : null}
                     <th className="px-4 py-3 border-b border-app-border">
                       Customer & ID
                     </th>
@@ -1504,14 +1517,14 @@ export default function CustomersWorkspace({
                         key={r.id}
                         className={`group transition-all hover:bg-app-accent/[0.04] ${selected.has(r.id) ? "bg-app-accent/[0.08]" : ""}`}
                       >
-                        <td className="px-4 py-3 align-middle">
+                        {!posSurface ? <td className="px-4 py-3 align-middle">
                           <input
                             type="checkbox"
                             checked={selected.has(r.id)}
                             onChange={() => toggleSelect(r.id)}
                             className="h-4 w-4 rounded border-app-border text-app-accent focus:ring-0"
                           />
-                        </td>
+                        </td> : null}
                         <td className="px-4 py-3 align-middle">
                           <div className="flex min-w-0 items-center gap-3">
                             <button
@@ -1758,7 +1771,7 @@ export default function CustomersWorkspace({
         </div>
       </div>
 
-      <FloatingBulkBar
+      {!posSurface ? <FloatingBulkBar
         count={selected.size}
         onClearSelection={() => setSelected(new Set())}
         label="Customer bulk actions"
@@ -1824,7 +1837,7 @@ export default function CustomersWorkspace({
         >
           Open weddings
         </button>
-      </FloatingBulkBar>
+      </FloatingBulkBar> : null}
 
       {mergeOpen ? createPortal(
         <div className="ui-overlay-backdrop flex items-center justify-center p-4">

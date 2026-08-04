@@ -32,6 +32,8 @@ Use this guide when a staff member is working a live register station.
 - Use **POS → Dashboard** for shift context between customers.
 - Move to the dedicated **Orders**, **Customers**, or **Reports** manuals when the task leaves live checkout.
 
+In POS, **Customers** opens directly into a 25-record recent/search list with **Add Customer**; profile-quality summaries, CSV import, group filters, and bulk selection remain in Back Office. **Orders** opens with Ready Check, Ready Pickup, Overdue, and All Open actions plus customer/Transaction search; closed history, printing, and advanced management filters remain in Back Office.
+
 ## Staff Access For A Sale
 
 To ensure each sale is attributed to the correct staff member, Riverside OS uses the same Staff Access pattern at the register.
@@ -81,7 +83,7 @@ When the drawer is active, you often land on **Dashboard**. Here you can see shi
 
 While a typed search is running, the Register shows **Searching products…** directly below the field. A completed search with no match shows **No products found** and repeats the search term; a Main Hub or network failure instead shows **Search unavailable** with connection guidance. These states are different from an exact scanned SKU showing **SKU NOT FOUND**.
 
-The action row below search scrolls by complete action cards. Use its left and right arrow buttons, or the keyboard arrow keys while the row is focused, to reach RMS Pay, Staff Pay, Layaway, and the remaining sale actions without selecting a partially visible card.
+The action grid below search keeps the most common workflows visible: **Start Wedding Sale**, **Collect Deposit**, **Start Alteration**, **Start Custom Order**, and **Return / Exchange**. Choose **More Actions** to open a full register-tools panel for Customer Orders, Gift Card loads, RMS or Staff Account payments, Layaway, Order options, Park Sale, and Clear Sale. Close the panel when the additional tools are no longer needed. Nothing is hidden off-screen in a horizontal action ribbon.
 
 The quantity/price keypad and the larger **Pay** action stay full size in a fixed checkout dock at the bottom of the right rail, even when wedding guidance or other sale context is loaded. On shorter screens, scroll the customer, wedding, and sale-summary area above the keypad; the keypad, total, and contextual **Pay** or **Complete Pickup** action remain in place. Before a cart line is selected, muted numerals and button borders mean **inactive**, not missing. Select a sale line and tap **Qty** or **Sale price** to activate the keypad. The colored **% / −**, **$**, and **Apply** controls use their action colors only while they are available.
 

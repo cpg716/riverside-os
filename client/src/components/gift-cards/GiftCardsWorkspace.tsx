@@ -306,7 +306,14 @@ function IssueForm({ mode, onDone }: IssueFormProps) {
   );
 }
 
-export default function GiftCardsWorkspace({ activeSection }: { activeSection: string }) {
+export default function GiftCardsWorkspace({
+  activeSection,
+  surface = "backoffice",
+}: {
+  activeSection: string;
+  surface?: "backoffice" | "pos";
+}) {
+  const posSurface = surface === "pos";
   const { backofficeHeaders } = useBackofficeAuth();
   const [cards, setCards] = useState<GiftCardRow[]>([]);
   const [summary, setSummary] = useState<GiftCardSummary | null>(null);
@@ -473,7 +480,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
 
   return (
     <div className="flex flex-1 flex-col bg-transparent">
-      <div className="no-scrollbar flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2">
+      {!posSurface ? <div className="no-scrollbar flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2">
         {[
           {
             label: "Open Cards",
@@ -537,7 +544,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             </div>
           </div>
         ))}
-      </div>
+      </div> : null}
 
       <div className="flex flex-1 flex-col p-4 sm:p-6 sm:pt-4 animate-workspace-snap">
         <div className="flex flex-1 flex-col rounded-[24px] border border-app-border bg-app-surface shadow-2xl">

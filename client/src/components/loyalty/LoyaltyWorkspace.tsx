@@ -1516,7 +1516,14 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
   );
 }
 
-export default function LoyaltyWorkspace({ activeSection }: { activeSection: string }) {
+export default function LoyaltyWorkspace({
+  activeSection,
+  surface = "backoffice",
+}: {
+  activeSection: string;
+  surface?: "backoffice" | "pos";
+}) {
+  const posSurface = surface === "pos";
   const isCompactLayout = useMediaQuery("(max-width: 1023px)");
   const { backofficeHeaders } = useBackofficeAuth();
   const [stats, setStats] = useState<LoyaltyPipelineStats | null>(null);
@@ -1557,8 +1564,8 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
 
   return (
     <div className="flex flex-1 flex-col bg-transparent">
-      {/* Executive Summary Strip */}
-      <div className="no-scrollbar flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2">
+      {/* Executive summaries stay in Back Office; POS opens the active task. */}
+      {!posSurface ? <div className="no-scrollbar flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2">
         {[
           { label: "Points On Accounts", val: stats?.total_points_liability.toLocaleString() ?? "—", icon: Coins, color: "text-amber-500", bg: "bg-amber-500/10", border: "border-amber-500/20", trend: "Current total" },
           { label: "Ready For Reward", val: stats?.eligible_customers_count.toLocaleString() ?? "—", icon: UserCheck, color: "text-sky-500", bg: "bg-sky-500/10", border: "border-sky-500/20", trend: "At threshold" },
@@ -1584,7 +1591,7 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
             </div>
           </div>
         ))}
-      </div>
+      </div> : null}
 
       <div className="flex flex-1 flex-col p-4 sm:p-6 sm:pt-4 animate-workspace-snap">
         <div className="flex flex-1 flex-col rounded-[24px] border border-app-border bg-app-surface shadow-2xl">

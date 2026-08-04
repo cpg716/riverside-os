@@ -84,6 +84,7 @@ interface ShipmentsHubSectionProps {
   /** When set (e.g. from hub timeline), load this shipment detail; parent should clear via `onOpenShipmentIdConsumed`. */
   openShipmentId?: string | null;
   onOpenShipmentIdConsumed?: () => void;
+  surface?: "backoffice" | "pos";
 }
 
 function fmtAddr(shipTo: unknown): string {
@@ -110,7 +111,9 @@ export default function ShipmentsHubSection({
   onOpenTransactionInBackoffice,
   openShipmentId = null,
   onOpenShipmentIdConsumed,
+  surface = "backoffice",
 }: ShipmentsHubSectionProps) {
+  const posSurface = surface === "pos";
   const { toast } = useToast();
   const { backofficeHeaders, hasPermission, permissionsLoaded } =
     useBackofficeAuth();
@@ -736,22 +739,22 @@ export default function ShipmentsHubSection({
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="mb-3 flex items-center">
+          {!posSurface ? <div className="mb-3 flex items-center">
             <IntegrationBrandLogo
               brand="shippo"
               kind="wordmark"
               className="inline-flex rounded-2xl border border-lime-500/20 bg-app-surface px-4 py-2 shadow-sm"
               imageClassName="h-10 w-auto object-contain"
             />
-          </div>
+          </div> : null}
           <h2 className="text-xl font-black tracking-tight text-app-text">
             {customerIdFilter ? "Customer shipments" : "All shipments"}
           </h2>
-          <p className="mt-1 max-w-2xl text-xs text-app-text-muted">
+          {!posSurface ? <p className="mt-1 max-w-2xl text-xs text-app-text-muted">
             POS and online store orders with shipping create rows here. Manual
             entries are for shipments without a sale. Timeline shows history and
             staff notes.
-          </p>
+          </p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -773,7 +776,7 @@ export default function ShipmentsHubSection({
           </button>
           {canManage ? (
             <>
-              <button
+              {!posSurface ? <button
                 type="button"
                 onClick={() => {
                   setBatchOpen((current) => !current);
@@ -783,7 +786,7 @@ export default function ShipmentsHubSection({
               >
                 <Truck size={14} />
                 Carrier handoff
-              </button>
+              </button> : null}
               <button
                 type="button"
                 onClick={() => setNewOpen(true)}

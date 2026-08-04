@@ -408,7 +408,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-sidebar",
     title: "POS Sidebar",
-    summary: "Use the POS rail to move between Register, Customers, RMS Charge, Podium Inbox, Shipping, Layaways, and other register-side workflows.",
+    summary: "Use five clear POS destinations: Dashboard, Register, Customers, Work, and More & Operations.",
     markdown: manual_47_raw,
     tags: ["pos-sidebar","pos","navigation","register"],
   },

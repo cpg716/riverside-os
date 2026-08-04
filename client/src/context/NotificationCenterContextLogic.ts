@@ -26,6 +26,8 @@ export type NotificationRow = {
 
 export type NotificationCenterContextValue = {
   unread: number;
+  /** Shared active preview used by dashboards so notification data has one owner. */
+  notifications: NotificationRow[];
   /** Unread Podium inbound SMS/email staff rows (Operations → Inbox); subset of `unread`. */
   podiumInboxUnread: number;
   refreshUnread: () => Promise<void>;

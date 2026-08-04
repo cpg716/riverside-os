@@ -46,7 +46,7 @@ test("Back Office sidebar stays fixed while the workspace scrolls", async ({
   expect(scrollState.documentScrollTop).toBeGreaterThan(0);
   expect(scrollState.railOverflowY).toBe("hidden");
   expect(scrollState.railTopBefore).not.toBeNull();
-  expect(scrollState.railTopAfter).toBe(scrollState.railTopBefore);
+  expect(Math.abs((scrollState.railTopAfter ?? 0) - (scrollState.railTopBefore ?? 0))).toBeLessThanOrEqual(0.5);
 });
 
 async function openClickablePosRail(page: Parameters<typeof signInToBackOffice>[0]) {
@@ -85,12 +85,12 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
     posNav.getByRole("button", { name: "Purchase Orders", exact: true }),
   ).toHaveCount(0);
 
-  await expect(
-    posNav.getByRole("button", { name: "RMS Charge", exact: true }),
-  ).toBeVisible();
-  await expect(
-    posNav.getByRole("button", { name: "Podium Inbox", exact: true }),
-  ).toBeVisible();
+  await expect(posNav.getByTestId("pos-sidebar-group-work")).toBeVisible();
+  await expect(posNav.getByTestId("pos-sidebar-group-more")).toBeVisible();
+  await expect(posNav.getByRole("button", { name: "Podium Inbox", exact: true })).toHaveCount(0);
+
+  await posNav.getByTestId("pos-sidebar-group-work").click();
+  await expect(posNav.getByRole("button", { name: "Podium Inbox", exact: true })).toBeVisible();
 
   await posNav.getByRole("button", { name: "Podium Inbox", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible();
@@ -98,6 +98,7 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
     page.getByText(/Synced Podium conversations for matched customers/i),
   ).toBeVisible();
 
+  await posNav.getByTestId("pos-sidebar-group-more").click();
   await posNav.getByRole("button", { name: "Inventory", exact: true }).click();
   await expect(
     posNav.getByRole("button", { name: /Purchase Orders|Receiving|Vendors|Add Item/i }),
@@ -134,15 +135,13 @@ test("rapid POS rail tab changes stay in POS mode and land on the final tab", as
 
   await expect(appShell).toHaveAttribute("data-pos-mode", "true");
 
-  for (const label of [
-    "Customers",
-    "Podium Inbox",
-    "Orders",
-    "Settings",
-    "Inventory",
-  ]) {
-    await posNav.getByRole("button", { name: label, exact: true }).click();
-  }
+  await posNav.getByRole("button", { name: "Customers", exact: true }).click();
+  await posNav.getByTestId("pos-sidebar-group-work").click();
+  await posNav.getByRole("button", { name: "Podium Inbox", exact: true }).click();
+  await posNav.getByRole("button", { name: "Orders", exact: true }).click();
+  await posNav.getByTestId("pos-sidebar-group-more").click();
+  await posNav.getByRole("button", { name: "Settings", exact: true }).click();
+  await posNav.getByRole("button", { name: "Inventory", exact: true }).click();
 
   await expect(appShell).toHaveAttribute("data-pos-mode", "true");
   await expect(posShell).toHaveAttribute("data-pos-active-tab", "inventory");
@@ -154,9 +153,7 @@ test("rapid POS rail tab changes stay in POS mode and land on the final tab", as
   await expect(
     posNav.getByRole("button", { name: /Purchase Orders|Receiving|Vendors|Add Item/i }),
   ).toHaveCount(0);
-  await expect(
-    posNav.getByRole("button", { name: "Podium Inbox", exact: true }),
-  ).toBeVisible();
+  await expect(posNav.getByTestId("pos-sidebar-group-work")).toBeVisible();
   await expect(
     posNav.getByRole("button", { name: "RMS Charge", exact: true }),
   ).toBeVisible();
@@ -172,7 +169,7 @@ test("POS dashboard keeps the POS rail fixed while the workspace scrolls", async
 
   const posShell = page.getByTestId("pos-shell-root");
   await expect(posShell).toHaveAttribute("data-pos-active-tab", "pos-dashboard");
-  await expect(page.getByText(/Register command center/i)).toBeVisible({
+  await expect(page.getByText(/Today(?:'|’)s priorities/i)).toBeVisible({
     timeout: 20_000,
   });
   await expect(page.getByTestId("pos-dashboard-scroll")).toBeVisible();

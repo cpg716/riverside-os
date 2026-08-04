@@ -1054,12 +1054,14 @@ function jsonHeaders(base: () => HeadersInit): HeadersInit {
 
 export default function OrdersWorkspace({
   activeSection = "open",
+  surface = "backoffice",
   onOpenInRegister,
   deepLinkTxnId = null,
   onDeepLinkTxnConsumed,
   refreshSignal = 0,
 }: {
   activeSection?: string;
+  surface?: "backoffice" | "pos";
   onOpenInRegister?: (
     orderId: string,
     forPickup?: boolean,
@@ -1070,6 +1072,7 @@ export default function OrdersWorkspace({
   onDeepLinkTxnConsumed?: () => void;
   refreshSignal?: number;
 }) {
+  const posSurface = surface === "pos";
   const defaultViewPreset: OrderViewPreset =
     activeSection === "open" ? "open" : "all";
   const baseUrl = getBaseUrl();
@@ -1097,7 +1100,7 @@ export default function OrdersWorkspace({
   const [audit, setAudit] = useState<TransactionDrawerAudit[]>([]);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
-  const limit = ORDERS_PAGE_SIZE;
+  const limit = posSurface ? 25 : ORDERS_PAGE_SIZE;
 
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [returnConfirmOpen, setReturnConfirmOpen] = useState(false);
@@ -1989,6 +1992,9 @@ export default function OrdersWorkspace({
       icon: AlertTriangle,
     },
   ];
+  const visibleFollowUpMetrics = posSurface
+    ? orderFollowUpMetrics.filter((metric) => metric.label !== "Needs action")
+    : orderFollowUpMetrics;
 
   const hasUnresolvedOrderItems = transactionRows.some((row) => {
     if (row.item_count <= 0 || row.order_items_summary?.trim()) return false;
@@ -2110,7 +2116,7 @@ export default function OrdersWorkspace({
   return (
     <div className="ui-page flex flex-1 flex-col bg-transparent p-0">
       <div className="flex flex-1 flex-col bg-transparent">
-        <div className="grid shrink-0 grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-6 sm:pb-2 xl:grid-cols-4">
+        {!posSurface ? <div className="grid shrink-0 grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-6 sm:pb-2 xl:grid-cols-4">
           {orderStatCards.map((stat) => (
             <div
               key={stat.label}
@@ -2131,7 +2137,7 @@ export default function OrdersWorkspace({
               </div>
             </div>
           ))}
-        </div>
+        </div> : null}
 
         <div className="px-4 sm:px-6">
           <div className="ui-card ui-tint-warning px-4 py-4">
@@ -2141,14 +2147,14 @@ export default function OrdersWorkspace({
                   Fulfillment Follow-Up
                 </p>
                 <p className="mt-1 text-sm font-semibold text-app-text">
-                  Orders are Special, Custom, and Wedding fulfillment work. The
-                  parent Transaction Record holds the sale, payments, refunds,
-                  receipts, and non-order items.
+                  {posSurface
+                    ? "Choose the next fulfillment action, then open the customer Transaction in Register."
+                    : "Orders are Special, Custom, and Wedding fulfillment work. The parent Transaction Record holds the sale, payments, refunds, receipts, and non-order items."}
                 </p>
               </div>
             </div>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-              {orderFollowUpMetrics.map((metric) => {
+              {visibleFollowUpMetrics.map((metric) => {
                 const Icon = metric.icon;
                 const active =
                   metric.lifecycle && lifecycleFilter === metric.lifecycle;
@@ -2192,6 +2198,22 @@ export default function OrdersWorkspace({
                   </div>
                 );
               })}
+              {posSurface ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewPreset("open");
+                    setLifecycleFilter("all");
+                  }}
+                  className={cn(
+                    "ui-metric-cell px-3 py-3 text-left transition-all hover:border-app-accent/30 hover:bg-app-surface-2",
+                    lifecycleFilter === "all" && "border-app-accent/30 bg-app-accent/8",
+                  )}
+                >
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">All open</p>
+                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">{pipelineStats?.needs_action ?? totalCount}</p>
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -2214,7 +2236,7 @@ export default function OrdersWorkspace({
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {(
+                {!posSurface ? (
                   [
                     { id: "open", label: "Open Orders" },
                     { id: "all", label: "All Orders" },
@@ -2239,9 +2261,9 @@ export default function OrdersWorkspace({
                       {preset.label}
                     </button>
                   );
-                })}
+                }) : null}
 
-                <button
+                {!posSurface ? <button
                   type="button"
                   onClick={() => void printOrdersList()}
                   disabled={
@@ -2258,7 +2280,7 @@ export default function OrdersWorkspace({
                 >
                   <Printer size={16} />
                   {hasUnresolvedOrderItems ? "Loading Items" : "Print"}
-                </button>
+                </button> : null}
 
                 <button
                   type="button"
@@ -2281,7 +2303,7 @@ export default function OrdersWorkspace({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-3 px-4 py-4 lg:px-5">
+            {!posSurface ? <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-3 px-4 py-4 lg:px-5">
               <select
                 aria-label="Filter orders by type"
                 value={kindFilter}
@@ -2378,7 +2400,7 @@ export default function OrdersWorkspace({
                   />
                 </div>
               ) : null}
-            </div>
+            </div> : null}
 
             <div className="grid gap-3 p-3 xl:hidden">
               {transactionRows.map((r) => (

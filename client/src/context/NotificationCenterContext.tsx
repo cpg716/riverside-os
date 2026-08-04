@@ -17,6 +17,7 @@ import {
   NotificationCenterContext,
   type NotificationCenterContextValue,
   type NotificationDeepLink,
+  type NotificationRow,
 } from "./NotificationCenterContextLogic";
 
 const baseUrl = getBaseUrl();
@@ -41,6 +42,7 @@ export function NotificationCenterProvider({
 
   const [unread, setUnread] = useState(0);
   const [podiumInboxUnread, setPodiumInboxUnread] = useState(0);
+  const [notifications, setNotifications] = useState<NotificationRow[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const unreadRefreshInFlightRef = useRef(false);
 
@@ -48,23 +50,30 @@ export function NotificationCenterProvider({
     if (!canView || !canReachApi) {
       setUnread(0);
       setPodiumInboxUnread(0);
+      setNotifications([]);
       return;
     }
     if (unreadRefreshInFlightRef.current) return;
     unreadRefreshInFlightRef.current = true;
     try {
-      const res = await fetch(`${baseUrl}/api/notifications/unread-count`, {
-        headers: apiAuth(),
-      });
-      if (!res.ok) return;
-      const data = (await res.json()) as {
-        unread?: number;
-        podium_inbox_unread?: number;
-      };
-      setUnread(typeof data.unread === "number" ? data.unread : 0);
-      setPodiumInboxUnread(
-        typeof data.podium_inbox_unread === "number" ? data.podium_inbox_unread : 0,
-      );
+      const [countRes, previewRes] = await Promise.all([
+        fetch(`${baseUrl}/api/notifications/unread-count`, { headers: apiAuth() }),
+        fetch(`${baseUrl}/api/notifications?limit=8`, { headers: apiAuth() }),
+      ]);
+      if (countRes.ok) {
+        const data = (await countRes.json()) as {
+          unread?: number;
+          podium_inbox_unread?: number;
+        };
+        setUnread(typeof data.unread === "number" ? data.unread : 0);
+        setPodiumInboxUnread(
+          typeof data.podium_inbox_unread === "number" ? data.podium_inbox_unread : 0,
+        );
+      }
+      if (previewRes.ok) {
+        const preview = (await previewRes.json()) as NotificationRow[];
+        setNotifications(Array.isArray(preview) ? preview : []);
+      }
     } catch {
       /* ignore */
     } finally {
@@ -106,6 +115,7 @@ export function NotificationCenterProvider({
   const value = useMemo<NotificationCenterContextValue>(
     () => ({
       unread,
+      notifications,
       podiumInboxUnread,
       refreshUnread,
       drawerOpen,
@@ -113,7 +123,7 @@ export function NotificationCenterProvider({
       closeDrawer: () => setDrawerOpen(false),
       canView: canView && canReachApi,
     }),
-    [unread, podiumInboxUnread, refreshUnread, drawerOpen, canView, canReachApi],
+    [unread, notifications, podiumInboxUnread, refreshUnread, drawerOpen, canView, canReachApi],
   );
 
   return (

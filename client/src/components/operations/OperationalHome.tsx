@@ -592,6 +592,7 @@ export default function OperationalHome({
     { id: string; title_snapshot: string; due_date: string | null }[]
   >([]);
   const [taskDrawerId, setTaskDrawerId] = useState<string | null>(null);
+  const [showOperationalDetail, setShowOperationalDetail] = useState(false);
   const [feedLoadErrors, setFeedLoadErrors] = useState<
     Partial<Record<OperationalFeedKey, string>>
   >({});
@@ -1937,7 +1938,7 @@ export default function OperationalHome({
 
   const renderDashboard = () => (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-5">
         <div className="max-w-3xl space-y-2">
           <p className="text-[10px] font-black uppercase tracking-[0.28em] text-app-text-muted">
             Back Office Command Center
@@ -1948,9 +1949,6 @@ export default function OperationalHome({
           <p className="text-sm font-semibold leading-relaxed text-app-text-muted">
             Start here: sales movement, open drawers, pickup pressure, tailoring due dates, inventory alerts, and staff follow-up all route back to their source workspace.
           </p>
-        </div>
-        <div className="flex w-full justify-start lg:w-auto lg:justify-end">
-          <WeatherDashboardWidget refreshSignal={refreshSignal} compact />
         </div>
       </div>
 
@@ -2036,9 +2034,9 @@ export default function OperationalHome({
         />
       </div>
 
-      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-12">
-        <div className="space-y-6 xl:col-span-8">
-          <DashboardGridCard
+      <div className={cn("grid grid-cols-1 items-start gap-6", showOperationalDetail && "xl:grid-cols-12")}>
+        <div className={cn("space-y-6", showOperationalDetail && "xl:col-span-8")}>
+          {showOperationalDetail ? <DashboardGridCard
             title="What Changed Today"
             subtitle="Booked activity, appointments, pickups, and weddings with source links"
             icon={TrendingUp}
@@ -2130,7 +2128,7 @@ export default function OperationalHome({
               facts={dailyBriefingFacts}
               getHeaders={taskAuth}
             />
-          </DashboardGridCard>
+          </DashboardGridCard> : null}
 
           <DashboardGridCard
             title="Action Board"
@@ -2197,7 +2195,16 @@ export default function OperationalHome({
             )}
           </DashboardGridCard>
 
-          <div data-testid="operations-alterations-section">
+          <button
+            type="button"
+            onClick={() => setShowOperationalDetail((current) => !current)}
+            className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-app-border bg-app-surface-2 px-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:border-app-accent/30 hover:bg-app-surface hover:text-app-text"
+            aria-expanded={showOperationalDetail}
+          >
+            {showOperationalDetail ? "Hide operational detail" : "Show operational detail"}
+          </button>
+
+          {showOperationalDetail ? <div data-testid="operations-alterations-section">
             <DashboardGridCard
               title="Alterations"
               subtitle="Due, overdue, and ready garments with a direct route to the tailoring queue"
@@ -2292,12 +2299,13 @@ export default function OperationalHome({
                 </div>
               )}
             </DashboardGridCard>
-          </div>
+          </div> : null}
 
-          <RecentActivityCard activityFeed={activityFeed} feedError={feedLoadErrors.activityFeed ?? null} />
+          {showOperationalDetail ? <RecentActivityCard activityFeed={activityFeed} feedError={feedLoadErrors.activityFeed ?? null} /> : null}
         </div>
 
-        <div className="space-y-6 xl:col-span-4">
+        {showOperationalDetail ? <div className="space-y-6 xl:col-span-4">
+          <WeatherDashboardWidget refreshSignal={refreshSignal} compact />
           <DashboardGridCard
             title="What Needs Attention"
             subtitle="Decision list; every row opens the source workflow"
@@ -2466,7 +2474,7 @@ export default function OperationalHome({
               )}
             </div>
           </DashboardGridCard>
-        </div>
+        </div> : null}
       </div>
     </div>
   );

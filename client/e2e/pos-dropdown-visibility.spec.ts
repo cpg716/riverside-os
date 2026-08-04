@@ -142,6 +142,10 @@ async function openPosRegisterSurface(page: Page): Promise<void> {
 }
 
 async function ensureCartScrollable(page: Page): Promise<void> {
+  const toolbar = page.getByRole("toolbar", { name: "Cart actions" });
+  if (await page.getByTestId("pos-action-gift-card").count() === 0) {
+    await toolbar.getByRole("button", { name: "More Actions", exact: true }).click();
+  }
   for (let i = 0; i < 6; i += 1) {
     await page.getByTestId("pos-action-gift-card").click();
     const dialog = page.getByRole("dialog", { name: /gift card/i });
@@ -262,8 +266,15 @@ test("POS product search explains no matches and action cards are not clipped", 
     timeout: 10_000,
   });
   await expect(page.getByText(/No product name, SKU, or supplier SKU matches “shoe”/i)).toBeVisible();
+  await productInput.fill("");
+  await productInput.press("Tab");
+  await expect(page.getByText("No products found", { exact: true })).toHaveCount(0);
 
   const actionToolbar = page.getByRole("toolbar", { name: "Cart actions" });
+  await actionToolbar.getByRole("button", { name: "More Actions", exact: true }).click();
+  const moreActionsDialog = page.getByRole("dialog", { name: "More sale actions" });
+  await expect(moreActionsDialog.getByRole("button", { name: /Open Customer Orders/i })).toBeVisible();
+  await moreActionsDialog.getByRole("button", { name: "Close more sale actions" }).click();
   const clippedVisibleActions = await actionToolbar.evaluate((toolbar) => {
     const bounds = toolbar.getBoundingClientRect();
     return Array.from(toolbar.children)
