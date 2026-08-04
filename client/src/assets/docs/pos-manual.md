@@ -239,7 +239,12 @@ Cart so staff can review those items, add a new purchase, or continue without a
 new tender when the pickup is already paid. It does not open Payment or add the
 historical balance automatically. Use **Add Payment** only when the customer is
 intentionally paying some or all of that balance today, then use **Pay** or
-**Complete Pickup** when the Cart is ready.
+**Complete Pickup** when the Cart is ready. If the selected Orders will still
+have a balance after staged payments, Riverside requires an explicit choice:
+**Go Back / Add Payment** or **Pick Up Without Payment**. A fully picked-up
+Transaction Record with money due remains **Open** and searchable until its
+balance reaches `$0.00`; physical pickup time is still retained for fulfillment
+and revenue reporting.
 
 For a pickup that was paid before today, Sale Complete states **Collected at
 this pickup: $0.00**, the amount **Previously paid**, and the **Balance

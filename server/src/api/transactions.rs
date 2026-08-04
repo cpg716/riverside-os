@@ -1338,6 +1338,18 @@ mod tests {
     }
 
     #[test]
+    fn fully_picked_up_transaction_stays_open_until_balance_is_paid() {
+        assert_eq!(
+            fully_picked_up_transaction_status(Decimal::new(21542, 2)),
+            DbOrderStatus::Open
+        );
+        assert_eq!(
+            fully_picked_up_transaction_status(Decimal::ZERO),
+            DbOrderStatus::Fulfilled
+        );
+    }
+
+    #[test]
     fn order_status_wire_values_are_canonical_and_backwards_compatible() {
         let cases = [
             (DbOrderStatus::Open, "open", "Open"),
@@ -5642,6 +5654,14 @@ async fn patch_transaction(
     Ok(Json(detail))
 }
 
+fn fully_picked_up_transaction_status(balance_due: Decimal) -> DbOrderStatus {
+    if balance_due > Decimal::ZERO {
+        DbOrderStatus::Open
+    } else {
+        DbOrderStatus::Fulfilled
+    }
+}
+
 async fn mark_transaction_pickup(
     State(state): State<AppState>,
     Path(transaction_id): Path<Uuid>,
@@ -6087,13 +6107,6 @@ async fn mark_transaction_pickup(
     .bind(transaction_id)
     .fetch_one(&mut *tx)
     .await?;
-    if remaining_unfulfilled == 0 {
-        sqlx::query("UPDATE transactions SET status = 'fulfilled'::order_status, fulfilled_at = COALESCE(fulfilled_at, CURRENT_TIMESTAMP) WHERE id = $1")
-            .bind(transaction_id)
-            .execute(&mut *tx)
-            .await?;
-    }
-
     if !claimed_fulfillment_line_ids.is_empty() {
         crate::logic::commission_recalc::recalc_transaction_commissions_after_fulfillment(
             &mut tx,
@@ -6192,6 +6205,30 @@ async fn mark_transaction_pickup(
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
         .map_err(TransactionError::Database)?;
+
+    if remaining_unfulfilled == 0 {
+        // Physical fulfillment and financial closure are separate. Preserve the
+        // pickup timestamp for recognition, but keep a balance-bearing Transaction
+        // Record open so staff can still find it and collect the remaining payment.
+        let balance_due: Decimal =
+            sqlx::query_scalar("SELECT balance_due FROM transactions WHERE id = $1")
+                .bind(transaction_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        let parent_status = fully_picked_up_transaction_status(balance_due);
+        sqlx::query(
+            r#"
+            UPDATE transactions
+            SET status = $2,
+                fulfilled_at = COALESCE(fulfilled_at, CURRENT_TIMESTAMP)
+            WHERE id = $1
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(parent_status)
+        .execute(&mut *tx)
+        .await?;
+    }
 
     let status_after: DbOrderStatus =
         sqlx::query_scalar("SELECT status FROM transactions WHERE id = $1")

@@ -185,6 +185,7 @@ export default function OrderLoadModal({
     retainedPrice: string;
   } | null>(null);
   const [pickupBusy, setPickupBusy] = useState(false);
+  const [confirmUnpaidPickup, setConfirmUnpaidPickup] = useState(false);
   const [pickupConfirm, setPickupConfirm] = useState<{
     mode: ReleaseMode;
     order: CustomerOrder;
@@ -622,8 +623,24 @@ export default function OrderLoadModal({
     );
   };
 
-  const startPickupBasket = async () => {
+  const startPickupBasket = async (allowUnpaidBalance = false) => {
     if (!onPickupToCart || pickupBasket.length === 0) return;
+    const stagedPaymentByTransaction = new Map(
+      stagedOrderPayments.map((payment) => [
+        payment.target_transaction_id,
+        parseMoneyToCents(payment.amount),
+      ]),
+    );
+    const remainingBalanceCents = pickupBasket.reduce((sum, entry) => {
+      const balanceDueCents = parseMoneyToCents(entry.order.balance_due);
+      const stagedPaymentCents =
+        stagedPaymentByTransaction.get(entry.order.id) ?? 0;
+      return sum + Math.max(0, balanceDueCents - stagedPaymentCents);
+    }, 0);
+    if (!allowUnpaidBalance && remainingBalanceCents > 0) {
+      setConfirmUnpaidPickup(true);
+      return;
+    }
     setPickupBusy(true);
     try {
       const loaded = await onPickupToCart(pickupBasket);
@@ -1688,6 +1705,19 @@ export default function OrderLoadModal({
           }}
         />
       )}
+      <ConfirmationModal
+        isOpen={confirmUnpaidPickup}
+        title="Balance Will Remain Open"
+        message="One or more selected Orders will still have a balance after the staged payments. Choose Go Back / Add Payment to collect it now, or explicitly continue without payment. Fully picked-up Orders with a balance remain open until paid."
+        confirmLabel="Pick Up Without Payment"
+        cancelLabel="Go Back / Add Payment"
+        onConfirm={() => {
+          setConfirmUnpaidPickup(false);
+          void startPickupBasket(true);
+        }}
+        onClose={() => setConfirmUnpaidPickup(false)}
+        variant="info"
+      />
       {cancelOrder && (
         <ConfirmationModal
           isOpen={true}

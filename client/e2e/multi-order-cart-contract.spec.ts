@@ -77,6 +77,19 @@ test("starting pickup returns selected items to Cart without forcing Payment", (
   expect(pickupHandoff).not.toContain("hasSalespersonAttribution(cartLines)");
 });
 
+test("pickup with a remaining balance requires an explicit payment choice", () => {
+  const modal = repoFile("client/src/components/pos/OrderLoadModal.tsx");
+  const transactions = repoFile("server/src/api/transactions.rs");
+
+  expect(modal).toContain('title="Balance Will Remain Open"');
+  expect(modal).toContain('confirmLabel="Pick Up Without Payment"');
+  expect(modal).toContain('cancelLabel="Go Back / Add Payment"');
+  expect(modal).toContain("remainingBalanceCents > 0");
+  expect(transactions).toContain("fully_picked_up_transaction_status(balance_due)");
+  expect(transactions).toContain("DbOrderStatus::Open");
+  expect(transactions).toContain("fulfilled_at = COALESCE(fulfilled_at, CURRENT_TIMESTAMP)");
+});
+
 test("starting pickup from a second order merges it into the active cart", () => {
   const cart = repoFile("client/src/components/pos/Cart.tsx");
   const pickupHandoff = cart.slice(
