@@ -123,4 +123,4 @@ try {
   Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
 }
 
-Write-Host "Bootstrap admin ready: Chris G / Access PIN 1234"
+Write-Host "Bootstrap admin recovery completed. The Access PIN was not written to installer output."

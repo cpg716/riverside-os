@@ -26,8 +26,28 @@ test("multilingual Kokoro starts as US English on every Riverside speech path", 
   ]) {
     expect(source).toContain("--kokoro-lang=en-us");
   }
+  for (const source of [serverSpeechSource, tauriSpeechSource]) {
+    expect(source).toContain("if valid_wav_artifact(temp_wav)");
+    expect(source).toContain("let transcript = parse_sherpa_onnx_offline_output");
+  }
   expect(windowsSpeechProbeSource).toContain(
     '"`"Riverside Rosie health check`""',
+  );
+  expect(windowsSpeechProbeSource).toContain("$process.WaitForExit()");
+  expect(windowsSpeechProbeSource).toContain(
+    "$wavReady = Test-WavFixture $probeWav",
+  );
+  expect(windowsSpeechProbeSource).not.toContain(
+    "$wavReady = $ttsProbe.success -and",
+  );
+  expect(windowsSpeechProbeSource).not.toContain(
+    "$recognized = $sttProbe.success -and",
+  );
+  expect(windowsSpeechProbeSource).toContain(
+    'stt_error = "Skipped because the TTS fixture was not certified."',
+  );
+  expect(windowsSpeechProbeSource).toContain(
+    'TTS=$ttsResult; STT=$sttResult.',
   );
 });
 

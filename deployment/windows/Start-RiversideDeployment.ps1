@@ -1113,7 +1113,6 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
     if ($serverRadio.Checked) {
       Add-Log "$Action This Main Hub PC..."
       Invoke-Installer "install-server.ps1" @()
-      Invoke-Installer "repair-bootstrap-admin.ps1"
       Add-Log "Server $($Action.ToLowerInvariant()) complete."
       Add-Log "$Action Main Hub desktop app..."
       Invoke-Installer "install-register.ps1" @("-StationMode", "mainhub")
@@ -1135,7 +1134,6 @@ function Invoke-SelectedLifecycleAction([string]$Action) {
     if ($serverRadio.Checked) {
       Add-Log "Repairing This Main Hub PC..."
       Invoke-Installer "install-server.ps1"
-      Invoke-Installer "repair-bootstrap-admin.ps1"
       Add-Log "Repairing Main Hub desktop app..."
       Invoke-Installer "install-register.ps1" @("-StationMode", "mainhub")
       Add-Log "Main Hub repair complete."

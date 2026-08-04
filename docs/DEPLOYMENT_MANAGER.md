@@ -213,7 +213,7 @@ If the server loses its encryption keys or the `.env` file is corrupted, this co
 5. Safely restarts the `Riverside OS Server` scheduled task to pick up the new keys.
 
 ### Repair Bootstrap Admin (`repair-bootstrap-admin.ps1`)
-In case of complete lockout, this script forcefully resets the primary administrative account to the factory default PIN (`1234`) and ensures the profile retains the `admin` role, restoring Back Office access.
+In case of complete lockout, this explicit maintenance action resets the primary administrative account to the packaged recovery Access PIN and ensures the profile retains the `admin` role. It is not part of routine install, update, or general repair sequences, and it does not print the recovery PIN into installer output or transcripts.
 
 ---
 
@@ -237,9 +237,13 @@ On the Main Hub station, **Settings → Updates → Server update** shows a live
 1. Downloads the Windows deployment ZIP for the version/build reported by the update check.
 2. Extracts it to a temporary directory and verifies `deployment-package.manifest.json` against the target build SHA before launching any elevated script.
 3. Uses the configured PostgreSQL administrator to create and verify a pre-migration database backup while the current Main Hub server is still running. If this backup fails, the update stops before replacing files or stopping Riverside.
-4. Runs `install-server.ps1`, `repair-bootstrap-admin.ps1`, and `install-register.ps1` elevated via UAC in a PowerShell window.
+4. Runs `install-server.ps1` and `install-register.ps1` elevated via UAC in a PowerShell window. Existing staff credentials and permissions are preserved; bootstrap-admin recovery remains a separate lockout-only action.
 5. **Automatically restarts the `Riverside OS Server` scheduled task** after install. If a later install step fails, rollback independently restores the prior files/task, synchronizes the restored server environment with any completed database credential change, and attempts to restart the previous server.
-6. Polls `GET /api/health` every 2 seconds (up to 60 s) and confirms the server is responding before printing "Update Complete".
+6. Polls `GET /api/ready` every 2 seconds (up to 60 s), then records the exact version, build SHA, transcript path, and final post-restart result in `C:\ProgramData\RiversideOS\deployment.status` before printing "Update Complete".
+
+During the managed Meilisearch restart, a detected legacy development key is replaced with a generated private key and the same value is written to the managed server configuration before Riverside restarts.
+
+ROSIE certification uses the functional artifacts themselves: TTS must create a structurally valid RIFF/WAVE fixture and STT must recognize the health-check phrase from that fixture. Native exit codes and diagnostic streams remain recorded, but a Windows process-status anomaly cannot discard valid generated speech or prevent the subsequent recognition probe.
 7. The operator relaunches Riverside on all stations when prompted.
 
 The updater requires an exact build SHA from the server update check before it downloads an asset. Missing provenance or a non-successful GitHub asset response stops before extraction, elevation, or any Main Hub change.

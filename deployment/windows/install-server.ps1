@@ -603,14 +603,11 @@ function Assert-DatabaseUtf8($PsqlPath, $Db, [string]$DatabaseName) {
 
 function Ensure-BootstrapAdmin($PsqlPath, $DatabaseUrl) {
   $bootstrapPinHash = '$argon2id$v=19$m=19456,t=2,p=1$KWJoKjtQYNuPjRIyKL2M9g$FBpoET53ejevTU5LrsLTzQMrgXpV5NavqruJmerdPsc'
-  $sql = "UPDATE staff SET full_name = 'Chris G', pin_hash = '$bootstrapPinHash', role = 'admin'::staff_role, " +
-    "is_active = TRUE, avatar_key = COALESCE(avatar_key, 'ros_default') WHERE cashier_code = '1234'; " +
-    "INSERT INTO staff (full_name, cashier_code, pin_hash, role, is_active, avatar_key) " +
+  $sql = "INSERT INTO staff (full_name, cashier_code, pin_hash, role, is_active, avatar_key) " +
     "SELECT 'Chris G', '1234', '$bootstrapPinHash', 'admin'::staff_role, TRUE, 'ros_default' " +
     "WHERE NOT EXISTS (SELECT 1 FROM staff WHERE cashier_code = '1234'); " +
-    "DO `$`$ BEGIN " +
-    "IF NOT EXISTS (SELECT 1 FROM staff WHERE cashier_code = '1234' AND role = 'admin'::staff_role AND is_active = TRUE AND pin_hash IS NOT NULL) THEN " +
-    "RAISE EXCEPTION 'Bootstrap admin was not created.'; END IF; END `$`$;"
+    "DO `$`$ BEGIN IF NOT EXISTS (SELECT 1 FROM staff WHERE cashier_code = '1234') THEN " +
+    "RAISE EXCEPTION 'Bootstrap staff account was not created.'; END IF; END `$`$;"
   Invoke-Psql $PsqlPath $DatabaseUrl $sql
 }
 
@@ -1113,7 +1110,7 @@ function Ensure-CloudflaredRosIngress($Config, [int]$ServerPort) {
   }
 }
 
-function Ensure-MeilisearchServerEnvironment($Config) {
+function Ensure-MeilisearchServerEnvironment($Config, [bool]$AllowLegacyKey = $false) {
   $envObj = Ensure-ServerEnvironmentObject $Config
   $url = Get-ServerEnvironmentValue $Config @("RIVERSIDE_MEILISEARCH_URL", "MEILISEARCH_URL")
   $apiKey = Get-ServerEnvironmentValue $Config @("RIVERSIDE_MEILISEARCH_API_KEY", "MEILISEARCH_API_KEY")
@@ -1128,12 +1125,18 @@ function Ensure-MeilisearchServerEnvironment($Config) {
   }
   $existingMeiliVersion = Join-Path $meiliInstallRoot "meilisearch\data\VERSION"
   $isDevelopmentDefault = $apiKey -eq "dev_master_key_change_me"
-  if ([string]::IsNullOrWhiteSpace($apiKey) -or ($isDevelopmentDefault -and -not (Test-Path $existingMeiliVersion))) {
+  if ([string]::IsNullOrWhiteSpace($apiKey) -or ($isDevelopmentDefault -and -not $AllowLegacyKey)) {
+    if ($isDevelopmentDefault -and (Test-Path $existingMeiliVersion)) {
+      $script:legacyMeilisearchKeyRotated = $true
+      $script:previousMeilisearchApiKey = $apiKey
+    }
     $apiKey = New-RiversideSecret 48
     $script:meilisearchConfigModified = $true
-    Write-Host "Auto-generated a private Meilisearch master key for this Main Hub." -ForegroundColor Green
-  } elseif ($isDevelopmentDefault) {
-    Write-Warning "This existing Main Hub still uses the legacy development Meilisearch key. Preserve it for this update, then rotate the Meilisearch service key and saved Search credential together during a maintenance window."
+    if ($isDevelopmentDefault -and (Test-Path $existingMeiliVersion)) {
+      Write-Host "Replaced the legacy Meilisearch development key with a private Main Hub key." -ForegroundColor Green
+    } else {
+      Write-Host "Auto-generated a private Meilisearch master key for this Main Hub." -ForegroundColor Green
+    }
   }
 
   if (-not $envObj.PSObject.Properties["RIVERSIDE_MEILISEARCH_URL"] -or "$($envObj.RIVERSIDE_MEILISEARCH_URL)" -ne $url) {
@@ -1211,9 +1214,10 @@ function Ensure-RiversideMeilisearchHost(
   [string]$PackageRoot,
   [string]$InstallRoot,
   $Config,
-  [bool]$StartNow = $true
+  [bool]$StartNow = $true,
+  [bool]$AllowLegacyKey = $false
 ) {
-  $meiliConfig = Ensure-MeilisearchServerEnvironment $Config
+  $meiliConfig = Ensure-MeilisearchServerEnvironment $Config $AllowLegacyKey
   $meiliUrl = $meiliConfig.Url
   $apiKey = $meiliConfig.ApiKey
 
@@ -2250,7 +2254,7 @@ if ($script:postgresReachable) {
     $env:PGPASSWORD = $db.appPassword
     try {
       Ensure-BootstrapAdmin $psql $databaseUrl
-      Write-Host "Bootstrap admin ready: Chris G / Access PIN 1234"
+      Write-Host "Bootstrap staff account verified; existing credentials and permissions were preserved."
     } finally {
       Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
     }
@@ -2301,6 +2305,8 @@ if ($PreserveExistingRosie) {
 }
 
 $script:meilisearchConfigModified = $false
+$script:legacyMeilisearchKeyRotated = $false
+$script:previousMeilisearchApiKey = $null
 Ensure-RiversideMeilisearchHost $ScriptRoot $installRoot $config (-not $NoStart)
 if ($script:meilisearchConfigModified) {
   $configJson = $config | ConvertTo-Json -Depth 8
@@ -2473,6 +2479,17 @@ Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
       }
     } catch {
       Write-Warning "Rollback deployment config restoration failed: $($_.Exception.Message)"
+    }
+  }
+
+  if ($script:legacyMeilisearchKeyRotated -and -not [string]::IsNullOrWhiteSpace($script:previousMeilisearchApiKey)) {
+    try {
+      $restoredEnvironment = Ensure-ServerEnvironmentObject $config
+      Set-SafeProperty $restoredEnvironment "RIVERSIDE_MEILISEARCH_API_KEY" $script:previousMeilisearchApiKey
+      Ensure-RiversideMeilisearchHost $ScriptRoot $installRoot $config $true $true
+      Write-Host "Restored the previous Meilisearch service key after the failed update." -ForegroundColor Yellow
+    } catch {
+      Write-Warning "Could not restore the previous Meilisearch service key: $($_.Exception.Message)"
     }
   }
 

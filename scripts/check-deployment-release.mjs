@@ -99,6 +99,8 @@ function renderMainHubUpdateRunner(source) {
     task_name: "Riverside OS Server",
     server_port: "3000",
     ready_ep: "/api/ready",
+    target_version: "0.90.0",
+    target_build_short: "e96a3e50",
   };
 
   let rendered = match[1];
@@ -618,6 +620,8 @@ for (const copy of [
   "data-incompatible-",
   "--no-analytics",
   "--schedule-snapshot=86400",
+  "Replaced the legacy Meilisearch development key with a private Main Hub key.",
+  "Restored the previous Meilisearch service key after the failed update.",
 ]) {
   assertIncludes(
     mainHubInstaller,
@@ -625,6 +629,21 @@ for (const copy of [
     "Main Hub installer must install and start local Meilisearch before the API relies on it",
   );
 }
+assertNotIncludes(
+  mainHubInstaller,
+  "This existing Main Hub still uses the legacy development Meilisearch key.",
+  "Main Hub installs must rotate the legacy development key together with the managed service configuration",
+);
+assertNotIncludes(
+  mainHubInstaller,
+  "UPDATE staff SET full_name = 'Chris G'",
+  "routine Main Hub installs must preserve existing bootstrap credentials and permissions",
+);
+assertIncludes(
+  mainHubInstaller,
+  "existing credentials and permissions were preserved",
+  "routine Main Hub installs must report credential preservation without printing an Access PIN",
+);
 for (const copy of [
   "$env:PGPASSWORD = $DbConfig.adminPassword",
   "-U $backupUser -d $DbConfig.databaseName",
@@ -663,10 +682,16 @@ for (const copy of [
   'seed = 42',
   '$startupTimeoutSeconds = if ((Get-Item $modelPath).Length -ge 4GB) { 180 } else { 60 }',
   'Waiting up to $startupTimeoutSeconds seconds for the ROSIE LLM host to load the model',
-  'ROSIE certification details: HTTP healthy=$llmHealthy; LLM functional=$($llmProbe.ready); TTS functional=$($speechProbe.tts_ready); STT functional=$($speechProbe.stt_ready).',
+  'ROSIE certification details: HTTP healthy=$llmHealthy; LLM functional=$($llmProbe.ready); TTS=$ttsResult; STT=$sttResult.',
   'ROSIE LLM detail: $($llmProbe.error)',
   'ROSIE speech detail: $($speechProbe.error)',
   '"`"Riverside Rosie health check`""',
+  '$process.WaitForExit()',
+  'function Test-WavFixture([string]$Path)',
+  '$wavReady = Test-WavFixture $probeWav',
+  '$recognized = $transcript -match',
+  'stt_error = "Skipped because the TTS fixture was not certified."',
+  'wav_bytes = $speechProbe.tts_wav_bytes',
 ]) {
   assertIncludes(
     "deployment/windows/watch-rosie-stack.ps1",
@@ -674,6 +699,16 @@ for (const copy of [
     "ROSIE certification must allow bounded cold startup and report the exact failing subsystem",
   );
 }
+assertNotIncludes(
+  "deployment/windows/watch-rosie-stack.ps1",
+  "$wavReady = $ttsProbe.success -and",
+  "a structurally valid generated WAV is the authoritative TTS functional result",
+);
+assertNotIncludes(
+  "deployment/windows/watch-rosie-stack.ps1",
+  "$recognized = $sttProbe.success -and",
+  "recognized fixture text is the authoritative STT functional result",
+);
 assertNotIncludes(
   mainHubInstaller,
   'throw "ROSIE functional certification failed.',
@@ -899,11 +934,18 @@ for (const copy of [
   "verify_downloaded_asset_digest",
   "missing its GitHub SHA-256 digest",
   "Get-FileHash",
+  "Write-MainHubUpdateStatus 'READY' 'Main Hub update completed and post-restart readiness passed.'",
+  "build_sha = '{target_build_short}'",
 ]) {
   assertIncludes(
     mainHubUpdater,
     copy,
     "Main Hub updater must stage an existing deployment config before launching the elevated update runner",
+  );
+}
+if (renderedMainHubUpdateRunner.includes("repair-bootstrap-admin.ps1")) {
+  fail(
+    `${mainHubUpdater}: routine Main Hub updates must not reset the bootstrap administrator`,
   );
 }
 for (const copy of [

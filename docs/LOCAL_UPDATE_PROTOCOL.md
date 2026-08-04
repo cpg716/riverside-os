@@ -137,8 +137,8 @@ This is the standard update path for all production stores:
    - Open **Settings → Updates → Server update**.
    - Confirm the version banner shows the available update.
    - Click **"Update server to vX.X.X"** and monitor the progress steps.
-   - The system automatically: downloads the deployment ZIP, runs `install-server.ps1` + migrations elevated, **restarts the `Riverside OS Server` scheduled task**, and polls `/api/health` until the server is confirmed ready.
-   - When the PowerShell window prints "Update Complete", relaunch Riverside on all stations.
+   - The system automatically: downloads the deployment ZIP, runs `install-server.ps1` + migrations elevated, **restarts the `Riverside OS Server` scheduled task**, and polls `/api/ready` until the server and database are confirmed ready.
+   - When the PowerShell window prints "Update Complete", verify `C:\ProgramData\RiversideOS\deployment.status` reports `READY` for the expected version/build, then relaunch Riverside on all stations. The `READY` result is written only after the final restarted server passes `/api/ready`.
 4. **On Register / Back Office satellite stations**:
    - The next time staff launch the app, the `BackofficeSignInGate` checks `GET /api/version`.
    - If the server is ahead of the client, the sign-in screen is **replaced with a blocking update prompt**.

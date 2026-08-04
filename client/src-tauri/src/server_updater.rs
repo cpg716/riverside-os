@@ -757,6 +757,26 @@ $serverBin = "$installRoot\server\riverside-server.exe"
 $backupBin = "$installRoot\server\riverside-server.exe.bak"
 $taskName = '{task_name}'
 $serverPort = {server_port}
+$deploymentStatusPath = Join-Path $env:ProgramData 'RiversideOS\deployment.status'
+
+function Write-MainHubUpdateStatus([string]$Status, [string]$Message) {{
+    try {{
+        $statusDir = Split-Path $deploymentStatusPath -Parent
+        New-Item -ItemType Directory -Force -Path $statusDir | Out-Null
+        [ordered]@{{
+            status = $Status
+            timestamp = (Get-Date).ToString('o')
+            message = $Message
+            version = '{target_version}'
+            build_sha = '{target_build_short}'
+            transcript = $transcriptPath
+        }} | ConvertTo-Json | Set-Content -Path $deploymentStatusPath -Encoding UTF8
+    }} catch {{
+        Write-Warning ('Could not persist Main Hub update status: ' + $_.Exception.Message)
+    }}
+}}
+
+Write-MainHubUpdateStatus 'UPDATING' 'Main Hub update started.'
 
 # Keep the current server running until install-server.ps1 verifies the
 # pre-migration database backup and begins its guarded replacement window.
@@ -772,23 +792,21 @@ try {{
     if (Test-Path -Path $installRootConfig) {{
         $configPath = $installRootConfig
     }}
+    Write-MainHubUpdateStatus 'UPDATING' 'Server files installed; completing the desktop update and final restart.'
 
-    Write-Host 'Step 2: Running repair-bootstrap-admin.ps1...'
-    ./repair-bootstrap-admin.ps1 -ConfigPath $configPath
-
-    Write-Host 'Step 3: Updating client app on this PC (preserving existing config)...'
+    Write-Host 'Step 2: Updating client app on this PC (preserving existing config)...'
     ./install-register.ps1 -ConfigPath $configPath -StationMode mainhub
 
     # Checksum verification
     if (Test-Path -Path $serverBin) {{
-        Write-Host 'Step 4: Verifying binary checksum...'
+        Write-Host 'Step 3: Verifying binary checksum...'
         $hash = Get-FileHash -Path $serverBin -Algorithm SHA256
         Write-Host ('  SHA256: ' + $hash.Hash)
     }} else {{
         throw "Server binary was not installed correctly (missing file)."
     }}
 
-    Write-Host 'Step 5: Restarting Riverside OS Server...'
+    Write-Host 'Step 4: Restarting Riverside OS Server...'
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if ($task) {{
         Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
@@ -801,7 +819,7 @@ try {{
         Write-Warning ('  Scheduled task ' + $taskName + ' not found - server may need manual restart.')
     }}
 
-    Write-Host 'Step 6: Waiting for server to become ready...'
+    Write-Host 'Step 5: Waiting for server to become ready...'
     $ready = $false
     for ($i = 0; $i -lt 30; $i++) {{
         Start-Sleep -Seconds 2
@@ -817,6 +835,8 @@ try {{
         throw "Server did not respond within 60s."
     }}
 
+    Write-MainHubUpdateStatus 'READY' 'Main Hub update completed and post-restart readiness passed.'
+
     Write-Host '========================================='
     Write-Host 'Update Complete! Relaunch Riverside on all stations.'
     Write-Host '========================================='
@@ -826,6 +846,7 @@ try {{
     }}
 }} catch {{
     Write-Host ('Update failed: ' + $_.Exception.Message) -ForegroundColor Red
+    Write-MainHubUpdateStatus 'FAILED' ('Main Hub update failed: ' + $_.Exception.Message)
     $serverStillHealthy = $false
     try {{
         $existingResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{ready_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
@@ -892,6 +913,8 @@ Read-Host 'Press Enter to close this window'
             task_name = contract::SERVER_TASK_NAME,
             server_port = contract::DEFAULT_SERVER_PORT,
             ready_ep = contract::READY_ENDPOINT,
+            target_version = version.replace('\'', "''"),
+            target_build_short = target_build_short.replace('\'', "''"),
         );
 
         std::fs::write(&runner_script_path, runner_content)

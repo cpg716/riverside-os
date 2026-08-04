@@ -1,6 +1,7 @@
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use serde::Serialize;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -249,6 +250,20 @@ fn parse_sherpa_onnx_offline_output(stdout: &str) -> String {
     stdout.trim().to_string()
 }
 
+fn valid_wav_artifact(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if metadata.len() <= 44 {
+        return false;
+    }
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut header = [0_u8; 12];
+    file.read_exact(&mut header).is_ok() && &header[0..4] == b"RIFF" && &header[8..12] == b"WAVE"
+}
+
 fn resolve_llama_provider() -> String {
     std::env::var("RIVERSIDE_LLAMA_PROVIDER").unwrap_or_else(|_| "llama.cpp".into())
 }
@@ -485,17 +500,16 @@ async fn transcribe_with_active_engine(wav_path: &Path) -> Result<String, String
             .await
             .map_err(|e| format!("failed to start ROSIE SenseVoice STT: {e}"))?;
 
-        if output.status.success() {
-            let stdout_str = String::from_utf8_lossy(&output.stdout);
-            let transcript = parse_sherpa_onnx_offline_output(&stdout_str);
-            if !transcript.is_empty() {
-                return Ok(transcript);
-            }
-            return Err("ROSIE STT did not detect any speech in the audio.".to_string());
-        } else {
-            let stderr_str = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("SenseVoice STT failed: {}", stderr_str.trim()));
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        let transcript = parse_sherpa_onnx_offline_output(&stdout_str);
+        if !transcript.is_empty() {
+            return Ok(transcript);
         }
+        if output.status.success() {
+            return Err("ROSIE STT did not detect any speech in the audio.".to_string());
+        }
+        let stderr_str = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("SenseVoice STT failed: {}", stderr_str.trim()));
     }
 
     if let (Some(python), Some(script), Some(model), Some(tokens)) = (
@@ -521,12 +535,12 @@ async fn transcribe_with_active_engine(wav_path: &Path) -> Result<String, String
             .await
             .map_err(|e| format!("failed to start ROSIE SenseVoice STT helper: {e}"))?;
 
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        let transcript = stdout_str.trim().to_string();
+        if !transcript.is_empty() {
+            return Ok(transcript);
+        }
         if output.status.success() {
-            let stdout_str = String::from_utf8_lossy(&output.stdout);
-            let transcript = stdout_str.trim().to_string();
-            if !transcript.is_empty() {
-                return Ok(transcript);
-            }
             return Err("ROSIE STT did not detect any speech in the audio.".to_string());
         }
 
@@ -574,13 +588,17 @@ async fn synthesize_kokoro_to_wav(
             .await
             .map_err(|error| format!("failed to synthesize ROSIE speech: {error}"))?;
 
-        if output.status.success() {
+        if valid_wav_artifact(temp_wav) {
             return Ok(());
         }
 
         let stderr = String::from_utf8_lossy(&output.stderr);
         let _ = tokio::fs::remove_file(temp_wav).await;
-        return Err(format!("ROSIE Kokoro TTS failed: {}", stderr.trim()));
+        return Err(format!(
+            "ROSIE Kokoro TTS failed without producing valid WAV audio (exit {:?}): {}",
+            output.status.code(),
+            stderr.trim()
+        ));
     }
 
     if let (Some(python), Some(script)) =
@@ -605,7 +623,7 @@ async fn synthesize_kokoro_to_wav(
             .await
             .map_err(|error| format!("failed to synthesize ROSIE speech helper: {error}"))?;
 
-        if output.status.success() {
+        if valid_wav_artifact(temp_wav) {
             return Ok(());
         }
 

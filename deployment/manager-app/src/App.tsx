@@ -303,11 +303,8 @@ export default function App() {
       // For a full Server install/update (run from the wizard), run the full sequence
       // matching the old Start-RiversideDeployment.ps1 Invoke-SelectedLifecycleAction:
       //   1. install-server.ps1  ← done above
-      //   2. repair-bootstrap-admin.ps1
-      //   3. install-register.ps1  (installs the BO desktop Tauri app on this PC)
+      //   2. install-register.ps1  (installs the BO desktop Tauri app on this PC)
       if (scriptName === 'install-server.ps1' && options?.runMainHubDesktopSequence) {
-        setLogs(prev => [...prev, { level: 'info', text: 'Verifying bootstrap admin account...' }]);
-        await invoke('run_deployment_script', { scriptName: 'repair-bootstrap-admin.ps1', args: undefined });
         setLogs(prev => [...prev, { level: 'info', text: 'Installing Main Hub desktop app...' }]);
         await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: ['-StationMode', 'mainhub'] });
       }
@@ -325,7 +322,7 @@ export default function App() {
   };
 
   // Full server update sequence matching old PS manager:
-  // install-server.ps1 → repair-bootstrap-admin.ps1 → install-register.ps1
+  // install-server.ps1 → install-register.ps1
   const executeServerUpdate = async () => {
     if (isExecuting) return;
     if (!requireElevation('Update Main Hub')) return;
@@ -341,8 +338,6 @@ export default function App() {
       setLogs(prev => [...prev, { level: 'info', text: 'Saved Main Hub database settings for update.' }]);
       setLogs(prev => [...prev, { level: 'info', text: 'Executing install-server.ps1...' }]);
       await invoke('run_deployment_script', { scriptName: 'install-server.ps1', args: undefined });
-      setLogs(prev => [...prev, { level: 'info', text: 'Verifying bootstrap admin account...' }]);
-      await invoke('run_deployment_script', { scriptName: 'repair-bootstrap-admin.ps1', args: undefined });
       setLogs(prev => [...prev, { level: 'info', text: 'Updating Main Hub desktop app...' }]);
       await invoke('run_deployment_script', { scriptName: 'install-register.ps1', args: ['-StationMode', 'mainhub'] });
       setLogs(prev => [...prev, { level: 'success', text: 'Main Hub update complete.' }]);

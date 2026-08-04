@@ -155,6 +155,26 @@ function Write-RosieStatus([string]$StatusPath, [object]$Status) {
   $Status | ConvertTo-Json -Depth 8 | Out-File -FilePath $StatusPath -Encoding utf8
 }
 
+function Test-WavFixture([string]$Path) {
+  if (-not (Test-Path $Path)) { return $false }
+  $file = Get-Item $Path
+  if ($file.Length -le 44) { return $false }
+  try {
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+      $header = New-Object byte[] 12
+      if ($stream.Read($header, 0, $header.Length) -ne $header.Length) { return $false }
+      $riff = [Text.Encoding]::ASCII.GetString($header, 0, 4)
+      $wave = [Text.Encoding]::ASCII.GetString($header, 8, 4)
+      return $riff -eq "RIFF" -and $wave -eq "WAVE"
+    } finally {
+      $stream.Dispose()
+    }
+  } catch {
+    return $false
+  }
+}
+
 function Invoke-BoundedProcess([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds) {
   $probeId = [guid]::NewGuid().ToString("N")
   $stdoutPath = Join-Path $env:TEMP "rosie-probe-$probeId.stdout.log"
@@ -166,10 +186,14 @@ function Invoke-BoundedProcess([string]$FilePath, [string[]]$Arguments, [int]$Ti
       try { $process.Kill() } catch {}
       return [pscustomobject]@{ success = $false; timed_out = $true; exit_code = $null; stdout = ""; stderr = "Timed out after $TimeoutSeconds seconds"; elapsed_ms = [int]((Get-Date) - $startedAt).TotalMilliseconds }
     }
+    # Finish redirected stream handling before reading process metadata.
+    $process.WaitForExit()
+    $process.Refresh()
+    $exitCode = $process.ExitCode
     return [pscustomobject]@{
-      success = $process.ExitCode -eq 0
+      success = $exitCode -eq 0
       timed_out = $false
-      exit_code = $process.ExitCode
+      exit_code = $exitCode
       stdout = if (Test-Path $stdoutPath) { Get-Content $stdoutPath -Raw } else { "" }
       stderr = if (Test-Path $stderrPath) { Get-Content $stderrPath -Raw } else { "" }
       elapsed_ms = [int]((Get-Date) - $startedAt).TotalMilliseconds
@@ -198,9 +222,33 @@ function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$Stt
       "`"Riverside Rosie health check`""
     )
     $ttsProbe = Invoke-BoundedProcess $TtsExe $ttsArgs 60
-    $wavReady = $ttsProbe.success -and (Test-Path $probeWav) -and (Get-Item $probeWav).Length -gt 44
+    $wavExists = Test-Path $probeWav
+    $wavBytes = if ($wavExists) { (Get-Item $probeWav).Length } else { 0 }
+    # The generated, structurally valid audio fixture is the functional result.
+    # Some sherpa Windows builds emit diagnostics or an unreliable native exit
+    # status after successfully closing the WAV, so retain the exit code as
+    # evidence without discarding a valid speech artifact.
+    $wavReady = Test-WavFixture $probeWav
     if (-not $wavReady) {
-      return [pscustomobject]@{ ready = $false; tts_ready = $false; stt_ready = $false; tts_elapsed_ms = $ttsProbe.elapsed_ms; stt_elapsed_ms = $null; transcript = ""; error = "Kokoro functional probe failed: $($ttsProbe.stderr)" }
+      $ttsError = "Kokoro functional probe failed: exit_code=$($ttsProbe.exit_code); timed_out=$($ttsProbe.timed_out); wav_bytes=$wavBytes; stderr=$($ttsProbe.stderr); stdout=$($ttsProbe.stdout)"
+      return [pscustomobject]@{
+        ready = $false
+        tts_tested = $true
+        tts_ready = $false
+        tts_exit_code = $ttsProbe.exit_code
+        tts_wav_bytes = $wavBytes
+        stt_tested = $false
+        stt_ready = $false
+        stt_exit_code = $null
+        tts_elapsed_ms = $ttsProbe.elapsed_ms
+        stt_elapsed_ms = $null
+        transcript = ""
+        tts_warning = ""
+        stt_warning = ""
+        tts_error = $ttsError
+        stt_error = "Skipped because the TTS fixture was not certified."
+        error = $ttsError
+      }
     }
 
     $sttArgs = @(
@@ -212,15 +260,29 @@ function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$Stt
     )
     $sttProbe = Invoke-BoundedProcess $AsrExe $sttArgs 60
     $transcript = "$($sttProbe.stdout)".Trim()
-    $recognized = $sttProbe.success -and $transcript -match '(?i)riverside|rosie|health|check'
+    # A recognized fixture is the end-to-end STT result. Preserve a nonzero
+    # exit code as a warning instead of hiding successfully recognized speech.
+    $recognized = $transcript -match '(?is)riverside\s+(rosie|rosy)\s+health\s+check'
+    $ttsWarning = if ($ttsProbe.success) { "" } else { "Kokoro produced a valid WAV but exited with code $($ttsProbe.exit_code)." }
+    $sttWarning = if (-not $recognized -or $sttProbe.success) { "" } else { "SenseVoice recognized the fixture but exited with code $($sttProbe.exit_code)." }
+    $sttError = if ($recognized) { "" } else { "SenseVoice functional probe did not recognize the health-check fixture: exit_code=$($sttProbe.exit_code); timed_out=$($sttProbe.timed_out); stderr=$($sttProbe.stderr); stdout=$($sttProbe.stdout)" }
     return [pscustomobject]@{
       ready = [bool]($wavReady -and $recognized)
+      tts_tested = $true
       tts_ready = [bool]$wavReady
+      tts_exit_code = $ttsProbe.exit_code
+      tts_wav_bytes = $wavBytes
+      stt_tested = $true
       stt_ready = [bool]$recognized
+      stt_exit_code = $sttProbe.exit_code
       tts_elapsed_ms = $ttsProbe.elapsed_ms
       stt_elapsed_ms = $sttProbe.elapsed_ms
       transcript = if ($recognized) { $transcript } else { "" }
-      error = if ($recognized) { "" } else { "SenseVoice functional probe did not recognize the health-check fixture. $($sttProbe.stderr)" }
+      tts_warning = $ttsWarning
+      stt_warning = $sttWarning
+      tts_error = ""
+      stt_error = $sttError
+      error = $sttError
     }
   } finally {
     Remove-Item $probeDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -292,7 +354,24 @@ $ttsReady = $ttsMissing.Count -eq 0
 $baseUrl = "http://${hostName}:${port}"
 $llmHealthy = $false
 $llmProbe = [pscustomobject]@{ ready = $false; text_completion = $false; streaming = $false; native_tool_calling = $false; multimodal = $false; error = "Gemma has not been functionally certified" }
-$speechProbe = [pscustomobject]@{ ready = $false; tts_ready = $false; stt_ready = $false; tts_elapsed_ms = $null; stt_elapsed_ms = $null; transcript = ""; error = "Speech assets are incomplete" }
+$speechProbe = [pscustomobject]@{
+  ready = $false
+  tts_tested = $false
+  tts_ready = $false
+  tts_exit_code = $null
+  tts_wav_bytes = 0
+  stt_tested = $false
+  stt_ready = $false
+  stt_exit_code = $null
+  tts_elapsed_ms = $null
+  stt_elapsed_ms = $null
+  transcript = ""
+  tts_warning = ""
+  stt_warning = ""
+  tts_error = "Speech assets are incomplete"
+  stt_error = "Speech assets are incomplete"
+  error = "Speech assets are incomplete"
+}
 
 if ($binariesReady -and $llmReady) {
   $llmHealthy = Test-RosieHttpHealth $baseUrl
@@ -403,10 +482,13 @@ $status = [pscustomobject]@{
       model_dir = $sttModelDir
       missing = $sttMissing
       functional_probe = [pscustomobject]@{
+        tested = $speechProbe.stt_tested
         ready = $speechProbe.stt_ready
+        exit_code = $speechProbe.stt_exit_code
         elapsed_ms = $speechProbe.stt_elapsed_ms
         transcript = $speechProbe.transcript
-        error = $speechProbe.error
+        warning = $speechProbe.stt_warning
+        error = $speechProbe.stt_error
       }
     }
     tts = [pscustomobject]@{
@@ -414,9 +496,13 @@ $status = [pscustomobject]@{
       model_dir = $ttsModelDir
       missing = $ttsMissing
       functional_probe = [pscustomobject]@{
+        tested = $speechProbe.tts_tested
         ready = $speechProbe.tts_ready
+        exit_code = $speechProbe.tts_exit_code
+        wav_bytes = $speechProbe.tts_wav_bytes
         elapsed_ms = $speechProbe.tts_elapsed_ms
-        error = $speechProbe.error
+        warning = $speechProbe.tts_warning
+        error = $speechProbe.tts_error
       }
     }
   }
@@ -430,7 +516,9 @@ if ($stackReady) {
   Write-Host "ROSIE stack is healthy at $baseUrl."
 } else {
   if (Test-Path $readyFlag) { Remove-Item $readyFlag -Force -ErrorAction SilentlyContinue }
-  Write-Warning "ROSIE certification details: HTTP healthy=$llmHealthy; LLM functional=$($llmProbe.ready); TTS functional=$($speechProbe.tts_ready); STT functional=$($speechProbe.stt_ready)."
+  $ttsResult = if (-not $speechProbe.tts_tested) { "SKIPPED" } elseif ($speechProbe.tts_ready) { "PASS" } else { "FAIL" }
+  $sttResult = if (-not $speechProbe.stt_tested) { "SKIPPED" } elseif ($speechProbe.stt_ready) { "PASS" } else { "FAIL" }
+  Write-Warning "ROSIE certification details: HTTP healthy=$llmHealthy; LLM functional=$($llmProbe.ready); TTS=$ttsResult; STT=$sttResult."
   if (-not [string]::IsNullOrWhiteSpace("$($llmProbe.error)")) {
     Write-Warning "ROSIE LLM detail: $($llmProbe.error)"
   }
