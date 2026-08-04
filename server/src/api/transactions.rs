@@ -36,6 +36,9 @@ use crate::logic::gift_card_ops;
 use crate::logic::helcim;
 use crate::logic::loyalty as loyalty_logic;
 use crate::logic::order_lifecycle;
+use crate::logic::order_line_cancellation::{
+    self, OrderLineCancellationLineInput, OrderLineCancellationPreview,
+};
 use crate::logic::podium::{self, looks_like_email};
 use crate::logic::podium_messaging;
 use crate::logic::podium_reviews;
@@ -244,6 +247,8 @@ pub struct TransactionDetailItem {
     pub quantity: i32,
     /// Units recorded on `transaction_return_lines` for this line.
     pub quantity_returned: i32,
+    /// Units removed through the dedicated unfulfilled Order-item cancellation workflow.
+    pub quantity_cancelled: i32,
     pub returned_subtotal: Decimal,
     pub returned_state_tax: Decimal,
     pub returned_local_tax: Decimal,
@@ -1240,6 +1245,7 @@ mod tests {
             variation_label: Some("42R".to_string()),
             quantity,
             quantity_returned,
+            quantity_cancelled: 0,
             returned_subtotal: Decimal::new(25000, 2) * Decimal::from(quantity_returned),
             returned_state_tax: Decimal::new(1000, 2) * Decimal::from(quantity_returned),
             returned_local_tax: Decimal::new(500, 2) * Decimal::from(quantity_returned),
@@ -3454,6 +3460,7 @@ struct OrderItemRow {
     variation_label: Option<String>,
     quantity: i32,
     quantity_returned: i32,
+    quantity_cancelled: i32,
     returned_subtotal: Decimal,
     returned_state_tax: Decimal,
     returned_local_tax: Decimal,
@@ -3862,6 +3869,13 @@ pub struct PostTransactionReturnsRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct OrderLineCancellationRequest {
+    pub lines: Vec<OrderLineCancellationLineInput>,
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct TransactionReturnLineBody {
     pub transaction_line_id: Uuid,
     pub quantity: i32,
@@ -3955,6 +3969,14 @@ pub fn router() -> Router<AppState> {
             post(process_exchange_settlement_recovery),
         )
         .route("/{transaction_id}/returns", post(post_transaction_returns))
+        .route(
+            "/{transaction_id}/order-line-cancellations/preview",
+            post(preview_order_line_cancellation),
+        )
+        .route(
+            "/{transaction_id}/order-line-cancellations",
+            post(post_order_line_cancellation),
+        )
         .route(
             "/{transaction_id}/exchange-link",
             post(post_transaction_exchange_link),
@@ -8009,6 +8031,14 @@ async fn process_refund(
         )));
     }
 
+    if !body.cancel_transaction {
+        require_fulfilled_merchandise_for_partial_refund(
+            &mut tx,
+            transaction_id,
+            &body.return_lines,
+        )
+        .await?;
+    }
     apply_refund_return_lines_in_tx(
         &mut tx,
         transaction_id,
@@ -12041,6 +12071,12 @@ pub(crate) async fn load_transaction_detail(
                 WHERE orx.transaction_line_id = oi.id
             ), 0) AS quantity_returned,
             COALESCE((
+                SELECT SUM(orx.quantity_returned)::int
+                FROM transaction_return_lines orx
+                WHERE orx.transaction_line_id = oi.id
+                  AND orx.reason LIKE 'Order item cancellation:%'
+            ), 0) AS quantity_cancelled,
+            COALESCE((
                 SELECT SUM(COALESCE(orx.refund_subtotal, oi.unit_price * orx.quantity_returned))
                 FROM transaction_return_lines orx
                 WHERE orx.transaction_line_id = oi.id
@@ -12731,6 +12767,7 @@ pub(crate) async fn load_transaction_detail(
             variation_label: r.variation_label,
             quantity: r.quantity,
             quantity_returned: r.quantity_returned,
+            quantity_cancelled: r.quantity_cancelled,
             returned_subtotal: r.returned_subtotal,
             returned_state_tax: r.returned_state_tax,
             returned_local_tax: r.returned_local_tax,
@@ -13179,6 +13216,40 @@ async fn apply_refund_return_lines_in_tx(
     Ok(())
 }
 
+async fn require_fulfilled_merchandise_for_partial_refund(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    lines: &[TransactionReturnLineBody],
+) -> Result<(), TransactionError> {
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let line_ids = lines
+        .iter()
+        .map(|line| line.transaction_line_id)
+        .collect::<Vec<_>>();
+    let unfulfilled_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM transaction_lines
+        WHERE transaction_id = $1
+          AND id = ANY($2)
+          AND COALESCE(is_fulfilled, FALSE) = FALSE
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(&line_ids)
+    .fetch_one(&mut **tx)
+    .await?;
+    if unfulfilled_count > 0 {
+        return Err(TransactionError::InvalidPayload(
+            "Unfulfilled Order items cannot be processed as merchandise returns. Cancel them from Customer Orders so their credit is applied to the unpaid balance before any refund is calculated."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
 async fn repair_refund_return_lines(
     State(state): State<AppState>,
     Path((transaction_id, refund_event_id)): Path<(Uuid, Uuid)>,
@@ -13351,6 +13422,77 @@ async fn post_transaction_returns(
 
     let detail = load_transaction_detail(&state.db, transaction_id).await?;
     Ok(Json(detail))
+}
+
+fn map_order_line_cancellation_error(
+    error: order_line_cancellation::OrderLineCancellationError,
+) -> TransactionError {
+    match error {
+        order_line_cancellation::OrderLineCancellationError::Db(database) => {
+            TransactionError::Database(database)
+        }
+        order_line_cancellation::OrderLineCancellationError::BadRequest(message) => {
+            TransactionError::InvalidPayload(message)
+        }
+        order_line_cancellation::OrderLineCancellationError::NotFound => TransactionError::NotFound,
+    }
+}
+
+async fn preview_order_line_cancellation(
+    State(state): State<AppState>,
+    Path(transaction_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<OrderLineCancellationRequest>,
+) -> Result<Json<OrderLineCancellationPreview>, TransactionError> {
+    middleware::require_staff_with_permission(&state, &headers, ORDERS_MODIFY)
+        .await
+        .map_err(map_perm_err)?;
+    let mut tx = state.db.begin().await?;
+    let preview = order_line_cancellation::preview_in_tx(&mut tx, transaction_id, &body.lines)
+        .await
+        .map_err(map_order_line_cancellation_error)?;
+    tx.rollback().await?;
+    Ok(Json(preview))
+}
+
+async fn post_order_line_cancellation(
+    State(state): State<AppState>,
+    Path(transaction_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<OrderLineCancellationRequest>,
+) -> Result<Json<OrderLineCancellationPreview>, TransactionError> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, ORDERS_MODIFY)
+        .await
+        .map_err(map_perm_err)?;
+    let mut tx = state.db.begin().await?;
+    let preview = order_line_cancellation::apply_in_tx(
+        &mut tx,
+        transaction_id,
+        staff.id,
+        &body.lines,
+        &body.reason,
+    )
+    .await
+    .map_err(map_order_line_cancellation_error)?;
+    tx.commit().await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        staff.id,
+        "order_items_cancelled",
+        json!({
+            "transaction_id": transaction_id,
+            "cancelled_line_count": preview.lines.len(),
+            "cancellation_total": preview.cancellation_total,
+            "credit_applied_to_balance": preview.credit_applied_to_balance,
+            "balance_due_after": preview.balance_due_after,
+            "refund_due": preview.refund_due,
+            "reason": body.reason.trim(),
+        }),
+    )
+    .await;
+    spawn_meilisearch_transaction_upsert(&state, transaction_id);
+    Ok(Json(preview))
 }
 
 async fn post_transaction_exchange_link(
@@ -14361,103 +14503,10 @@ async fn delete_transaction_line(
     .await?;
 
     if has_positive_payment {
-        let refund_event_id: Uuid = sqlx::query_scalar(
-            r#"
-            SELECT return_line.refund_event_id
-            FROM transaction_return_lines return_line
-            INNER JOIN transaction_refund_queue refund
-                ON refund.transaction_id = return_line.transaction_id
-               AND refund.is_open = TRUE
-            WHERE return_line.transaction_id = $1
-              AND return_line.refund_event_id IS NOT NULL
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM payment_transactions refund_payment
-                  INNER JOIN payment_allocations refund_allocation
-                      ON refund_allocation.transaction_id = refund_payment.id
-                  WHERE refund_allocation.target_transaction_id = $1
-                    AND refund_allocation.amount_allocated < 0
-                    AND refund_payment.metadata->>'refund_event_id' =
-                        return_line.refund_event_id::text
-              )
-            ORDER BY return_line.created_at DESC, return_line.id DESC
-            LIMIT 1
-            "#,
-        )
-        .bind(transaction_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .unwrap_or_else(Uuid::new_v4);
-
-        transaction_returns::apply_transaction_returns_in_tx(
-            &mut tx,
-            transaction_id,
-            Some(staff.id),
-            vec![transaction_returns::ReturnLineInput {
-                transaction_line_id,
-                quantity,
-                reason: Some("Paid order item removed".to_string()),
-                restock: Some(false),
-                refund_event_id,
-                register_session_id: None,
-                refund_subtotal: None,
-                refund_state_tax: None,
-                refund_local_tax: None,
-                refund_total: None,
-            }],
-        )
-        .await
-        .map_err(|error| match error {
-            transaction_returns::TransactionReturnError::Db(database) => {
-                TransactionError::Database(database)
-            }
-            transaction_returns::TransactionReturnError::BadRequest(message) => {
-                TransactionError::InvalidPayload(message)
-            }
-        })?;
-
-        let refund_due: Decimal = sqlx::query_scalar(
-            r#"
-            SELECT COALESCE(MAX(amount_due - amount_refunded), 0)::numeric(14,2)
-            FROM transaction_refund_queue
-            WHERE transaction_id = $1
-              AND is_open = TRUE
-            "#,
-        )
-        .bind(transaction_id)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        insert_transaction_activity_log_tx(
-            &mut tx,
-            transaction_id,
-            customer_id,
-            "item_removed_for_refund",
-            &format!(
-                "Removed {}× {} ({}) from paid order; refund due ${}",
-                quantity, product_name, sku, refund_due
-            ),
-            json!({
-                "transaction_line_id": transaction_line_id,
-                "product_id": product_id,
-                "variant_id": variant_id,
-                "product_name": product_name,
-                "sku": sku,
-                "quantity": quantity,
-                "unit_price": unit_price,
-                "state_tax": state_tax,
-                "local_tax": local_tax,
-                "fulfillment": fulfillment,
-                "order_lifecycle_status": lifecycle_status,
-                "refund_event_id": refund_event_id,
-                "refund_due": refund_due,
-                "replacement_items_reduce_refund_first": true,
-                "removed_by_staff_id": staff.id,
-            }),
-        )
-        .await?;
-        tx.commit().await?;
-        return Ok(StatusCode::NO_CONTENT);
+        return Err(TransactionError::InvalidPayload(
+            "Paid Order items cannot be deleted. Use Cancel Order Items to review the balance adjustment and any actual refund before recording the cancellation."
+                .to_string(),
+        ));
     }
 
     sqlx::query("DELETE FROM transaction_lines WHERE id = $1 AND transaction_id = $2")

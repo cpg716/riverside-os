@@ -244,11 +244,18 @@ export default function PosExchangeWizard({
     if (!initialReturnLineId) return;
     const line = d.items.find((item) => item.transaction_line_id === initialReturnLineId);
     if (!line) return;
+    if (!line.is_fulfilled) {
+      toast(
+        "This is an unfulfilled Order item. Cancel it from Customer Orders so Riverside can apply its credit to the unpaid balance before calculating any refund.",
+        "error",
+      );
+      return;
+    }
     const max = line.quantity - (line.quantity_returned ?? 0);
     if (max > 0) {
       setReturnQtyDraft({ [initialReturnLineId]: "1" });
     }
-  }, [initialReturnLineId]);
+  }, [initialReturnLineId, toast]);
 
   const applyLoadedTransaction = useCallback((d: TransactionDetailLite) => {
     setDetail(d);
@@ -284,7 +291,11 @@ export default function PosExchangeWizard({
         return;
       }
       
-      const hasReturnableLines = d.items.some((item) => item.quantity - (item.quantity_returned ?? 0) > 0);
+      const hasReturnableLines = d.items.some(
+        (item) =>
+          item.is_fulfilled &&
+          item.quantity - (item.quantity_returned ?? 0) > 0,
+      );
       const existingRefundableCents = refundableCreditCents(d);
       if (!hasReturnableLines && existingRefundableCents > 0) {
         setDetail(d);
@@ -292,6 +303,13 @@ export default function PosExchangeWizard({
         setRefundAmount(centsToFixed2(existingRefundableCents));
         setStep("done");
         toast("Return is already recorded. Finish the remaining refund credit.", "info");
+        return;
+      }
+      if (!hasReturnableLines) {
+        toast(
+          "This Transaction has no fulfilled merchandise to return. Cancel open Order items from Customer Orders instead.",
+          "error",
+        );
         return;
       }
 
@@ -354,6 +372,7 @@ export default function PosExchangeWizard({
       if (!raw) continue;
       const q = Number(raw);
       if (!Number.isFinite(q) || q <= 0) continue;
+      if (!it.is_fulfilled) return null;
       const max = it.quantity - (it.quantity_returned ?? 0);
       if (q > max) {
         return null;
@@ -732,7 +751,7 @@ export default function PosExchangeWizard({
                 <div className="grid gap-4">
                 {detail.items.map((it: TransactionItemRow) => {
                   const max = it.quantity - (it.quantity_returned ?? 0);
-                  if (max <= 0) return null;
+                  if (max <= 0 || !it.is_fulfilled) return null;
                   return (
                     <div
                       key={it.transaction_line_id}
@@ -780,6 +799,17 @@ export default function PosExchangeWizard({
                   );
                 })}
                 </div>
+                {detail.items.some(
+                  (item) =>
+                    !item.is_fulfilled &&
+                    item.quantity - (item.quantity_returned ?? 0) > 0,
+                ) ? (
+                  <p className="rounded-xl border border-app-warning/25 bg-app-warning/10 p-3 text-sm font-bold text-app-text">
+                    Open Order items are intentionally excluded. Use Customer
+                    Orders → Cancel Order Items so their value first reduces the
+                    unpaid Order balance and only a real overpayment is refunded.
+                  </p>
+                ) : null}
               </div>
               {selectedRefundCents > 0 ? (
                 <div className="rounded-2xl border border-app-danger/20 bg-app-danger/5 p-4">

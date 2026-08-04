@@ -45,6 +45,29 @@ function fmtMoney(v: string | number): string {
   return formatUsdFromCents(parseMoneyToCents(v));
 }
 
+interface OrderLineCancellationPreview {
+  transaction_id: string;
+  transaction_display_id: string;
+  original_total: string;
+  amount_paid: string;
+  original_balance_due: string;
+  cancellation_subtotal: string;
+  cancellation_state_tax: string;
+  cancellation_local_tax: string;
+  cancellation_total: string;
+  credit_applied_to_balance: string;
+  revised_total: string;
+  balance_due_after: string;
+  refund_due: string;
+  lines: Array<{
+    transaction_line_id: string;
+    product_name: string;
+    sku: string;
+    quantity: number;
+    total_credit: string;
+  }>;
+}
+
 const baseUrl = getBaseUrl();
 
 interface StaffApproverRow {
@@ -62,6 +85,7 @@ export interface TransactionDrawerItem {
   variation_label: string | null;
   quantity: number;
   quantity_returned?: number;
+  quantity_cancelled?: number;
   unit_price: string;
   unit_cost?: string;
   state_tax?: string;
@@ -251,6 +275,10 @@ function formatAuditKind(kind: string): string {
       return "Status update";
     case "line_return":
       return "Return recorded";
+    case "order_items_cancelled":
+      return "Order items cancelled";
+    case "order_item_cancellation_summary":
+      return "Cancellation financial summary";
     case "exchange_linked":
       return "Exchange linked";
     case "item_added":
@@ -471,6 +499,13 @@ function isFullyReturned(item: TransactionDrawerItem): boolean {
   return (item.quantity_returned ?? 0) > 0 && remainingItemQuantity(item) === 0;
 }
 
+function isFullyCancelled(item: TransactionDrawerItem): boolean {
+  return (
+    (item.quantity_cancelled ?? 0) > 0 &&
+    (item.quantity_cancelled ?? 0) >= item.quantity
+  );
+}
+
 function orderLifecycleCounts(detail: TransactionDrawerDetail) {
   const counts = ORDER_LIFECYCLE_STEPS.reduce(
     (acc, step) => ({ ...acc, [step.key]: 0 }),
@@ -519,7 +554,9 @@ function lineNextAction(
   detail: TransactionDrawerDetail,
 ): string {
   if (isFullyReturned(item)) {
-    return "Return is complete.";
+    return isFullyCancelled(item)
+      ? "Order item cancellation is complete."
+      : "Return is complete.";
   }
   if (item.is_fulfilled || item.order_lifecycle_status === "picked_up") {
     return detail.fulfillment_method === "ship"
@@ -558,7 +595,7 @@ function lineNextAction(
 
 function lineNotificationState(item: TransactionDrawerItem): string {
   if (isFullyReturned(item)) {
-    return "Returned.";
+    return isFullyCancelled(item) ? "Cancelled." : "Returned.";
   }
   if (item.is_fulfilled || item.order_lifecycle_status === "picked_up") {
     return "Completed.";
@@ -919,6 +956,8 @@ function addressLines(
 function mapOrderActionButtons(
   detail: TransactionDrawerDetail | null,
   orderActions?: TransactionDrawerOrderActions,
+  onCancelOrderItems?: () => void,
+  cancellableLineCount = 0,
 ) {
   if (!detail || !orderActions) return null;
   return (
@@ -953,6 +992,18 @@ function mapOrderActionButtons(
           className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-danger"
         >
           Cancel Transaction
+        </button>
+      ) : null}
+      {orderActions.canModify &&
+      cancellableLineCount > 0 &&
+      !isOrderStatus(detail.status, "cancelled") &&
+      onCancelOrderItems ? (
+        <button
+          type="button"
+          onClick={onCancelOrderItems}
+          className="rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-warning"
+        >
+          Cancel Order Items
         </button>
       ) : null}
       {orderActions.canModify &&
@@ -1054,8 +1105,22 @@ export default function TransactionDetailDrawer({
   const [customEditItem, setCustomEditItem] =
     useState<TransactionDrawerItem | null>(null);
   const [attributionOpen, setAttributionOpen] = useState(false);
+  const [cancellationOpen, setCancellationOpen] = useState(false);
+  const [cancellationSelectedIds, setCancellationSelectedIds] = useState<
+    string[]
+  >([]);
+  const [cancellationReason, setCancellationReason] = useState("");
+  const [cancellationPreview, setCancellationPreview] =
+    useState<OrderLineCancellationPreview | null>(null);
+  const [cancellationBusy, setCancellationBusy] = useState(false);
+  const [cancellationError, setCancellationError] = useState<string | null>(
+    null,
+  );
   useShellBackdropLayer(
-    Boolean(readyTarget) || showPickupReleaseModal || Boolean(customEditItem),
+    Boolean(readyTarget) ||
+      showPickupReleaseModal ||
+      Boolean(customEditItem) ||
+      cancellationOpen,
   );
 
   const usesControlledData =
@@ -1180,6 +1245,164 @@ export default function TransactionDetailDrawer({
       ),
     };
   }, [detail?.items]);
+  const cancellableOrderLines = useMemo(
+    () =>
+      detail?.items.filter(
+        (item) =>
+          !item.is_internal &&
+          !item.is_fulfilled &&
+          item.fulfillment !== "takeaway" &&
+          item.order_lifecycle_status !== "picked_up" &&
+          !isFullyReturned(item) &&
+          Boolean(item.transaction_line_id),
+      ) ?? [],
+    [detail?.items],
+  );
+  const openCancellation = useCallback(
+    (transactionLineId?: string) => {
+      const defaultIds = transactionLineId
+        ? [transactionLineId]
+        : cancellableOrderLines
+            .map((item) => item.transaction_line_id)
+            .filter((id): id is string => Boolean(id));
+      setCancellationSelectedIds(defaultIds);
+      setCancellationReason("");
+      setCancellationPreview(null);
+      setCancellationError(null);
+      setCancellationOpen(true);
+    },
+    [cancellableOrderLines],
+  );
+  const closeCancellation = useCallback(() => {
+    if (cancellationBusy) return;
+    setCancellationOpen(false);
+    setCancellationPreview(null);
+    setCancellationError(null);
+  }, [cancellationBusy]);
+
+  const cancellationRequestBody = useCallback(
+    () => ({
+      lines: cancellableOrderLines
+        .filter((item) =>
+          cancellationSelectedIds.includes(item.transaction_line_id ?? ""),
+        )
+        .map((item) => ({
+          transaction_line_id: item.transaction_line_id!,
+          quantity: Math.max(
+            1,
+            item.quantity - Math.max(0, item.quantity_returned ?? 0),
+          ),
+        })),
+      reason: cancellationReason.trim(),
+    }),
+    [cancellableOrderLines, cancellationReason, cancellationSelectedIds],
+  );
+
+  const reviewCancellation = useCallback(async () => {
+    if (!detail || cancellationSelectedIds.length === 0) return;
+    setCancellationBusy(true);
+    setCancellationError(null);
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/transactions/${detail.transaction_id}/order-line-cancellations/preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...auth() },
+          body: JSON.stringify(cancellationRequestBody()),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as
+        | OrderLineCancellationPreview
+        | { error?: string };
+      if (!response.ok) {
+        setCancellationPreview(null);
+        setCancellationError(
+          "error" in payload && payload.error
+            ? payload.error
+            : "Riverside could not preview this cancellation.",
+        );
+        return;
+      }
+      setCancellationPreview(payload as OrderLineCancellationPreview);
+    } catch {
+      setCancellationError(
+        "The cancellation preview could not reach the Main Hub. Nothing changed.",
+      );
+    } finally {
+      setCancellationBusy(false);
+    }
+  }, [
+    auth,
+    cancellationRequestBody,
+    cancellationSelectedIds.length,
+    detail,
+  ]);
+
+  const commitCancellation = useCallback(async () => {
+    if (!detail || !cancellationPreview || cancellationReason.trim().length < 12)
+      return;
+    setCancellationBusy(true);
+    setCancellationError(null);
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/transactions/${detail.transaction_id}/order-line-cancellations`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...auth() },
+          body: JSON.stringify(cancellationRequestBody()),
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as
+        | OrderLineCancellationPreview
+        | { error?: string };
+      if (!response.ok) {
+        setCancellationError(
+          "error" in payload && payload.error
+            ? payload.error
+            : "Riverside did not cancel these Order items.",
+        );
+        return;
+      }
+      const result = payload as OrderLineCancellationPreview;
+      setCancellationOpen(false);
+      setCancellationPreview(null);
+      await load();
+      await onLifecycleChanged?.();
+      if (parseMoneyToCents(result.refund_due) > 0) {
+        toast(
+          `Order items cancelled. ${fmtMoney(result.refund_due)} is now an auditable refund due; complete its refund sources in Pay.`,
+          "success",
+        );
+        orderActions?.onProcessRefund?.();
+      } else if (parseMoneyToCents(result.balance_due_after) > 0) {
+        toast(
+          `Order items cancelled. Their ${fmtMoney(result.cancellation_total)} credit reduced the unpaid balance; ${fmtMoney(result.balance_due_after)} remains due. No refund was sent.`,
+          "success",
+        );
+      } else {
+        toast(
+          "Order items cancelled. The revised Order is paid in full and no refund is due.",
+          "success",
+        );
+      }
+    } catch {
+      setCancellationError(
+        "The Main Hub did not confirm the cancellation result. Refresh this Transaction before retrying so a completed cancellation is not mistaken for a failed one.",
+      );
+    } finally {
+      setCancellationBusy(false);
+    }
+  }, [
+    auth,
+    cancellationPreview,
+    cancellationReason,
+    cancellationRequestBody,
+    detail,
+    load,
+    onLifecycleChanged,
+    orderActions,
+    toast,
+  ]);
   const beginLineEdit = useCallback((item: TransactionDrawerItem) => {
     if (!item.transaction_line_id) return;
     setEditingLineId(item.transaction_line_id);
@@ -1571,7 +1794,12 @@ export default function TransactionDetailDrawer({
         title={recordTitle}
         subtitle={subtitle}
         panelMaxClassName="max-w-3xl"
-        actions={mapOrderActionButtons(detail, orderActions)}
+        actions={mapOrderActionButtons(
+          detail,
+          orderActions,
+          () => openCancellation(),
+          cancellableOrderLines.length,
+        )}
         footer={
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <button
@@ -2182,7 +2410,19 @@ export default function TransactionDetailDrawer({
                     description:
                       "These items were returned and no longer require pickup or shipping work.",
                     items: detail.items.filter(
-                      (item) => !item.is_internal && isFullyReturned(item),
+                      (item) =>
+                        !item.is_internal &&
+                        isFullyReturned(item) &&
+                        !isFullyCancelled(item),
+                    ),
+                  },
+                  {
+                    key: "cancelled",
+                    title: "Cancelled Order Items",
+                    description:
+                      "These unfulfilled items were cancelled and removed from the remaining Order work.",
+                    items: detail.items.filter(
+                      (item) => !item.is_internal && isFullyCancelled(item),
                     ),
                   },
                 ]
@@ -2211,8 +2451,11 @@ export default function TransactionDetailDrawer({
                           item.order_item_id ?? item.transaction_line_id;
                         const returnedQty = item.quantity_returned ?? 0;
                         const fullyReturned = isFullyReturned(item);
+                        const fullyCancelled = isFullyCancelled(item);
                         const lifecycleLabel = fullyReturned
-                          ? "Returned"
+                          ? fullyCancelled
+                            ? "Cancelled"
+                            : "Returned"
                           : (lifecycleStatusLabel(
                               item.order_lifecycle_status,
                               item.alteration_status,
@@ -2245,7 +2488,17 @@ export default function TransactionDetailDrawer({
                           !isOrderStatus(detail.status, "cancelled") &&
                           orderActions.onReturnLine &&
                           item.transaction_line_id &&
+                          item.is_fulfilled &&
                           returnableQty > 0,
+                        );
+                        const canCancelOrderLine = Boolean(
+                          orderActions?.canModify &&
+                            !isOrderStatus(detail.status, "cancelled") &&
+                            item.transaction_line_id &&
+                            !item.is_fulfilled &&
+                            item.fulfillment !== "takeaway" &&
+                            item.order_lifecycle_status !== "picked_up" &&
+                            returnableQty > 0,
                         );
                         return (
                           <div
@@ -2270,7 +2523,9 @@ export default function TransactionDetailDrawer({
                                     )}`}
                                   >
                                     {fullyReturned
-                                      ? "Returned"
+                                      ? fullyCancelled
+                                        ? "Cancelled"
+                                        : "Returned"
                                       : item.is_fulfilled
                                         ? "Fulfilled"
                                         : "Open"}
@@ -2314,7 +2569,10 @@ export default function TransactionDetailDrawer({
                                   <span>Qty {item.quantity}</span>
                                   <span>Price {fmtMoney(item.unit_price)}</span>
                                   {returnedQty > 0 ? (
-                                    <span>Returned {returnedQty}</span>
+                                    <span>
+                                      {fullyCancelled ? "Cancelled" : "Returned"}{" "}
+                                      {returnedQty}
+                                    </span>
                                   ) : null}
                                 </div>
                                 <div className="mt-3 grid gap-2 text-[11px] sm:grid-cols-3">
@@ -2360,6 +2618,18 @@ export default function TransactionDetailDrawer({
                                     Return / Exchange
                                   </button>
                                 ) : null}
+                                {canCancelOrderLine ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openCancellation(item.transaction_line_id)
+                                    }
+                                    className="inline-flex items-center gap-1 rounded-lg border border-app-warning/25 bg-app-warning/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-warning transition-colors hover:bg-app-warning/15"
+                                  >
+                                    <Trash2 size={14} />
+                                    Cancel Ordered Item
+                                  </button>
+                                ) : null}
                                 {canMarkReady ? (
                                   <button
                                     type="button"
@@ -2395,6 +2665,7 @@ export default function TransactionDetailDrawer({
                                 {orderActions?.canModify &&
                                 !isOrderStatus(detail.status, "cancelled") &&
                                 !fullyReturned &&
+                                !canCancelOrderLine &&
                                 orderActions.deleteLine &&
                                 itemId ? (
                                   <button
@@ -2897,6 +3168,225 @@ export default function TransactionDetailDrawer({
                   >
                     Continue in Register
                   </button>
+                </div>
+              </div>
+            </div>,
+            drawerRoot,
+          )
+        : null}
+
+      {cancellationOpen && drawerRoot
+        ? createPortal(
+            <div className="ui-overlay-backdrop z-200 flex items-center justify-center p-4">
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="order-item-cancellation-title"
+                className="ui-modal flex max-h-[90vh] w-full max-w-3xl flex-col"
+              >
+                <div className="ui-modal-header flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-warning">
+                      Partial Order Cancellation
+                    </p>
+                    <h2
+                      id="order-item-cancellation-title"
+                      className="mt-1 text-xl font-black text-app-text"
+                    >
+                      Cancel Ordered Items
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm font-semibold text-app-text-muted">
+                      These goods have not been given to the customer. Riverside
+                      applies their value against any unpaid Order balance first;
+                      only a verified overpayment becomes refundable.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeCancellation}
+                    disabled={cancellationBusy}
+                    className="rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2"
+                    aria-label="Close Order item cancellation"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+                  <div className="space-y-2">
+                    {cancellableOrderLines.map((item) => {
+                      const id = item.transaction_line_id!;
+                      const checked = cancellationSelectedIds.includes(id);
+                      const remaining = Math.max(
+                        0,
+                        item.quantity - Math.max(0, item.quantity_returned ?? 0),
+                      );
+                      const grossCents =
+                        (parseMoneyToCents(item.unit_price) +
+                          parseMoneyToCents(item.state_tax ?? "0") +
+                          parseMoneyToCents(item.local_tax ?? "0")) *
+                        remaining;
+                      return (
+                        <label
+                          key={id}
+                          className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${
+                            checked
+                              ? "border-app-warning/35 bg-app-warning/10"
+                              : "border-app-border bg-app-surface"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={cancellationBusy}
+                            onChange={(event) => {
+                              setCancellationSelectedIds((current) =>
+                                event.target.checked
+                                  ? [...current, id]
+                                  : current.filter((candidate) => candidate !== id),
+                              );
+                              setCancellationPreview(null);
+                              setCancellationError(null);
+                            }}
+                            className="mt-1 h-4 w-4"
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-black text-app-text">
+                              {item.product_name}
+                            </span>
+                            <span className="mt-1 block text-xs font-semibold text-app-text-muted">
+                              {item.sku}
+                              {item.variation_label
+                                ? ` · ${item.variation_label}`
+                                : ""}
+                              {` · Qty ${remaining}`}
+                              {item.po_number ? ` · ${item.po_number}` : ""}
+                            </span>
+                          </span>
+                          <span className="shrink-0 font-mono text-sm font-black text-app-text">
+                            {formatUsdFromCents(grossCents)}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Cancellation Reason
+                    <textarea
+                      value={cancellationReason}
+                      onChange={(event) => {
+                        setCancellationReason(event.target.value);
+                        setCancellationPreview(null);
+                      }}
+                      disabled={cancellationBusy}
+                      className="mt-1 min-h-24 w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm font-semibold normal-case tracking-normal text-app-text outline-none focus:border-app-warning"
+                      placeholder="Explain why these Order items are being cancelled (minimum 12 characters)."
+                    />
+                  </label>
+
+                  {cancellationPreview ? (
+                    <div className="space-y-3 rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="rounded-xl border border-app-border bg-app-surface p-3">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Order Balance Before
+                          </p>
+                          <p className="mt-1 font-mono text-base font-black text-app-text">
+                            {fmtMoney(cancellationPreview.original_balance_due)}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-app-warning/25 bg-app-warning/10 p-3">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-warning">
+                            Cancellation Credit
+                          </p>
+                          <p className="mt-1 font-mono text-base font-black text-app-warning">
+                            {fmtMoney(cancellationPreview.cancellation_total)}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-app-border bg-app-surface p-3">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Balance After
+                          </p>
+                          <p className="mt-1 font-mono text-base font-black text-app-text">
+                            {fmtMoney(cancellationPreview.balance_due_after)}
+                          </p>
+                        </div>
+                        <div
+                          className={`rounded-xl border p-3 ${
+                            parseMoneyToCents(cancellationPreview.refund_due) > 0
+                              ? "border-app-danger/25 bg-app-danger/10"
+                              : "border-app-success/25 bg-app-success/10"
+                          }`}
+                        >
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Actual Refund Due
+                          </p>
+                          <p className="mt-1 font-mono text-base font-black text-app-text">
+                            {fmtMoney(cancellationPreview.refund_due)}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-sm font-bold text-app-text">
+                        {parseMoneyToCents(cancellationPreview.refund_due) > 0
+                          ? `${fmtMoney(cancellationPreview.credit_applied_to_balance)} reduces the unpaid balance. The remaining ${fmtMoney(cancellationPreview.refund_due)} becomes a refund obligation and will move to Pay for source selection.`
+                          : `${fmtMoney(cancellationPreview.credit_applied_to_balance)} applies to the unpaid Order balance. No money will be sent to the customer.`}
+                      </p>
+                      <p className="text-xs font-semibold text-app-text-muted">
+                        Revised Order total: {fmtMoney(cancellationPreview.revised_total)} · Paid on the Transaction: {fmtMoney(cancellationPreview.amount_paid)}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-app-info/20 bg-app-info/8 p-3 text-sm font-semibold text-app-text">
+                      Review calculates the result from the live Transaction
+                      ledger. It does not use the gross item value as an assumed
+                      refund.
+                    </div>
+                  )}
+
+                  {cancellationError ? (
+                    <p className="rounded-xl border border-app-danger/25 bg-app-danger/10 p-3 text-sm font-bold text-app-danger">
+                      {cancellationError}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="ui-modal-footer flex gap-3">
+                  <button
+                    type="button"
+                    onClick={closeCancellation}
+                    disabled={cancellationBusy}
+                    className="ui-btn-secondary flex-1"
+                  >
+                    Keep Items
+                  </button>
+                  {cancellationPreview ? (
+                    <button
+                      type="button"
+                      onClick={() => void commitCancellation()}
+                      disabled={
+                        cancellationBusy || cancellationReason.trim().length < 12
+                      }
+                      className="flex-1 rounded-xl border-b-4 border-app-warning bg-app-warning px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"
+                    >
+                      {cancellationBusy
+                        ? "Recording…"
+                        : parseMoneyToCents(cancellationPreview.refund_due) > 0
+                          ? "Cancel Items & Continue to Refund"
+                          : "Confirm Item Cancellation"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void reviewCancellation()}
+                      disabled={
+                        cancellationBusy || cancellationSelectedIds.length === 0
+                      }
+                      className="flex-1 rounded-xl border-b-4 border-app-accent bg-app-accent px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50"
+                    >
+                      {cancellationBusy ? "Reviewing…" : "Review Financial Effect"}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>,

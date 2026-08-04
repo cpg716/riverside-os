@@ -57,6 +57,7 @@ pub mod operation_metrics;
 pub mod operational_outbox;
 pub mod ops_dev_center;
 pub mod order_lifecycle;
+pub mod order_line_cancellation;
 pub mod physical_inventory;
 pub mod podium;
 pub mod podium_inbound;

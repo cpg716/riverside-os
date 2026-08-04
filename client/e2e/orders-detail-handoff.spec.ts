@@ -402,6 +402,48 @@ test.describe("Orders detail drawer and POS handoff", () => {
     ).toBeVisible();
   });
 
+  test("unfulfilled Order items preview balance impact before cancellation", async ({
+    page,
+    request,
+  }) => {
+    const order = await createSpecialOrder(request, "Cancellation Preview");
+
+    await signInToBackOffice(page, { persistSession: true });
+    await openBackofficeSidebarTab(page, "orders");
+    const orderRow = page.locator("tr", { hasText: order.displayId }).first();
+    await expect(orderRow).toBeVisible({ timeout: 20_000 });
+    await orderRow.click();
+
+    const drawer = page.getByRole("dialog", { name: "Order Detail" });
+    await drawer
+      .getByRole("button", { name: "Cancel Ordered Item", exact: true })
+      .first()
+      .click();
+    const cancellation = page.getByRole("dialog", {
+      name: "Cancel Ordered Items",
+    });
+    await expect(cancellation).toContainText(
+      "only a verified overpayment becomes refundable",
+    );
+    await cancellation
+      .getByPlaceholder(/Explain why these Order items/i)
+      .fill("Customer removed this unfulfilled item");
+    await cancellation
+      .getByRole("button", { name: "Review Financial Effect" })
+      .click();
+    await expect(cancellation).toContainText("Cancellation Credit");
+    await expect(cancellation).toContainText("Actual Refund Due");
+    await expect(cancellation.getByText("$0.00", { exact: true })).toBeVisible();
+    await cancellation
+      .getByRole("button", { name: "Confirm Item Cancellation" })
+      .click();
+
+    await expect(drawer.getByText("Cancelled Order Items")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(drawer.getByText("Cancelled", { exact: true }).first()).toBeVisible();
+  });
+
   test("Back Office drawer edits a line and rerenders the saved values", async ({
     page,
     request,

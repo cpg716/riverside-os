@@ -70,6 +70,18 @@
 - If an exchange finishes but Helcim cannot return a card remainder, the exchange and inventory return remain saved and the unresolved amount stays in the refund queue. Retry that queue item; do not repeat the exchange or manually change inventory.
 - From a Transaction Record, use **Return / Exchange** on an item line to open Register with that customer, transaction, and item already selected. Use **Return All** only when every returnable line on the transaction is coming back.
 - A fully returned line appears under **Returned Items** and does not count as open pickup or shipping work.
+
+### Cancel some items that were never fulfilled
+
+Use **Cancel Order Items** on the Transaction Record when the customer is dropping one or more open Special, Custom, Wedding, or Layaway items but keeping the rest of the Order. Do not use **Return / Exchange** unless the merchandise was already given to the customer.
+
+1. Select **Cancel Order Items** or **Cancel Ordered Item** beside one line.
+2. Check every unfulfilled line being removed and enter a specific reason.
+3. Select **Review Financial Effect**. Confirm the Order balance before cancellation, cancellation credit, revised total, balance after, and actual refund due.
+4. Confirm the cancellation. Riverside applies the credit to the unpaid balance first.
+5. If **Actual Refund Due** is greater than zero, finish every refund source in Pay. Original Card remains pending until Helcim approval is verified in the ROS ledger.
+
+An item value is not automatically a cash refund. If the customer still owed at least that amount, the cancellation reduces what they owe. If the revised Transaction is overpaid, only the overpayment is refundable. Items already ordered from a vendor, attached to a PO, received, or ready for pickup must have that operational commitment resolved before the cancellation can continue.
 - A merchandise refund cannot finish unless its exact returned lines, quantities, subtotal, and tax remain attached through tender. If Pay says the item details are incomplete, close Pay and reload the return from the original Transaction Record. If an older completed refund shows **0 units**, do not refund again; a manager or support operator must use the audited refund-line repair against that existing refund event.
 - **Void sale** (unpaid mistake carts) differs from **refund after payment** — permission and SOP differ.
 

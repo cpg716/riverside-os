@@ -19,6 +19,12 @@ pub enum TransactionReturnError {
     BadRequest(String),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LineRemovalWorkflow {
+    Return,
+    OrderItemCancellation,
+}
+
 fn refundable_line_total(
     unit_price: Decimal,
     state_tax: Decimal,
@@ -69,6 +75,7 @@ pub async fn apply_transaction_returns_in_tx(
         staff_id,
         lines,
         false,
+        LineRemovalWorkflow::Return,
     )
     .await
 }
@@ -83,8 +90,35 @@ pub async fn apply_refund_return_lines_in_tx(
     staff_id: Option<Uuid>,
     lines: Vec<ReturnLineInput>,
 ) -> Result<(), TransactionReturnError> {
-    apply_transaction_returns_in_tx_with_cancelled_policy(tx, transaction_id, staff_id, lines, true)
-        .await
+    apply_transaction_returns_in_tx_with_cancelled_policy(
+        tx,
+        transaction_id,
+        staff_id,
+        lines,
+        true,
+        LineRemovalWorkflow::Return,
+    )
+    .await
+}
+
+/// Removes open deferred Order lines without treating unfulfilled merchandise
+/// as customer-returned inventory. Effective quantities still use the append-only
+/// line-removal ledger, while audit language and restock behavior remain distinct.
+pub async fn apply_order_line_cancellations_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    staff_id: Option<Uuid>,
+    lines: Vec<ReturnLineInput>,
+) -> Result<(), TransactionReturnError> {
+    apply_transaction_returns_in_tx_with_cancelled_policy(
+        tx,
+        transaction_id,
+        staff_id,
+        lines,
+        false,
+        LineRemovalWorkflow::OrderItemCancellation,
+    )
+    .await
 }
 
 async fn apply_transaction_returns_in_tx_with_cancelled_policy(
@@ -93,6 +127,7 @@ async fn apply_transaction_returns_in_tx_with_cancelled_policy(
     staff_id: Option<Uuid>,
     lines: Vec<ReturnLineInput>,
     allow_cancelled: bool,
+    workflow: LineRemovalWorkflow,
 ) -> Result<(), TransactionReturnError> {
     if lines.is_empty() {
         return Err(TransactionReturnError::BadRequest(
@@ -242,6 +277,15 @@ async fn apply_transaction_returns_in_tx_with_cancelled_policy(
             )));
         }
 
+        if workflow == LineRemovalWorkflow::OrderItemCancellation
+            && (is_fulfilled || fulfillment == DbFulfillmentType::Takeaway)
+        {
+            return Err(TransactionReturnError::BadRequest(
+                "Only open deferred Order items can be cancelled. Use Return / Exchange for merchandise already given to the customer."
+                    .to_string(),
+            ));
+        }
+
         let fallback_subtotal = unit_price * Decimal::from(line.quantity);
         let fallback_state_tax = state_tax * Decimal::from(line.quantity);
         let fallback_local_tax = local_tax * Decimal::from(line.quantity);
@@ -249,9 +293,12 @@ async fn apply_transaction_returns_in_tx_with_cancelled_policy(
             line.financial_components(fallback_subtotal, fallback_state_tax, fallback_local_tax)?;
         refund_add += line_total;
 
-        let restock = line
-            .restock
-            .unwrap_or_else(|| fulfillment == DbFulfillmentType::Takeaway && is_fulfilled);
+        let restock = if workflow == LineRemovalWorkflow::OrderItemCancellation {
+            false
+        } else {
+            line.restock
+                .unwrap_or_else(|| fulfillment == DbFulfillmentType::Takeaway && is_fulfilled)
+        };
 
         let restock_affected = if restock {
             let updated_variant: Option<Uuid> = sqlx::query_scalar(
@@ -367,7 +414,11 @@ async fn apply_transaction_returns_in_tx_with_cancelled_policy(
                 transaction_id,
                 customer_id,
                 refundable_credit,
-                "Line return",
+                if workflow == LineRemovalWorkflow::OrderItemCancellation {
+                    "Order item cancellation"
+                } else {
+                    "Line return"
+                },
             )
             .await?;
         }
@@ -385,20 +436,35 @@ async fn apply_transaction_returns_in_tx_with_cancelled_policy(
         }
     }
 
+    let (activity_kind, activity_summary) =
+        if workflow == LineRemovalWorkflow::OrderItemCancellation {
+            (
+                "order_items_cancelled",
+                format!("Order item cancellation recorded (${refund_add} credit)"),
+            )
+        } else {
+            ("line_return", format!("Return recorded (${refund_add})"))
+        };
     sqlx::query(
         r#"
         INSERT INTO transaction_activity_log (transaction_id, customer_id, event_kind, summary, metadata)
-        VALUES ($1, $2, 'line_return', $3, $4)
+        VALUES ($1, $2, $3, $4, $5)
         "#,
     )
     .bind(transaction_id)
     .bind(customer_id)
-    .bind(format!("Return recorded (${refund_add})"))
+    .bind(activity_kind)
+    .bind(activity_summary)
     .bind(json!({
         "refund_total": refund_add.to_string(),
         "line_count": lines.len(),
         "refund_event_id": lines.first().map(|line| line.refund_event_id),
         "register_session_id": lines.first().and_then(|line| line.register_session_id),
+        "workflow": if workflow == LineRemovalWorkflow::OrderItemCancellation {
+            "order_item_cancellation"
+        } else {
+            "return"
+        },
     }))
     .execute(&mut **tx)
     .await?;
