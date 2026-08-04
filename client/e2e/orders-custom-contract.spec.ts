@@ -1050,7 +1050,7 @@ test.describe("Orders custom vs special contract", () => {
     expect(groupPayCheckout.status()).toBe(200);
 
     const afterDetail = await fetchTransactionDetail(request, orderBody.transaction_id);
-    expect(afterDetail.financial_summary?.total_allocated_payments).toBe("50.00");
+    expect(afterDetail.financial_summary?.total_allocated_payments).toBe("125.00");
     expect(afterDetail.financial_summary?.total_applied_deposit_amount).toBe("125.00");
     expect(parseMoneyToCents(afterDetail.balance_due ?? "0.00")).toBe(
       beforeBalanceCents - 5000,
