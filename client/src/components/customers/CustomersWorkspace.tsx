@@ -996,6 +996,10 @@ export default function CustomersWorkspace({
       <RmsChargeAdminSection
         surface={surface}
         onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+        onOpenCustomer={(customer) => {
+          setHubInitialTab("profile");
+          setPicked(customer);
+        }}
       />
     );
   }

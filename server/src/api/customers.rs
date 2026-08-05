@@ -1949,6 +1949,46 @@ struct RmsChargeRecordsQuery {
 }
 
 #[derive(Debug, Deserialize)]
+struct RmsChargeCustomersQuery {
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    limit: Option<i64>,
+    #[serde(default)]
+    offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+struct RmsChargeCustomerRow {
+    customer_id: Uuid,
+    customer_code: String,
+    first_name: String,
+    last_name: String,
+    company_name: Option<String>,
+    email: Option<String>,
+    phone: Option<String>,
+    account_count: i64,
+    primary_masked_account: Option<String>,
+    account_status: String,
+    current_balance: Decimal,
+    open_to_buy: Decimal,
+    minimum_due: Decimal,
+    past_due: Decimal,
+    latest_import_at: Option<DateTime<Utc>>,
+    last_activity_at: Option<DateTime<Utc>>,
+    transaction_count: i64,
+    total_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct RmsChargeCustomersResponse {
+    items: Vec<RmsChargeCustomerRow>,
+    total_count: i64,
+}
+
+#[derive(Debug, Deserialize)]
 struct RmsChargeOverviewQuery {
     #[serde(default)]
     customer_id: Option<Uuid>,
@@ -3230,6 +3270,146 @@ async fn match_rms_account_list_snapshot(
     }))
 }
 
+async fn list_rms_charge_customers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<RmsChargeCustomersQuery>,
+) -> Result<Json<RmsChargeCustomersResponse>, CustomerError> {
+    require_rms_charge_view_staff(&state, &headers).await?;
+
+    let status = q
+        .status
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("all");
+    if !matches!(
+        status,
+        "all" | "active" | "with_balance" | "zero_balance" | "past_due"
+    ) {
+        return Err(CustomerError::BadRequest(
+            "status must be all, active, with_balance, zero_balance, or past_due".to_string(),
+        ));
+    }
+
+    let search =
+        q.q.as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(literal_ilike_pattern);
+    let limit = q.limit.unwrap_or(100).clamp(1, 500);
+    let offset = q.offset.unwrap_or(0).max(0);
+
+    let items = sqlx::query_as::<_, RmsChargeCustomerRow>(
+        r#"
+        WITH latest_batch AS (
+            SELECT id, uploaded_at
+            FROM rms_account_list_import_batches
+            WHERE status = 'imported'
+            ORDER BY uploaded_at DESC, created_at DESC
+            LIMIT 1
+        ),
+        latest_snapshot AS (
+            SELECT s.*, b.uploaded_at
+            FROM rms_account_list_snapshots s
+            JOIN latest_batch b ON b.id = s.batch_id
+        ),
+        account_rollup AS (
+            SELECT
+                c.id AS customer_id,
+                c.customer_code,
+                c.first_name,
+                c.last_name,
+                c.company_name,
+                c.email,
+                c.phone,
+                COUNT(*)::bigint AS account_count,
+                (ARRAY_AGG(
+                    '•••• ' || RIGHT(a.corecredit_account_id, 4)
+                    ORDER BY a.is_primary DESC, a.updated_at DESC
+                ))[1] AS primary_masked_account,
+                CASE
+                    WHEN BOOL_OR(COALESCE(s.past_due, NULLIF(a.past_due_snapshot, '')::numeric, 0) > 0)
+                        THEN 'past_due'
+                    WHEN BOOL_OR(lower(a.status) NOT IN ('closed', 'inactive')) THEN 'active'
+                    ELSE 'inactive'
+                END AS account_status,
+                ROUND(SUM(COALESCE(s.balance, NULLIF(a.current_balance_snapshot, '')::numeric, 0))::numeric, 2) AS current_balance,
+                ROUND(SUM(COALESCE(s.open_to_buy, NULLIF(a.available_credit_snapshot, '')::numeric, 0))::numeric, 2) AS open_to_buy,
+                ROUND(SUM(COALESCE(s.minimum_due, 0))::numeric, 2) AS minimum_due,
+                ROUND(SUM(COALESCE(s.past_due, NULLIF(a.past_due_snapshot, '')::numeric, 0))::numeric, 2) AS past_due,
+                MAX(s.uploaded_at) AS latest_import_at,
+                STRING_AGG(a.corecredit_account_id, ' ') AS account_search
+            FROM customer_corecredit_accounts a
+            JOIN customers c ON c.id = a.customer_id
+            LEFT JOIN latest_snapshot s
+                ON s.account_number = a.corecredit_account_id
+               AND s.matched_customer_id = a.customer_id
+            GROUP BY c.id, c.customer_code, c.first_name, c.last_name,
+                     c.company_name, c.email, c.phone
+        ),
+        activity AS (
+            SELECT
+                customer_id,
+                MAX(created_at) AS last_activity_at,
+                COUNT(*)::bigint AS transaction_count
+            FROM pos_rms_charge_record
+            WHERE customer_id IS NOT NULL
+            GROUP BY customer_id
+        )
+        SELECT
+            a.customer_id,
+            a.customer_code,
+            a.first_name,
+            a.last_name,
+            a.company_name,
+            a.email,
+            a.phone,
+            a.account_count,
+            a.primary_masked_account,
+            a.account_status,
+            a.current_balance,
+            a.open_to_buy,
+            a.minimum_due,
+            a.past_due,
+            a.latest_import_at,
+            activity.last_activity_at,
+            COALESCE(activity.transaction_count, 0)::bigint AS transaction_count,
+            COUNT(*) OVER()::bigint AS total_count
+        FROM account_rollup a
+        LEFT JOIN activity ON activity.customer_id = a.customer_id
+        WHERE (
+            $1::text IS NULL
+            OR a.customer_code ILIKE $1 ESCAPE '\'
+            OR a.first_name ILIKE $1 ESCAPE '\'
+            OR a.last_name ILIKE $1 ESCAPE '\'
+            OR COALESCE(a.company_name, '') ILIKE $1 ESCAPE '\'
+            OR COALESCE(a.email, '') ILIKE $1 ESCAPE '\'
+            OR COALESCE(a.phone, '') ILIKE $1 ESCAPE '\'
+            OR a.account_search ILIKE $1 ESCAPE '\'
+        )
+          AND (
+            $2 = 'all'
+            OR ($2 = 'active' AND a.account_status IN ('active', 'past_due'))
+            OR ($2 = 'with_balance' AND a.current_balance <> 0)
+            OR ($2 = 'zero_balance' AND a.current_balance = 0)
+            OR ($2 = 'past_due' AND a.past_due > 0)
+          )
+        ORDER BY a.last_name, a.first_name, a.customer_code
+        LIMIT $3 OFFSET $4
+        "#,
+    )
+    .bind(search)
+    .bind(status)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await?;
+
+    let total_count = items.first().map(|row| row.total_count).unwrap_or(0);
+    Ok(Json(RmsChargeCustomersResponse { items, total_count }))
+}
+
 async fn list_rms_charge_records(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -3761,6 +3941,7 @@ pub fn router() -> Router<AppState> {
             "/podium/conversations/{conversation_id}/assignees",
             get(get_podium_conversation_assignees).patch(patch_podium_conversation_assignee),
         )
+        .route("/rms-charge/customers", get(list_rms_charge_customers))
         .route("/rms-charge/records", get(list_rms_charge_records))
         .route(
             "/rms-charge/reconciliation",

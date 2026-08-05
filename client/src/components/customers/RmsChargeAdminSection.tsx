@@ -206,13 +206,40 @@ interface RmsAccountListUnmatchedResponse {
   total_count: number;
 }
 
+interface RmsChargeCustomerRow {
+  customer_id: string;
+  customer_code: string;
+  first_name: string;
+  last_name: string;
+  company_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  account_count: number;
+  primary_masked_account?: string | null;
+  account_status: string;
+  current_balance: string;
+  open_to_buy: string;
+  minimum_due: string;
+  past_due: string;
+  latest_import_at?: string | null;
+  last_activity_at?: string | null;
+  transaction_count: number;
+}
+
+interface RmsChargeCustomersResponse {
+  items: RmsChargeCustomerRow[];
+  total_count: number;
+}
+
 export interface RmsChargeAdminSectionProps {
   surface: "pos" | "backoffice";
   onOpenTransactionInBackoffice?: (transactionId: string) => void;
+  onOpenCustomer?: (customer: Customer) => void;
 }
 
 export default function RmsChargeAdminSection({
   onOpenTransactionInBackoffice,
+  onOpenCustomer,
 }: RmsChargeAdminSectionProps) {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
@@ -242,6 +269,15 @@ export default function RmsChargeAdminSection({
   const [hasMore, setHasMore] = useState(false);
   const [offset, setOffset] = useState(0);
 
+  const [rmsCustomers, setRmsCustomers] = useState<RmsChargeCustomerRow[]>([]);
+  const [rmsCustomerTotal, setRmsCustomerTotal] = useState(0);
+  const [loadingRmsCustomers, setLoadingRmsCustomers] = useState(false);
+  const [rmsCustomerOffset, setRmsCustomerOffset] = useState(0);
+  const [rmsCustomerSearch, setRmsCustomerSearch] = useState("");
+  const [rmsCustomerStatus, setRmsCustomerStatus] = useState<
+    "all" | "active" | "with_balance" | "zero_balance" | "past_due"
+  >("all");
+
   const [recordDetail, setRecordDetail] = useState<RmsRecordDetail | null>(null);
   const [loadingRecordDetail, setLoadingRecordDetail] = useState(false);
 
@@ -259,7 +295,9 @@ export default function RmsChargeAdminSection({
   >("all");
   const [q, setQ] = useState("");
 
-  const [activeTab, setActiveTab] = useState<"transactions" | "import">("transactions");
+  const [activeTab, setActiveTab] = useState<"customers" | "transactions" | "import">(
+    "transactions",
+  );
   const [latestImport, setLatestImport] = useState<AccountListLatestImportResponse | null>(null);
   const [loadingLatest, setLoadingLatest] = useState(false);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -445,6 +483,52 @@ export default function RmsChargeAdminSection({
     }
   };
 
+  const debouncedRmsCustomerSearch = useDebouncedValue(rmsCustomerSearch.trim(), 300);
+
+  const fetchRmsCustomers = useCallback(
+    async (nextOffset: number, append: boolean, signal?: AbortSignal) => {
+      setLoadingRmsCustomers(true);
+      try {
+        const params = new URLSearchParams({
+          limit: String(PAGE),
+          offset: String(nextOffset),
+          status: rmsCustomerStatus,
+        });
+        if (debouncedRmsCustomerSearch) params.set("q", debouncedRmsCustomerSearch);
+        const res = await fetch(
+          `${baseUrl}/api/customers/rms-charge/customers?${params.toString()}`,
+          { headers: apiAuth(), signal },
+        );
+        const body = (await res.json().catch(() => ({}))) as Partial<RmsChargeCustomersResponse> & {
+          error?: string;
+        };
+        if (!res.ok) throw new Error(body.error ?? "Could not load RMS Charge customers");
+        const items = Array.isArray(body.items) ? body.items : [];
+        setRmsCustomers((current) => (append ? [...current, ...items] : items));
+        setRmsCustomerTotal(Number(body.total_count ?? 0));
+        setRmsCustomerOffset(nextOffset + items.length);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        toast(error instanceof Error ? error.message : "Could not load RMS Charge customers", "error");
+        if (!append) {
+          setRmsCustomers([]);
+          setRmsCustomerTotal(0);
+          setRmsCustomerOffset(0);
+        }
+      } finally {
+        if (!signal?.aborted) setLoadingRmsCustomers(false);
+      }
+    },
+    [apiAuth, debouncedRmsCustomerSearch, rmsCustomerStatus, toast],
+  );
+
+  useEffect(() => {
+    if (activeTab !== "customers") return;
+    const controller = new AbortController();
+    void fetchRmsCustomers(0, false, controller.signal);
+    return () => controller.abort();
+  }, [activeTab, fetchRmsCustomers]);
+
   const fetchRecords = useCallback(
     async (nextOffset: number, append: boolean) => {
       if (!canLegacyView) return;
@@ -577,10 +661,19 @@ export default function RmsChargeAdminSection({
             RMS Charge Workspace
           </h2>
           <p className="mt-1 text-xs text-app-text-muted">
-            Review manual RMS Charge activity, posting reference numbers, and weekly account-list uploads.
+            Review RMS Charge customers, manual activity, posting references, and weekly account-list uploads.
           </p>
         </div>
-        {activeTab === "transactions" ? (
+        {activeTab === "customers" ? (
+          <button
+            type="button"
+            onClick={() => void fetchRmsCustomers(0, false)}
+            className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-xs"
+          >
+            <RefreshCw size={14} className={loadingRmsCustomers ? "animate-spin" : ""} />
+            Refresh Customers
+          </button>
+        ) : activeTab === "transactions" ? (
           <button
             type="button"
             onClick={refreshAll}
@@ -602,6 +695,17 @@ export default function RmsChargeAdminSection({
       </div>
 
       <div className="mb-6 flex gap-2 rounded-xl bg-app-surface-3 p-1 w-fit border border-app-border">
+        <button
+          type="button"
+          onClick={() => setActiveTab("customers")}
+          className={`rounded-lg px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${
+            activeTab === "customers"
+              ? "bg-app-accent text-white shadow-md shadow-app-accent/20"
+              : "text-app-text-muted hover:text-app-text"
+          }`}
+        >
+          Customers
+        </button>
         <button
           type="button"
           onClick={() => setActiveTab("transactions")}
@@ -626,7 +730,169 @@ export default function RmsChargeAdminSection({
         </button>
       </div>
 
-      {activeTab === "transactions" ? (
+      {activeTab === "customers" ? (
+        <div className="ui-card flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+          <div className="flex flex-wrap items-end gap-3 border-b border-app-border bg-app-surface-2 p-4">
+            <label className="flex min-w-[260px] flex-1 flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Search RMS Charge customers
+              <input
+                value={rmsCustomerSearch}
+                onChange={(event) => setRmsCustomerSearch(event.target.value)}
+                placeholder="Name, customer code, phone, email, account…"
+                className="ui-input py-2 text-xs font-semibold normal-case"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Account view
+              <select
+                value={rmsCustomerStatus}
+                onChange={(event) =>
+                  setRmsCustomerStatus(
+                    event.target.value as
+                      | "all"
+                      | "active"
+                      | "with_balance"
+                      | "zero_balance"
+                      | "past_due",
+                  )
+                }
+                className="ui-input py-2 text-xs font-semibold normal-case"
+              >
+                <option value="all">All RMS customers</option>
+                <option value="active">Active accounts</option>
+                <option value="with_balance">With balance</option>
+                <option value="zero_balance">Zero balance</option>
+                <option value="past_due">Past due</option>
+              </select>
+            </label>
+            <div className="pb-2 text-xs font-semibold text-app-text-muted">
+              {rmsCustomerTotal.toLocaleString()} customer
+              {rmsCustomerTotal === 1 ? "" : "s"}
+            </div>
+          </div>
+
+          <div className="no-scrollbar min-h-0 flex-1 overflow-auto">
+            <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
+              <thead className="sticky top-0 z-[1] bg-app-surface text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                <tr>
+                  <th className="px-4 py-3">Customer</th>
+                  <th className="px-4 py-3">Contact</th>
+                  <th className="px-4 py-3">Account</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3 text-right">Balance</th>
+                  <th className="px-4 py-3 text-right">Open to Buy</th>
+                  <th className="px-4 py-3 text-right">Minimum Due</th>
+                  <th className="px-4 py-3 text-right">Past Due</th>
+                  <th className="px-4 py-3">Last Activity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rmsCustomers.length === 0 && !loadingRmsCustomers ? (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-12 text-center">
+                      <p className="font-black text-app-text">No RMS Charge customers match</p>
+                      <p className="mt-1 text-sm text-app-text-muted">
+                        Clear the search or choose a different account view.
+                      </p>
+                    </td>
+                  </tr>
+                ) : null}
+                {rmsCustomers.map((row) => (
+                  <tr key={row.customer_id} className="border-t border-app-border">
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenCustomer?.({
+                            id: row.customer_id,
+                            customer_code: row.customer_code,
+                            first_name: row.first_name,
+                            last_name: row.last_name,
+                            company_name: row.company_name,
+                            email: row.email ?? null,
+                            phone: row.phone ?? null,
+                            has_rms_charge: true,
+                          })
+                        }
+                        className="text-left"
+                      >
+                        <span className="block font-black text-app-text hover:text-app-accent">
+                          {row.first_name} {row.last_name}
+                        </span>
+                        <span className="font-mono text-[11px] text-app-text-muted">
+                          {row.customer_code}
+                          {row.company_name ? ` · ${row.company_name}` : ""}
+                        </span>
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-app-text-muted">
+                      <div>{row.phone || "—"}</div>
+                      <div>{row.email || "—"}</div>
+                    </td>
+                    <td className="px-4 py-3 text-xs">
+                      <div className="font-mono font-semibold text-app-text">
+                        {row.primary_masked_account || "—"}
+                      </div>
+                      {row.account_count > 1 ? (
+                        <div className="mt-0.5 text-[11px] text-app-text-muted">
+                          {row.account_count} linked accounts
+                        </div>
+                      ) : null}
+                      <div className="mt-0.5 text-[11px] text-app-text-muted">
+                        Import {fmtDateOnly(row.latest_import_at)}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
+                          row.account_status === "past_due"
+                            ? "bg-rose-500/15 text-rose-800"
+                            : row.account_status === "active"
+                              ? "bg-emerald-500/15 text-emerald-800"
+                              : "bg-slate-500/10 text-app-text-muted"
+                        }`}
+                      >
+                        {row.account_status.replace(/_/g, " ")}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
+                      {fmtMoney(row.current_balance)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
+                      {fmtMoney(row.open_to_buy)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs tabular-nums">
+                      {fmtMoney(row.minimum_due)}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-mono text-xs tabular-nums ${
+                      parseMoneyToCents(row.past_due) > 0 ? "font-black text-app-danger" : ""
+                    }`}>
+                      {fmtMoney(row.past_due)}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-app-text-muted">
+                      <div>{fmtDate(row.last_activity_at)}</div>
+                      <div className="mt-0.5">{row.transaction_count} RMS record{row.transaction_count === 1 ? "" : "s"}</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {rmsCustomerOffset < rmsCustomerTotal ? (
+            <div className="border-t border-app-border p-3">
+              <button
+                type="button"
+                disabled={loadingRmsCustomers}
+                onClick={() => void fetchRmsCustomers(rmsCustomerOffset, true)}
+                className="ui-btn-secondary px-4 py-2"
+              >
+                {loadingRmsCustomers ? "Loading…" : "Load more customers"}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : activeTab === "transactions" ? (
         <>
           <div className="mb-4 grid gap-4 xl:grid-cols-[1.3fr,1fr]">
         <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">

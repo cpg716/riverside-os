@@ -66,12 +66,49 @@ test.describe("Back Office RMS Charge workspace", () => {
       timeout: 15_000,
     });
     await expect(page.getByRole("button", { name: /Transactions Log/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Customers$/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /Weekly Account Import/i })).toBeVisible();
 
     await page.getByPlaceholder("Customer, ref, account…").fill("REF-RMS-WORKSPACE-001");
     await expect(page.getByText("REF-RMS-WORKSPACE-001").first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/recorded_manually/i).first()).toBeVisible();
     await expect(page.getByText(/RMS Charge/i).first()).toBeVisible();
+  });
+
+  test("customer section lists linked RMS Charge customers and opens their profile", async ({
+    request,
+    page,
+  }) => {
+    const fixture = await seedRmsFixture(request, "single_valid", "Customer Directory");
+
+    const response = await request.get(
+      `${apiBase()}/api/customers/rms-charge/customers?q=${encodeURIComponent(fixture.customer.customer_code)}&limit=10&offset=0`,
+      { headers: staffHeaders() },
+    );
+    expect(response.status()).toBe(200);
+    const body = (await response.json()) as {
+      items: Array<{ customer_id: string; account_count: number }>;
+      total_count: number;
+    };
+    expect(body.total_count).toBeGreaterThanOrEqual(1);
+    expect(body.items).toContainEqual(
+      expect.objectContaining({ customer_id: fixture.customer.id, account_count: 1 }),
+    );
+
+    await signInToBackOffice(page);
+    await openCustomersRmsWorkspace(page);
+    await page.getByRole("button", { name: /^Customers$/i }).click();
+    await page
+      .getByPlaceholder("Name, customer code, phone, email, account…")
+      .fill(fixture.customer.customer_code);
+    const customerButton = page.getByRole("button", {
+      name: new RegExp(fixture.customer.customer_code, "i"),
+    });
+    await expect(customerButton).toBeVisible({ timeout: 15_000 });
+    await customerButton.click();
+    await expect(page.getByRole("tablist", { name: "Customer hub sections" })).toBeVisible({
+      timeout: 15_000,
+    });
   });
 
   test("weekly account import exposes the current RMS account-list workflow", async ({ page }) => {

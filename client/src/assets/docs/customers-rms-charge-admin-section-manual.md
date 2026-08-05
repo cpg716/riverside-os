@@ -2,9 +2,9 @@
 id: customers-rms-charge-admin-section
 title: "RMS Charge Workspace"
 order: 1008
-summary: "Review linked RMS Charge accounts, recent activity, open issues, and reconciliation support for the selected customer."
+summary: "Browse every RMS Charge customer, review recorded activity, and manage the weekly RMS account-list import."
 source: client/src/components/customers/RmsChargeAdminSection.tsx
-last_scanned: 2026-06-02
+last_scanned: 2026-08-05
 tags: customers, rms-charge, r2s, support, reconciliation
 ---
 
@@ -29,6 +29,17 @@ Use this workspace when a customer has an RMS Charge account and staff need to:
 - review unmatched weekly import accounts and match them to the correct Riverside customer
 
 Back Office staff use the full workspace. POS staff only see the limited RMS-safe view allowed by their role.
+
+## All-customer workspace sections
+
+- `Customers`
+  Search and browse every Riverside customer with a linked RMS Charge account. Each customer appears once, even when more than one RMS account is linked. The row summarizes the primary masked account, combined latest-import balances, open-to-buy amount, minimum due, past due, and Riverside RMS activity count. Select the customer name to open the full Customer Relationship Hub.
+- `Transactions Log`
+  Review Riverside-recorded RMS Charge and RMS Payment activity, posting references, and manual R2S reporting status.
+- `Weekly Account Import`
+  Preview and import the weekly RMS/R2S Account List report, then resolve any accounts that remain unmatched.
+
+Use the `Account view` filter in `Customers` to focus on active, non-zero-balance, zero-balance, or past-due accounts. The balance columns come from the newest imported account list when available; use the import date and weekly import status to judge freshness.
 
 ## What this is not
 
