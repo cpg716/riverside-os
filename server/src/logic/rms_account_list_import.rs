@@ -490,6 +490,8 @@ pub async fn import_account_list_xlsx(
         insert_account_snapshot(&mut tx, batch.id, account).await?;
         inserted_snapshot_count += 1;
     }
+    match_account_snapshots_by_existing_account(&mut tx, batch.id).await?;
+    match_account_snapshots_by_unique_legacy_customer_code(&mut tx, batch.id).await?;
     match_account_snapshots_by_unique_phone(&mut tx, batch.id).await?;
 
     tx.commit()
@@ -569,6 +571,39 @@ pub async fn latest_account_list_import(
     })
 }
 
+async fn match_account_snapshots_by_existing_account(
+    tx: &mut Transaction<'_, Postgres>,
+    batch_id: Uuid,
+) -> Result<(), AccountListPreviewError> {
+    sqlx::query(
+        r#"
+        WITH unique_account_link AS (
+            SELECT
+                corecredit_account_id,
+                MIN(customer_id::text)::uuid AS customer_id
+            FROM customer_corecredit_accounts
+            GROUP BY corecredit_account_id
+            HAVING COUNT(DISTINCT customer_id) = 1
+        )
+        UPDATE rms_account_list_snapshots s
+        SET
+            matched_customer_id = a.customer_id,
+            match_status = 'matched',
+            match_confidence = 1.00,
+            match_method = 'existing_account'
+        FROM unique_account_link a
+        WHERE s.batch_id = $1
+          AND s.account_number = a.corecredit_account_id
+          AND s.matched_customer_id IS NULL
+        "#,
+    )
+    .bind(batch_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| AccountListPreviewError::Workbook(error.to_string()))?;
+    Ok(())
+}
+
 async fn match_account_snapshots_by_unique_phone(
     tx: &mut Transaction<'_, Postgres>,
     batch_id: Uuid,
@@ -597,6 +632,50 @@ async fn match_account_snapshots_by_unique_phone(
         FROM unique_phone u
         WHERE s.batch_id = $1
           AND s.normalized_phone = u.phone_digits
+          AND s.matched_customer_id IS NULL
+        "#,
+    )
+    .bind(batch_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| AccountListPreviewError::Workbook(error.to_string()))?;
+    Ok(())
+}
+
+async fn match_account_snapshots_by_unique_legacy_customer_code(
+    tx: &mut Transaction<'_, Postgres>,
+    batch_id: Uuid,
+) -> Result<(), AccountListPreviewError> {
+    sqlx::query(
+        r#"
+        WITH legacy_customer_code AS (
+            SELECT
+                id,
+                CASE
+                    WHEN customer_code ~ '^[0-9]+$' THEN customer_code
+                    WHEN customer_code ~ '^C-[0-9]+$' THEN SUBSTRING(customer_code FROM 3)
+                END AS account_number
+            FROM customers
+            WHERE customer_code ~ '^[0-9]+$'
+               OR customer_code ~ '^C-[0-9]+$'
+        ),
+        unique_legacy_customer_code AS (
+            SELECT
+                account_number,
+                MIN(id::text)::uuid AS customer_id
+            FROM legacy_customer_code
+            GROUP BY account_number
+            HAVING COUNT(DISTINCT id) = 1
+        )
+        UPDATE rms_account_list_snapshots s
+        SET
+            matched_customer_id = c.customer_id,
+            match_status = 'matched',
+            match_confidence = 1.00,
+            match_method = 'legacy_customer_code'
+        FROM unique_legacy_customer_code c
+        WHERE s.batch_id = $1
+          AND s.account_number = c.account_number
           AND s.matched_customer_id IS NULL
         "#,
     )

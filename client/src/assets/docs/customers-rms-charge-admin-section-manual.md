@@ -86,7 +86,7 @@ If no account is linked, stop and verify that the correct customer profile is se
 
 Use this area to preview and commit the weekly RMS/R2S Account List report. After the import, review `Unmatched Accounts`.
 
-Unmatched rows are imported accounts that could not be linked automatically by a unique phone match. Search for the correct Riverside customer in each row and select them to create the manual match. Manual matching updates the imported snapshot and creates or refreshes the Riverside RMS account link for that customer.
+Riverside first reuses an exact RMS account number that is already linked to one customer. If no link exists, it matches a unique legacy Riverside customer code equal to the RMS account number, then tries a unique phone match. Unmatched rows are imported accounts that could not be linked safely by any method. Search for the correct Riverside customer in each row and select them to create the manual match. Manual matching updates the imported snapshot and creates or refreshes the Riverside RMS account link for that customer.
 
 Do not match from name alone. Confirm phone, address, and customer profile context before selecting a customer.
 
