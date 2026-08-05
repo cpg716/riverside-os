@@ -75,6 +75,9 @@ export interface ProductHubVariantInventoryRow {
   stock_on_hand: number;
   reserved_stock: number;
   available_stock: number;
+  last_sold_at?: string | null;
+  average_monthly_units_sold: string;
+  average_yearly_units_sold: string;
   qty_on_order?: number | null;
   last_physical_count_at?: string | null;
 }
@@ -85,6 +88,11 @@ export interface ProductHubInventoryResponse {
     total_units_on_hand: number;
     total_reserved_units: number;
     total_available_units: number;
+    units_sold_last_30_days: number;
+    average_monthly_units_sold: string;
+    average_yearly_units_sold: string;
+    trailing_12_month_sales_rank: number;
+    trailing_12_month_sales_rank_total: number;
     last_physical_count_at?: string | null;
   };
   variants: ProductHubVariantInventoryRow[];

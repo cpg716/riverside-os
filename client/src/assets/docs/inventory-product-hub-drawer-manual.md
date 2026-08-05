@@ -2,7 +2,7 @@
 id: inventory-product-hub-drawer
 title: "Product Hub Drawer (inventory)"
 order: 1021
-summary: "Authoritative product detail drawer for inventory truth, variation review, and low-friction retail price-tag printing."
+summary: "Authoritative product detail drawer for inventory truth, variation review, parent stock-and-sales reporting, and retail price-tag printing."
 source: client/src/components/inventory/ProductHubDrawer.tsx
 last_scanned: 2026-04-23
 tags: inventory-product-hub-drawer, inventory, product-hub, retail-price-tags
@@ -35,6 +35,7 @@ Use Product Hub when you need to:
 4. Check recent inventory events or incoming PO context before taking action.
 5. Review or update primary and secondary vendor assignments before ordering.
 6. Confirm the product-level `Catalog # / vendor style #` and Counterpoint item number are not being confused.
+7. Review and print stock-and-sales velocity for the parent item and every variation.
 
 ## Before you start
 
@@ -79,6 +80,22 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 7. Record variation-level `Product UPC` for manufacturer barcodes and `Catalog # / vendor style #` for supplier buying/receiving identifiers.
 8. Review the shared retail price-tag dialog, adjust quantities, and confirm the final print batch.
 9. Use recent inventory events when you need to confirm why the number changed.
+10. Open **Stock Report** to review every variation's current quantity, last sold date, average monthly unit sales, and average yearly unit sales, then select **Print Report**.
+
+## Parent stock and sales report
+
+The **Stock Report** tab stays scoped to the parent item currently open in Product Hub. It lists every variation, including zero-stock variations, and finishes with a parent total row.
+
+- `Sales ranking` ranks the parent against active sellable parent items by positive, non-internal units sold during the trailing 12 months.
+- `Last 30 days` is the parent's qualifying unit sales across every variation during the trailing 30 days.
+- The parent `Average per month` divides all qualifying units by the elapsed calendar months from the first recorded sale through today. `Average per year` annualizes that monthly pace.
+- `QTY` is current stock on hand.
+- `Last sold` is the most recent recorded date for a positive, non-internal line on a non-cancelled Transaction.
+- `Avg units / month` divides all qualifying units by the elapsed calendar months from that variation's first recorded sale through today.
+- `Avg units / year` annualizes that variation's monthly pace.
+- `Never` and `0.00` mean Riverside has no qualifying recorded sale for that variation.
+
+**Print Report** sends the parent and variation table through the configured Reports printer path. It does not use the tag printer and does not change inventory.
 
 ## What the retail price-tag review does
 
@@ -94,6 +111,7 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 - Available quantity follows the current server rule, not a manual floor estimate.
 - Incoming PO units only count after receiving posts the inventory movement.
 - `Print all tags` includes every variation shown in the workspace. Use selection first if you only need a smaller subset.
+- Sales averages describe recorded Riverside history. If older sales were never imported, the report cannot infer them.
 
 ## What happens next
 

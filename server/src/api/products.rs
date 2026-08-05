@@ -992,6 +992,11 @@ pub struct ProductHubStats {
     pub total_available_units: i64,
     pub value_on_hand: Decimal,
     pub units_sold_all_time: i64,
+    pub units_sold_last_30_days: i64,
+    pub average_monthly_units_sold: Decimal,
+    pub average_yearly_units_sold: Decimal,
+    pub trailing_12_month_sales_rank: i64,
+    pub trailing_12_month_sales_rank_total: i64,
     pub open_order_units: i64,
     pub last_physical_count_at: Option<DateTime<Utc>>,
 }
@@ -1007,6 +1012,9 @@ pub struct HubVariantRow {
     pub stock_on_hand: i32,
     pub reserved_stock: i32,
     pub available_stock: i32,
+    pub last_sold_at: Option<DateTime<Utc>>,
+    pub average_monthly_units_sold: Decimal,
+    pub average_yearly_units_sold: Decimal,
     pub qty_on_order: Option<i32>,
     pub last_physical_count_at: Option<DateTime<Utc>>,
     pub reorder_point: i32,
@@ -1031,6 +1039,9 @@ struct HubVariantJoinRow {
     stock_on_hand: i32,
     reserved_stock: i32,
     available_stock: i32,
+    last_sold_at: Option<DateTime<Utc>>,
+    average_monthly_units_sold: Decimal,
+    average_yearly_units_sold: Decimal,
     qty_on_order: i32,
     last_physical_count_at: Option<DateTime<Utc>>,
     reorder_point: i32,
@@ -1076,6 +1087,20 @@ struct ProductHubInventoryTotalsRow {
     total_units_on_hand: i64,
     total_reserved_units: i64,
     total_available_units: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct ProductHubSalesStatsRow {
+    units_sold_all_time: i64,
+    units_sold_last_30_days: i64,
+    average_monthly_units_sold: Decimal,
+    average_yearly_units_sold: Decimal,
+}
+
+#[derive(Debug, FromRow)]
+struct ProductHubSalesRankRow {
+    trailing_12_month_sales_rank: i64,
+    trailing_12_month_sales_rank_total: i64,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -3515,12 +3540,106 @@ async fn fetch_product_hub(
     .fetch_one(&state.db)
     .await?;
 
-    let units_sold_all_time: i64 = sqlx::query_scalar(
+    let sales_stats = sqlx::query_as::<_, ProductHubSalesStatsRow>(
         r#"
-        SELECT COALESCE(SUM(oi.quantity), 0)::bigint
-        FROM transaction_lines oi
-        INNER JOIN product_variants pv ON pv.id = oi.variant_id
-        WHERE pv.product_id = $1
+        WITH sales AS (
+            SELECT
+                COALESCE(tl.booked_at, t.booked_at) AS sold_at,
+                tl.quantity
+            FROM transaction_lines tl
+            INNER JOIN transactions t ON t.id = tl.transaction_id
+            INNER JOIN product_variants pv ON pv.id = tl.variant_id
+            WHERE pv.product_id = $1
+              AND t.status <> 'cancelled'::order_status
+              AND COALESCE(tl.is_internal, false) = false
+              AND tl.quantity > 0
+        ), totals AS (
+            SELECT
+                MIN(sold_at) AS first_sold_at,
+                COALESCE(SUM(quantity), 0)::bigint AS units_sold_all_time,
+                COALESCE(SUM(quantity) FILTER (WHERE sold_at >= NOW() - INTERVAL '30 days'), 0)::bigint
+                    AS units_sold_last_30_days
+            FROM sales
+        )
+        SELECT
+            units_sold_all_time,
+            units_sold_last_30_days,
+            CASE
+                WHEN first_sold_at IS NULL THEN 0::numeric
+                ELSE (
+                    units_sold_all_time::numeric
+                    / GREATEST(
+                        1,
+                        (
+                            EXTRACT(YEAR FROM age(CURRENT_DATE, first_sold_at::date)) * 12
+                            + EXTRACT(MONTH FROM age(CURRENT_DATE, first_sold_at::date))
+                            + 1
+                        )::integer
+                    )::numeric
+                )::numeric(14, 2)
+            END AS average_monthly_units_sold,
+            CASE
+                WHEN first_sold_at IS NULL THEN 0::numeric
+                ELSE (
+                    units_sold_all_time::numeric * 12::numeric
+                    / GREATEST(
+                        1,
+                        (
+                            EXTRACT(YEAR FROM age(CURRENT_DATE, first_sold_at::date)) * 12
+                            + EXTRACT(MONTH FROM age(CURRENT_DATE, first_sold_at::date))
+                            + 1
+                        )::integer
+                    )::numeric
+                )::numeric(14, 2)
+            END AS average_yearly_units_sold
+        FROM totals
+        "#,
+    )
+    .bind(product_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let sales_rank = sqlx::query_as::<_, ProductHubSalesRankRow>(
+        r#"
+        WITH trailing_sales AS (
+            SELECT
+                pv.product_id,
+                COALESCE(SUM(tl.quantity), 0)::bigint AS units_sold
+            FROM transaction_lines tl
+            INNER JOIN transactions t ON t.id = tl.transaction_id
+            INNER JOIN product_variants pv ON pv.id = tl.variant_id
+            WHERE COALESCE(tl.booked_at, t.booked_at) >= NOW() - INTERVAL '12 months'
+              AND t.status <> 'cancelled'::order_status
+              AND COALESCE(tl.is_internal, false) = false
+              AND tl.quantity > 0
+            GROUP BY pv.product_id
+        ), eligible_products AS (
+            SELECT
+                p.id AS product_id,
+                COALESCE(ts.units_sold, 0)::bigint AS units_sold
+            FROM products p
+            LEFT JOIN trailing_sales ts ON ts.product_id = p.id
+            WHERE p.is_active = true
+              AND (
+                  p.id = $1
+                  OR (
+                      p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment'
+                      AND p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load'
+                      AND p.pos_line_kind IS DISTINCT FROM 'alteration_service'
+                  )
+              )
+        ), ranked AS (
+            SELECT
+                product_id,
+                RANK() OVER (ORDER BY units_sold DESC)::bigint AS sales_rank,
+                COUNT(*) OVER ()::bigint AS rank_total
+            FROM eligible_products
+        )
+        SELECT
+            sales_rank AS trailing_12_month_sales_rank,
+            rank_total AS trailing_12_month_sales_rank_total
+        FROM ranked
+        WHERE product_id = $1
         "#,
     )
     .bind(product_id)
@@ -3552,6 +3671,35 @@ async fn fetch_product_hub(
             pv.stock_on_hand,
             pv.reserved_stock,
             GREATEST(0, pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::integer AS available_stock,
+            sales.last_sold_at,
+            CASE
+                WHEN sales.first_sold_at IS NULL THEN 0::numeric
+                ELSE (
+                    sales.total_units_sold::numeric
+                    / GREATEST(
+                        1,
+                        (
+                            EXTRACT(YEAR FROM age(CURRENT_DATE, sales.first_sold_at::date)) * 12
+                            + EXTRACT(MONTH FROM age(CURRENT_DATE, sales.first_sold_at::date))
+                            + 1
+                        )::integer
+                    )::numeric
+                )::numeric(14, 2)
+            END AS average_monthly_units_sold,
+            CASE
+                WHEN sales.first_sold_at IS NULL THEN 0::numeric
+                ELSE (
+                    sales.total_units_sold::numeric * 12::numeric
+                    / GREATEST(
+                        1,
+                        (
+                            EXTRACT(YEAR FROM age(CURRENT_DATE, sales.first_sold_at::date)) * 12
+                            + EXTRACT(MONTH FROM age(CURRENT_DATE, sales.first_sold_at::date))
+                            + 1
+                        )::integer
+                    )::numeric
+                )::numeric(14, 2)
+            END AS average_yearly_units_sold,
             COALESCE(po_open.qty_on_order, 0)::int4 AS qty_on_order,
             physical.last_physical_count_at,
             pv.reorder_point,
@@ -3565,6 +3713,18 @@ async fn fetch_product_hub(
             COALESCE(pv.hidden_from_inventory, false) AS hidden_from_inventory
         FROM product_variants pv
         INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN LATERAL (
+            SELECT
+                MIN(COALESCE(tl.booked_at, t.booked_at)) AS first_sold_at,
+                MAX(COALESCE(tl.booked_at, t.booked_at)) AS last_sold_at,
+                COALESCE(SUM(tl.quantity), 0)::bigint AS total_units_sold
+            FROM transaction_lines tl
+            INNER JOIN transactions t ON t.id = tl.transaction_id
+            WHERE tl.variant_id = pv.id
+              AND t.status <> 'cancelled'::order_status
+              AND COALESCE(tl.is_internal, false) = false
+              AND tl.quantity > 0
+        ) sales ON true
         LEFT JOIN LATERAL (
             SELECT COALESCE(SUM(pol.quantity_ordered - pol.quantity_received), 0)::int4 AS qty_on_order
             FROM purchase_order_lines pol
@@ -3598,6 +3758,9 @@ async fn fetch_product_hub(
             stock_on_hand: r.stock_on_hand,
             reserved_stock: r.reserved_stock,
             available_stock: r.available_stock,
+            last_sold_at: r.last_sold_at,
+            average_monthly_units_sold: r.average_monthly_units_sold,
+            average_yearly_units_sold: r.average_yearly_units_sold,
             qty_on_order: Some(r.qty_on_order),
             last_physical_count_at: r.last_physical_count_at,
             reorder_point: r.reorder_point,
@@ -3650,7 +3813,12 @@ async fn fetch_product_hub(
             total_reserved_units: inventory_totals.total_reserved_units,
             total_available_units: inventory_totals.total_available_units,
             value_on_hand,
-            units_sold_all_time,
+            units_sold_all_time: sales_stats.units_sold_all_time,
+            units_sold_last_30_days: sales_stats.units_sold_last_30_days,
+            average_monthly_units_sold: sales_stats.average_monthly_units_sold,
+            average_yearly_units_sold: sales_stats.average_yearly_units_sold,
+            trailing_12_month_sales_rank: sales_rank.trailing_12_month_sales_rank,
+            trailing_12_month_sales_rank_total: sales_rank.trailing_12_month_sales_rank_total,
             open_order_units,
             last_physical_count_at,
         },

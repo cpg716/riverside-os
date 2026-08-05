@@ -247,7 +247,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "inventory-product-hub-drawer",
     title: "Product Hub Drawer (inventory)",
-    summary: "Authoritative product detail drawer for inventory truth, variation review, and low-friction retail price-tag printing.",
+    summary: "Authoritative product detail drawer for inventory truth, variation review, parent stock-and-sales reporting, and retail price-tag printing.",
     markdown: manual_24_raw,
     tags: ["inventory-product-hub-drawer","inventory","product-hub","retail-price-tags"],
   },

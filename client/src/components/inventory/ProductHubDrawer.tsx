@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronsUpDown, Eye, X } from "lucide-react";
+import { ChevronsUpDown, Eye, Printer, X } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { VariationsWorkspace, type HubVariant } from "./VariationsWorkspace";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -26,10 +26,11 @@ import { getInventoryTagPrintConfig, openInventoryTagsWindow } from "./labelPrin
 import RosieIcon from "../common/RosieIcon";
 import { isCustomOrderSku } from "../../lib/customOrders";
 import { sortVariantsByVariation } from "../../lib/variantSort";
+import { openProfessionalTablePrint } from "../pos/zReportPrint";
 
 const VENDOR_ICON = getAppIcon("vendor");
 
-type HubTab = "general" | "variations" | "history";
+type HubTab = "general" | "variations" | "stock_report" | "history";
 type ProductTaxOverride = "" | "clothing" | "accessory" | "service";
 
 function productTaxRuleLabel(rule: ProductTaxOverride | null | undefined): string {
@@ -86,6 +87,11 @@ interface ProductHubStats {
   total_available_units: number;
   value_on_hand: string;
   units_sold_all_time: number;
+  units_sold_last_30_days: number;
+  average_monthly_units_sold: string;
+  average_yearly_units_sold: string;
+  trailing_12_month_sales_rank: number;
+  trailing_12_month_sales_rank_total: number;
   open_order_units: number;
   last_physical_count_at?: string | null;
 }
@@ -98,6 +104,9 @@ interface HubApiVariant {
   stock_on_hand: number;
   reserved_stock: number;
   available_stock: number;
+  last_sold_at: string | null;
+  average_monthly_units_sold: string;
+  average_yearly_units_sold: string;
   qty_on_order?: number | null;
   last_physical_count_at?: string | null;
   reorder_point: number;
@@ -228,6 +237,16 @@ function money(v: string | number) {
 function formatDateTime(value?: string | null) {
   if (!value) return "Not counted yet";
   return new Date(value).toLocaleString();
+}
+
+function formatSoldDate(value?: string | null) {
+  if (!value) return "Never";
+  return new Date(value).toLocaleDateString();
+}
+
+function formatAverageUnits(value: string | number | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed.toFixed(2) : "0.00";
 }
 
 function formatEventKind(kind: string) {
@@ -1027,6 +1046,63 @@ export default function ProductHubDrawer({
       : [],
     [hub],
   );
+  const stockReportTotals = useMemo(() => {
+    let lastSoldAt: string | null = null;
+    for (const variant of orderedVariants) {
+      if (
+        variant.last_sold_at &&
+        (!lastSoldAt || new Date(variant.last_sold_at) > new Date(lastSoldAt))
+      ) {
+        lastSoldAt = variant.last_sold_at;
+      }
+    }
+    return { lastSoldAt };
+  }, [orderedVariants]);
+  const handlePrintStockReport = useCallback(async () => {
+    if (!hub) return;
+    const rows: Record<string, unknown>[] = orderedVariants.map((variant) => ({
+      Item: variant.variation_label ?? "Standard",
+      SKU: variant.sku,
+      QTY: variant.stock_on_hand,
+      "Last sold": formatSoldDate(variant.last_sold_at),
+      "Avg units / month": formatAverageUnits(variant.average_monthly_units_sold),
+      "Avg units / year": formatAverageUnits(variant.average_yearly_units_sold),
+    }));
+    rows.push({
+      Item: "PARENT TOTAL",
+      SKU: "—",
+      QTY: hub.stats.total_units_on_hand,
+      "Last sold": formatSoldDate(stockReportTotals.lastSoldAt),
+      "Avg units / month": formatAverageUnits(hub.stats.average_monthly_units_sold),
+      "Avg units / year": formatAverageUnits(hub.stats.average_yearly_units_sold),
+    });
+    try {
+      const started = await openProfessionalTablePrint({
+        title: `${hub.product.name} Stock & Sales`,
+        subtitle: [
+          `Parent sales rank: #${hub.stats.trailing_12_month_sales_rank} of ${hub.stats.trailing_12_month_sales_rank_total} (trailing 12 months).`,
+          `Last 30 days: ${hub.stats.units_sold_last_30_days} units.`,
+          `Average: ${formatAverageUnits(hub.stats.average_monthly_units_sold)} units/month · ${formatAverageUnits(hub.stats.average_yearly_units_sold)} units/year.`,
+          "Averages use the complete qualifying recorded sales period.",
+        ].join(" "),
+        columns: [
+          "Item",
+          "SKU",
+          "QTY",
+          "Last sold",
+          "Avg units / month",
+          "Avg units / year",
+        ],
+        rows,
+      });
+      if (!started) throw new Error("The stock and sales report did not open.");
+    } catch (error) {
+      toast(
+        error instanceof Error ? error.message : "Could not print the stock and sales report.",
+        "error",
+      );
+    }
+  }, [hub, orderedVariants, stockReportTotals, toast]);
   const isNonStockSaleProduct = Boolean(
     hub &&
       (isInternalPosCategory(hub.product.category_name) ||
@@ -1127,6 +1203,7 @@ export default function ProductHubDrawer({
           <div className="flex flex-wrap gap-2">
             {tabBtn("general", "Item Setup")}
             {tabBtn("variations", "SKUs & Stock")}
+            {tabBtn("stock_report", "Stock Report")}
             {tabBtn("history", "History")}
           </div>
         }
@@ -2349,6 +2426,122 @@ export default function ProductHubDrawer({
                 onHubMutated?.();
               }}
             />
+          )}
+
+          {tab === "stock_report" && (
+            <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                    Parent stock and sales
+                  </h3>
+                  <p className="mt-1 text-sm font-semibold text-app-text">
+                    {hub.product.name} · {hub.stats.total_units_on_hand} units on hand
+                  </p>
+                  <p className="mt-1 max-w-3xl text-xs text-app-text-muted">
+                    Monthly and yearly averages use the complete qualifying recorded sales period.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handlePrintStockReport()}
+                  className="ui-btn-primary inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-widest"
+                >
+                  <Printer size={15} aria-hidden />
+                  Print Report
+                </button>
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  [
+                    "Sales ranking",
+                    `#${hub.stats.trailing_12_month_sales_rank} of ${hub.stats.trailing_12_month_sales_rank_total}`,
+                    "Trailing 12-month unit sales",
+                  ],
+                  [
+                    "Last 30 days",
+                    `${hub.stats.units_sold_last_30_days} units`,
+                    "Parent and all variations",
+                  ],
+                  [
+                    "Average per month",
+                    formatAverageUnits(hub.stats.average_monthly_units_sold),
+                    "Complete recorded sales history",
+                  ],
+                  [
+                    "Average per year",
+                    formatAverageUnits(hub.stats.average_yearly_units_sold),
+                    "Annualized recorded pace",
+                  ],
+                ].map(([label, value, detail]) => (
+                  <div key={label} className="ui-metric-cell ui-tint-neutral px-4 py-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      {label}
+                    </p>
+                    <p className="mt-1 text-xl font-black tabular-nums text-app-text">{value}</p>
+                    <p className="mt-1 text-[11px] font-semibold text-app-text-muted">{detail}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-5 overflow-x-auto rounded-2xl border border-app-border">
+                <table className="min-w-full border-collapse text-left text-sm">
+                  <thead className="bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    <tr>
+                      <th className="px-4 py-3">Item</th>
+                      <th className="px-4 py-3">SKU</th>
+                      <th className="px-4 py-3 text-right">QTY</th>
+                      <th className="px-4 py-3">Last sold</th>
+                      <th className="px-4 py-3 text-right">Avg units / month</th>
+                      <th className="px-4 py-3 text-right">Avg units / year</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orderedVariants.map((variant) => (
+                      <tr key={variant.id} className="border-t border-app-border/70">
+                        <td className="px-4 py-3 font-semibold text-app-text">
+                          {variant.variation_label ?? "Standard"}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs font-bold text-app-text-muted">
+                          {variant.sku}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono font-black tabular-nums text-app-text">
+                          {variant.stock_on_hand}
+                        </td>
+                        <td className="px-4 py-3 text-app-text-muted">
+                          {formatSoldDate(variant.last_sold_at)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono tabular-nums text-app-text">
+                          {formatAverageUnits(variant.average_monthly_units_sold)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono tabular-nums text-app-text">
+                          {formatAverageUnits(variant.average_yearly_units_sold)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="border-t-2 border-app-border bg-app-surface-2 font-black text-app-text">
+                    <tr>
+                      <td className="px-4 py-3">Parent total</td>
+                      <td className="px-4 py-3">—</td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums">
+                        {hub.stats.total_units_on_hand}
+                      </td>
+                      <td className="px-4 py-3 text-app-text-muted">
+                        {formatSoldDate(stockReportTotals.lastSoldAt)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums">
+                        {formatAverageUnits(hub.stats.average_monthly_units_sold)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono tabular-nums">
+                        {formatAverageUnits(hub.stats.average_yearly_units_sold)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </section>
           )}
 
           {tab === "history" && (
