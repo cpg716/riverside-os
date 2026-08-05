@@ -5,9 +5,35 @@ use rust_decimal::Decimal;
 
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_shared::{
-    backdated_receipt_notice, order_status_label, payment_summary_has_receipt_detail,
-    receipt_display_ref, tender_display_label, ReceiptOrder,
+    backdated_receipt_notice, payment_summary_has_receipt_detail, receipt_display_ref,
+    tender_display_label, ReceiptOrder,
 };
+
+fn money(amount: Decimal) -> String {
+    let rounded = amount.round_dp(2);
+    if rounded < Decimal::ZERO {
+        format!("-${:.2}", -rounded)
+    } else {
+        format!("${rounded:.2}")
+    }
+}
+
+fn append_store_contact(lines: &mut Vec<String>, cfg: &ReceiptConfig) {
+    for value in [
+        cfg.show_address.then_some(cfg.store_address.as_str()),
+        cfg.show_phone.then_some(cfg.store_phone.as_str()),
+        cfg.show_email.then_some(cfg.store_email.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(cfg.header_lines.iter().map(String::as_str))
+    {
+        let value = value.trim();
+        if !value.is_empty() {
+            lines.push(value.to_string());
+        }
+    }
+}
 
 /// Gift receipt body for SMS when MMS/HTML is not used: items only, no prices or payment details.
 pub fn format_pos_gift_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig) -> String {
@@ -19,6 +45,7 @@ pub fn format_pos_gift_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptC
     lines.push(cfg.store_name.trim().to_string());
     lines.push(format!("Gift receipt {order_ref}"));
     lines.push(local_time.format("%m/%d/%Y %I:%M %p").to_string());
+    append_store_contact(&mut lines, cfg);
     if let Some(notice) = backdated_receipt_notice(order) {
         lines.push(notice);
     }
@@ -26,6 +53,15 @@ pub fn format_pos_gift_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptC
 
     if let Some(c) = &order.customer {
         lines.extend(c.identity_lines());
+    }
+    if let Some(name) = &order.salesperson_display_name {
+        lines.push(format!("Salesperson: {name}"));
+    }
+    if let Some(name) = &order.cashier_name {
+        lines.push(format!("Staff: {name}"));
+    }
+    if let Some(register_lane) = order.register_lane {
+        lines.push(format!("Register #{register_lane}"));
     }
 
     if order.has_wedding_order_items() {
@@ -77,6 +113,7 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
         format!("{} {order_ref}", order.receipt_kind.title())
     });
     lines.push(local_time.format("%m/%d/%Y %I:%M %p").to_string());
+    append_store_contact(&mut lines, cfg);
     if let Some(notice) = backdated_receipt_notice(order) {
         lines.push(notice);
     }
@@ -84,6 +121,16 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
 
     if let Some(c) = &order.customer {
         lines.extend(c.identity_lines());
+    }
+
+    if let Some(name) = &order.salesperson_display_name {
+        lines.push(format!("Salesperson: {name}"));
+    }
+    if let Some(name) = &order.cashier_name {
+        lines.push(format!("Staff: {name}"));
+    }
+    if let Some(register_lane) = order.register_lane {
+        lines.push(format!("Register #{register_lane}"));
     }
 
     if order.has_wedding_order_items() {
@@ -98,13 +145,20 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
             .map(|v| format!(" ({v})"))
             .unwrap_or_default();
         lines.push(format!(
-            "{} x{} @ {}  {}{}",
+            "{} x{} @ {} = {}  {}{}",
             it.product_name.trim(),
             it.quantity,
-            it.unit_price,
+            money(it.unit_price),
+            money(it.unit_price * Decimal::from(it.quantity)),
             it.sku.trim(),
             var
         ));
+        if let Some(is_taxable) = it.is_taxable {
+            lines.push(format!(
+                "Tax: {}",
+                if is_taxable { "Taxable" } else { "Exempt" }
+            ));
+        }
         if it.custom_item_type.as_deref() == Some("linked_pickup") {
             if let Some(source_label) = it
                 .discount_event_label
@@ -118,15 +172,28 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
     }
 
     lines.push(String::from("---"));
-    lines.push(format!("{}: {}", order.total_label(), order.total_price));
+    lines.push(format!("Subtotal: {}", money(order.subtotal_price)));
+    lines.push(format!("Sales tax: {}", money(order.tax_total)));
+    if order.total_savings > Decimal::ZERO {
+        lines.push(format!("Total savings: {}", money(order.total_savings)));
+    }
+    lines.push(format!(
+        "{}: {}",
+        order.total_label(),
+        money(order.total_price)
+    ));
     if order.show_paid_line() {
-        lines.push(format!("{}: {}", order.paid_label(), order.amount_paid));
+        lines.push(format!(
+            "{}: {}",
+            order.paid_label(),
+            money(order.amount_paid)
+        ));
     }
     if let Some(prior_paid) = order.pickup_prior_paid {
-        lines.push(format!("Previously paid: {prior_paid}"));
+        lines.push(format!("Previously paid: {}", money(prior_paid)));
     }
     if order.balance_due > Decimal::ZERO || order.is_pickup_event() {
-        lines.push(format!("Balance remaining: {}", order.balance_due));
+        lines.push(format!("Balance remaining: {}", money(order.balance_due)));
     }
     if order.payments.is_empty() {
         lines.push(format!("Tender: {}", order.payment_methods_summary.trim()));
@@ -136,14 +203,14 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
             lines.push(format!(
                 "{}: {}",
                 tender_display_label(&payment.method),
-                payment.amount
+                money(payment.amount)
             ));
             if let (Some(cash_tendered), Some(change_due)) =
                 (payment.cash_tendered, payment.change_due)
             {
                 if change_due > Decimal::ZERO {
-                    lines.push(format!("Cash Tendered: {cash_tendered}"));
-                    lines.push(format!("Change: {change_due}"));
+                    lines.push(format!("Cash Tendered: {}", money(cash_tendered)));
+                    lines.push(format!("Change: {}", money(change_due)));
                 }
             }
         }
@@ -165,19 +232,24 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
                 .unwrap_or_default();
             lines.push(format!(
                 "Wedding Party Deposit{} ({}): {}{}",
-                beneficiary, deposit.party_name, deposit.amount, destination
+                beneficiary,
+                deposit.party_name,
+                money(deposit.amount),
+                destination
             ));
         }
     } else if order.wedding_deposit_amount > Decimal::ZERO {
         lines.push(format!(
             "Wedding Party Deposit: {}",
-            order.wedding_deposit_amount
+            money(order.wedding_deposit_amount)
         ));
     }
     for source in &order.applied_wedding_deposits {
         lines.push(format!(
             "Wedding Deposit Applied (paid by {}, {}): {}",
-            source.payer_name, source.party_name, source.amount
+            source.payer_name,
+            source.party_name,
+            money(source.amount)
         ));
     }
     if !order.payment_applications.is_empty() {
@@ -187,12 +259,12 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
                 "{} {}: {} (remaining balance {})",
                 app.activity_label(),
                 app.target_display_id,
-                app.amount,
-                app.remaining_balance
+                money(app.amount),
+                money(app.remaining_balance)
             ));
         }
     }
-    lines.push(format!("Status: {}", order_status_label(order.status)));
+    lines.push(format!("Status: {}", order.customer_status_label()));
     if order.is_tax_exempt {
         lines.push(format!(
             "TAX EXEMPT: {}",
@@ -267,7 +339,7 @@ mod tests {
         let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
 
         assert!(text.contains(
-            "Wedding Party Deposit for James Brown (Whitrock Wedding): 710.38 — Held for future order"
+            "Wedding Party Deposit for James Brown (Whitrock Wedding): $710.38 — Held for future order"
         ));
     }
 

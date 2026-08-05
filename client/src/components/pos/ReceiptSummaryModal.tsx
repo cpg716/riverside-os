@@ -809,29 +809,18 @@ export default function ReceiptSummaryModal({
         picked.length < rows.length
           ? picked
           : undefined;
-      const htmlQ = buildReceiptQuery(
-        gift ? { gift: true, transactionLineIds: giftItemParam } : undefined,
-      );
-
       let pngBase64: string | undefined;
-      if (transactionDetail?.receipt_studio_layout_available) {
-        try {
-          const hres = await fetch(
-            `${baseUrl}/api/transactions/${receiptDeliveryTransactionId}/receipt.html${htmlQ}`,
-            {
-              headers: getAuthHeaders(),
-              cache: "no-store",
-            },
-          );
-          if (hres.ok) {
-            const html = await hres.text();
-            if (!html.toLowerCase().includes("no receipt builder html")) {
-              pngBase64 = await receiptHtmlToPngBase64(html);
-            }
-          }
-        } catch (e) {
-          console.warn("Receipt PNG for SMS skipped", e);
-        }
+      try {
+        const previewMarkup = await fetchReceiptPreviewMarkup(
+          gift ? { gift: true, transactionLineIds: giftItemParam } : undefined,
+        );
+        pngBase64 = await receiptHtmlToPngBase64(
+          previewMarkup.trim().startsWith("<svg")
+            ? `<div style="width:576px;background:#fff;padding:16px;color:#111">${previewMarkup}</div>`
+            : previewMarkup,
+        );
+      } catch (e) {
+        console.warn("Receipt PNG for SMS skipped; sending text receipt", e);
       }
 
       const postQ = buildReceiptQuery();

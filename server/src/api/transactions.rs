@@ -338,6 +338,8 @@ pub struct TransactionDetailedPayment {
 pub struct TransactionDetailResponse {
     pub transaction_id: Uuid,
     pub transaction_display_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub register_lane: Option<i16>,
     pub booked_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backdated_business_date: Option<NaiveDate>,
@@ -621,6 +623,9 @@ impl TransactionDetailResponse {
                         is_fulfilled: it.is_fulfilled,
                         adjustment: None,
                         contributes_to_totals: true,
+                        is_taxable: Some(
+                            !self.is_tax_exempt && (it.state_tax + it.local_tax) != Decimal::ZERO,
+                        ),
                     });
                 }
                 if it.quantity_returned > 0 {
@@ -651,6 +656,10 @@ impl TransactionDetailResponse {
                             receipt_shared::ReceiptLineAdjustment::Returned
                         }),
                         contributes_to_totals: refund_receipt,
+                        is_taxable: Some(
+                            !self.is_tax_exempt
+                                && (it.returned_state_tax + it.returned_local_tax) != Decimal::ZERO,
+                        ),
                     });
                 }
             }
@@ -677,6 +686,7 @@ impl TransactionDetailResponse {
                     is_fulfilled: true,
                     adjustment: None,
                     contributes_to_totals: false,
+                    is_taxable: None,
                 });
             }
         }
@@ -704,6 +714,7 @@ impl TransactionDetailResponse {
                 is_fulfilled: true,
                 adjustment: None,
                 contributes_to_totals: true,
+                is_taxable: Some(false),
             });
         }
         if receipt_items.is_empty() && !payment_only {
@@ -813,6 +824,7 @@ impl TransactionDetailResponse {
             receipt_kind: receipt_shared::ReceiptKind::StandardSale,
             transaction_id: self.transaction_id,
             transaction_display_id: self.transaction_display_id.clone(),
+            register_lane: self.register_lane,
             booked_at: self.booked_at,
             backdated_business_date: self.backdated_business_date,
             status: self.status,
@@ -1117,6 +1129,7 @@ mod tests {
         TransactionDetailResponse {
             transaction_id: Uuid::nil(),
             transaction_display_id: "TXN-TEST".to_string(),
+            register_lane: Some(1),
             booked_at: Utc::now(),
             backdated_business_date: None,
             status: DbOrderStatus::Open,
@@ -1229,6 +1242,7 @@ mod tests {
             is_tax_exempt: false,
             tax_exempt_reason: None,
             register_session_id: None,
+            register_lane: None,
             is_counterpoint_import,
             counterpoint_return_review_blocked: false,
         }
@@ -3145,6 +3159,10 @@ async fn build_refund_event_receipt_order(
                 receipt_shared::ReceiptLineAdjustment::Returned
             }),
             contributes_to_totals: true,
+            is_taxable: Some(
+                !original_detail.is_tax_exempt
+                    && (returned.refund_state_tax + returned.refund_local_tax) != Decimal::ZERO,
+            ),
         });
     }
     if let Some(replacement_receipt) = replacement_receipt.as_ref() {
@@ -3303,6 +3321,10 @@ async fn build_refund_event_receipt_order(
     Ok(receipt_shared::ReceiptOrder {
         transaction_id: original_detail.transaction_id,
         transaction_display_id: original_detail.transaction_display_id.clone(),
+        register_lane: replacement_detail
+            .as_ref()
+            .and_then(|detail| detail.register_lane)
+            .or(original_detail.register_lane),
         receipt_kind: if replacement_transaction_id.is_some() {
             receipt_shared::ReceiptKind::ReturnExchange
         } else {
@@ -3457,6 +3479,7 @@ struct OrderHeaderRow {
     is_tax_exempt: bool,
     tax_exempt_reason: Option<String>,
     register_session_id: Option<Uuid>,
+    register_lane: Option<i16>,
     is_counterpoint_import: bool,
     counterpoint_return_review_blocked: bool,
 }
@@ -12053,13 +12076,15 @@ pub(crate) async fn load_transaction_detail(
             ros_store.review_policy AS store_review_policy,
             COALESCE(o.is_tax_exempt, false) AS is_tax_exempt,
             o.tax_exempt_reason,
-            o.register_session_id
+            o.register_session_id,
+            rs.register_lane
         FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
         LEFT JOIN staff op ON op.id = o.operator_id
         LEFT JOIN staff ps ON ps.id = o.primary_salesperson_id
+        LEFT JOIN register_sessions rs ON rs.id = o.register_session_id
         CROSS JOIN store_settings ros_store
         WHERE o.id = $1 AND ros_store.id = 1
         "#
@@ -13023,6 +13048,7 @@ pub(crate) async fn load_transaction_detail(
     Ok(TransactionDetailResponse {
         transaction_id: h.id,
         transaction_display_id: h.display_id,
+        register_lane: h.register_lane,
         booked_at: h.booked_at,
         backdated_business_date: if h.register_backdated {
             h.business_date

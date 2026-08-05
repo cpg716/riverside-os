@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, FileText, Image as ImageIcon, RefreshCw, RotateCcw, Save } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  FileText,
+  Image as ImageIcon,
+  RefreshCw,
+  RotateCcw,
+  Save,
+} from "lucide-react";
 import { transform } from "receiptline";
 import RiversideReceiptLogo from "../../assets/images/riverside_logo.jpg";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -15,32 +23,45 @@ const EPSON_RECEIPT_PAPER = "80mm";
 const RECEIPT_LOGO_WIDTH_PX = 384;
 
 type ReceiptPreviewScenario =
-  | "sale"
-  | "mixed"
-  | "pickup"
-  | "return"
-  | "exchange"
-  | "gift";
+  "sale" | "mixed" | "pickup" | "return" | "exchange" | "gift";
 
 const RECEIPT_PREVIEW_SCENARIOS: Array<{
   value: ReceiptPreviewScenario;
   label: string;
   description: string;
 }> = [
-  { value: "sale", label: "Retail sale", description: "A normal taken-today purchase." },
+  {
+    value: "sale",
+    label: "Retail sale",
+    description: "A normal taken-today purchase.",
+  },
   {
     value: "mixed",
     label: "Mixed transaction",
-    description: "Taken today, pickup, shipping, fees, special/custom/wedding/layaway, and order payments.",
+    description:
+      "Taken today, pickup, shipping, fees, special/custom/wedding/layaway, and order payments.",
   },
   {
     value: "pickup",
     label: "Pickup and payment",
-    description: "The dedicated picked-up template with prior and current payments.",
+    description:
+      "The dedicated picked-up template with prior and current payments.",
   },
-  { value: "return", label: "Return / refund", description: "Returned merchandise and refund totals." },
-  { value: "exchange", label: "Return / exchange", description: "Returned and replacement merchandise together." },
-  { value: "gift", label: "Gift receipt", description: "Customer copy with prices and payments omitted." },
+  {
+    value: "return",
+    label: "Return / refund",
+    description: "Returned merchandise and refund totals.",
+  },
+  {
+    value: "exchange",
+    label: "Return / exchange",
+    description: "Returned and replacement merchandise together.",
+  },
+  {
+    value: "gift",
+    label: "Gift receipt",
+    description: "Customer copy with prices and payments omitted.",
+  },
 ];
 
 export interface ReceiptConfig {
@@ -73,6 +94,7 @@ const DEFAULT_RECEIPTLINE_TEMPLATE = `{{LOGO_IMAGE}}
 {{CUSTOMER_LINE}}
 {{SALESPERSON_LINE}}
 {{CASHIER_LINE}}
+{{REGISTER_LINE}}
 ---
 {{ITEM_LINES}}
 {{LOYALTY_EARNED}}
@@ -98,9 +120,11 @@ const DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE = `{{LOGO_IMAGE}}
 {{HEADER_LINES}}
 {{RECEIPT_TITLE}}
 {{RECEIPT_ID}}
+{{RECEIPT_DATE}}
 {{CUSTOMER_LINE}}
 {{SALESPERSON_LINE}}
 {{CASHIER_LINE}}
+{{REGISTER_LINE}}
 ---
 {{ITEM_LINES}}
 ---
@@ -128,6 +152,16 @@ function textToLines(value: string) {
   return value.split(/\r?\n/);
 }
 
+function duplicateReceiptTokens(template: string) {
+  const counts = new Map<string, number>();
+  for (const token of template.match(/\{\{[A-Z_]+\}\}/g) ?? []) {
+    counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([token]) => token);
+}
+
 function escapeReceiptlineText(value: string) {
   return value
     .replace(/\\/g, "\\\\")
@@ -144,7 +178,11 @@ function centeredLines(lines: string[]) {
     .join("\n");
 }
 
-function receiptTemplateWithSlots(template: string, showLogo: boolean, showBarcode: boolean) {
+function receiptTemplateWithSlots(
+  template: string,
+  showLogo: boolean,
+  showBarcode: boolean,
+) {
   let next = template;
   if (showLogo && !next.includes("{{LOGO_IMAGE}}")) {
     next = `{{LOGO_IMAGE}}\n${next}`;
@@ -153,21 +191,39 @@ function receiptTemplateWithSlots(template: string, showLogo: boolean, showBarco
     if (next.includes("{{FOOTER_LINES}}")) {
       // Use replace with a function or just replace the first occurrence to be safe
       const parts = next.split("{{FOOTER_LINES}}");
-      next = parts[0] + "{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}" + parts.slice(1).join("{{FOOTER_LINES}}");
+      next =
+        parts[0] +
+        "{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}" +
+        parts.slice(1).join("{{FOOTER_LINES}}");
     } else {
       next = `${next}\n{{BARCODE_IMAGE}}`;
     }
   }
-  ["{{SUBTOTAL_LINE}}", "{{TAX_LINE}}", "{{TOTAL_SAVINGS_LINE}}"].forEach((token) => {
-    if (!next.includes(token)) {
-      next = next.includes("{{TOTAL_LINE}}")
-        ? next.replace("{{TOTAL_LINE}}", `${token}\n{{TOTAL_LINE}}`)
-        : `${next}\n${token}`;
-    }
-  });
+  if (!next.includes("{{RECEIPT_DATE}}")) {
+    next = next.includes("{{RECEIPT_ID}}")
+      ? next.replace("{{RECEIPT_ID}}", "{{RECEIPT_ID}}\n{{RECEIPT_DATE}}")
+      : `{{RECEIPT_DATE}}\n${next}`;
+  }
+  if (!next.includes("{{REGISTER_LINE}}")) {
+    next = next.includes("{{CASHIER_LINE}}")
+      ? next.replace("{{CASHIER_LINE}}", "{{CASHIER_LINE}}\n{{REGISTER_LINE}}")
+      : `${next}\n{{REGISTER_LINE}}`;
+  }
+  ["{{SUBTOTAL_LINE}}", "{{TAX_LINE}}", "{{TOTAL_SAVINGS_LINE}}"].forEach(
+    (token) => {
+      if (!next.includes(token)) {
+        next = next.includes("{{TOTAL_LINE}}")
+          ? next.replace("{{TOTAL_LINE}}", `${token}\n{{TOTAL_LINE}}`)
+          : `${next}\n${token}`;
+      }
+    },
+  );
   if (!next.includes("{{WEDDING_DEPOSIT_LINES}}")) {
     next = next.includes("{{STATUS_LINE}}")
-      ? next.replace("{{STATUS_LINE}}", "{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}")
+      ? next.replace(
+          "{{STATUS_LINE}}",
+          "{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}",
+        )
       : `${next}\n{{WEDDING_DEPOSIT_LINES}}`;
   }
   if (!next.includes("{{PAYMENT_BLOCK}}")) {
@@ -177,7 +233,10 @@ function receiptTemplateWithSlots(template: string, showLogo: boolean, showBarco
         "{{PAYMENT_BLOCK}}\n{{PAYMENT_HISTORY_BLOCK}}",
       );
     } else if (next.includes("{{SUBTOTAL_LINE}}")) {
-      next = next.replace("{{SUBTOTAL_LINE}}", "{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}");
+      next = next.replace(
+        "{{SUBTOTAL_LINE}}",
+        "{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}",
+      );
     } else {
       next = `${next}\n{{PAYMENT_BLOCK}}`;
     }
@@ -211,12 +270,15 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   const [settingsReady, setSettingsReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [testPrinting, setTestPrinting] = useState(false);
-  const [testDelivery, setTestDelivery] = useState<"email" | "sms" | null>(null);
+  const [testDelivery, setTestDelivery] = useState<"email" | "sms" | null>(
+    null,
+  );
   const [testEmail, setTestEmail] = useState("");
   const [testPhone, setTestPhone] = useState("");
   const [receiptLogoBase64, setReceiptLogoBase64] = useState("");
   const [activeTab, setActiveTab] = useState<"standard" | "pickup">("standard");
-  const [previewScenario, setPreviewScenario] = useState<ReceiptPreviewScenario>("mixed");
+  const [previewScenario, setPreviewScenario] =
+    useState<ReceiptPreviewScenario>("mixed");
 
   const load = useCallback(async () => {
     setSettingsReady(false);
@@ -288,31 +350,38 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   }
 
   const showLogo = cfg.show_logo !== false;
-  const effectiveTemplate = activeTab === "standard"
-    ? receiptTemplateWithSlots(
-        cfg.receiptline_template?.trim() || DEFAULT_RECEIPTLINE_TEMPLATE,
-        showLogo,
-        cfg.show_barcode === true,
-      )
-    : receiptTemplateWithSlots(
-        cfg.receiptline_pickup_template?.trim() || DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE,
-        showLogo,
-        cfg.show_barcode === true,
-      );
+  const standardEffectiveTemplate = receiptTemplateWithSlots(
+    cfg.receiptline_template?.trim() || DEFAULT_RECEIPTLINE_TEMPLATE,
+    showLogo,
+    cfg.show_barcode === true,
+  );
+  const pickupEffectiveTemplate = receiptTemplateWithSlots(
+    cfg.receiptline_pickup_template?.trim() ||
+      DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE,
+    showLogo,
+    cfg.show_barcode === true,
+  );
+  const effectiveTemplate =
+    activeTab === "standard"
+      ? standardEffectiveTemplate
+      : pickupEffectiveTemplate;
   const headerLineValues = [
-    cfg.show_address ? cfg.store_address?.trim() || "6470 Transit Rd, Depew, NY" : "",
+    cfg.show_address
+      ? cfg.store_address?.trim() || "6470 Transit Rd, Depew, NY"
+      : "",
     cfg.show_phone ? cfg.store_phone?.trim() || "(716) 833-8401" : "",
     cfg.show_email ? cfg.store_email?.trim() || "info@riversidemens.com" : "",
     ...cfg.header_lines,
   ].filter(Boolean);
   const isGiftPreview = previewScenario === "gift";
-  const previewTitle = previewScenario === "return"
-    ? "RETURN / REFUND"
-    : previewScenario === "exchange"
-      ? "RETURN / EXCHANGE"
-      : isGiftPreview
-        ? "GIFT RECEIPT"
-        : "RECEIPT";
+  const previewTitle =
+    previewScenario === "return"
+      ? "RETURN / REFUND"
+      : previewScenario === "exchange"
+        ? "RETURN / EXCHANGE"
+        : isGiftPreview
+          ? "GIFT RECEIPT"
+          : "RECEIPT";
   const previewItemLines = (() => {
     switch (previewScenario) {
       case "sale":
@@ -322,6 +391,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           "Variation: Medium / Navy |",
           "| SKU I-1003713601 | $83.80",
           "Reg $104.75 Sale $83.80 (20% Discount) |",
+          "Tax: Taxable |",
         ].join("\n");
       case "pickup":
         return [
@@ -329,11 +399,13 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           "Variation: 42R / Black |",
           "Order Date: 04/10/2026 01:15 PM |",
           "| SKU I-40092180 | $350.00",
+          "Tax: Taxable |",
           "",
           '"Tuxedo Pants" |',
           "Variation: 34 / Black |",
           "Order Date: 04/10/2026 01:15 PM |",
           "| SKU I-40092181 | $150.00",
+          "Tax: Taxable |",
         ].join("\n");
       case "return":
         return [
@@ -341,6 +413,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           '"100% Lambswool Sweater" |',
           "Variation: Medium / Navy |",
           "| SKU I-1003713601 | -$83.80",
+          "Tax: Taxable |",
         ].join("\n");
       case "exchange":
         return [
@@ -348,11 +421,13 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           '"Tuxedo Shirt - White" |',
           "Variation: 16.5 / 34-35 |",
           "| SKU I-40092182 | -$65.00",
+          "Tax: Taxable |",
           "",
           "^^^Taken Today",
           '"Tuxedo Shirt - Ivory" |',
           "Variation: 16.5 / 34-35 |",
           "| SKU I-40092183 | $70.00",
+          "Tax: Taxable |",
         ].join("\n");
       case "gift":
         return [
@@ -368,45 +443,54 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           "Variation: Medium / Navy |",
           "| SKU I-1003713601 | $83.80",
           "Reg $104.75 Sale $83.80 (20% Discount) |",
+          "Tax: Taxable |",
           "",
           "^^^PICKED UP",
           '"Tuxedo Shirt" |',
           "Variation: 16.5 / 34-35 / White |",
           "Order Date: 04/10/2026 01:15 PM |",
           "| SKU I-40092182 | $65.00",
+          "Tax: Taxable |",
           "",
           "^^^SHIPPED",
           '"Silk Tie" |',
           "Variation: Burgundy |",
           "| SKU I-50012345 | $45.00",
+          "Tax: Taxable |",
           "",
           "^^^Special Order",
           '"Navy Blazer" |',
           "Variation: 42R / Navy |",
           "| SKU I-2004829302 | $295.00",
+          "Tax: Taxable |",
           "",
           "^^^Custom Order",
           '"Made-to-Measure Suit" |',
           "| SKU CUSTOM-MTM | $895.00",
+          "Tax: Taxable |",
           "",
           "^^^Wedding Order",
           '"Groomsman Suit" |',
           "Variation: 40R / Charcoal |",
           "| SKU I-30088420 | $260.00",
+          "Tax: Taxable |",
           "",
           "^^^Layaway",
           '"Overcoat" |',
           "Variation: 42 / Camel |",
           "| SKU I-60022410 | $325.00",
+          "Tax: Taxable |",
           "",
           "^^^Alterations",
           '"ALTERATION FEE" |',
           "Hem trousers |",
           "| SKU ROS-ALTERATION-FEE | $18.00",
+          "Tax: Exempt |",
           "",
           "^^^Shipping",
           '"SHIPPING FEE" |',
           "| SKU ROS-SHIPPING-FEE | $12.00",
+          "Tax: Exempt |",
         ].join("\n");
     }
   })();
@@ -415,7 +499,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       case "pickup":
         return {
           subtotal: "Subtotal | $500.00",
-          tax: "Taxes | $42.50",
+          tax: "Sales Tax | $42.50",
           savings: "",
           total: "Total | ^^$542.50",
           paid: "Paid | $542.50",
@@ -424,7 +508,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       case "return":
         return {
           subtotal: "Subtotal | -$83.80",
-          tax: "Taxes | -$7.12",
+          tax: "Sales Tax | -$7.12",
           savings: "",
           total: "Refund Total | ^^$90.92",
           paid: "Refunded | $90.92",
@@ -433,7 +517,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       case "exchange":
         return {
           subtotal: "Subtotal | $5.00",
-          tax: "Taxes | $0.43",
+          tax: "Sales Tax | $0.43",
           savings: "",
           total: "Balance Due | ^^$5.43",
           paid: "Paid | $5.43",
@@ -442,18 +526,25 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       case "mixed":
         return {
           subtotal: "Subtotal | $1,998.80",
-          tax: "Taxes | $169.90",
+          tax: "Sales Tax | $169.90",
           savings: "Total Savings | $20.95",
           total: "Total | ^^$2,168.70",
           paid: "Paid | $2,168.70",
           tender: "Tender Cash | $425.00\nTender CC | $1,668.70",
         };
       case "gift":
-        return { subtotal: "", tax: "", savings: "", total: "", paid: "", tender: "" };
+        return {
+          subtotal: "",
+          tax: "",
+          savings: "",
+          total: "",
+          paid: "",
+          tender: "",
+        };
       case "sale":
         return {
           subtotal: "Subtotal | $83.80",
-          tax: "Taxes | $7.12",
+          tax: "Sales Tax | $7.12",
           savings: "Total Savings | $20.95",
           total: "Total | ^^$90.92",
           paid: "Paid | $90.92",
@@ -467,11 +558,14 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
         "{{LOGO_IMAGE}}",
         showLogo && receiptLogoBase64 ? `{image:${receiptLogoBase64}}` : "",
       )
-      .replaceAll("{{STORE_NAME}}", `| ^^${escapeReceiptlineText(cfg.store_name)} |`)
+      .replaceAll(
+        "{{STORE_NAME}}",
+        `| ^^${escapeReceiptlineText(cfg.store_name)} |`,
+      )
       .replaceAll("{{HEADER_LINES}}", centeredLines(headerLineValues))
       .replaceAll("{{RECEIPT_TITLE}}", `| ^^^${previewTitle} |`)
       .replaceAll("{{RECEIPT_ID}}", "| Receipt TXN-66736 |")
-      .replaceAll("{{RECEIPT_DATE}}", previewScenario === "pickup" ? "" : "| 04/26/2026 02:14 AM |")
+      .replaceAll("{{RECEIPT_DATE}}", "| 04/26/2026 02:14 AM |")
       .replaceAll(
         "{{CUSTOMER_LINE}}",
         [
@@ -482,12 +576,20 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       )
       .replaceAll("{{SALESPERSON_LINE}}", "Salesperson: Taylor M.")
       .replaceAll("{{CASHIER_LINE}}", "Staff: Alex B.")
+      .replaceAll("{{REGISTER_LINE}}", "Register #1")
+      .replaceAll("{{ITEM_LINES}}", previewItemLines)
       .replaceAll(
-        "{{ITEM_LINES}}",
-        previewItemLines,
+        "{{LOYALTY_EARNED}}",
+        !isGiftPreview && cfg.show_loyalty_earned
+          ? "Loyalty earned | 84 pts"
+          : "",
       )
-      .replaceAll("{{LOYALTY_EARNED}}", !isGiftPreview && cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "")
-      .replaceAll("{{LOYALTY_BALANCE}}", !isGiftPreview && cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "")
+      .replaceAll(
+        "{{LOYALTY_BALANCE}}",
+        !isGiftPreview && cfg.show_loyalty_balance
+          ? "Loyalty balance | 1,240 pts"
+          : "",
+      )
       .replaceAll(
         "{{PAYMENT_BLOCK}}",
         previewScenario === "mixed"
@@ -509,12 +611,14 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       )
       .replaceAll(
         "{{PAYMENT_HISTORY_BLOCK}}",
-        previewScenario === "pickup" ? [
-          "| ^Payment History |",
-          "---",
-          "04/10/2026 Cash | $292.50",
-          "04/26/2026 CC | $250.00",
-        ].join("\n") : "",
+        previewScenario === "pickup"
+          ? [
+              "| ^Payment History |",
+              "---",
+              "04/10/2026 Cash | $292.50",
+              "04/26/2026 CC | $250.00",
+            ].join("\n")
+          : "",
       )
       .replaceAll("{{SUBTOTAL_LINE}}", previewFinancialLines.subtotal)
       .replaceAll("{{TAX_LINE}}", previewFinancialLines.tax)
@@ -533,31 +637,79 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           ? "Wedding Deposit Applied | $75.00\n  Paid by Jordan Garcia · Garcia Wedding"
           : "",
       )
-      .replaceAll("{{STATUS_LINE}}", isGiftPreview ? "" : previewScenario === "return" ? "Status | Refunded" : "Status | Complete")
+      .replaceAll(
+        "{{STATUS_LINE}}",
+        isGiftPreview
+          ? ""
+          : previewScenario === "return"
+            ? "Status | Refunded"
+            : "Status | Complete",
+      )
       .replaceAll("{{TAX_EXEMPT_LINE}}", "")
-      .replaceAll("{{BARCODE_IMAGE}}", cfg.show_barcode ? "{code:TXN-66736;option:code128,hri}" : "")
+      .replaceAll(
+        "{{BARCODE_IMAGE}}",
+        cfg.show_barcode ? "{code:TXN-66736;option:code128,hri}" : "",
+      )
       .replaceAll("{{FOOTER_LINES}}", centeredLines(cfg.footer_lines))
       .replaceAll("{{CUT}}", "=");
 
-  const requiredTokens = [
+  const commonRequiredTokens = [
+    "{{RECEIPT_TITLE}}",
+    "{{RECEIPT_ID}}",
+    "{{RECEIPT_DATE}}",
+    "{{CUSTOMER_LINE}}",
+    "{{SALESPERSON_LINE}}",
+    "{{CASHIER_LINE}}",
+    "{{REGISTER_LINE}}",
     "{{ITEM_LINES}}",
     "{{PAYMENT_BLOCK}}",
     "{{SUBTOTAL_LINE}}",
     "{{TAX_LINE}}",
     "{{TOTAL_LINE}}",
     "{{PAID_LINE}}",
+    "{{BALANCE_LINE}}",
+    "{{STATUS_LINE}}",
+  ];
+  const requiredTokens = [
+    ...commonRequiredTokens,
     ...(activeTab === "standard"
       ? ["{{TENDER_LINE}}"]
       : ["{{PAYMENT_HISTORY_BLOCK}}"]),
   ];
-  const missingRequiredTokens = requiredTokens.filter((token) => !effectiveTemplate.includes(token));
+  const missingRequiredTokens = requiredTokens.filter(
+    (token) => !effectiveTemplate.includes(token),
+  );
+  const standardMissingTokens = [
+    ...commonRequiredTokens,
+    "{{TENDER_LINE}}",
+  ].filter((token) => !standardEffectiveTemplate.includes(token));
+  const pickupMissingTokens = [
+    ...commonRequiredTokens,
+    "{{PAYMENT_HISTORY_BLOCK}}",
+  ].filter((token) => !pickupEffectiveTemplate.includes(token));
+  const standardDuplicateTokens = duplicateReceiptTokens(
+    standardEffectiveTemplate,
+  );
+  const pickupDuplicateTokens = duplicateReceiptTokens(pickupEffectiveTemplate);
+  const duplicateRequiredTokens =
+    activeTab === "standard" ? standardDuplicateTokens : pickupDuplicateTokens;
+  const hasInvalidSavedTemplate =
+    standardMissingTokens.length > 0 ||
+    pickupMissingTokens.length > 0 ||
+    standardDuplicateTokens.length > 0 ||
+    pickupDuplicateTokens.length > 0;
+  const activeTemplateInvalid =
+    missingRequiredTokens.length > 0 || duplicateRequiredTokens.length > 0;
 
   const printTestReceipt = async () => {
     setTestPrinting(true);
     try {
-      const printableBase64 = receiptlineToEscposBase64(getReceiptLineMarkup(), {
-        cpl: EPSON_RECEIPT_CPL,
-      });
+      const printableBase64 = receiptlineToEscposBase64(
+        getReceiptLineMarkup(),
+        {
+          cpl: EPSON_RECEIPT_CPL,
+        },
+      );
       await printReceiptBase64(printableBase64);
       toast("Test receipt sent to the Epson receipt printer.", "success");
     } catch (e) {
@@ -571,9 +723,13 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
     `<div style="background:#f3f4f6;padding:24px;font-family:Arial,sans-serif"><div style="width:576px;max-width:100%;margin:0 auto;background:#fff;padding:16px;color:#111">${receiptLineSvg}</div></div>`;
 
   const sendTestReceipt = async (channel: "email" | "sms") => {
-    const destination = channel === "email" ? testEmail.trim() : testPhone.trim();
+    const destination =
+      channel === "email" ? testEmail.trim() : testPhone.trim();
     if (!destination) {
-      toast(`Enter a test ${channel === "email" ? "email address" : "phone number"}.`, "error");
+      toast(
+        `Enter a test ${channel === "email" ? "email address" : "phone number"}.`,
+        "error",
+      );
       return;
     }
     setTestDelivery(channel);
@@ -582,31 +738,43 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
         "Content-Type": "application/json",
         ...(backofficeHeaders() as Record<string, string>),
       };
-      const payload = channel === "email"
-        ? {
-            to_email: destination,
-            subject: "Riverside receipt builder test",
-            html: receiptEmailHtml(),
-          }
-        : {
-            to_phone: destination,
-            body: `${cfg.store_name} — Receipt builder test (image attached).`,
-            png_base64: await receiptHtmlToPngBase64(
-              `<div style="width:576px;background:#fff;padding:16px;color:#111">${receiptLineSvg}</div>`,
-            ),
-          };
-      const res = await fetch(`${baseUrl}/api/settings/receipt/test-${channel}`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
-      const responseBody = (await res.json().catch(() => ({}))) as { error?: string };
+      const payload =
+        channel === "email"
+          ? {
+              to_email: destination,
+              subject: "Riverside receipt builder test",
+              html: receiptEmailHtml(),
+            }
+          : {
+              to_phone: destination,
+              body: `${cfg.store_name} — Receipt builder test (image attached).`,
+              png_base64: await receiptHtmlToPngBase64(
+                `<div style="width:576px;background:#fff;padding:16px;color:#111">${receiptLineSvg}</div>`,
+              ),
+            };
+      const res = await fetch(
+        `${baseUrl}/api/settings/receipt/test-${channel}`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        },
+      );
+      const responseBody = (await res.json().catch(() => ({}))) as {
+        error?: string;
+      };
       if (!res.ok) {
         throw new Error(responseBody.error ?? `Test ${channel} failed`);
       }
-      toast(`Test receipt ${channel === "email" ? "email" : "text"} sent.`, "success");
+      toast(
+        `Test receipt ${channel === "email" ? "email" : "text"} sent.`,
+        "success",
+      );
     } catch (error) {
-      toast(error instanceof Error ? error.message : `Test ${channel} failed`, "error");
+      toast(
+        error instanceof Error ? error.message : `Test ${channel} failed`,
+        "error",
+      );
     } finally {
       setTestDelivery(null);
     }
@@ -629,7 +797,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
               Receipt Settings
             </h2>
             <p className="max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
-              Standard Epson receipts use structured ESC/POS output for the TM-m30III. Edit the store identity, header and footer lines, and receipt sections that print on the customer copy.
+              Standard Epson receipts use structured ESC/POS output for the
+              TM-m30III. Edit the store identity, header and footer lines, and
+              receipt sections that print on the customer copy.
             </p>
           </div>
         </div>
@@ -642,7 +812,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
               Primary Engine
             </h3>
             <p className="max-w-2xl text-xs font-semibold leading-relaxed text-app-text-muted">
-              ReceiptLine markdown is the active Epson template. ROS merges sale data into this template, previews it as SVG, then prints it through the Epson ESC/POS path.
+              ReceiptLine markdown is the active Epson template. ROS merges sale
+              data into this template, previews it as SVG, then prints it
+              through the Epson ESC/POS path.
             </p>
           </div>
           <span className="w-fit rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
@@ -658,7 +830,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
               Preview transaction
             </h3>
             <p className="mt-2 max-w-2xl text-xs font-semibold leading-relaxed text-app-text-muted">
-              Select the customer receipt situation you want to inspect. Mixed transaction combines the major fulfillment and fee sections on one receipt.
+              Select the customer receipt situation you want to inspect. Mixed
+              transaction combines the major fulfillment and fee sections on one
+              receipt.
             </p>
           </div>
           <label className="block">
@@ -668,7 +842,8 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
             <select
               value={previewScenario}
               onChange={(event) => {
-                const nextScenario = event.target.value as ReceiptPreviewScenario;
+                const nextScenario = event.target
+                  .value as ReceiptPreviewScenario;
                 setPreviewScenario(nextScenario);
                 setActiveTab(nextScenario === "pickup" ? "pickup" : "standard");
               }}
@@ -703,7 +878,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
               </div>
               <button
                 onClick={saveReceiptSettings}
-                disabled={busy}
+                disabled={busy || hasInvalidSavedTemplate}
                 className="flex h-10 items-center gap-2 rounded-xl bg-app-text px-6 text-[10px] font-black uppercase tracking-widest text-white transition-all hover:bg-black/80 disabled:opacity-50"
               >
                 {busy ? (
@@ -716,7 +891,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
               <button
                 type="button"
                 onClick={() => void printTestReceipt()}
-                disabled={testPrinting}
+                disabled={testPrinting || activeTemplateInvalid}
                 className="flex h-10 items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 text-[10px] font-black uppercase tracking-widest text-emerald-700 transition-all hover:bg-emerald-500/15 disabled:opacity-50 dark:text-emerald-300"
               >
                 {testPrinting ? (
@@ -734,7 +909,8 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   Delivery tests
                 </h4>
                 <p className="mt-1 text-[10px] font-semibold leading-relaxed text-app-text-muted">
-                  Sends the receipt currently shown in this builder. Email uses Store Email; text sends an attached PNG through Podium MMS.
+                  Sends the receipt currently shown in this builder. Email uses
+                  Store Email; text sends an attached PNG through Podium MMS.
                 </p>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
@@ -750,10 +926,12 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   <button
                     type="button"
                     onClick={() => void sendTestReceipt("email")}
-                    disabled={testDelivery !== null}
+                    disabled={testDelivery !== null || activeTemplateInvalid}
                     className="ui-btn-secondary inline-flex h-10 w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                   >
-                    {testDelivery === "email" ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+                    {testDelivery === "email" ? (
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                    ) : null}
                     Send Test Email
                   </button>
                 </div>
@@ -769,10 +947,12 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   <button
                     type="button"
                     onClick={() => void sendTestReceipt("sms")}
-                    disabled={testDelivery !== null}
+                    disabled={testDelivery !== null || activeTemplateInvalid}
                     className="ui-btn-secondary inline-flex h-10 w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                   >
-                    {testDelivery === "sms" ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+                    {testDelivery === "sms" ? (
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                    ) : null}
                     Send Test Text
                   </button>
                 </div>
@@ -787,7 +967,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   </span>
                   <input
                     value={cfg.store_name}
-                    onChange={(e) => setCfg({ ...cfg, store_name: e.target.value })}
+                    onChange={(e) =>
+                      setCfg({ ...cfg, store_name: e.target.value })
+                    }
                     className="ui-input mt-2 w-full text-lg font-black italic tracking-tighter"
                   />
                 </label>
@@ -798,7 +980,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   </span>
                   <input
                     value={cfg.store_address ?? ""}
-                    onChange={(e) => setCfg({ ...cfg, store_address: e.target.value })}
+                    onChange={(e) =>
+                      setCfg({ ...cfg, store_address: e.target.value })
+                    }
                     className="ui-input mt-2 w-full text-sm font-bold"
                     placeholder="6470 Transit Rd, Depew, NY"
                   />
@@ -810,7 +994,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   </span>
                   <input
                     value={cfg.store_phone ?? ""}
-                    onChange={(e) => setCfg({ ...cfg, store_phone: e.target.value })}
+                    onChange={(e) =>
+                      setCfg({ ...cfg, store_phone: e.target.value })
+                    }
                     className="ui-input mt-2 w-full text-sm font-bold"
                     placeholder="(716) 833-8401"
                   />
@@ -822,7 +1008,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   </span>
                   <input
                     value={cfg.store_email ?? ""}
-                    onChange={(e) => setCfg({ ...cfg, store_email: e.target.value })}
+                    onChange={(e) =>
+                      setCfg({ ...cfg, store_email: e.target.value })
+                    }
                     className="ui-input mt-2 w-full text-sm font-bold"
                     placeholder="info@riversidemens.com"
                   />
@@ -835,14 +1023,20 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   <textarea
                     value={linesToText(cfg.header_lines)}
                     onChange={(e) =>
-                      setCfg({ ...cfg, header_lines: textToLines(e.target.value) })
+                      setCfg({
+                        ...cfg,
+                        header_lines: textToLines(e.target.value),
+                      })
                     }
                     rows={4}
                     className="ui-input mt-2 min-h-28 w-full resize-y font-mono text-xs leading-relaxed"
-                    placeholder={"Open daily 10-6\nAlterations pickup at rear counter"}
+                    placeholder={
+                      "Open daily 10-6\nAlterations pickup at rear counter"
+                    }
                   />
                   <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
-                    Optional centered service notes below the store contact lines.
+                    Optional centered service notes below the store contact
+                    lines.
                   </p>
                 </label>
 
@@ -853,11 +1047,16 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   <textarea
                     value={linesToText(cfg.footer_lines)}
                     onChange={(e) =>
-                      setCfg({ ...cfg, footer_lines: textToLines(e.target.value) })
+                      setCfg({
+                        ...cfg,
+                        footer_lines: textToLines(e.target.value),
+                      })
                     }
                     rows={5}
                     className="ui-input mt-2 min-h-32 w-full resize-y font-mono text-xs leading-relaxed"
-                    placeholder={"Thank you for shopping with us!\nVisit us again soon."}
+                    placeholder={
+                      "Thank you for shopping with us!\nVisit us again soon."
+                    }
                   />
                   <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
                     Prints at the bottom before the receipt cut.
@@ -890,7 +1089,10 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                       type="checkbox"
                       checked={cfg[k as keyof ReceiptConfig] === true}
                       onChange={(e) =>
-                        setCfg({ ...cfg, [k]: e.target.checked } as ReceiptConfig)
+                        setCfg({
+                          ...cfg,
+                          [k]: e.target.checked,
+                        } as ReceiptConfig)
                       }
                       className="sr-only"
                     />
@@ -911,7 +1113,8 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   type="button"
                   onClick={() => {
                     setActiveTab("standard");
-                    if (previewScenario === "pickup") setPreviewScenario("mixed");
+                    if (previewScenario === "pickup")
+                      setPreviewScenario("mixed");
                   }}
                   className={`px-4 py-2 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all ${
                     activeTab === "standard"
@@ -942,7 +1145,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   htmlFor="receipt-template-editor"
                   className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60"
                 >
-                  {activeTab === "standard" ? "Standard Receipt Template" : "Picked Up Receipt Template"}
+                  {activeTab === "standard"
+                    ? "Standard Receipt Template"
+                    : "Picked Up Receipt Template"}
                 </label>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {[
@@ -954,9 +1159,13 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     ["Date", "{{RECEIPT_DATE}}"],
                     ["Customer", "{{CUSTOMER_LINE}}"],
                     ["Staff", "{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}"],
+                    ["Register", "{{REGISTER_LINE}}"],
                     ["Items", "{{ITEM_LINES}}"],
                     ["Loyalty", "{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}"],
-                    ["Totals", "{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}"],
+                    [
+                      "Totals",
+                      "{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}",
+                    ],
                     ["Order Payments", "{{PAYMENT_BLOCK}}"],
                     ["Tender", "{{TENDER_LINE}}"],
                     ["Gift Card Balance", "{{GIFT_CARD_BALANCE}}"],
@@ -966,7 +1175,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     ["Barcode", "{{BARCODE_IMAGE}}"],
                     ["Footer", "{{FOOTER_LINES}}"],
                     ["Cut", "{{CUT}}"],
-                    activeTab === "pickup" ? ["Payment History", "{{PAYMENT_HISTORY_BLOCK}}"] : null,
+                    activeTab === "pickup"
+                      ? ["Payment History", "{{PAYMENT_HISTORY_BLOCK}}"]
+                      : null,
                   ]
                     .filter((item): item is [string, string] => item !== null)
                     .map(([label, token]) => (
@@ -976,14 +1187,16 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                         onClick={() => {
                           const tokens = token.split("\n");
                           let newTemplate = effectiveTemplate.trimEnd();
-                          tokens.forEach(t => {
+                          tokens.forEach((t) => {
                             if (!newTemplate.includes(t)) {
                               newTemplate += `\n${t}`;
                             }
                           });
                           setCfg({
                             ...cfg,
-                            [activeTab === "standard" ? "receiptline_template" : "receiptline_pickup_template"]: newTemplate,
+                            [activeTab === "standard"
+                              ? "receiptline_template"
+                              : "receiptline_pickup_template"]: newTemplate,
                           });
                         }}
                         className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-text transition-colors hover:border-app-accent"
@@ -996,8 +1209,12 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     onClick={() =>
                       setCfg({
                         ...cfg,
-                        [activeTab === "standard" ? "receiptline_template" : "receiptline_pickup_template"]:
-                          activeTab === "standard" ? DEFAULT_RECEIPTLINE_TEMPLATE : DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE,
+                        [activeTab === "standard"
+                          ? "receiptline_template"
+                          : "receiptline_pickup_template"]:
+                          activeTab === "standard"
+                            ? DEFAULT_RECEIPTLINE_TEMPLATE
+                            : DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE,
                       })
                     }
                     className="inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-amber-700 transition-colors hover:bg-amber-500/15"
@@ -1012,7 +1229,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   onChange={(e) =>
                     setCfg({
                       ...cfg,
-                      [activeTab === "standard" ? "receiptline_template" : "receiptline_pickup_template"]: e.target.value,
+                      [activeTab === "standard"
+                        ? "receiptline_template"
+                        : "receiptline_pickup_template"]: e.target.value,
                     })
                   }
                   rows={15}
@@ -1020,28 +1239,62 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   className="ui-input mt-2 min-h-72 w-full resize-y font-mono text-xs leading-relaxed"
                 />
                 <p className="mt-2 text-[10px] font-semibold leading-relaxed text-app-text-muted">
-                  Type any fixed text directly into the template. Tokens are replaced by ROS at print time; the add buttons above expose every supported receipt field. Keep line items, totals, and payment tokens so receipts remain financially complete.
+                  Type any fixed text directly into the template. Tokens are
+                  replaced by ROS at print time; the add buttons above expose
+                  every supported receipt field. Keep line items, totals, and
+                  payment tokens so receipts remain financially complete.
                 </p>
                 {missingRequiredTokens.length > 0 ? (
                   <div className="mt-3 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
+                    <AlertTriangle
+                      className="mt-0.5 h-4 w-4 shrink-0 text-amber-700"
+                      aria-hidden
+                    />
                     <p className="text-[10px] font-bold leading-relaxed text-amber-800">
-                      Missing financial receipt tokens: {missingRequiredTokens.join(", ")}.
+                      Restore required receipt fields before applying, printing,
+                      or sending: {missingRequiredTokens.join(", ")}.
                     </p>
                   </div>
                 ) : null}
-                {requiredTokens.some(t => effectiveTemplate.split(t).length > 2) ? (
+                {!activeTemplateInvalid && hasInvalidSavedTemplate ? (
+                  <div className="mt-3 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+                    <AlertTriangle
+                      className="mt-0.5 h-4 w-4 shrink-0 text-amber-700"
+                      aria-hidden
+                    />
+                    <p className="text-[10px] font-bold leading-relaxed text-amber-800">
+                      Apply is unavailable until the{" "}
+                      {standardMissingTokens.length > 0 ||
+                      standardDuplicateTokens.length > 0
+                        ? "Standard"
+                        : "Picked Up"}{" "}
+                      template is restored. Open that tab to see the fields that
+                      need attention.
+                    </p>
+                  </div>
+                ) : null}
+                {duplicateRequiredTokens.length > 0 ? (
                   <div className="mt-3 flex items-start gap-3 rounded-xl border border-app-accent/30 bg-app-accent/10 p-3">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-app-accent" aria-hidden />
+                    <AlertTriangle
+                      className="mt-0.5 h-4 w-4 shrink-0 text-app-accent"
+                      aria-hidden
+                    />
                     <p className="text-[10px] font-bold leading-relaxed text-app-accent">
-                      Tip: Duplicate tokens detected. This will cause sections to repeat on the receipt as shown in the preview.
+                      Remove duplicate receipt fields before applying, printing,
+                      or sending: {duplicateRequiredTokens.join(", ")}.
                     </p>
                   </div>
                 ) : null}
                 <div className="mt-3 flex items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 p-3">
-                  <ImageIcon className="mt-0.5 h-4 w-4 shrink-0 text-app-accent" aria-hidden />
+                  <ImageIcon
+                    className="mt-0.5 h-4 w-4 shrink-0 text-app-accent"
+                    aria-hidden
+                  />
                   <p className="text-[10px] font-semibold leading-relaxed text-app-text-muted">
-                    The logo token prints the full Riverside Men's Shop logo lockup at the top of the receipt. Use the Receipt Logo toggle to hide it without removing the token from the template.
+                    The logo token prints the full Riverside Men's Shop logo
+                    lockup at the top of the receipt. Use the Receipt Logo
+                    toggle to hide it without removing the token from the
+                    template.
                   </p>
                 </div>
               </div>
@@ -1051,7 +1304,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   Available Tokens
                 </p>
                 <p className="mt-2 font-mono text-[10px] leading-relaxed text-app-text-muted">
-                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{SALESPERSON_LINE}} {{CASHIER_LINE}} {{ITEM_LINES}} {{LOYALTY_EARNED}} {{LOYALTY_BALANCE}} {{PAYMENT_BLOCK}} {{PAYMENT_HISTORY_BLOCK}} {{SUBTOTAL_LINE}} {{TAX_LINE}} {{TOTAL_SAVINGS_LINE}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{GIFT_CARD_BALANCE}} {{WEDDING_DEPOSIT_LINES}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{BARCODE_IMAGE}} {{FOOTER_LINES}} {{CUT}}"}
+                  {
+                    "{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{SALESPERSON_LINE}} {{CASHIER_LINE}} {{REGISTER_LINE}} {{ITEM_LINES}} {{LOYALTY_EARNED}} {{LOYALTY_BALANCE}} {{PAYMENT_BLOCK}} {{PAYMENT_HISTORY_BLOCK}} {{SUBTOTAL_LINE}} {{TAX_LINE}} {{TOTAL_SAVINGS_LINE}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{GIFT_CARD_BALANCE}} {{WEDDING_DEPOSIT_LINES}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{BARCODE_IMAGE}} {{FOOTER_LINES}} {{CUT}}"
+                  }
                 </p>
               </div>
             </div>

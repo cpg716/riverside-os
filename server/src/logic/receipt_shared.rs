@@ -103,6 +103,9 @@ pub struct ReceiptLine {
     pub is_fulfilled: bool,
     pub adjustment: Option<ReceiptLineAdjustment>,
     pub contributes_to_totals: bool,
+    /// Customer-facing taxability for this line. `None` is reserved for linked
+    /// fulfillment-only lines whose original tax detail is not part of this event.
+    pub is_taxable: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -151,6 +154,8 @@ pub struct ReceiptPayment {
 pub struct ReceiptOrder {
     pub transaction_id: Uuid,
     pub transaction_display_id: String,
+    /// Physical register that recorded this transaction, when applicable.
+    pub register_lane: Option<i16>,
     pub receipt_kind: ReceiptKind,
     pub booked_at: DateTime<Utc>,
     /// Business date selected for a manager-approved backdated sale.
@@ -219,12 +224,37 @@ impl ReceiptOrder {
         !self.payment_applications.is_empty()
     }
 
+    pub fn customer_status_label(&self) -> &'static str {
+        let all_takeaway = !self.items.is_empty()
+            && self
+                .items
+                .iter()
+                .all(|item| item.fulfillment == DbFulfillmentType::Takeaway);
+        let all_fulfilled =
+            !self.items.is_empty() && self.items.iter().all(|item| item.is_fulfilled);
+        if all_takeaway || all_fulfilled {
+            "Complete"
+        } else {
+            order_status_label(self.status)
+        }
+    }
+
     pub fn is_pickup_event(&self) -> bool {
         self.pickup_prior_paid.is_some() || self.pickup_balance_remaining.is_some()
     }
 
     pub fn total_label(&self) -> &'static str {
-        if self.is_pickup_event() {
+        if self.receipt_kind == ReceiptKind::ReturnRefund {
+            "Refund total"
+        } else if self.receipt_kind == ReceiptKind::ReturnExchange {
+            if self.total_price < Decimal::ZERO {
+                "Refund due"
+            } else if self.total_price > Decimal::ZERO {
+                "Amount due"
+            } else {
+                "Exchange total"
+            }
+        } else if self.is_pickup_event() {
             "Current checkout total"
         } else if self.has_order_payments() {
             "Total charged today"
@@ -234,7 +264,11 @@ impl ReceiptOrder {
     }
 
     pub fn paid_label(&self) -> &'static str {
-        if self.is_pickup_event() {
+        if self.receipt_kind == ReceiptKind::ReturnRefund {
+            "Refunded"
+        } else if self.receipt_kind == ReceiptKind::ReturnExchange {
+            "Settled"
+        } else if self.is_pickup_event() {
             "Collected now"
         } else if self.has_order_payments() {
             "Paid today"

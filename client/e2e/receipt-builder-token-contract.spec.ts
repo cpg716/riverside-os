@@ -15,14 +15,27 @@ test("receipt builder exposes every production ReceiptLine token", () => {
     expect(builder, `builder is missing ${token}`).toContain(token);
   }
 
-  expect(builder).toContain('["Wedding Deposits", "{{WEDDING_DEPOSIT_LINES}}"]');
+  expect(builder).toContain(
+    '["Wedding Deposits", "{{WEDDING_DEPOSIT_LINES}}"]',
+  );
   expect(builder).toContain('["Payment History", "{{PAYMENT_HISTORY_BLOCK}}"]');
+  expect(builder).toContain('["Register", "{{REGISTER_LINE}}"]');
+  expect(builder).toContain("duplicateReceiptTokens");
+  expect(builder).toContain("disabled={busy || hasInvalidSavedTemplate}");
+  expect(builder).toContain("disabled={testPrinting || activeTemplateInvalid}");
 });
 
 test("receipt builder offers the supported preview scenarios", () => {
   const builder = readSource("src/components/settings/ReceiptBuilderPanel.tsx");
 
-  for (const scenario of ["sale", "mixed", "pickup", "return", "exchange", "gift"]) {
+  for (const scenario of [
+    "sale",
+    "mixed",
+    "pickup",
+    "return",
+    "exchange",
+    "gift",
+  ]) {
     expect(builder, `builder is missing the ${scenario} preview`).toContain(
       `value: "${scenario}"`,
     );

@@ -5,6 +5,8 @@ Staff manage production receipt content in **Settings → Receipt Settings**. Th
 
 The editor exposes the full Riverside Men's Shop logo toggle, store contact fields, editable header lines, editable footer lines, section toggles, a **Print Test** action, and the underlying **ReceiptLine markdown template**. ROS merges transaction data into the template, previews it as SVG, and POS prefers that same merged ReceiptLine document when generating Epson ESC/POS for print. If the client-side ReceiptLine transform fails, POS falls back to the server-generated ESC/POS payload.
 
+Receipt identity and financial fields are protected. The builder will not apply, test-print, or test-deliver a template that omits a required field or repeats a token. Protected fields include the receipt type, Transaction #, date/time, customer, salesperson, staff, Register #, items, order-payment activity, subtotal, separately stated sales tax, total, paid amount, balance, tender, and status. Optional branding and operational sections remain editable.
+
 The builder also exposes **Delivery tests**. A test email sends the current ReceiptLine preview through the configured Store Email mailbox. A test text rasterizes that same preview to PNG and sends it as a Podium MMS attachment. These tests use the unsaved editor state, so staff can verify a layout before applying it.
 
 Persistence lives in **`store_settings.receipt_config`** (`ReceiptConfig`), including **`receiptline_template`**. Legacy Studio fields may still exist for older saved templates, but the active Settings UI no longer exposes the HTML designer.
@@ -48,6 +50,12 @@ The top logo uses ReceiptLine's image property (`{image: base64-png}`) through t
 
 **Financial tokens:** Customer receipts must keep `{{SUBTOTAL_LINE}}`, `{{TAX_LINE}}`, `{{TOTAL_SAVINGS_LINE}}`, and `{{TOTAL_LINE}}` in that order so staff and customers can distinguish item subtotal, taxes, savings from discounts, and final total. `{{TOTAL_SAVINGS_LINE}}` is omitted when no line-level savings are present.
 
+**Customer audit detail:** Every receipt includes its Transaction #, transaction date/time (including picked-up receipts), salesperson, staff member, and physical **Register #** when the Transaction Record came from a register session. Item rows identify SKU, variation, quantity, line amount, regular/sale pricing when discounted, fulfillment context, and **Taxable** or **Exempt** when that taxability is known for the event. Digital HTML/email receipts use real table headers for item, quantity, and amount; HTML, thermal, and text outputs all state subtotal, sales tax, savings when present, total, payment/balance, and every tender.
+
+These fields support New York's requirement that written receipts separately state sales tax and that POS records retain the item, selling price, tax, invoice/date, payment method, and terminal/transaction identity needed to audit the sale. Card details remain customer-safe: provider summaries may show brand and last four, never a full card number or expiration date, consistent with FACTA and PCI display masking.
+
+External references: [New York sales-tax recordkeeping](https://www.tax.ny.gov/pubs_and_bulls/tg_bulletins/st/record-keeping_requirements_for_sales_tax_vendors.htm), [New York taxable receipts](https://www.tax.ny.gov/pubs_and_bulls/tg_bulletins/st/taxable_receipt.htm), [FTC receipt truncation guidance](https://www.ftc.gov/news-events/news/press-releases/2007/05/ftc-reminds-businesses-law-requires-them-truncate-credit-card-data-receipts), [PCI SSC display masking](https://www.pcisecuritystandards.org/faqs/1146/), and [W3C accessible table guidance](https://www.w3.org/WAI/tutorials/tables/).
+
 **Receipt barcode:** When **Order Barcode** is enabled and `{{BARCODE_IMAGE}}` is present, the receipt prints a Code128 barcode containing the Transaction Record display ID such as `TXN-566056`. Scanning that code in the Register opens the correct Transaction Record workflow for returns/exchanges or open-order work. Scanning/typing it in Universal Search opens the Transaction Hub for that receipt.
 
 **ReceiptLine print preference:** The ESC/POS endpoint returns both `receiptline_markdown` (template-based) and `escpos_base64` (legacy structured fallback). The POS client prefers the ReceiptLine path, transforming it client-side for printing. The raw ESC/POS fallback uses a fixed layout and does not honor the operator's template customizations, logo image, or loyalty tokens — it exists solely as a safety net when the client-side ReceiptLine transform fails.
@@ -71,12 +79,12 @@ The top logo uses ReceiptLine's image property (`{image: base64-png}`) through t
 
 ---
 
-## Text receipt (Podium: MMS image or SMS text)
+## Text receipt (Podium: ReceiptLine MMS image with SMS fallback)
 
 - **`POST /api/transactions/{transaction_id}/receipt/send-sms`** — JSON optional **`to_phone`**, optional **`png_base64`** (raw base64 PNG, no data-URL prefix), optional **`gift`** and **`order_item_ids`** (gift uses plain-text **`format_pos_gift_receipt_text_message`** when no PNG; MMS raster uses **`receipt.html`** with the same query params as the client).
 - **With `png_base64`:** decodes PNG (max **6 MiB** decoded), sends **`POST /v4/messages/attachment`** (multipart: JSON **`data`** + **`attachment`** file `receipt.png`) via **`send_podium_phone_message_with_png_attachment`**. Short caption text accompanies the image (MMS behavior depends on carrier / Podium). Response may include **`"mode": "mms_attachment"`**.
 - **Without image:** plain transactional body from **`receipt_plain_text`** (clamped length), **`send_podium_sms_message`**. Response **`"mode": "sms_text"`**.
-- **POS:** Text receipts can include a standard plain transactional body. Gift receipts use the selected gift line set when staff opens the gift receipt action.
+- **POS:** The Register rasterizes the same ReceiptLine preview used for Epson printing and sends it as an MMS image. If rasterization is unavailable, ROS sends the financially complete plain-text receipt instead. Gift receipts use only the selected gift lines.
 
 Podium attachment endpoint is **rate-limited** (see Podium docs, typically **10 rpm**).
 

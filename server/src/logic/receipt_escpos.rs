@@ -17,8 +17,8 @@ pub struct LoyaltyReceiptData {
 
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_shared::{
-    order_status_label, payment_summary_has_receipt_detail, receipt_display_ref,
-    tender_display_label, ReceiptLine, ReceiptLineAdjustment, ReceiptOrder,
+    payment_summary_has_receipt_detail, receipt_display_ref, tender_display_label, ReceiptLine,
+    ReceiptLineAdjustment, ReceiptOrder,
 };
 use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 
@@ -44,7 +44,12 @@ fn ascii_clean(s: &str) -> String {
 }
 
 fn money(v: Decimal) -> String {
-    format!("${}", v.round_dp(2))
+    let rounded = v.round_dp(2);
+    if rounded < Decimal::ZERO {
+        format!("-${:.2}", -rounded)
+    } else {
+        format!("${rounded:.2}")
+    }
 }
 
 fn line_total(it: &ReceiptLine) -> Decimal {
@@ -117,6 +122,20 @@ fn receipt_template_with_slots(template: &str, show_logo: bool, show_barcode: bo
         } else {
             next = format!("{next}\n{{{{BARCODE_IMAGE}}}}");
         }
+    }
+    if !next.contains("{{RECEIPT_DATE}}") {
+        next = if next.contains("{{RECEIPT_ID}}") {
+            next.replacen("{{RECEIPT_ID}}", "{{RECEIPT_ID}}\n{{RECEIPT_DATE}}", 1)
+        } else {
+            format!("{{{{RECEIPT_DATE}}}}\n{next}")
+        };
+    }
+    if !next.contains("{{REGISTER_LINE}}") {
+        next = if next.contains("{{CASHIER_LINE}}") {
+            next.replacen("{{CASHIER_LINE}}", "{{CASHIER_LINE}}\n{{REGISTER_LINE}}", 1)
+        } else {
+            format!("{next}\n{{{{REGISTER_LINE}}}}")
+        };
     }
     for token in [
         "{{SUBTOTAL_LINE}}",
@@ -277,6 +296,9 @@ fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: b
             push_line(out, &line);
         }
     }
+    if let Some(register_lane) = d.register_lane {
+        push_line(out, &format!("Register #{register_lane}"));
+    }
     divider(out);
 }
 
@@ -290,6 +312,16 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
                 push_line(out, label);
             } else {
                 push_line(out, &right_pair(label, &money(line_total(it))));
+                if let Some(is_taxable) = it.is_taxable {
+                    push_line(
+                        out,
+                        if is_taxable {
+                            "Tax: Taxable"
+                        } else {
+                            "Tax: Exempt"
+                        },
+                    );
+                }
             }
             set_bold(out, false);
             out.push(b'\n');
@@ -372,6 +404,18 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
         {
             push_line(out, &format!("Gift Card #: {code}"));
         }
+        if !gift {
+            if let Some(is_taxable) = it.is_taxable {
+                push_line(
+                    out,
+                    if is_taxable {
+                        "Tax: Taxable"
+                    } else {
+                        "Tax: Exempt"
+                    },
+                );
+            }
+        }
         let status_label = if matches!(it.adjustment, Some(ReceiptLineAdjustment::Exchanged)) {
             "Exchanged item"
         } else if matches!(it.adjustment, Some(ReceiptLineAdjustment::Returned)) {
@@ -398,7 +442,7 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
 fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
     divider(out);
     push_line(out, &right_pair("Subtotal", &money(d.subtotal_price)));
-    push_line(out, &right_pair("Taxes", &money(d.tax_total)));
+    push_line(out, &right_pair("Sales Tax", &money(d.tax_total)));
     if d.total_savings > Decimal::ZERO {
         push_line(out, &right_pair("Total Savings", &money(d.total_savings)));
     }
@@ -492,7 +536,7 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
             );
         }
     }
-    push_line(out, &format!("Status: {}", receipt_status_label(d)));
+    push_line(out, &format!("Status: {}", d.customer_status_label()));
     if d.is_tax_exempt {
         push_line(
             out,
@@ -584,6 +628,12 @@ fn receiptline_item_lines(
             out_lines.push(format!("{label} |"));
         } else {
             out_lines.push(format!("{label} | {}", money(line_total(it))));
+            if let Some(is_taxable) = it.is_taxable {
+                out_lines.push(format!(
+                    "Tax: {} |",
+                    if is_taxable { "Taxable" } else { "Exempt" }
+                ));
+            }
         }
     }
 
@@ -741,6 +791,12 @@ fn receiptline_item_lines(
                             pct
                         ));
                     }
+                }
+                if let Some(is_taxable) = it.is_taxable {
+                    out_lines.push(format!(
+                        "Tax: {} |",
+                        if is_taxable { "Taxable" } else { "Exempt" }
+                    ));
                 }
             }
         }
@@ -968,24 +1024,12 @@ fn receiptline_gift_card_balance_line(d: &ReceiptOrder, gift: bool) -> String {
         .join("\n")
 }
 
-fn receipt_status_label(d: &ReceiptOrder) -> &'static str {
-    let all_takeaway = !d.items.is_empty()
-        && d.items
-            .iter()
-            .all(|it| it.fulfillment == DbFulfillmentType::Takeaway);
-    let all_fulfilled = !d.items.is_empty() && d.items.iter().all(|it| it.is_fulfilled);
-    if all_takeaway || all_fulfilled {
-        return "Complete";
-    }
-    order_status_label(d.status)
-}
-
 fn default_receiptline_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}\n{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n{{REGISTER_LINE}}\n---\n{{ITEM_LINES}}\n{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}\n{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 fn default_receiptline_pickup_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n{{PAYMENT_BLOCK}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n{{REGISTER_LINE}}\n---\n{{ITEM_LINES}}\n{{PAYMENT_BLOCK}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 fn receiptline_payment_history_block(d: &ReceiptOrder) -> String {
@@ -1064,6 +1108,10 @@ pub fn build_receiptline_markdown(
         .as_ref()
         .map(|n| format!("Salesperson: {}", receiptline_escape(n)))
         .unwrap_or_default();
+    let register_line = d
+        .register_lane
+        .map(|register_lane| format!("Register #{register_lane}"))
+        .unwrap_or_default();
     let payment_lines = receiptline_payment_lines(d);
     let payment_block = if payment_lines.is_empty() {
         String::new()
@@ -1081,7 +1129,7 @@ pub fn build_receiptline_markdown(
     let status_line = if gift {
         String::new()
     } else {
-        format!("Status | {}", receiptline_escape(receipt_status_label(d)))
+        format!("Status | {}", receiptline_escape(d.customer_status_label()))
     };
     let tax_exempt_line = if !gift && d.is_tax_exempt {
         format!(
@@ -1094,11 +1142,7 @@ pub fn build_receiptline_markdown(
     let store_name = format!("| ^^{} |", receiptline_escape(&cfg.store_name));
     let header_lines = centered_lines(&receipt_header_lines(cfg));
     let receipt_id = format!("| Receipt {} |", receipt_ref(d));
-    let receipt_date = if is_pickup {
-        String::new()
-    } else {
-        format!("| {} |", receipt_date(d, cfg))
-    };
+    let receipt_date = format!("| {} |", receipt_date(d, cfg));
     let item_lines = receiptline_item_lines(d, cfg, gift, is_pickup);
     let payment_block_value = if gift { "" } else { payment_block.as_str() };
     let total_line = if gift {
@@ -1114,7 +1158,7 @@ pub fn build_receiptline_markdown(
     let tax_line = if gift {
         String::new()
     } else {
-        format!("Taxes | {}", money(d.tax_total))
+        format!("Sales Tax | {}", money(d.tax_total))
     };
     let total_savings_line = if !gift && d.total_savings > Decimal::ZERO {
         format!("Total Savings | {}", money(d.total_savings))
@@ -1175,6 +1219,7 @@ pub fn build_receiptline_markdown(
         .replace("{{CUSTOMER_LINE}}", &customer_line)
         .replace("{{CASHIER_LINE}}", &cashier_line)
         .replace("{{SALESPERSON_LINE}}", &salesperson_line)
+        .replace("{{REGISTER_LINE}}", &register_line)
         .replace("{{ITEM_LINES}}", &item_lines)
         .replace("{{PAYMENT_BLOCK}}", payment_block_value)
         .replace("{{PAYMENT_HISTORY_BLOCK}}", &payment_history_block)
@@ -1243,6 +1288,7 @@ mod tests {
         ReceiptOrder {
             transaction_id: Uuid::nil(),
             transaction_display_id: "TXN-TEST".to_string(),
+            register_lane: Some(1),
             receipt_kind: ReceiptKind::StandardSale,
             booked_at: Utc::now(),
             backdated_business_date: None,
@@ -1290,6 +1336,7 @@ mod tests {
             is_fulfilled: true,
             adjustment: None,
             contributes_to_totals: true,
+            is_taxable: Some(true),
         }
     }
 

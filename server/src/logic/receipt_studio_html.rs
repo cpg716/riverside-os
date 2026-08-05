@@ -9,9 +9,10 @@ use uuid::Uuid;
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_privacy;
 use crate::logic::receipt_shared::{
-    order_status_label, payment_summary_has_receipt_detail, receipt_display_ref,
-    tender_display_label, ReceiptKind, ReceiptOrder,
+    payment_summary_has_receipt_detail, receipt_display_ref, tender_display_label, ReceiptKind,
+    ReceiptLine, ReceiptLineAdjustment, ReceiptOrder,
 };
+use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 
 fn html_escape(s: &str) -> String {
     s.chars()
@@ -23,6 +24,49 @@ fn html_escape(s: &str) -> String {
             _ => vec![c],
         })
         .collect()
+}
+
+fn money(amount: Decimal) -> String {
+    let rounded = amount.round_dp(2);
+    if rounded < Decimal::ZERO {
+        format!("-${:.2}", -rounded)
+    } else {
+        format!("${rounded:.2}")
+    }
+}
+
+fn fulfillment_label(order: &ReceiptOrder, item: &ReceiptLine) -> &'static str {
+    match item.adjustment {
+        Some(ReceiptLineAdjustment::Returned) => return "Returned / refunded",
+        Some(ReceiptLineAdjustment::Exchanged) => return "Exchanged",
+        None => {}
+    }
+    match item.custom_item_type.as_deref() {
+        Some("linked_pickup") => return "Picked up",
+        Some("alteration_service" | "alteration_fee") => return "Alteration",
+        Some("shipping_fee") => return "Shipping",
+        Some("rms_charge_payment") => return "Payment",
+        _ => {}
+    }
+    if item.is_fulfilled {
+        return match order.fulfillment_method {
+            DbOrderFulfillmentMethod::Ship => "Shipped",
+            DbOrderFulfillmentMethod::Pickup => {
+                if item.fulfillment == DbFulfillmentType::Takeaway {
+                    "Taken today"
+                } else {
+                    "Picked up"
+                }
+            }
+        };
+    }
+    match item.fulfillment {
+        DbFulfillmentType::Takeaway => "Taken today",
+        DbFulfillmentType::SpecialOrder => "Special order",
+        DbFulfillmentType::Custom => "Custom order",
+        DbFulfillmentType::WeddingOrder => "Wedding order",
+        DbFulfillmentType::Layaway => "Layaway",
+    }
 }
 
 fn build_items_table(order: &ReceiptOrder) -> String {
@@ -64,22 +108,57 @@ fn build_items_table(order: &ReceiptOrder) -> String {
         } else {
             String::new()
         };
+        let taxability = it
+            .is_taxable
+            .map(|is_taxable| {
+                format!(
+                    "<br><span style=\"font-size:11px;color:#4b5563\">Tax: {}</span>",
+                    if is_taxable { "Taxable" } else { "Exempt" }
+                )
+            })
+            .unwrap_or_default();
+        let fulfillment = format!(
+            "<br><span style=\"font-size:11px;font-weight:700;color:#374151\">{}</span>",
+            fulfillment_label(order, it)
+        );
+        let price_detail = it
+            .original_unit_price
+            .filter(|original| *original > it.unit_price && *original > Decimal::ZERO)
+            .map(|original| {
+                format!(
+                    "<br><span style=\"font-size:11px;color:#4b5563\">Regular {} · Sale {}</span>",
+                    money(original),
+                    money(it.unit_price)
+                )
+            })
+            .unwrap_or_else(|| {
+                if it.quantity != 1 {
+                    format!(
+                        "<br><span style=\"font-size:11px;color:#4b5563\">{} each</span>",
+                        money(it.unit_price)
+                    )
+                } else {
+                    String::new()
+                }
+            });
+        let line_total = it.unit_price * Decimal::from(it.quantity);
         rows.push_str(&format!(
             "<tr>\
                <td style=\"overflow-wrap:break-word;word-break:break-word;min-width:0;width:58%\"><strong>{}</strong>{}<br><span style=\"font-size:11px;color:#666\">SKU {}</span>{}</td>\
                <td style=\"text-align:center;padding-left:8px;width:14%\">{}</td>\
-               <td style=\"text-align:right;padding-left:8px;width:28%\">{}</td>\
+               <td style=\"text-align:right;padding-left:8px;width:28%\"><strong>{}</strong>{}</td>\
              </tr>",
             html_escape(&it.product_name),
             var,
             html_escape(&it.sku),
-            pickup_source,
+            format!("{fulfillment}{pickup_source}{taxability}"),
             it.quantity,
-            it.unit_price
+            money(line_total),
+            price_detail,
         ));
     }
     format!(
-        "<table style=\"width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed\"><tbody>{rows}</tbody></table>"
+        "<table style=\"width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed\"><caption class=\"sr-only\">Purchased items</caption><thead><tr><th scope=\"col\" style=\"text-align:left\">Item</th><th scope=\"col\" style=\"text-align:center\">Qty</th><th scope=\"col\" style=\"text-align:right\">Amount</th></tr></thead><tbody>{rows}</tbody></table>"
     )
 }
 
@@ -103,8 +182,51 @@ fn build_items_table_gift(order: &ReceiptOrder) -> String {
         ));
     }
     format!(
-        "<table style=\"width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed\"><tbody>{rows}</tbody></table>"
+        "<table style=\"width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed\"><caption class=\"sr-only\">Gift receipt items</caption><thead><tr><th scope=\"col\" style=\"text-align:left\">Item</th><th scope=\"col\" style=\"text-align:right\">Quantity</th></tr></thead><tbody>{rows}</tbody></table>"
     )
+}
+
+fn build_tender_summary(order: &ReceiptOrder) -> String {
+    let mut rows = if order.payments.is_empty() {
+        vec![format!(
+            "<div><span>Tender</span><strong>{}</strong></div>",
+            html_escape(&order.payment_methods_summary)
+        )]
+    } else {
+        order
+            .payments
+            .iter()
+            .map(|payment| {
+                format!(
+                    "<div><span>Tender {}</span><strong>{}</strong></div>",
+                    html_escape(&tender_display_label(&payment.method)),
+                    money(payment.amount)
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    if payment_summary_has_receipt_detail(&order.payment_methods_summary) {
+        rows.push(format!(
+            "<div class=\"payment-detail\">{}</div>",
+            html_escape(order.payment_methods_summary.trim())
+        ));
+    }
+    for payment in &order.payments {
+        if let (Some(cash_tendered), Some(change_due)) = (payment.cash_tendered, payment.change_due)
+        {
+            if change_due > Decimal::ZERO {
+                rows.push(format!(
+                    "<div><span>Cash tendered</span><strong>{}</strong></div>",
+                    money(cash_tendered)
+                ));
+                rows.push(format!(
+                    "<div><span>Change</span><strong>{}</strong></div>",
+                    money(change_due)
+                ));
+            }
+        }
+    }
+    rows.join("")
 }
 
 fn build_payment_applications(order: &ReceiptOrder) -> String {
@@ -119,8 +241,8 @@ fn build_payment_applications(order: &ReceiptOrder) -> String {
                 "<div style=\"display:flex;justify-content:space-between;gap:12px\"><span>{} {}</span><span>{} · remaining balance {}</span></div>",
                 app.activity_label(),
                 html_escape(&app.target_display_id),
-                app.amount,
-                app.remaining_balance
+                money(app.amount),
+                money(app.remaining_balance)
             )
         })
         .collect::<Vec<_>>()
@@ -134,7 +256,10 @@ fn build_payment_applications(order: &ReceiptOrder) -> String {
 fn build_pickup_payment_summary(order: &ReceiptOrder) -> String {
     match order.pickup_prior_paid {
         Some(prior_paid) => {
-            format!("<div><span>Previously paid</span><strong>{prior_paid}</strong></div>")
+            format!(
+                "<div><span>Previously paid</span><strong>{}</strong></div>",
+                money(prior_paid)
+            )
         }
         None => String::new(),
     }
@@ -145,7 +270,7 @@ fn build_paid_summary(order: &ReceiptOrder) -> String {
         format!(
             "<div><span>{}</span><strong>{}</strong></div>",
             order.paid_label(),
-            order.amount_paid
+            money(order.amount_paid)
         )
     } else {
         String::new()
@@ -173,7 +298,7 @@ fn build_wedding_deposit_summary(order: &ReceiptOrder) -> String {
                     beneficiary,
                     html_escape(&deposit.party_name),
                     destination,
-                    deposit.amount.round_dp(2)
+                    money(deposit.amount)
                 )
             })
             .collect::<Vec<_>>()
@@ -182,7 +307,7 @@ fn build_wedding_deposit_summary(order: &ReceiptOrder) -> String {
     if order.wedding_deposit_amount > Decimal::ZERO {
         return format!(
             "<div><span>Wedding Party Deposit</span><strong>{}</strong></div>",
-            order.wedding_deposit_amount.round_dp(2)
+            money(order.wedding_deposit_amount)
         );
     }
     String::new()
@@ -197,7 +322,7 @@ fn build_applied_wedding_deposit_summary(order: &ReceiptOrder) -> String {
                 "<div><span>Wedding Deposit Applied<small>Paid by {} · {}</small></span><strong>{}</strong></div>",
                 html_escape(&source.payer_name),
                 html_escape(&source.party_name),
-                source.amount.round_dp(2)
+                money(source.amount)
             )
         })
         .collect::<Vec<_>>()
@@ -226,8 +351,8 @@ fn gift_card_balance_html(order: &ReceiptOrder) -> String {
         .filter_map(|payment| {
             payment.gift_card_balance_after.map(|balance| {
                 format!(
-                    "<div><strong>Gift Card Balance</strong> ${}</div>",
-                    balance.round_dp(2)
+                    "<div><strong>Gift Card Balance</strong> {}</div>",
+                    money(balance)
                 )
             })
         })
@@ -259,12 +384,19 @@ pub fn render_standard_receipt_html(
         })
         .unwrap_or_default();
     let customer = customer_identity_html(order);
-    let header_lines = cfg
-        .header_lines
-        .iter()
-        .map(|l| format!("<div>{}</div>", html_escape(l)))
-        .collect::<Vec<_>>()
-        .join("");
+    let header_lines = [
+        cfg.show_address.then_some(cfg.store_address.as_str()),
+        cfg.show_phone.then_some(cfg.store_phone.as_str()),
+        cfg.show_email.then_some(cfg.store_email.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(cfg.header_lines.iter().map(String::as_str))
+    .map(str::trim)
+    .filter(|line| !line.is_empty())
+    .map(|line| format!("<div>{}</div>", html_escape(line)))
+    .collect::<Vec<_>>()
+    .join("");
     let footer_lines = cfg
         .footer_lines
         .iter()
@@ -279,22 +411,44 @@ pub fn render_standard_receipt_html(
     let totals_html = if gift {
         "<div class=\"muted\">Pricing omitted for gift receipt.</div>".to_string()
     } else {
+        let savings = if order.total_savings > Decimal::ZERO {
+            format!(
+                "<div><span>Total savings</span><strong>{}</strong></div>",
+                money(order.total_savings)
+            )
+        } else {
+            String::new()
+        };
+        let balance = if order.balance_due > Decimal::ZERO || order.is_pickup_event() {
+            format!(
+                "<div><span>Balance remaining</span><strong>{}</strong></div>",
+                money(order.balance_due)
+            )
+        } else {
+            String::new()
+        };
         format!(
             r#"<div class="totals">
+  <div><span>Subtotal</span><strong>{}</strong></div>
+  <div><span>Sales tax</span><strong>{}</strong></div>
+  {}
   <div><span>{}</span><strong>{}</strong></div>
   {}
   {}
-  <div><span>Balance remaining</span><strong>{}</strong></div>
-  <div><span>Tender</span><strong>{}</strong></div>
+  {}
+  {}
   {}
   {}
 </div>"#,
+            money(order.subtotal_price),
+            money(order.tax_total),
+            savings,
             order.total_label(),
-            order.total_price,
+            money(order.total_price),
             build_paid_summary(order),
             build_pickup_payment_summary(order),
-            order.balance_due,
-            html_escape(&order.payment_methods_summary),
+            balance,
+            build_tender_summary(order),
             format!(
                 "{}{}",
                 build_wedding_deposit_summary(order),
@@ -302,6 +456,39 @@ pub fn render_standard_receipt_html(
             ),
             build_payment_applications(order)
         )
+    };
+    let staff_lines = [
+        order
+            .salesperson_display_name
+            .as_ref()
+            .map(|name| format!("<div>Salesperson: {}</div>", html_escape(name))),
+        order
+            .cashier_name
+            .as_ref()
+            .map(|name| format!("<div>Staff: {}</div>", html_escape(name))),
+        order
+            .register_lane
+            .map(|register_lane| format!("<div>Register #{register_lane}</div>")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join("");
+    let status = if gift {
+        String::new()
+    } else {
+        format!(
+            "<div class=\"status\"><strong>Status:</strong> {}</div>",
+            html_escape(order.customer_status_label())
+        )
+    };
+    let tax_exempt = if !gift && order.is_tax_exempt {
+        format!(
+            "<div class=\"tax-exempt\"><strong>Tax exempt:</strong> {}</div>",
+            html_escape(order.tax_exempt_reason.as_deref().unwrap_or("Yes"))
+        )
+    } else {
+        String::new()
     };
 
     format!(
@@ -319,11 +506,15 @@ pub fn render_standard_receipt_html(
     .store {{ font-weight:900; font-size:20px; letter-spacing:.02em; text-transform:uppercase; }}
     .title {{ margin-top:10px; font-weight:900; text-transform:uppercase; letter-spacing:.16em; font-size:11px; }}
     .muted {{ color:#6b7280; font-size:12px; line-height:1.35; }}
+    .sr-only {{ position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0; }}
     .rule {{ border-top:1px dashed #9ca3af; margin:14px 0; }}
+    th {{ padding:5px 0;border-bottom:1px solid #d1d5db;color:#374151;font-size:11px;text-transform:uppercase;letter-spacing:.05em; }}
     table td {{ padding:5px 0; vertical-align:top; border-bottom:1px solid #f3f4f6; overflow-wrap:break-word; word-break:break-word; }}
     .totals {{ margin-top:8px; font-size:13px; }}
     .totals > div {{ display:flex; justify-content:space-between; gap:12px; padding:3px 0; }}
     .totals strong {{ text-align:right; }}
+    .payment-detail {{ display:block!important;color:#4b5563;font-size:11px;line-height:1.35;padding-top:1px!important; }}
+    .status,.tax-exempt {{ margin-top:10px;font-size:12px; }}
     @media print {{ body {{ background:#fff; }} .paper {{ margin:0 auto; box-shadow:none; border-radius:0; }} }}
   </style>
 </head>
@@ -339,10 +530,13 @@ pub fn render_standard_receipt_html(
     </div>
     <div class="rule"></div>
     <div class="muted">{customer}</div>
+    <div class="muted">{staff_lines}</div>
     <div class="rule"></div>
     {items_html}
     <div class="rule"></div>
     {totals_html}
+    {status}
+    {tax_exempt}
     <div class="rule"></div>
     <div class="center muted">{footer_lines}</div>
   </main>
@@ -353,6 +547,9 @@ pub fn render_standard_receipt_html(
         date = local_time.format("%m/%d/%Y %I:%M %p"),
         backdated_notice = backdated_notice,
         customer = customer,
+        staff_lines = staff_lines,
+        status = status,
+        tax_exempt = tax_exempt,
     )
 }
 
@@ -405,12 +602,19 @@ pub fn merge_receipt_studio_html(
     } else {
         build_items_table(order)
     };
-    let header_lines = cfg
-        .header_lines
-        .iter()
-        .map(|l| html_escape(l))
-        .collect::<Vec<_>>()
-        .join("<br/>");
+    let header_lines = [
+        cfg.show_address.then_some(cfg.store_address.as_str()),
+        cfg.show_phone.then_some(cfg.store_phone.as_str()),
+        cfg.show_email.then_some(cfg.store_email.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(cfg.header_lines.iter().map(String::as_str))
+    .map(str::trim)
+    .filter(|line| !line.is_empty())
+    .map(html_escape)
+    .collect::<Vec<_>>()
+    .join("<br/>");
     let backdated_notice = crate::logic::receipt_shared::backdated_receipt_notice(order)
         .map(|notice| {
             format!(
@@ -548,7 +752,7 @@ pub fn merge_receipt_studio_html(
             &order.balance_due.to_string(),
         );
     }
-    replace_all(&mut out, "{{ROS_STATUS}}", order_status_label(order.status));
+    replace_all(&mut out, "{{ROS_STATUS}}", order.customer_status_label());
     replace_all(&mut out, "{{ROS_ITEMS_TABLE}}", &items_html);
     replace_all(
         &mut out,
@@ -590,6 +794,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
     ReceiptOrder {
         transaction_id: Uuid::nil(),
         transaction_display_id: "TXN-66736".to_string(),
+        register_lane: Some(1),
         receipt_kind: ReceiptKind::StandardSale,
         booked_at: Utc::now(),
         backdated_business_date: None,
@@ -631,6 +836,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
                 is_fulfilled: true,
                 adjustment: None,
                 contributes_to_totals: true,
+                is_taxable: Some(true),
             },
             crate::logic::receipt_shared::ReceiptLine {
                 product_name: "Silk tie".to_string(),
@@ -648,6 +854,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
                 is_fulfilled: true,
                 adjustment: None,
                 contributes_to_totals: true,
+                is_taxable: Some(false),
             },
         ],
         is_tax_exempt: false,
@@ -672,6 +879,34 @@ mod tests {
         assert!(html.contains("<title>Receipt TXN-66736</title>"));
         assert!(html.contains("<div class=\"title\">Receipt</div>"));
         assert!(!html.contains("RETURN /"));
+    }
+
+    #[test]
+    fn standard_html_receipt_contains_customer_financial_and_audit_detail() {
+        let mut order = sample_receipt_order_for_preview();
+        order.tax_total = Decimal::new(1696, 2);
+        order.total_savings = Decimal::new(2500, 2);
+        order.payments = vec![crate::logic::receipt_shared::ReceiptPayment {
+            date: chrono::Utc::now(),
+            method: "card_terminal".to_string(),
+            amount: Decimal::new(21646, 2),
+            cash_tendered: None,
+            change_due: None,
+            gift_card_balance_after: None,
+        }];
+
+        let html = render_standard_receipt_html(&order, &ReceiptConfig::default(), false);
+
+        assert!(html.contains("<span>Subtotal</span><strong>$199.50</strong>"));
+        assert!(html.contains("<span>Sales tax</span><strong>$16.96</strong>"));
+        assert!(html.contains("<span>Total savings</span><strong>$25.00</strong>"));
+        assert!(html.contains("Tender CC"));
+        assert!(html.contains("Register #1"));
+        assert!(html.contains("Salesperson:"));
+        assert!(html.contains("Staff:"));
+        assert!(html.contains("Tax: Taxable"));
+        assert!(html.contains("Taken today"));
+        assert!(html.contains("<th scope=\"col\""));
     }
 
     #[test]
@@ -713,7 +948,7 @@ mod tests {
         assert!(html.contains("Wedding Party Deposit for James Brown (Whitrock &amp; Family)"));
         assert!(html.contains("for James Brown"));
         assert!(html.contains("Held for future order"));
-        assert!(html.contains("<strong>710.38</strong>"));
+        assert!(html.contains("<strong>$710.38</strong>"));
     }
 
     #[test]
