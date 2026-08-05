@@ -181,6 +181,7 @@ export default function CustomerProfileCompletionModal({
             onChange={setAddressLine1}
             onSelectAddress={(suggestion) => {
               setAddressLine1(suggestion.address_line1);
+              setAddressLine2(suggestion.address_line2 ?? address_line2);
               setCity(suggestion.city);
               setState(suggestion.state);
               setPostalCode(suggestion.postal_code);

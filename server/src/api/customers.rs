@@ -189,7 +189,6 @@ fn literal_ilike_prefix_pattern(value: &str) -> String {
     )
 }
 const ADDRESS_LOOKUP_PROVIDER_LIMIT: usize = 10;
-const ADDRESS_LOOKUP_RADIUS_METERS: &str = "120000";
 const ADDRESS_LOOKUP_STORE_LAT: &str = "42.9056";
 const ADDRESS_LOOKUP_STORE_LON: &str = "-78.7048";
 const GEOAPIFY_ADDRESS_LOOKUP_URL: &str = "https://api.geoapify.com/v1/geocode/autocomplete";
@@ -205,6 +204,8 @@ struct AddressSuggestion {
     id: String,
     label: String,
     address_line1: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    address_line2: Option<String>,
     city: String,
     state: String,
     postal_code: String,
@@ -248,7 +249,7 @@ struct GeoapifyAutocompleteResponse {
     results: Vec<GeoapifyAddressResult>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct GeoapifyAddressResult {
     #[serde(default)]
     place_id: Option<String>,
@@ -553,6 +554,7 @@ fn map_geoapify_result(
                 .unwrap_or_else(|| format!("geoapify-{index}")),
             label,
             address_line1,
+            address_line2: None,
             city,
             state,
             postal_code: postal_code.to_string(),
@@ -1547,13 +1549,13 @@ async fn get_address_suggestions(
 
     let Some(api_key) = geoapify_api_key_from_settings(&state.db).await? else {
         tracing::warn!("customer Geoapify address lookup is not configured; using manual entry");
-        return Ok(Json(Vec::new()));
+        return Err(CustomerError::ExternalUnavailable(
+            "Address lookup is not configured. Manual entry is still available.".to_string(),
+        ));
     };
     let limit = ADDRESS_LOOKUP_PROVIDER_LIMIT.to_string();
     let bias = format!("proximity:{ADDRESS_LOOKUP_STORE_LON},{ADDRESS_LOOKUP_STORE_LAT}");
-    let filter = format!(
-        "circle:{ADDRESS_LOOKUP_STORE_LON},{ADDRESS_LOOKUP_STORE_LAT},{ADDRESS_LOOKUP_RADIUS_METERS}|countrycode:us"
-    );
+    let filter = "countrycode:us";
     let res = state
         .http_client
         .get(GEOAPIFY_ADDRESS_LOOKUP_URL)
@@ -1563,29 +1565,39 @@ async fn get_address_suggestions(
             ("limit", limit.as_str()),
             ("lang", "en"),
             ("format", "json"),
-            ("filter", filter.as_str()),
+            ("filter", filter),
             ("bias", bias.as_str()),
             ("apiKey", api_key.as_str()),
         ])
+        .timeout(std::time::Duration::from_secs(6))
         .send()
         .await;
 
     let Ok(res) = res else {
         tracing::warn!("customer Geoapify address lookup request failed");
-        return Ok(Json(Vec::new()));
+        return Err(CustomerError::ExternalUnavailable(
+            "Address lookup is temporarily unavailable. Manual entry is still available."
+                .to_string(),
+        ));
     };
     if !res.status().is_success() {
         tracing::warn!(
             status = %res.status(),
             "customer Geoapify address lookup returned non-success status"
         );
-        return Ok(Json(Vec::new()));
+        return Err(CustomerError::ExternalUnavailable(
+            "Address lookup is temporarily unavailable. Manual entry is still available."
+                .to_string(),
+        ));
     }
 
     let body = res.json::<GeoapifyAutocompleteResponse>().await;
     let Ok(body) = body else {
         tracing::warn!("customer Geoapify address lookup response was not valid JSON");
-        return Ok(Json(Vec::new()));
+        return Err(CustomerError::ExternalUnavailable(
+            "Address lookup returned an invalid response. Manual entry is still available."
+                .to_string(),
+        ));
     };
 
     let mut seen = HashSet::new();
@@ -1698,6 +1710,12 @@ async fn post_address_validation(
 
     let normalized = validated.normalized;
     let address_line1 = title_case_address(&normalized.street1);
+    let address_line2 = normalized
+        .street2
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(title_case_address);
     let city = title_case_address(&normalized.city);
     let state = normalize_us_state(&normalized.state);
     let source_postal_code = postal_code.to_string();
@@ -1709,6 +1727,7 @@ async fn post_address_validation(
         id: validated.object_id.unwrap_or_else(|| label.clone()),
         label,
         address_line1,
+        address_line2,
         city,
         state,
         postal_code: normalized_postal_code,
@@ -8217,7 +8236,8 @@ async fn post_customer_timeline_note(
 mod customer_timeline_tests {
     use super::{
         build_customer_timeline, literal_ilike_pattern, literal_ilike_prefix_pattern,
-        open_deposit_timeline_summary, wedding_deposit_contribution_timeline_summary,
+        map_geoapify_result, open_deposit_timeline_summary,
+        wedding_deposit_contribution_timeline_summary, GeoapifyAddressResult,
     };
     use rust_decimal::Decimal;
 
@@ -8246,6 +8266,29 @@ mod customer_timeline_tests {
     fn customer_sql_search_treats_wildcards_as_literal_text() {
         assert_eq!(literal_ilike_pattern(r"A%_B\C"), r"%A\%\_B\\C%");
         assert_eq!(literal_ilike_prefix_pattern(r"A%_B\C"), r"A\%\_B\\C%");
+    }
+
+    #[test]
+    fn geoapify_mapping_keeps_out_of_state_us_addresses() {
+        let result = GeoapifyAddressResult {
+            place_id: Some("erie-pa-address".to_string()),
+            formatted: Some("1422 Meadow Lane, Erie, PA 16509".to_string()),
+            address_line1: Some("1422 Meadow Lane".to_string()),
+            city: Some("Erie".to_string()),
+            state_code: Some("PA".to_string()),
+            postcode: Some("16509".to_string()),
+            country_code: Some("us".to_string()),
+            result_type: Some("building".to_string()),
+            housenumber: Some("1422".to_string()),
+            street: Some("Meadow Lane".to_string()),
+            ..Default::default()
+        };
+
+        let mapped = map_geoapify_result(result, 0, "1422 Meadow Lane")
+            .expect("US addresses outside New York should remain eligible");
+
+        assert_eq!(mapped.suggestion.state, "PA");
+        assert_eq!(mapped.suggestion.postal_code, "16509");
     }
 
     #[test]

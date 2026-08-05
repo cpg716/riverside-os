@@ -476,20 +476,12 @@ export default function PosShippingModal({
               label="Street 1"
               value={form.street1}
               inputClassName="ui-input w-full text-sm"
-              validationContext={{
-                name: form.name,
-                company: form.company,
-                address_line2: form.street2,
-                country: form.country,
-                phone: form.phone,
-                email: form.email,
-                is_residential: form.is_residential,
-              }}
               onChange={(value) => setForm((f) => ({ ...f, street1: value }))}
               onSelectAddress={(suggestion) =>
                 setForm((f) => ({
                   ...f,
                   street1: suggestion.address_line1,
+                  street2: suggestion.address_line2 ?? f.street2,
                   city: suggestion.city,
                   state: suggestion.state,
                   zip: suggestion.postal_code,

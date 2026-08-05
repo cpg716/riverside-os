@@ -31,7 +31,7 @@ Open this modal when the customer wants delivery instead of leaving with the pro
 If staff only need to collect a shipping fee and no shipment will be created, type **SHIPPING** in Register search instead. That shortcut adds a non-taxable fee without asking for an address or creating shipment/tracking work.
 
 ## Features
-- **Address Integration**: Pulls the primary address directly from the linked customer profile.
+- **Address Integration**: Pulls the primary address from the linked customer profile or searches nationwide U.S. suggestions with Western New York ranked first. A selected suggestion fills all available address fields immediately and remains editable.
 - **Current-sale shipping**: The sale is marked for shipping and a shipment record is created at checkout.
 - **Live Carrier Rates**: Fetches real-time pricing from USPS, UPS, and FedEx (requires active internet connection).
 

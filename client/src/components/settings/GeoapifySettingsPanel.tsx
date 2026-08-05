@@ -25,8 +25,8 @@ export default function GeoapifySettingsPanel({
               </h2>
               <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-app-text-muted">
                 Geoapify powers address typeahead across customer, vendor, and
-                shipping entry. Shippo still validates the selected address
-                before ROS uses it for shipping.
+                shipping entry. Selecting a result fills the form directly;
+                shipping validation happens later in the shipping workflow.
               </p>
             </div>
           </div>
@@ -46,7 +46,7 @@ export default function GeoapifySettingsPanel({
             key: "api_key",
             label: "API Key",
             type: "password",
-            help: "Required for address suggestions near Riverside ZIP 14043.",
+            help: "Required for nationwide U.S. address suggestions, with Western New York prioritized.",
           },
         ]}
       />
@@ -61,9 +61,9 @@ export default function GeoapifySettingsPanel({
               Validation Flow
             </h3>
             <p className="mt-1 text-sm font-semibold leading-6 text-app-text-muted">
-              Geoapify suggests matching addresses. Shippo remains the address
-              validation layer before shipping labels and customer shipping
-              records are saved.
+              Geoapify fills selected U.S. addresses immediately, with Western
+              New York matches prioritized. It does not require Shippo to fill
+              customer or shipping address fields.
             </p>
           </div>
         </div>

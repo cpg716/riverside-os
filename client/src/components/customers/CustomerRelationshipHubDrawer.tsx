@@ -4831,6 +4831,7 @@ export function CustomerRelationshipHubDrawer({
                         setProfileDraft((d) => ({
                           ...d,
                           address_line1: suggestion.address_line1,
+                          address_line2: suggestion.address_line2 ?? d.address_line2,
                           city: suggestion.city,
                           state: suggestion.state,
                           postal_code: suggestion.postal_code,

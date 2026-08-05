@@ -1594,15 +1594,6 @@ export default function ShipmentsHubSection({
                 label="Street 1"
                 value={newForm.street1}
                 inputClassName="ui-input mt-1 w-full text-xs"
-                validationContext={{
-                  name: newForm.name,
-                  company: newForm.company,
-                  address_line2: newForm.street2,
-                  country: newForm.country,
-                  phone: newForm.phone,
-                  email: newForm.email,
-                  is_residential: newForm.is_residential,
-                }}
                 onChange={(value) =>
                   setNewForm((f) => ({ ...f, street1: value }))
                 }
@@ -1610,6 +1601,7 @@ export default function ShipmentsHubSection({
                   setNewForm((f) => ({
                     ...f,
                     street1: suggestion.address_line1,
+                    street2: suggestion.address_line2 ?? f.street2,
                     city: suggestion.city,
                     state: suggestion.state,
                     zip: suggestion.postal_code,

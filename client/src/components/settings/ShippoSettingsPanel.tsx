@@ -338,15 +338,6 @@ export default function ShippoSettingsPanel({
               label="Street 1"
               value={settings.from_address.street1}
               inputClassName="ui-input w-full bg-app-bg px-4 py-3 text-sm font-medium"
-              validationContext={{
-                name: settings.from_address.name,
-                company: settings.from_address.company ?? undefined,
-                address_line2: settings.from_address.street2 ?? undefined,
-                country: settings.from_address.country,
-                phone: settings.from_address.phone,
-                email: settings.from_address.email ?? undefined,
-                is_residential: !!settings.from_address.is_residential,
-              }}
               onChange={(value) =>
                 setSettings({
                   ...settings,
@@ -362,6 +353,7 @@ export default function ShippoSettingsPanel({
                   from_address: {
                     ...settings.from_address,
                     street1: suggestion.address_line1,
+                    street2: suggestion.address_line2 ?? settings.from_address.street2,
                     city: suggestion.city,
                     state: suggestion.state,
                     zip: suggestion.postal_code,

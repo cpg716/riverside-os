@@ -66,7 +66,7 @@ The relationship hub supports customer review. The RMS workspace supports financ
 ## How to use it
 
 1. Search for the correct customer first.
-2. Use **Add Customer** when the person is not already in Riverside. Enter name and contact details first, then address, notes, and preferences. Email, SMS, operational SMS, and operational email approvals start checked for a new account; review them with the customer and uncheck any approval they do not give before saving.
+2. Use **Add Customer** when the person is not already in Riverside. Enter name and contact details first, then start typing the U.S. street address and select the correct suggestion to fill address line 1, address line 2 when available, city, state, and ZIP. Western New York matches rank first, out-of-state matches remain available, and every filled field stays editable. Email, SMS, operational SMS, and operational email approvals start checked for a new account; review them with the customer and uncheck any approval they do not give before saving.
 3. Use the lifecycle filter when you need to isolate new customers, active follow-up, ready pickups, completed history, or issues.
 4. Open the customer row to review the relationship hub.
 5. Use the relationship hub tabs for profile, orders, messages, measurements, weddings, and shipments.

@@ -43,7 +43,7 @@ Shipping **requires** a linked customer profile. Use the **Customer Selector** t
 2. Tap **Ship current sale** below the subtotal.
 3. The **Ship this Sale** window will open.
     - **Use customer address**: Quickly pull the saved address from the CRM.
-    - **Edit address**: Search the street address with Geoapify, choose the Shippo-validated suggestion, or manually enter a one-time delivery address including address line 2, phone, email, or residential destination when needed.
+    - **Edit address**: Search nationwide U.S. street addresses with Western New York ranked first. Choosing a result fills the available address fields immediately; review or edit address line 2, phone, email, and residential destination as needed. Address autocomplete does not call Shippo; Shippo is contacted when rates or labels are requested.
 4. Choose the charge source:
    - Tap **Get shipping rates** to fetch live carrier pricing (USPS, UPS, FedEx) when Shippo live rates are enabled. Demo rates are shown only when live rates are not enabled. Select the desired rate and tap **Apply shipping to sale**.
    - Enter a **Manual shipping charge** when staff already know the delivery charge or do not need a carrier rate yet, then tap **Add shipping charge**.

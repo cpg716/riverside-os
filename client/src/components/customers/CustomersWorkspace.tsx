@@ -2807,6 +2807,7 @@ export function AddCustomerDrawer({
                   setForm((f) => ({
                     ...f,
                     address_line1: suggestion.address_line1,
+                    address_line2: suggestion.address_line2 ?? f.address_line2,
                     city: suggestion.city,
                     state: normalizeStateInput(suggestion.state),
                     postal_code: suggestion.postal_code,

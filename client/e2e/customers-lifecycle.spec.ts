@@ -220,7 +220,7 @@ test("add customer accepts manual address entry without suggestions", async ({
   });
 });
 
-test("add customer address suggestion fills city state and ZIP", async ({
+test("add customer address suggestion fills street 2, city, state and ZIP", async ({
   page,
 }) => {
   await mockCustomerWorkspaceBasics(page);
@@ -234,6 +234,7 @@ test("add customer address suggestion fills city state and ZIP", async ({
           id: "suggestion-1",
           label: "4600 Broadway, Buffalo, NY 14225",
           address_line1: "4600 Broadway",
+          address_line2: "Suite 200",
           city: "Buffalo",
           state: "NEW YORK",
           postal_code: "14225",
@@ -241,25 +242,10 @@ test("add customer address suggestion fills city state and ZIP", async ({
       ]),
     });
   });
-  await page.route("**/api/customers/address-validation", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        id: "suggestion-1",
-        label: "4600 Broadway, Buffalo, NY 14225",
-        address_line1: "4600 Broadway",
-        city: "Buffalo",
-        state: "NEW YORK",
-        postal_code: "14225",
-      }),
-    });
-  });
-
   await openAddCustomerDrawer(page);
   await fillRequiredCustomerFields(page);
   await page.getByLabel(/address line 1/i).fill("4600 Broadway");
-  await expect(page.getByText(/searching addresses near 14043/i)).toBeVisible();
+  await expect(page.getByText(/searching U\.S\. addresses/i)).toBeVisible();
   await page
     .getByRole("button", { name: /4600 broadway/i })
     .click();
@@ -267,9 +253,134 @@ test("add customer address suggestion fills city state and ZIP", async ({
   await expect(page.getByLabel(/address line 1/i)).toHaveValue(
     "4600 Broadway",
   );
+  await expect(page.getByLabel(/address line 2/i)).toHaveValue("Suite 200");
   await expect(page.getByLabel(/^city$/i)).toHaveValue("Buffalo");
   await expect(page.getByLabel(/^state$/i)).toHaveValue("NY");
   await expect(page.getByLabel(/zip/i)).toHaveValue("14225");
+});
+
+test("add customer uses Geoapify without calling Shippo validation", async ({
+  page,
+}) => {
+  await mockCustomerWorkspaceBasics(page);
+  await page.route("**/api/customers/address-suggestions*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "out-of-state-suggestion",
+          label: "1422 Meadow Lane, Erie, PA 16509",
+          address_line1: "1422 Meadow Lane",
+          city: "Erie",
+          state: "PA",
+          postal_code: "16509",
+        },
+      ]),
+    });
+  });
+  let shippoValidationRequests = 0;
+  await page.route("**/api/customers/address-validation", async (route) => {
+    shippoValidationRequests += 1;
+    await route.abort();
+  });
+
+  await openAddCustomerDrawer(page);
+  await fillRequiredCustomerFields(page);
+  await page.getByLabel(/address line 1/i).fill("1422 Meadow Lane");
+  await page
+    .getByRole("button", { name: /1422 meadow lane/i })
+    .click();
+
+  await expect(page.getByLabel(/address line 1/i)).toHaveValue(
+    "1422 Meadow Lane",
+  );
+  await expect(page.getByLabel(/^city$/i)).toHaveValue("Erie");
+  await expect(page.getByLabel(/^state$/i)).toHaveValue("PA");
+  await expect(page.getByLabel(/zip/i)).toHaveValue("16509");
+  await expect.poll(() => shippoValidationRequests).toBe(0);
+});
+
+test("customer hub address selection fills every available address field", async ({
+  page,
+}) => {
+  await mockCustomerWorkspaceBasics(page);
+  await page.unroute("**/api/customers/browse*");
+  await page.route("**/api/customers/browse*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([issueCustomer]),
+    });
+  });
+  await page.route(`**/api/customers/${issueCustomer.id}/hub`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(issueHubResponse),
+    });
+  });
+  await page.route(`**/api/customers/${issueCustomer.id}/timeline`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ events: [] }),
+    });
+  });
+  await page.route(`**/api/customers/${issueCustomer.id}/store-credit`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ balance: "0.00" }),
+    });
+  });
+  await page.route(`**/api/customers/${issueCustomer.id}/open-deposit`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ balance: "0.00" }),
+    });
+  });
+  await page.route("**/api/customers/address-suggestions*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "hub-suggestion",
+          label: "1500 Market Street, Philadelphia, PA 19102",
+          address_line1: "1500 Market Street",
+          address_line2: "Suite 1200",
+          city: "Philadelphia",
+          state: "PA",
+          postal_code: "19102",
+        },
+      ]),
+    });
+  });
+  await signInToBackOffice(page);
+  await openCustomersWorkspace(page);
+  const issueRow = page
+    .getByRole("row")
+    .filter({ hasText: issueCustomer.first_name });
+  await issueRow
+    .getByRole("button", { name: new RegExp(issueCustomer.customer_code, "i") })
+    .click();
+
+  const dialog = page.getByRole("dialog", { name: /iris issue/i });
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
+  await dialog.getByLabel(/address line 1/i).fill("1500 Market");
+  await dialog
+    .getByRole("button", { name: /1500 market street/i })
+    .click();
+
+  await expect(dialog.getByLabel(/address line 1/i)).toHaveValue(
+    "1500 Market Street",
+  );
+  await expect(dialog.getByLabel(/address line 2/i)).toHaveValue("Suite 1200");
+  await expect(dialog.getByLabel(/^city$/i)).toHaveValue("Philadelphia");
+  await expect(dialog.getByLabel(/^state$/i)).toHaveValue("PA");
+  await expect(dialog.getByLabel(/postal code/i)).toHaveValue("19102");
 });
 
 test("failed address lookup keeps add customer form usable", async ({
