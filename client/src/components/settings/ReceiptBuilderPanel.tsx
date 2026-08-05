@@ -32,9 +32,7 @@ function previewTaxLines(
 ) {
   return [
     RECEIPTLINE_FONT_B_ON,
-    `4.75%: ${localAmount} |`,
-    `4.00%: ${stateAmount} |`,
-    `Total Tax: ${totalAmount} |`,
+    `4.75%: ${localAmount} 4.00%: ${stateAmount} Total Tax: ${totalAmount} |`,
     RECEIPTLINE_FONT_A_ON,
   ];
 }

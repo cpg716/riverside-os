@@ -38,9 +38,9 @@ test("receipt builder exposes every production ReceiptLine token", () => {
   expect(builder).toContain("disabled={busy || hasInvalidSavedTemplate}");
   expect(builder).toContain("disabled={testPrinting || activeTemplateInvalid}");
   expect(builder).toContain('previewTaxLines("$3.98", "$0.00", "$3.98")');
-  expect(builder).toContain("`4.75%: ${localAmount} |`");
-  expect(builder).toContain("`4.00%: ${stateAmount} |`");
-  expect(builder).toContain("`Total Tax: ${totalAmount} |`");
+  expect(builder).toContain(
+    "`4.75%: ${localAmount} 4.00%: ${stateAmount} Total Tax: ${totalAmount} |`",
+  );
 });
 
 test("receipt builder permits only the intentional barcode stub repeats", () => {
@@ -66,7 +66,7 @@ test("receipt builder permits only the intentional barcode stub repeats", () => 
   ).toEqual(["{{CUSTOMER_LINE}}"]);
 });
 
-test("printed tax rows use compact Epson Font B with contiguous labels", () => {
+test("printed tax detail uses one compact Epson Font B line", () => {
   const receiptSummary = readSource(
     "src/components/pos/ReceiptSummaryModal.tsx",
   );
@@ -74,9 +74,7 @@ test("printed tax rows use compact Epson Font B with contiguous labels", () => {
     transform(
       [
         "{command:\\x1b\\x4d\\x01}",
-        "4.75%: $4.00 |",
-        "4.00%: $0.00 |",
-        "Total Tax: $4.00 |",
+        "4.75%: $4.00 4.00%: $0.00 Total Tax: $4.00 |",
         "{command:\\x1b\\x4d\\x00}",
       ].join("\n"),
       {
@@ -96,9 +94,7 @@ test("printed tax rows use compact Epson Font B with contiguous labels", () => {
   expect(bytes.includes(Buffer.from("4.00%: $0.00", "ascii"))).toBe(true);
   expect(bytes.includes(Buffer.from("Total Tax: $4.00", "ascii"))).toBe(true);
   expect(bytes.includes(Buffer.from([0x1b, 0x4d, 0x00]))).toBe(true);
-  expect(receiptSummary).toContain(
-    "/^(?:4\\.75%|4\\.00%|TotalTax):-?\\$\\d/",
-  );
+  expect(receiptSummary).toContain("/^(?:4\\.75%|4\\.00%|TotalTax):-?\\$\\d/");
 });
 
 test("receipt builder offers the supported preview scenarios", () => {

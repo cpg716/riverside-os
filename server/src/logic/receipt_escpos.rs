@@ -245,11 +245,14 @@ fn push_tax_detail_lines(out: &mut Vec<u8>, item: &ReceiptLine) {
     if lines.is_empty() {
         return;
     }
+    let line = lines
+        .into_iter()
+        .map(|(label, amount)| format!("{label}: {}", money(amount)))
+        .collect::<Vec<_>>()
+        .join(" ");
     set_bold(out, false);
     set_compact_font(out, true);
-    for (label, amount) in lines {
-        push_line(out, &format!("{label}: {}", money(amount)));
-    }
+    push_line(out, &line);
     set_compact_font(out, false);
 }
 
@@ -707,11 +710,14 @@ fn receiptline_item_lines(
             let tax_lines = it.tax_detail_lines();
             if !tax_lines.is_empty() {
                 out_lines.push(RECEIPTLINE_FONT_B_ON.to_string());
-                out_lines.extend(
+                out_lines.push(format!(
+                    "{} |",
                     tax_lines
                         .into_iter()
-                        .map(|(tax_label, amount)| format!("{tax_label}: {} |", money(amount))),
-                );
+                        .map(|(tax_label, amount)| format!("{tax_label}: {}", money(amount)))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ));
                 out_lines.push(RECEIPTLINE_FONT_A_ON.to_string());
             }
         }
@@ -875,11 +881,14 @@ fn receiptline_item_lines(
                 let tax_lines = it.tax_detail_lines();
                 if !tax_lines.is_empty() {
                     out_lines.push(RECEIPTLINE_FONT_B_ON.to_string());
-                    out_lines.extend(
+                    out_lines.push(format!(
+                        "{} |",
                         tax_lines
                             .into_iter()
-                            .map(|(tax_label, amount)| format!("{tax_label}: {} |", money(amount))),
-                    );
+                            .map(|(tax_label, amount)| format!("{tax_label}: {}", money(amount)))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    ));
                     out_lines.push(RECEIPTLINE_FONT_A_ON.to_string());
                 }
             }
@@ -1535,12 +1544,8 @@ mod tests {
         let thermal = String::from_utf8_lossy(&thermal_bytes);
 
         for output in [&receiptline, thermal.as_ref()] {
-            assert!(output.contains("4.75%: $1.15"));
-            assert!(output.contains("4.00%: $0.98"));
-            assert!(output.contains("Total Tax: $2.13"));
-            assert!(output.contains("4.75%: $0.00"));
-            assert!(output.contains("4.00%: $0.00"));
-            assert!(output.contains("Total Tax: $0.00"));
+            assert!(output.contains("4.75%: $1.15 4.00%: $0.98 Total Tax: $2.13"));
+            assert!(output.contains("4.75%: $0.00 4.00%: $0.00 Total Tax: $0.00"));
             assert!(!output.contains("Tax: Taxable"));
             assert!(!output.contains("Tax: Exempt"));
         }

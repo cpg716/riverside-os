@@ -153,8 +153,14 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
             it.sku.trim(),
             var
         ));
-        for (label, amount) in it.tax_detail_lines() {
-            lines.push(format!("{label}: {}", money(amount)));
+        let tax_details = it
+            .tax_detail_lines()
+            .into_iter()
+            .map(|(label, amount)| format!("{label}: {}", money(amount)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !tax_details.is_empty() {
+            lines.push(tax_details);
         }
         if it.custom_item_type.as_deref() == Some("linked_pickup") {
             if let Some(source_label) = it
@@ -376,12 +382,12 @@ mod tests {
         let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
 
         assert!(text.lines().any(|line| line == "Receipt TXN-66736"));
-        assert!(text.contains("4.75%: $7.88"));
-        assert!(text.contains("4.00%: $7.00"));
-        assert!(text.contains("Total Tax: $14.88"));
-        assert!(text.contains("4.75%: $0.00"));
-        assert!(text.contains("4.00%: $0.00"));
-        assert!(text.contains("Total Tax: $0.00"));
+        assert!(text
+            .lines()
+            .any(|line| line == "4.75%: $7.88 4.00%: $7.00 Total Tax: $14.88"));
+        assert!(text
+            .lines()
+            .any(|line| line == "4.75%: $0.00 4.00%: $0.00 Total Tax: $0.00"));
         assert!(!text.contains("RETURN /"));
     }
 

@@ -111,14 +111,14 @@ fn build_items_table(order: &ReceiptOrder) -> String {
         let line_tax = it
             .tax_detail_lines()
             .into_iter()
-            .map(|(label, amount)| {
-                format!(
-                    "<br><span style=\"font-size:10px;color:#64748b\">{}: {}</span>",
-                    html_escape(label),
-                    money(amount)
-                )
-            })
-            .collect::<String>();
+            .map(|(label, amount)| format!("{}: {}", html_escape(label), money(amount)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let line_tax = if line_tax.is_empty() {
+            String::new()
+        } else {
+            format!("<br><span style=\"font-size:10px;color:#64748b\">{line_tax}</span>")
+        };
         let fulfillment = format!(
             "<br><span style=\"font-size:11px;font-weight:700;color:#374151\">{}</span>",
             fulfillment_label(order, it)
@@ -999,12 +999,8 @@ mod tests {
         assert!(html.contains("Register #1"));
         assert!(html.contains("Salesperson:"));
         assert!(html.contains("Staff:"));
-        assert!(html.contains("4.75%: $7.88"));
-        assert!(html.contains("4.00%: $7.00"));
-        assert!(html.contains("Total Tax: $14.88"));
-        assert!(html.contains("4.75%: $0.00"));
-        assert!(html.contains("4.00%: $0.00"));
-        assert!(html.contains("Total Tax: $0.00"));
+        assert!(html.contains("4.75%: $7.88 4.00%: $7.00 Total Tax: $14.88"));
+        assert!(html.contains("4.75%: $0.00 4.00%: $0.00 Total Tax: $0.00"));
         assert!(!html.contains("Tax: Taxable"));
         assert!(html.contains("Taken today"));
         assert!(html.contains("<th scope=\"col\""));
