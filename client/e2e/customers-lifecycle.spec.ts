@@ -341,7 +341,9 @@ test("customer hub address selection fills every available address field", async
       body: JSON.stringify({ balance: "0.00" }),
     });
   });
+  let hubAddressLookupRequests = 0;
   await page.route("**/api/customers/address-suggestions*", async (route) => {
+    hubAddressLookupRequests += 1;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -369,6 +371,7 @@ test("customer hub address selection fills every available address field", async
 
   const dialog = page.getByRole("dialog", { name: /iris issue/i });
   await expect(dialog).toBeVisible({ timeout: 20_000 });
+  await expect.poll(() => hubAddressLookupRequests).toBe(0);
   await dialog.getByLabel(/address line 1/i).fill("1500 Market");
   await dialog
     .getByRole("button", { name: /1500 market street/i })
@@ -381,6 +384,7 @@ test("customer hub address selection fills every available address field", async
   await expect(dialog.getByLabel(/^city$/i)).toHaveValue("Philadelphia");
   await expect(dialog.getByLabel(/^state$/i)).toHaveValue("PA");
   await expect(dialog.getByLabel(/postal code/i)).toHaveValue("19102");
+  await expect.poll(() => hubAddressLookupRequests).toBe(1);
 });
 
 test("failed address lookup keeps add customer form usable", async ({

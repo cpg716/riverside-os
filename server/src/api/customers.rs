@@ -311,6 +311,15 @@ fn title_case_address(value: &str) -> String {
         .join(" ")
 }
 
+fn normalize_geoapify_city(value: &str) -> String {
+    let city = title_case_address(value);
+    ["Town Of ", "Village Of ", "City Of "]
+        .iter()
+        .find_map(|prefix| city.strip_prefix(prefix))
+        .unwrap_or(&city)
+        .to_string()
+}
+
 fn normalize_us_state(value: &str) -> String {
     match value.trim().to_ascii_uppercase().as_str() {
         "ALABAMA" | "AL" => "AL",
@@ -534,7 +543,7 @@ fn map_geoapify_result(
         return None;
     }
     let address_line1 = title_case_address(address_line1);
-    let city = title_case_address(city);
+    let city = normalize_geoapify_city(city);
     let state = normalize_us_state(state);
     let score = geoapify_local_score(&result, query);
     let label = result
@@ -8289,6 +8298,28 @@ mod customer_timeline_tests {
 
         assert_eq!(mapped.suggestion.state, "PA");
         assert_eq!(mapped.suggestion.postal_code, "16509");
+    }
+
+    #[test]
+    fn geoapify_mapping_removes_municipality_prefix_from_city() {
+        let result = GeoapifyAddressResult {
+            place_id: Some("eden-address".to_string()),
+            formatted: Some("8229 North Main Street, Town of Eden, NY 14057".to_string()),
+            address_line1: Some("8229 North Main Street".to_string()),
+            city: Some("Town of Eden".to_string()),
+            state_code: Some("NY".to_string()),
+            postcode: Some("14057".to_string()),
+            country_code: Some("us".to_string()),
+            result_type: Some("building".to_string()),
+            housenumber: Some("8229".to_string()),
+            street: Some("North Main Street".to_string()),
+            ..Default::default()
+        };
+
+        let mapped = map_geoapify_result(result, 0, "8229 North Main Street")
+            .expect("valid Eden address should map");
+
+        assert_eq!(mapped.suggestion.city, "Eden");
     }
 
     #[test]

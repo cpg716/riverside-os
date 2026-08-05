@@ -47,12 +47,13 @@ export default function AddressAutocompleteInput({
   const [open, setOpen] = useState(false);
   const [lookupFailed, setLookupFailed] = useState(false);
   const [lookupComplete, setLookupComplete] = useState(false);
+  const [lookupRequested, setLookupRequested] = useState(false);
   const blurTimerRef = useRef<number | null>(null);
   const selectedValueRef = useRef<string | null>(null);
   const trimmedValue = value.trim();
 
   useEffect(() => {
-    if (selectedValueRef.current === trimmedValue) {
+    if (!lookupRequested || selectedValueRef.current === trimmedValue) {
       setSuggestions([]);
       setBusy(false);
       setLookupFailed(false);
@@ -109,7 +110,7 @@ export default function AddressAutocompleteInput({
       window.clearTimeout(timer);
       ac.abort();
     };
-  }, [backofficeHeaders, baseUrl, readOnly, trimmedValue]);
+  }, [backofficeHeaders, baseUrl, lookupRequested, readOnly, trimmedValue]);
 
   const statusText = useMemo(() => {
     if (readOnly || trimmedValue.length < MIN_LOOKUP_LENGTH) return "";
@@ -138,6 +139,7 @@ export default function AddressAutocompleteInput({
 
   const selectSuggestion = (suggestion: AddressSuggestion) => {
     selectedValueRef.current = suggestion.address_line1.trim();
+    setLookupRequested(false);
     onSelectAddress(suggestion);
     setSuggestions([]);
     setOpen(false);
@@ -159,6 +161,7 @@ export default function AddressAutocompleteInput({
           onFocus={handleFocus}
           onChange={(e) => {
             selectedValueRef.current = null;
+            setLookupRequested(true);
             onChange(e.target.value);
             setOpen(true);
           }}

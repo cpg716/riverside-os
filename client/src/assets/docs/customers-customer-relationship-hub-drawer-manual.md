@@ -68,7 +68,7 @@ When two profiles are linked, use **Person view** to switch between each person.
 
 Saving Profile details updates only the fields changed in the open profile form. An Automatic discount above 0% requires a Discount reason explaining why the customer receives the ongoing discount; removing the discount also removes that reason. Separate customer actions such as VIP status, measurements, timeline notes, messages, shipments, store credit, and linked-profile changes remain on their own save paths.
 
-When changing a mailing address, start typing the U.S. street address and select the correct suggestion. Western New York matches rank first, but out-of-state matches remain available. The selection immediately fills address line 1, address line 2 when available, city, state, and ZIP; review or edit any field before saving.
+Opening an existing profile does not start an address search. When changing a mailing address, start typing the U.S. street address and select the correct suggestion. Western New York matches rank first, but out-of-state matches remain available. The selection immediately fills address line 1, address line 2 when available, city, state, and ZIP; municipality prefixes such as **Town of** are omitted from the City field. Review or edit any field before saving.
 
 When linked profiles are split, the parent profile retains joined purchase history. The separated profile keeps its own contact details, measurements, messages, and a timeline note that points staff to the parent profile for pre-split purchase history.
 
