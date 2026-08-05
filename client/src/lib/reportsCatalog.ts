@@ -845,6 +845,55 @@ export const REPORTS_CATALOG: ReportDef[] = [
       `/api/insights/customer-follow-up?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
   },
   {
+    id: "customer_email_collection",
+    title: "Email Collection Report",
+    description:
+      "Customer emails added at the Register, including the customer account, collection date, and staff member who added each email.",
+    category: "Customers",
+    aliases: ["emails added", "email capture", "customer email report"],
+    keywords: [
+      "customer",
+      "email",
+      "collection",
+      "register",
+      "staff",
+      "daily",
+      "contact",
+    ],
+    questions: [
+      "How many emails did we add today?",
+      "Who collected each customer email?",
+      "Which accounts received an email address?",
+    ],
+    audience: "Manager",
+    sensitivity: "Manager",
+    adminOnly: false,
+    permissionsAll: ["insights.view"],
+    responseKind: "rows",
+    usesGlobalDateRange: true,
+    usesBasis: false,
+    chartConfigs: [
+      {
+        title: "Emails added by day",
+        labelKey: "collection_date",
+        valueKey: "emails_added",
+        valueFormat: "number",
+        limit: 31,
+        aggregateByLabel: true,
+      },
+      {
+        title: "Emails added by staff",
+        labelKey: "staff_name",
+        valueKey: "emails_added",
+        valueFormat: "number",
+        limit: 20,
+        aggregateByLabel: true,
+      },
+    ],
+    buildPath: ({ fromYmd, toYmd }) =>
+      `/api/insights/customer-email-collection?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
+  },
+  {
     id: "customer_value_frequency",
     title: "Customer Value & Visit Frequency",
     description:

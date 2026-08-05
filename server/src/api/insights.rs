@@ -2778,6 +2778,51 @@ async fn customer_follow_up_report(
 }
 
 #[derive(Debug, Serialize, FromRow)]
+pub struct CustomerEmailCollectionReportRow {
+    pub collection_date: NaiveDate,
+    pub collected_at: DateTime<Utc>,
+    pub customer_code: String,
+    pub customer_name: String,
+    pub email_address: String,
+    pub staff_name: String,
+    pub emails_added: i64,
+}
+
+async fn customer_email_collection_report(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<CustomerEmailCollectionReportRow>>, InsightsError> {
+    insights_auth_insights_view(&state, &headers).await?;
+    let (start, end) = range_bounds(&q);
+    let rows = sqlx::query_as::<_, CustomerEmailCollectionReportRow>(
+        r#"
+        SELECT
+            (created_at AT TIME ZONE reporting.effective_store_timezone())::date AS collection_date,
+            created_at AS collected_at,
+            customer_code,
+            customer_name,
+            email_address,
+            staff_name,
+            1::bigint AS emails_added
+        FROM customer_email_collection_events
+        WHERE action = 'email_added'
+          AND (created_at AT TIME ZONE reporting.effective_store_timezone())::date
+              >= ($1 AT TIME ZONE 'UTC')::date
+          AND (created_at AT TIME ZONE reporting.effective_store_timezone())::date
+              < ($2 AT TIME ZONE 'UTC')::date
+        ORDER BY created_at DESC, id DESC
+        LIMIT 100000
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
 pub struct NegativeStockRow {
     pub sku: String,
     pub product_name: String,
@@ -4872,6 +4917,10 @@ pub fn router() -> Router<AppState> {
             get(staff_schedule_coverage_sales_report),
         )
         .route("/customer-follow-up", get(customer_follow_up_report))
+        .route(
+            "/customer-email-collection",
+            get(customer_email_collection_report),
+        )
         .route("/negative-stock", get(negative_stock_report))
         .route(
             "/negative-transaction-items",

@@ -179,4 +179,6 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("176_reconcile_counterpoint_subset_duplicate_orders.sql", include_str!("../../migrations/176_reconcile_counterpoint_subset_duplicate_orders.sql")),
     ("177_wedding_party_closeout.sql", include_str!("../../migrations/177_wedding_party_closeout.sql")),
     ("178_repair_txn_625003_backdated_reporting.sql", include_str!("../../migrations/178_repair_txn_625003_backdated_reporting.sql")),
+    ("179_customer_email_collection.sql", include_str!("../../migrations/179_customer_email_collection.sql")),
+    ("180_new_customer_contact_approval_defaults.sql", include_str!("../../migrations/180_new_customer_contact_approval_defaults.sql")),
 ];

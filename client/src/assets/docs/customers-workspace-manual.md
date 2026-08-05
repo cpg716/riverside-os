@@ -66,7 +66,7 @@ The relationship hub supports customer review. The RMS workspace supports financ
 ## How to use it
 
 1. Search for the correct customer first.
-2. Use **Add Customer** when the person is not already in Riverside. Enter name and contact details first, then address, notes, and preferences.
+2. Use **Add Customer** when the person is not already in Riverside. Enter name and contact details first, then address, notes, and preferences. Email, SMS, operational SMS, and operational email approvals start checked for a new account; review them with the customer and uncheck any approval they do not give before saving.
 3. Use the lifecycle filter when you need to isolate new customers, active follow-up, ready pickups, completed history, or issues.
 4. Open the customer row to review the relationship hub.
 5. Use the relationship hub tabs for profile, orders, messages, measurements, weddings, and shipments.
@@ -88,6 +88,6 @@ The relationship hub supports customer review. The RMS workspace supports financ
 - Use phone, customer code, and wedding context to confirm the right record before taking action.
 - Customer search accepts a full first-and-last name and phone digits even when the stored phone uses different punctuation. Use **Load more records** when the matching customer is not on the first page.
 - A blocked merge is a data-protection stop, not a failed search. Keep the record named by the linked-history warning as the master, or resolve the listed link in its normal workspace before merging.
-- When adding a customer, keep the required identity/contact fields complete before moving to optional preferences.
+- When adding a customer, keep the required identity/contact fields complete before moving to optional preferences. The four contact approvals are prechecked for new accounts but remain editable before save.
 - If the issue is financing-specific, do not try to solve it from the relationship hub alone. Open `RMS Charge`.
 - A `Profile incomplete` chip on the browse row means the record is missing either phone or email, even if the rest of the account looks active.

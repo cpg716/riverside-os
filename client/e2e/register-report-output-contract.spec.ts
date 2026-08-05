@@ -74,8 +74,72 @@ const customerSelectorSource = readFileSync(
   new URL("../src/components/pos/CustomerSelector.tsx", import.meta.url),
   "utf8",
 );
+const cartSource = readFileSync(
+  new URL("../src/components/pos/Cart.tsx", import.meta.url),
+  "utf8",
+);
+const customerEmailCollectionModalSource = readFileSync(
+  new URL(
+    "../src/components/pos/CustomerEmailCollectionModal.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const customersServerSource = readFileSync(
+  new URL("../../server/src/api/customers.rs", import.meta.url),
+  "utf8",
+);
+const customerEmailCollectionMigrationSource = readFileSync(
+  new URL(
+    "../../migrations/179_customer_email_collection.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test.describe("Register report output integrity contracts", () => {
+  test("customer email collection is persistent, attributed, and reportable", () => {
+    expect(customerEmailCollectionModalSource).toContain(
+      "Please add customer email",
+    );
+    expect(customerEmailCollectionModalSource).toContain("Save email");
+    expect(customerEmailCollectionModalSource).toContain("Skip");
+    expect(customerEmailCollectionModalSource).toContain("Customer declined");
+    expect(customerEmailCollectionModalSource).toContain(
+      'submit("customer_declined")',
+    );
+    expect(cartSource).toContain("/email-collection");
+    expect(cartSource).toContain("CustomerEmailCollectionModal");
+    expect(customersServerSource).toContain("FOR UPDATE");
+    expect(customersServerSource).toContain("customer_email_collection_events");
+    expect(customersServerSource).toContain("actor_staff_id");
+    expect(customerEmailCollectionMigrationSource).toContain(
+      "email_collection_declined_at",
+    );
+    expect(customerEmailCollectionMigrationSource).toContain(
+      "idx_customer_email_collection_declined_once",
+    );
+
+    const report = REPORTS_CATALOG.find(
+      (candidate) => candidate.id === "customer_email_collection",
+    );
+    expect(report?.title).toBe("Email Collection Report");
+    expect(
+      report && "buildPath" in report
+        ? report.buildPath({
+            fromYmd: "2026-08-01",
+            toYmd: "2026-08-04",
+            basis: "booked",
+            groupBy: "brand",
+            bestSellerView: "product",
+          })
+        : "",
+    ).toContain("/api/insights/customer-email-collection");
+    expect(insightsServerSource).toContain('"/customer-email-collection"');
+    expect(insightsServerSource).toContain("staff_name");
+    expect(insightsServerSource).toContain("emails_added");
+  });
+
   test("currency labels and large totals are summed in integer cents", () => {
     expect(parseRegisterReportMoneyToCents("$58,633.00")).toBe(5_863_300);
     expect(parseRegisterReportMoneyToCents("($1,234.56)")).toBe(-123_456);

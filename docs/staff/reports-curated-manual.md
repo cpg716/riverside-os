@@ -87,6 +87,7 @@ Tiles **only appear** if you have **every** required permission for that tile (a
 | **Wedding Event Readiness Report** | Upcoming weddings with missing measurements, unpaid balances, unfulfilled items, pending alterations, and pickup/shipment risk | **insights.view** |
 | **Staff Schedule Coverage vs Sales Report** | Staffing coverage by day compared with sales volume, appointments, pickups, and register activity | **insights.view** |
 | **Customer Follow-Up Report** | Customers with balances, pending pickups, recent transactions, upcoming wedding dates, stale RMS charges, or contact gaps | **insights.view** |
+| **Email Collection Report** | Customer emails saved from Register, with daily totals, account details, and the signed-in staff member who added each address | **insights.view** |
 | **Customer Value & Visit Frequency** | Top customers by sales value, visits, paid amount, balance due, first purchase, and recent purchase | **insights.view** |
 | **Exception & Risk Report** | Negative stock, stale fulfillment orders, overdue alterations, high discounts, failed payments, open register sessions, and unclosed tasks | **insights.view** |
 | **Loyalty Points Velocity** | Daily points earned, used, and net point movement | **insights.view** |

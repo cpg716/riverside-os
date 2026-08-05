@@ -2087,6 +2087,7 @@ interface AddCustomerForm {
   marketing_email_opt_in: boolean;
   marketing_sms_opt_in: boolean;
   transactional_sms_opt_in: boolean;
+  transactional_email_opt_in: boolean;
   phone_primary_label: string;
   phone_secondary_label: string;
   phone_secondary: string;
@@ -2111,9 +2112,10 @@ const EMPTY_ADD_CUSTOMER_FORM: AddCustomerForm = {
   city: "",
   state: "",
   postal_code: "",
-  marketing_email_opt_in: false,
-  marketing_sms_opt_in: false,
-  transactional_sms_opt_in: false,
+  marketing_email_opt_in: true,
+  marketing_sms_opt_in: true,
+  transactional_sms_opt_in: true,
+  transactional_email_opt_in: true,
   phone_primary_label: "Primary",
   phone_secondary_label: "Secondary",
   phone_secondary: "",
@@ -2489,6 +2491,7 @@ export function AddCustomerDrawer({
         marketing_email_opt_in: form.marketing_email_opt_in,
         marketing_sms_opt_in: form.marketing_sms_opt_in,
         transactional_sms_opt_in: form.transactional_sms_opt_in,
+        transactional_email_opt_in: form.transactional_email_opt_in,
       };
       const co = form.company_name.trim();
       if (co) payload.company_name = co;
@@ -2917,6 +2920,17 @@ export function AddCustomerDrawer({
                     className="h-4 w-4 rounded border-app-border accent-[var(--app-accent)]"
                   />
                   Operational SMS (pickup / alterations)
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-app-text">
+                  <input
+                    type="checkbox"
+                    checked={form.transactional_email_opt_in}
+                    onChange={(e) =>
+                      set("transactional_email_opt_in", e.target.checked)
+                    }
+                    className="h-4 w-4 rounded border-app-border accent-[var(--app-accent)]"
+                  />
+                  Operational email (receipts / appointments)
                 </label>
             </div>
             <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-app-border bg-app-surface-2 px-4 py-3">

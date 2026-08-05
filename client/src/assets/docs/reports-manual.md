@@ -87,6 +87,7 @@ Use **Open Insights (Metabase)** on the Reports page when you need dashboards or
 - **Wedding Program Profit**: Admin-only wedding-party profitability for the free-groom suit program, including paid wedding members, free-suit promo members, expected free suits, net sales, promo discount, cost, profit, and margin by selected date basis.
 - **Staff Schedule Coverage vs Sales**: Staffing coverage compared with sales volume, appointments, pickups, and register activity.
 - **Customer Follow-Up**: Customers needing action because of balances, pickups, recent quotes/orders, wedding dates, stale RMS charges, or missing recent contact.
+- **Email Collection Report**: Emails saved from the Register collection prompt, with daily totals, customer account, email address, and the signed-in staff member who added each address.
 - **Exception & Risk**: Negative stock, stale fulfillment orders, overdue alterations, high discounts, failed payments, open register sessions, and unclosed tasks.
 - **Sales By Day**: One row per business day with daily sales, average sale, sales per active hour, prior-week comparison, same-date prior-year comparison when history exists, and an aggregated hourly sales chart.
 - **Best Sellers**: Use **Product View** for parent product performance and **Variation View** for individual SKU demand within those products.

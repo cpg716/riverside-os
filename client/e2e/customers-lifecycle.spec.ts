@@ -190,7 +190,15 @@ test("add customer accepts manual address entry without suggestions", async ({
     });
   });
 
-  await openAddCustomerDrawer(page);
+  const drawer = await openAddCustomerDrawer(page);
+  await expect(drawer.getByLabel("Email opt-in")).toBeChecked();
+  await expect(drawer.getByLabel("SMS opt-in")).toBeChecked();
+  await expect(
+    drawer.getByLabel(/Operational SMS/),
+  ).toBeChecked();
+  await expect(
+    drawer.getByLabel(/Operational email/),
+  ).toBeChecked();
   await fillRequiredCustomerFields(page);
   await page.getByLabel(/address line 1/i).fill("12 Manual Way");
   await page.getByLabel(/^city$/i).fill("Buffalo");
@@ -205,6 +213,10 @@ test("add customer accepts manual address entry without suggestions", async ({
     city: "Buffalo",
     state: "NY",
     postal_code: "14202",
+    marketing_email_opt_in: true,
+    marketing_sms_opt_in: true,
+    transactional_sms_opt_in: true,
+    transactional_email_opt_in: true,
   });
 });
 

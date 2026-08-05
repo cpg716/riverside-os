@@ -21,6 +21,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
+import CustomerEmailCollectionModal from "./CustomerEmailCollectionModal";
 import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
 import RegisterCashAdjustModal from "./RegisterCashAdjustModal";
 import RegisterGiftCardLoadModal from "./RegisterGiftCardLoadModal";
@@ -613,6 +614,9 @@ export default function Cart({
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
     null,
   );
+  const [emailCollectionPromptCustomer, setEmailCollectionPromptCustomer] =
+    useState<Customer | null>(null);
+  const emailCollectionHandledCustomerIdRef = useRef<string | null>(null);
   const latestSaleCustomerIdRef = useRef<string | null>(null);
   const latestProviderSaleLockRef = useRef({ approved: false, held: false });
   latestSaleCustomerIdRef.current = selectedCustomer?.id ?? null;
@@ -1090,6 +1094,72 @@ export default function Cart({
       };
     });
   }, []);
+
+  useEffect(() => {
+    const customer = selectedCustomer;
+    setEmailCollectionPromptCustomer((current) =>
+      current?.id === customer?.id ? current : null,
+    );
+    if (!customer) {
+      emailCollectionHandledCustomerIdRef.current = null;
+      return;
+    }
+    const customerId = customer.id;
+    if (customer.email?.trim()) {
+      emailCollectionHandledCustomerIdRef.current = customerId;
+      return;
+    }
+    if (emailCollectionHandledCustomerIdRef.current === customerId) return;
+    emailCollectionHandledCustomerIdRef.current = customerId;
+
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch(
+          `${baseUrl}/api/customers/${encodeURIComponent(customerId)}/email-collection`,
+          { headers: apiAuth(), signal: controller.signal },
+        );
+        const body = (await response.json().catch(() => null)) as
+          | {
+              email?: string | null;
+              customer_declined?: boolean;
+              error?: string;
+            }
+          | null;
+        if (!response.ok) {
+          throw new Error(
+            body?.error || `Email collection check failed (${response.status})`,
+          );
+        }
+        if (controller.signal.aborted) return;
+        if (body?.email?.trim()) {
+          updateSelectedCustomerSnapshot({
+            ...customer,
+            email: body.email,
+          });
+          return;
+        }
+        if (!body?.customer_declined) {
+          setEmailCollectionPromptCustomer(customer);
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        toast(
+          error instanceof Error
+            ? `${error.message}. You can continue with the sale.`
+            : "Email collection could not be checked. You can continue with the sale.",
+          "info",
+        );
+      }
+    })();
+    return () => controller.abort();
+  }, [
+    apiAuth,
+    baseUrl,
+    selectedCustomer,
+    toast,
+    updateSelectedCustomerSnapshot,
+  ]);
 
   const resetSaleDateTime = useCallback(() => {
     setSaleDateTimeLocal(null);
@@ -9137,6 +9207,22 @@ export default function Cart({
           />
         </>
       )}
+
+      <CustomerEmailCollectionModal
+        customer={emailCollectionPromptCustomer}
+        open={emailCollectionPromptCustomer !== null}
+        onSkip={() => setEmailCollectionPromptCustomer(null)}
+        onSaved={(email) => {
+          if (emailCollectionPromptCustomer) {
+            updateSelectedCustomerSnapshot({
+              ...emailCollectionPromptCustomer,
+              email,
+            });
+          }
+          setEmailCollectionPromptCustomer(null);
+        }}
+        onDeclined={() => setEmailCollectionPromptCustomer(null)}
+      />
 
       {showPrintRetryPanel &&
         createPortal(

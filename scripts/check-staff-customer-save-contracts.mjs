@@ -36,6 +36,8 @@ const customerWorkspaceFile = "client/src/components/customers/CustomersWorkspac
 const customerSelectorFile = "client/src/components/pos/CustomerSelector.tsx";
 const storefrontFile = "client/src/components/storefront/PublicStorefront.tsx";
 const goLiveFile = "scripts/check-go-live-blockers.mjs";
+const customerContactDefaultsMigrationFile =
+  "migrations/180_new_customer_contact_approval_defaults.sql";
 
 const staffDrawer = read(staffDrawerFile);
 const staffApi = read(staffApiFile);
@@ -46,6 +48,7 @@ const customerWorkspace = read(customerWorkspaceFile);
 const customerSelector = read(customerSelectorFile);
 const storefront = read(storefrontFile);
 const goLive = read(goLiveFile);
+const customerContactDefaultsMigration = read(customerContactDefaultsMigrationFile);
 
 assert(
   staffDrawer.includes("const data = (await res.json()) as { granted?: unknown }") &&
@@ -139,6 +142,29 @@ assert(
   "Customer merge UI disables unsafe merges and shows the server recovery reason",
   customerWorkspaceFile,
   "Staff must see why a merge is blocked and how to choose the safe master record.",
+);
+
+assert(
+  customerWorkspace.includes("marketing_email_opt_in: true") &&
+    customerWorkspace.includes("marketing_sms_opt_in: true") &&
+    customerWorkspace.includes("transactional_sms_opt_in: true") &&
+    customerWorkspace.includes("transactional_email_opt_in: true") &&
+    customerWorkspace.includes(
+      "transactional_email_opt_in: form.transactional_email_opt_in",
+    ) &&
+    customerApi.includes("payload.marketing_email_opt_in.unwrap_or(true)") &&
+    customerApi.includes("payload.marketing_sms_opt_in.unwrap_or(true)") &&
+    customerApi.includes("payload.transactional_sms_opt_in.unwrap_or(true)") &&
+    customerApi.includes("payload.transactional_email_opt_in.unwrap_or(true)") &&
+    customerContactDefaultsMigration.includes(
+      "ALTER COLUMN marketing_email_opt_in SET DEFAULT true",
+    ) &&
+    customerContactDefaultsMigration.includes(
+      "ALTER COLUMN transactional_email_opt_in SET DEFAULT true",
+    ),
+  "New customers default every visible email and SMS approval to checked",
+  customerWorkspaceFile,
+  "The drawer, create API, and database defaults must agree while allowing staff to uncheck any approval before save.",
 );
 
 assert(

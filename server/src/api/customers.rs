@@ -955,6 +955,25 @@ pub struct UpdateCustomerRequest {
     pub tax_exempt_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EmailCollectionDecision {
+    Save,
+    CustomerDeclined,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CustomerEmailCollectionRequest {
+    pub decision: EmailCollectionDecision,
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CustomerEmailCollectionStatus {
+    pub email: Option<String>,
+    pub customer_declined: bool,
+}
+
 #[derive(Debug, Serialize, FromRow)]
 pub struct CustomerProfileRow {
     pub id: Uuid,
@@ -3778,6 +3797,10 @@ pub fn router() -> Router<AppState> {
             get(get_customer_open_deposit_summary),
         )
         .route(
+            "/{customer_id}/email-collection",
+            get(get_customer_email_collection_status).post(post_customer_email_collection),
+        )
+        .route(
             "/{customer_id}/store-credit",
             get(get_customer_store_credit_summary),
         )
@@ -5204,10 +5227,10 @@ fn normalize_customer_input(
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned);
 
-    let m_email = payload.marketing_email_opt_in.unwrap_or(false);
-    let m_sms = payload.marketing_sms_opt_in.unwrap_or(false);
-    let t_sms = payload.transactional_sms_opt_in.unwrap_or(m_sms);
-    let t_email = payload.transactional_email_opt_in.unwrap_or(m_email);
+    let m_email = payload.marketing_email_opt_in.unwrap_or(true);
+    let m_sms = payload.marketing_sms_opt_in.unwrap_or(true);
+    let t_sms = payload.transactional_sms_opt_in.unwrap_or(true);
+    let t_email = payload.transactional_email_opt_in.unwrap_or(true);
 
     Ok((
         first.to_string(),
@@ -5304,6 +5327,183 @@ async fn get_customer(
     require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
     let row = load_customer_profile_row(&state.db, customer_id).await?;
     Ok(Json(row))
+}
+
+async fn get_customer_email_collection_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+) -> Result<Json<CustomerEmailCollectionStatus>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    let row: Option<(Option<String>, bool)> = sqlx::query_as(
+        r#"
+        SELECT
+            NULLIF(TRIM(email), '') AS email,
+            email_collection_declined_at IS NOT NULL AS customer_declined
+        FROM customers
+        WHERE id = $1
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_optional(&state.db)
+    .await?;
+    let Some((email, customer_declined)) = row else {
+        return Err(CustomerError::NotFound);
+    };
+    Ok(Json(CustomerEmailCollectionStatus {
+        email,
+        customer_declined,
+    }))
+}
+
+async fn post_customer_email_collection(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+    Json(body): Json<CustomerEmailCollectionRequest>,
+) -> Result<Json<CustomerEmailCollectionStatus>, CustomerError> {
+    let mut actor =
+        customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    if let Ok(signed_in_staff) =
+        middleware::require_authenticated_staff_headers(&state, &headers).await
+    {
+        actor = CustomerMessageActor {
+            staff_id: Some(signed_in_staff.id),
+            sender_name: Some(signed_in_staff.full_name),
+        };
+    }
+    let actor_staff_id = actor.staff_id.ok_or_else(|| {
+        CustomerError::Unauthorized(
+            "Signed-in staff identity is required to collect a customer email".to_string(),
+        )
+    })?;
+    let actor_name = actor.sender_name.ok_or_else(|| {
+        CustomerError::Unauthorized(
+            "Signed-in staff identity is required to collect a customer email".to_string(),
+        )
+    })?;
+
+    let mut tx = state.db.begin().await?;
+    let current: Option<(String, String, String, Option<String>, bool)> = sqlx::query_as(
+        r#"
+        SELECT
+            customer_code,
+            first_name,
+            last_name,
+            NULLIF(TRIM(email), '') AS email,
+            email_collection_declined_at IS NOT NULL AS customer_declined
+        FROM customers
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((customer_code, first_name, last_name, current_email, already_declined)) = current
+    else {
+        return Err(CustomerError::NotFound);
+    };
+
+    if current_email.is_some() {
+        tx.commit().await?;
+        return Ok(Json(CustomerEmailCollectionStatus {
+            email: current_email,
+            customer_declined: already_declined,
+        }));
+    }
+
+    let customer_name = format!("{first_name} {last_name}").trim().to_string();
+    match body.decision {
+        EmailCollectionDecision::Save => {
+            let email = body
+                .email
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| CustomerError::BadRequest("Email is required".to_string()))?;
+            if email.chars().count() > 320 || !podium::looks_like_email(email) {
+                return Err(CustomerError::BadRequest(
+                    "Enter a valid customer email address".to_string(),
+                ));
+            }
+            let email = email.to_string();
+            sqlx::query("UPDATE customers SET email = $1 WHERE id = $2")
+                .bind(&email)
+                .bind(customer_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(
+                r#"
+                INSERT INTO customer_email_collection_events (
+                    customer_id, customer_code, customer_name, action,
+                    email_address, staff_id, staff_name
+                )
+                VALUES ($1, $2, $3, 'email_added', $4, $5, $6)
+                "#,
+            )
+            .bind(customer_id)
+            .bind(&customer_code)
+            .bind(&customer_name)
+            .bind(&email)
+            .bind(actor_staff_id)
+            .bind(&actor_name)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+
+            spawn_meilisearch_customer_hooks(&state, customer_id);
+            let pool = state.db.clone();
+            let http = state.http_client.clone();
+            let token_cache = state.podium_token_cache.clone();
+            tokio::spawn(async move {
+                let _ =
+                    podium::upsert_podium_contact(&pool, &http, &token_cache, customer_id).await;
+            });
+
+            Ok(Json(CustomerEmailCollectionStatus {
+                email: Some(email),
+                customer_declined: already_declined,
+            }))
+        }
+        EmailCollectionDecision::CustomerDeclined => {
+            if !already_declined {
+                sqlx::query(
+                    r#"
+                    UPDATE customers
+                    SET email_collection_declined_at = now(),
+                        email_collection_declined_by_staff_id = $1
+                    WHERE id = $2
+                    "#,
+                )
+                .bind(actor_staff_id)
+                .bind(customer_id)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query(
+                    r#"
+                    INSERT INTO customer_email_collection_events (
+                        customer_id, customer_code, customer_name, action,
+                        email_address, staff_id, staff_name
+                    )
+                    VALUES ($1, $2, $3, 'customer_declined', NULL, $4, $5)
+                    "#,
+                )
+                .bind(customer_id)
+                .bind(&customer_code)
+                .bind(&customer_name)
+                .bind(actor_staff_id)
+                .bind(&actor_name)
+                .execute(&mut *tx)
+                .await?;
+            }
+            tx.commit().await?;
+            Ok(Json(CustomerEmailCollectionStatus {
+                email: None,
+                customer_declined: true,
+            }))
+        }
+    }
 }
 
 async fn update_customer(
