@@ -132,24 +132,24 @@ export function PosSearchResultList({
             return (
               <div
                 key={item.product_id}
-                className="flex min-h-[88px] items-center gap-4 rounded-2xl border-2 border-app-accent bg-app-accent/5 p-4"
+                className="flex min-h-[112px] flex-col gap-4 rounded-2xl border-2 border-app-accent bg-app-accent/5 p-4 sm:flex-row sm:items-stretch"
               >
-                <div className="h-16 w-16 shrink-0 rounded-xl border border-app-border bg-app-surface p-4 text-app-text-muted">
+                <div className="h-16 w-16 shrink-0 self-center rounded-xl border border-app-border bg-app-surface p-4 text-app-text-muted">
                   <Package className="h-full w-full" aria-hidden />
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 self-center">
                   <p className="text-base font-black text-app-text">Alterations</p>
                   <p className="mt-1 text-xs font-bold text-app-text-muted">
                     Start a tracked alteration, or add only the service fee.
                   </p>
                 </div>
-                <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                <div className="grid min-h-16 w-full shrink-0 grid-cols-2 gap-2 sm:w-[19rem] sm:self-stretch">
                   <button
                     type="button"
                     data-testid="pos-alteration-quick-add"
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={selectResult}
-                    className="ui-btn-primary h-10 px-4 text-[10px] font-black uppercase tracking-widest"
+                    className="ui-btn-primary h-full min-h-16 w-full px-6 text-xs font-black uppercase tracking-widest"
                   >
                     Quick add
                   </button>
@@ -158,7 +158,7 @@ export function PosSearchResultList({
                     data-testid="pos-alteration-fee-only"
                     onPointerDown={(event) => event.preventDefault()}
                     onClick={onQuickAlterationFeeOnly}
-                    className="ui-btn-secondary h-10 px-4 text-[10px] font-black uppercase tracking-widest"
+                    className="ui-btn-secondary h-full min-h-16 w-full px-6 text-xs font-black uppercase tracking-widest"
                   >
                     Fee only
                   </button>

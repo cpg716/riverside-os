@@ -447,6 +447,7 @@ pub struct TransactionLine {
     pub transaction_balance_due: Option<Decimal>,
     pub shipping_amount: Option<Decimal>,
     pub customer_name: String,
+    pub salesperson_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub payments: Vec<TransactionTenderLine>,
     pub items: Vec<TransactionAuditItem>,
@@ -592,6 +593,7 @@ struct TransactionLineRow {
     transaction_balance_due: Option<Decimal>,
     shipping_amount: Option<Decimal>,
     customer_name: String,
+    salesperson_name: Option<String>,
     payments_json: serde_json::Value,
     items_json: serde_json::Value,
     override_reasons: Vec<String>,
@@ -1983,6 +1985,7 @@ async fn build_reconciliation(
                 NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''),
                 'Walk-in'
             ) AS customer_name,
+            salesperson.full_name AS salesperson_name,
             pay_tx.payments_json,
             COALESCE(
                 jsonb_agg(
@@ -2045,10 +2048,7 @@ async fn build_reconciliation(
                 (ARRAY_AGG(pt.session_id ORDER BY pt.created_at, pt.id))[1] AS register_session_id,
                 MIN(rs.register_lane) AS register_lane,
                 MIN(pt.created_at) AS created_at,
-                CASE
-                    WHEN COUNT(DISTINCT pt.payment_method) = 1 THEN MIN(pt.payment_method)
-                    ELSE 'split'
-                END AS payment_method,
+                'transaction'::text AS payment_method,
                 COALESCE(SUM(pa.amount_allocated), 0)::numeric AS amount,
                 MAX(NULLIF(pt.metadata->>'refund_event_id', '')) AS refund_event_id,
                 NULLIF(STRING_AGG(DISTINCT NULLIF(TRIM(pt.check_number), ''), ', '), '') AS check_number,
@@ -2135,6 +2135,7 @@ async fn build_reconciliation(
         ) pay_tx
         INNER JOIN transactions o ON o.id = pay_tx.ledger_transaction_id
         LEFT JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN staff salesperson ON salesperson.id = o.primary_salesperson_id
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
         LEFT JOIN transaction_return_lines trl
             ON trl.transaction_line_id = oi.id
@@ -2146,7 +2147,7 @@ async fn build_reconciliation(
             pay_tx.created_at, pay_tx.payment_method, pay_tx.amount, pay_tx.check_number,
             pay_tx.ledger_transaction_id, pay_tx.payments_json, pay_tx.refund_event_id,
             o.display_id, o.status, o.total_price, o.amount_paid, o.balance_due, o.shipping_amount_usd,
-            c.first_name, c.last_name
+            c.first_name, c.last_name, salesperson.full_name
         ORDER BY pay_tx.created_at DESC
         LIMIT 300
         "#,
@@ -2175,6 +2176,7 @@ async fn build_reconciliation(
             transaction_balance_due: row.transaction_balance_due,
             shipping_amount: row.shipping_amount,
             customer_name: row.customer_name,
+            salesperson_name: row.salesperson_name,
             payments: parse_transaction_tender_lines(row.payments_json),
             items: parse_transaction_audit_items(row.items_json),
             override_reasons: row.override_reasons,

@@ -702,13 +702,13 @@ export default function WeddingDepositWorkspace({
         <header className="flex items-center justify-between border-b border-app-border px-4 py-3 sm:px-6">
           <div>
             <h2 id="wedding-deposit-title" className="text-lg font-black text-app-text sm:text-2xl">
-              Wedding Deposit
+              Wedding Manager
             </h2>
             <p className="text-xs font-semibold text-app-text-muted">
               Payer: {payerName} · Resolve the party and member allocations before Payment.
             </p>
           </div>
-          <button type="button" onClick={onClose} className="ui-touch-target rounded-xl p-2 text-app-text-muted hover:bg-app-surface-2" aria-label="Close Wedding Deposit">
+          <button type="button" onClick={onClose} className="ui-touch-target rounded-xl p-2 text-app-text-muted hover:bg-app-surface-2" aria-label="Close Wedding Manager">
             <X size={22} />
           </button>
         </header>

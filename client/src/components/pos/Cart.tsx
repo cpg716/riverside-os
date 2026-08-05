@@ -18,6 +18,7 @@ import {
   Printer,
   Grid3X3,
   Heart,
+  RefreshCw,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
 import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
@@ -5272,18 +5273,18 @@ export default function Cart({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setWeddingDrawerInitialPartyId(null);
-                  setWeddingDepositInitialView("deposit");
-                  setWeddingDrawerPreferGroupPay(false);
-                  setWeddingDrawerOpen(true);
-                }}
-                title={activeWeddingMember ? `Wedding — currently ${activeWeddingMember.first_name} ${activeWeddingMember.last_name}` : "Wedding — select a party member and add items"}
-                className={`ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border px-2 text-center shadow-sm ring-1 ring-black/5 transition-all active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px] ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-accent/70 bg-app-accent/20 text-app-accent hover:bg-app-accent hover:text-white"}`}
+                disabled={
+                  lines.length === 0 &&
+                  !selectedCustomer &&
+                  checkoutAppliedPayments.length === 0 &&
+                  !providerCheckoutIdentityHeld
+                }
+                onClick={() => setShowClearConfirm(true)}
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/10 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
-                <WEDDINGS_ICON size={20} />
+                <RotateCcw size={20} aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Start Wedding Sale
+                  Clear Sale
                 </span>
               </button>
               <button
@@ -5292,14 +5293,14 @@ export default function Cart({
                 onClick={openWeddingDepositTool}
                 title={
                   selectedCustomer
-                    ? "Add deposits, review and reprint receipts, or build more items for this customer's wedding party"
-                    : "Select the paying wedding member first"
+                    ? "Manage deposits, receipts, and member orders for this customer's wedding party"
+                    : "Select the paying wedding member before opening Wedding Manager"
                 }
                 className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-violet-500/60 bg-violet-500/20 px-2 text-center text-violet-700 shadow-sm ring-1 ring-black/5 transition-all hover:bg-violet-600 hover:text-white active:scale-95 dark:text-violet-200 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
               >
                 <Heart size={20} aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Collect Deposit
+                  Wedding Manager
                 </span>
               </button>
               <button
@@ -5349,7 +5350,7 @@ export default function Cart({
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="more-sale-actions-title"
-                    className="ui-modal max-h-[min(42rem,calc(100dvh-2rem))] w-full max-w-4xl overflow-y-auto p-5"
+                    className="ui-modal max-h-[min(42rem,calc(100dvh-2rem))] w-full max-w-3xl overflow-y-auto p-5"
                   >
                     <div className="mb-4 flex items-center justify-between gap-3">
                       <div>
@@ -5365,7 +5366,26 @@ export default function Cart({
                         <X size={20} aria-hidden />
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 [&>button]:!min-h-[92px] [&>button]:!w-full [&>button]:!basis-auto">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 [&>button]:!min-h-[104px] [&>button]:!w-full [&>button]:!basis-auto">
+              <button
+                type="button"
+                data-testid="pos-action-suit-swap"
+                onClick={() => {
+                  setShowAllSaleActions(false);
+                  if (hasAccess) {
+                    setSuitSwapWizardOpen(true);
+                  } else {
+                    setShowSuitSwapApproval(true);
+                  }
+                }}
+                title="Exchange suit components with Manager Access and a complete audit trail"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-accent/70 bg-app-accent/20 px-2 text-center text-app-accent shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-accent hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+              >
+                <RefreshCw size={20} aria-hidden />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
+                  Suit Swap
+                </span>
+              </button>
               <button
                 type="button"
                 data-testid="pos-action-custom-order"
@@ -5568,25 +5588,6 @@ export default function Cart({
                 <Clock size={20} />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Park Sale
-                </span>
-              </button>
-              <button
-                type="button"
-                disabled={
-                  lines.length === 0 &&
-                  !selectedCustomer &&
-                  checkoutAppliedPayments.length === 0 &&
-                  !providerCheckoutIdentityHeld
-                }
-                onClick={() => {
-                  setShowAllSaleActions(false);
-                  setShowClearConfirm(true);
-                }}
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/10 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
-              >
-                <RotateCcw size={20} />
-                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Clear Sale
                 </span>
               </button>
                     </div>
@@ -6355,19 +6356,6 @@ export default function Cart({
                     Void all
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (hasAccess) {
-                      setSuitSwapWizardOpen(true);
-                    } else {
-                      setShowSuitSwapApproval(true);
-                    }
-                  }}
-                  className="rounded-lg border border-app-accent/25 bg-app-accent/8 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-accent transition-all duration-150 hover:bg-app-accent/12 hover:text-app-text active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20"
-                >
-                  Suit Swap
-                </button>
               </div>
             </div>
             {hasCheckoutWork ? <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-app-text-muted">

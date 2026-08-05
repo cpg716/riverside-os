@@ -257,6 +257,8 @@ pub struct RegisterActivityItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub salesperson_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub deposits_paid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub balance_due: Option<String>,
@@ -1677,6 +1679,7 @@ async fn fetch_register_day_summary_page_on_connection(
         customer_code: Option<String>,
         customer_phone: Option<String>,
         customer_email: Option<String>,
+        salesperson_name: Option<String>,
         is_takeaway: bool,
         channel: String,
         pay: Option<String>,
@@ -1709,6 +1712,7 @@ async fn fetch_register_day_summary_page_on_connection(
         customer_code: Option<String>,
         customer_phone: Option<String>,
         customer_email: Option<String>,
+        salesperson_name: Option<String>,
         merchant_fee: Option<Decimal>,
         net_amount: Option<Decimal>,
         target_display_id: Option<String>,
@@ -1741,6 +1745,7 @@ async fn fetch_register_day_summary_page_on_connection(
         customer_code: String,
         customer_phone: Option<String>,
         customer_email: Option<String>,
+        salesperson_name: Option<String>,
     }
 
     let sales_line_join = match basis {
@@ -2024,6 +2029,7 @@ async fn fetch_register_day_summary_page_on_connection(
             c.customer_code,
             c.phone AS customer_phone,
             c.email AS customer_email,
+            (SELECT salesperson.full_name FROM staff salesperson WHERE salesperson.id = o.primary_salesperson_id) AS salesperson_name,
             COALESCE(BOOL_AND(oi.fulfillment::text = 'takeaway'), false) AS is_takeaway,
             o.sale_channel::text AS channel,
             (
@@ -2299,6 +2305,7 @@ async fn fetch_register_day_summary_page_on_connection(
             c.customer_code,
             c.phone AS customer_phone,
             c.email AS customer_email,
+            (SELECT salesperson.full_name FROM staff salesperson WHERE salesperson.id = o.primary_salesperson_id) AS salesperson_name,
             false AS is_takeaway,
             o.sale_channel::text AS channel,
             NULL::text AS pay,
@@ -2428,6 +2435,7 @@ async fn fetch_register_day_summary_page_on_connection(
             c.customer_code,
             c.phone AS customer_phone,
             c.email AS customer_email,
+            (SELECT salesperson.full_name FROM staff salesperson WHERE salesperson.id = o.primary_salesperson_id) AS salesperson_name,
             pt.merchant_fee,
             pt.net_amount,
             COALESCE(
@@ -2640,7 +2648,8 @@ async fn fetch_register_day_summary_page_on_connection(
             payer.last_name AS customer_last,
             payer.customer_code,
             payer.phone AS customer_phone,
-            payer.email AS customer_email
+            payer.email AS customer_email,
+            salesperson.full_name AS salesperson_name
         FROM wedding_deposit_workflows workflow
         INNER JOIN wedding_deposit_workflow_allocations allocation
             ON allocation.workflow_id = workflow.id
@@ -2648,6 +2657,7 @@ async fn fetch_register_day_summary_page_on_connection(
             ON payer_transaction.id = workflow.payer_transaction_id
         INNER JOIN customers payer ON payer.id = workflow.payer_customer_id
         INNER JOIN wedding_parties party ON party.id = workflow.wedding_party_id
+        LEFT JOIN staff salesperson ON salesperson.id = workflow.primary_salesperson_id
         LEFT JOIN LATERAL (
             SELECT STRING_AGG(
                 DISTINCT payment.payment_method,
@@ -2695,6 +2705,7 @@ async fn fetch_register_day_summary_page_on_connection(
             payer_transaction.id,
             party.id,
             payer.id,
+            salesperson.full_name,
             tender.payment_method,
             tender.occurred_at,
             tender.effective_date
@@ -2874,6 +2885,7 @@ async fn fetch_register_day_summary_page_on_connection(
             customer_code: s.customer_code,
             customer_phone: s.customer_phone,
             customer_email: s.customer_email,
+            salesperson_name: s.salesperson_name,
             deposits_paid: deposits,
             balance_due: balance,
             fulfillment_type: if is_pickup_activity {
@@ -3059,6 +3071,7 @@ async fn fetch_register_day_summary_page_on_connection(
             customer_code: p.customer_code,
             customer_phone: p.customer_phone,
             customer_email: p.customer_email,
+            salesperson_name: p.salesperson_name,
             deposits_paid: Some(money_label(p.amount)),
             balance_due: Some(money_label(p.target_balance_due)),
             fulfillment_type: Some(
@@ -3124,6 +3137,7 @@ async fn fetch_register_day_summary_page_on_connection(
             customer_code: Some(deposit.customer_code),
             customer_phone: deposit.customer_phone,
             customer_email: deposit.customer_email,
+            salesperson_name: deposit.salesperson_name,
             deposits_paid: Some(money_label(deposit.total_amount)),
             balance_due: Some(money_label(Decimal::ZERO)),
             fulfillment_type: Some("wedding_deposit".to_string()),
@@ -3206,6 +3220,7 @@ async fn fetch_register_day_summary_page_on_connection(
                 customer_code: p.customer_code,
                 customer_phone: p.customer_phone,
                 customer_email: p.customer_email,
+                salesperson_name: p.salesperson_name,
                 deposits_paid: None,
                 balance_due: Some(money_label(p.balance_due.max(Decimal::ZERO))),
                 fulfillment_type: Some("pickup".to_string()),

@@ -292,7 +292,10 @@ test.describe("Register report output integrity contracts", () => {
   });
 
   test("combined checkout payments stay on one sale activity", () => {
-    expect(registerDayServerSource).toContain('"Payment on Order".to_string()');
+    expect(registerDayServerSource).toContain('"Deposit on Order".to_string()');
+    expect(registerDayServerSource).toContain(
+      '"Payment in Full on Order".to_string()',
+    );
     expect(registerDayServerSource).toContain(
       "subtitle: p.target_display_id.clone()",
     );
@@ -316,11 +319,13 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerReportsSource).toContain('"Total Paid Today"');
     expect(registerReportsSource).toContain("row.payment_applications?.map(");
     expect(registerReportsSource).toContain('{row.kind !== "payment" ? (');
-    expect(registerReportsSource).toContain("Payment on Order");
+    expect(registerReportsSource).toContain('"Deposit on Order"');
+    expect(registerReportsSource).toContain('"Payment in Full on Order"');
     expect(reportPrintSource).toContain(
       'row.kind === "payment" ? "Payment Details" : "Line Items"',
     );
-    expect(reportPrintSource).toContain("Payment on Order");
+    expect(reportPrintSource).toContain('"Deposit on Order"');
+    expect(reportPrintSource).toContain('"Payment in Full on Order"');
     expect(reportPrintSource).toContain("Payment Applied Today");
     expect(reportPrintSource).toContain("Total Paid Today");
     expect(reportPrintSource).toContain("Remaining Balance");
@@ -342,6 +347,18 @@ test.describe("Register report output integrity contracts", () => {
     expect(transactionsServerSource).toContain(
       "FROM '(O-[A-Za-z0-9-]+)$'\n                ),\n                NULLIF(TRIM(target.display_id), '')",
     );
+    expect(reportPrintSource).toContain('<div class="pill">Transaction</div>');
+    expect(reportPrintSource).toContain("const header = `Transaction |");
+    expect(reportPrintSource).toContain("Salesperson");
+    expect(reportPrintSource).toContain("Register ${t.register_lane}");
+    expect(reportPrintSource).not.toContain("Lane #");
+    expect(sessionsServerSource).toContain("salesperson.full_name AS salesperson_name");
+    expect(sessionsServerSource).toContain("'transaction'::text AS payment_method");
+    expect(sessionsServerSource).not.toContain("ELSE 'split'");
+    expect(reportPrintSource).not.toContain(
+      'reportLabel(transactionPaymentMethod(t))',
+    );
+    expect(reportPrintSource).not.toContain('? "split"');
   });
 
   test("receipt and customer overlays use explicit workflow state", () => {

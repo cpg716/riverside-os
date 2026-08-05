@@ -23,7 +23,7 @@ The Register cart keeps service work visible: shipping charges and alteration-se
 
 ## What this is
 
-Use this screen to review the current register session, void a completed sale with Manager Access when store policy allows it, print the full-page daily report, and verify lane activity before final close.
+Use this screen to review the current register session, void a completed sale with Manager Access when store policy allows it, print the full-page daily report, and verify Register activity before final close.
 
 Daily Sales payment totals use the same store-local effective business-date window as the Z-Report. A payment made on another date toward a sale booked today is shown on that payment's date only, so card, cash, and other tender totals reconcile to the register close. Z-Reports show net Cash, net CC, and net Checks as the primary reconciliation totals. Terminal, CNP, manual-card, and all-card-refund rows are CC detail; Deposit Applied, Exchange Credit, store credit, gift card, RMS, and similar rows are informational activity and are not additive to those primary totals.
 
@@ -38,16 +38,18 @@ A manager-approved backdated order appears in Booked Daily Sales and the Z-Repor
 4. Search by customer name, phone, email, Customer #, Transaction number, payment method, item name, or SKU. Search runs against the full selected date range, not only the rows currently visible. Use **Load more audited activity** when the result count is larger than the current page.
 5. Use **Void** on a completed sale only after a manager confirms the transaction, reason, tender reversal, and inventory impact.
 
-An active Register can request its own lane-scoped report only with that Register session's matching protected token. Supplying an open session number is not authorization. Store-wide and archived report access requires **register.reports** permission.
+An active Register can request its own Register-scoped report only with that Register session's matching protected token. Supplying an open session number is not authorization. Store-wide and archived report access requires **register.reports** permission.
 
 When a Manager with **register.reports** opens **POS → Reports**, the date presets remain store-wide even while a Register is open. Riverside does not pin **Yesterday**, **This week**, **This month**, **This year**, or **Custom** to the current Register session.
 
 Archived Z-report output loads audited detail in timed, cancellable pages. Starting a different archived report cancels the earlier load, and a timeout opens nothing. Z-report history shows up to the newest 40 rows for the selected range; a loading failure is shown as an error with Retry and is never labeled as an empty range.
 
 6. Use **View**, **Print**, or **Export** to prepare the complete matching activity set. Riverside asks the Main Hub for one read-only database snapshot and verifies its counts, row identities, and completion flags before producing output; it never labels an interactive page as a complete report. For stability, the screen stops at 2,000 loaded detail rows and generated output stops at 20,000 combined activity and pickup rows. Narrow the date range or search when ROS reports that limit.
-7. Open **Z-Reports** to see which linked lanes are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
+7. Open **Z-Reports** to see which linked Registers are still open, which drawer is already reconciling, and whether Register #1 still needs to finish the shared close.
 
 ## Daily Sales Activity
+
+Every Daily Sales entry shows the assigned **Salesperson** so printed and on-screen activity can be reconciled to staff attribution.
 
 The **Daily Sales** view shows a chronological timeline of every transaction. Each sale row shows its `TXN-` transaction number so the screen, printout, receipt, and payment records can be reconciled against the same reference. Counterpoint-imported rows keep the Counterpoint transaction time as the activity time and show **Imported at** only as secondary import context. Tap an entry to open its historical **Transaction Receipt** or reprint it. Historical receipt review keeps the shared print, preview, text, email, and gift-receipt tools, but it does not show checkout-only **Sale complete** or **Begin new sale** actions. **Subtotal** and **Net Sales** include alteration-service charges but exclude shipping and gift-card loads. Alterations increase sales totals, sales counts, averages, Sales by Hour, and applicable commission sales while also appearing as a separate disclosed total. Shipping is separately disclosed and never increases those sales or commission metrics. Gift-card loads are recorded as liability activity until redeemed; redemption is recorded as a tender and does not turn the original load into sales revenue.
 
@@ -66,7 +68,7 @@ Use this for:
 - Monitoring mid-shift velocity without closing the drawer.
 - Confirming whether the activity was **Takeaway**, **Pickup**, **Special Order**, **Custom Order**, **Wedding Order**, **Layaway**, or mixed fulfillment.
 - Daily Sales, printed reports, and CSV exports always use these staff-facing labels. Internal values such as `wedding_order` are never operating instructions.
-- Reviewing split tenders as separate payment lines with amount labels instead of a single collapsed method list.
+- Reviewing every Transaction once while keeping each tender and amount visible inside that one Transaction entry. A card plus gift card sale is still labeled **Transaction**, never **Split**.
 
 The result line states how many matching activity records and pickups are loaded out of the exact server-reported count. An activity record may be a sale, payment, or another audited event, so it is not labeled as a transaction count. Detail-derived dashboard boxes show an em dash while more source rows remain; this means the value is not yet complete, not zero. Load the remaining activity or use the complete View, Print, or Export output.
 
@@ -97,7 +99,7 @@ You can now generate a professional, full-page **Daily Sales Report** that inclu
 - **Card entry labels**: Hosted HelcimPay.js entries print as **Card Not Present**, while **Card Manual** is reserved for externally recorded/manual card activity.
 - **Per-Transaction Sales and Tax**: Each transaction card and Daily/Z-Report output shows **Subtotal**, **Tax**, and **Total With Tax** as separate figures before payments or balance. Subtotal, Sales, Net Sales, and average sale never include tax. Total With Tax adds the separately reported tax and any separately disclosed shipping; transaction/payment totals may also include tax because they represent the amount charged.
 - **Service charges**: Shipping fees and alteration-service charges appear on their original Transaction card, in separate service totals, printed reports, and CSV exports. Alteration charges increase **Subtotal**, **Net Sales**, **Sales by Hour**, sales counts, averages, and applicable commission sales. Shipping increases none of those metrics and never earns commission. Payments and refunds remain in tender reconciliation.
-- **Transaction Audit**: A complete list of all matching `TXN-` transaction numbers, payment-only activity, and amounts. Payment rows without merchandise lines remain present in CSV exports.
+- **Transaction Audit**: A complete list of all matching `TXN-` transaction numbers, assigned Salesperson, payment-only activity, and amounts. Payment rows without merchandise lines remain present in CSV exports. Each Z-Report card presents the type first, the Customer name as the largest label, then the bare `TXN-` number, status, Register number, Salesperson, and date/time. A Transaction with multiple tenders remains one card with the tender lines inside it; it is never split into multiple report entries.
 - **Truthful filter scope**: When search is active, the printed **Period Summary** is fetched separately and labeled as all activity in the selected period. The transaction and pickup sections state the exact filter, and detail-derived boxes are labeled **Filtered** so they cannot be mistaken for full-period totals.
 - **Cents-safe CSV totals**: Export totals are summed as integer cents, including rows whose displayed amount contains a dollar sign or thousands separator.
 - **Activity Cards**: Printed activity mirrors the on-screen grouped list with customer context, fulfillment chips, line items, payment/pickup context, and amount details. Return/exchange cards print once with their event-scoped lines and exact net result.
@@ -129,10 +131,10 @@ The summary cards at the top of the screen provide instant visibility into:
 
 The **Z-Reports** view now acts as the shared drawer coordination surface.
 
-- **Active Sessions** shows how many register lanes are still open.
+- **Active Sessions** shows how many Registers are still open.
 - **Open Drawers** counts physical till groups, not individual lanes.
 - **Pending Closes** shows drawer groups that are already in reconciliation.
-- **Register #1 close anchor** identifies the lane that must finish the single Z-close for that shared drawer.
+- **Register #1 close anchor** identifies the Register that must finish the single Z-close for that shared drawer.
 
 If a drawer group is already marked **Closing now**, avoid starting a second close from another linked register.
 

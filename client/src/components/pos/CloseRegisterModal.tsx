@@ -227,6 +227,7 @@ interface ZReportDaySummary {
   pickups_today?: Array<{
     occurred_at: string;
     customer_name?: string | null;
+    salesperson_name?: string | null;
     customer_code?: string | null;
     short_id?: string | null;
     sales_total?: string | null;
@@ -257,6 +258,7 @@ interface TransactionLine {
   transaction_balance_due?: string | null;
   shipping_amount?: string | null;
   customer_name: string;
+  salesperson_name?: string | null;
   items?: {
     name: string;
     sku: string;
@@ -1327,6 +1329,7 @@ export default function CloseRegisterModal({
         pickupsToday: (daySummary.pickups_today ?? []).map((pickup) => ({
           occurred_at: pickup.occurred_at,
           customer_name: pickup.customer_name,
+          salesperson_name: pickup.salesperson_name,
           customer_code: pickup.customer_code,
           short_id: pickup.short_id,
           sales_total: pickup.sales_total,
@@ -1350,6 +1353,7 @@ export default function CloseRegisterModal({
           amount: t.amount,
           payments: t.payments ?? null,
           customer_name: t.customer_name,
+          salesperson_name: t.salesperson_name,
           transaction_display_id: t.transaction_display_id,
           transaction_status: t.transaction_status,
           transaction_total: t.transaction_total,

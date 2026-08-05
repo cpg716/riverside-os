@@ -653,6 +653,7 @@ type ZReportPrintTransaction = {
       }[]
     | null;
   customer_name: string;
+  salesperson_name?: string | null;
   transaction_display_id?: string | null;
   transaction_status?: string | null;
   transaction_total?: string | null;
@@ -685,15 +686,6 @@ function tenderLinesForTransaction(transaction: ZReportPrintTransaction) {
   ];
 }
 
-function transactionPaymentMethod(
-  transaction: ZReportPrintTransaction,
-): string {
-  const payments = tenderLinesForTransaction(transaction);
-  return payments.length > 1
-    ? "split"
-    : (payments[0]?.payment_method ?? transaction.payment_method);
-}
-
 function normalizeZReportTransactions(
   transactions: ZReportPrintTransaction[],
 ): ZReportPrintTransaction[] {
@@ -706,7 +698,7 @@ function normalizeZReportTransactions(
       grouped.set(key, {
         ...transaction,
         payments: tenderLines,
-        payment_method: transactionPaymentMethod(transaction),
+        payment_method: "transaction",
       });
       continue;
     }
@@ -747,10 +739,7 @@ function normalizeZReportTransactions(
     grouped.set(key, {
       ...existing,
       amount: centsToFixed2(amountCents),
-      payment_method:
-        payments.length > 1
-          ? "split"
-          : (payments[0]?.payment_method ?? existing.payment_method),
+      payment_method: "transaction",
       payments,
       items: existing.items?.length ? existing.items : transaction.items,
       transaction_total:
@@ -815,6 +804,7 @@ export async function openProfessionalZReportPrint(opts: {
   pickupsToday: {
     occurred_at: string;
     customer_name?: string | null;
+    salesperson_name?: string | null;
     customer_code?: string | null;
     short_id?: string | null;
     sales_total?: string | null;
@@ -1052,20 +1042,19 @@ export async function openProfessionalZReportPrint(opts: {
               .join(" · ");
 
             const paymentRows = zReportPaymentRows(t);
-            const chips = [
-              t.transaction_status ? reportLabel(t.transaction_status) : null,
-            ]
-              .filter(Boolean)
-              .map((chip) => `<span class="chip">${chip}</span>`)
-              .join("");
 
             return `
               <section class="activity-card">
                 <div class="activity-left">
-                  <div class="pill">${reportLabel(transactionPaymentMethod(t))}</div>
+                  <div class="pill">Transaction</div>
+                  <div class="customer">${escapeReportHtml(t.customer_name || "Walk-in Customer")}</div>
+                  ${t.transaction_display_id ? `<div class="transaction-ref mono">${escapeReportHtml(t.transaction_display_id)}</div>` : ""}
+                  <div class="transaction-meta">
+                    ${t.transaction_status ? `<div><span>Status</span><strong>${escapeReportHtml(reportLabel(t.transaction_status))}</strong></div>` : ""}
+                    <div><span>Register</span><strong>Register ${t.register_lane}</strong></div>
+                    <div><span>Salesperson</span><strong>${escapeReportHtml(t.salesperson_name || "Unassigned")}</strong></div>
+                  </div>
                   <div class="time">${tm}</div>
-                  <div class="customer">${t.customer_name || "Walk-in Customer"}</div>
-                  <div class="chips">${t.transaction_display_id ? `<span class="chip mono">Transaction ${t.transaction_display_id}</span>` : ""}<span class="chip mono">Lane #${t.register_lane}</span>${chips}</div>
                 </div>
                 <div class="activity-items">
                   <div class="section-label">Line Items</div>
@@ -1117,7 +1106,8 @@ export async function openProfessionalZReportPrint(opts: {
           <div>
             <div class="time">${escapeReportHtml(tm)}</div>
             <div class="customer">${escapeReportHtml(customerInfo || "Walk-in Customer")}</div>
-            ${pickup.short_id ? `<div class="chips"><span class="chip mono">Transaction ${escapeReportHtml(pickup.short_id)}</span></div>` : ""}
+            ${pickup.short_id ? `<div class="transaction-ref mono">${escapeReportHtml(pickup.short_id)}</div>` : ""}
+            <div class="transaction-meta"><div><span>Salesperson</span><strong>${escapeReportHtml(pickup.salesperson_name || "Unassigned")}</strong></div></div>
           </div>
           <div>${itemRows || `<div class="muted">No picked-up item details recorded.</div>`}</div>
         </section>
@@ -1284,13 +1274,9 @@ export async function openProfessionalZReportPrint(opts: {
           ...transactions.flatMap((tx) => {
             const transactionSubtotalBeforeTaxCents =
               auditItemsSubtotalBeforeTaxCents(tx.items);
-            const header = `${new Date(tx.created_at).toLocaleString()} | ${reportLabel(transactionPaymentMethod(tx))} | ${
-              tx.customer_name || "Walk-in Customer"
-            } | Lane #${tx.register_lane} | Amount: ${formatReportMoney(tx.amount)}${
-              tx.transaction_display_id
-                ? ` | Transaction: ${tx.transaction_display_id}`
-                : ""
-            }`;
+            const header = `Transaction | ${tx.customer_name || "Walk-in Customer"}${
+              tx.transaction_display_id ? ` | ${tx.transaction_display_id}` : ""
+            }${tx.transaction_status ? ` | Status: ${reportLabel(tx.transaction_status)}` : ""} | Register ${tx.register_lane} | Salesperson: ${tx.salesperson_name || "Unassigned"} | ${new Date(tx.created_at).toLocaleString()} | Amount: ${formatReportMoney(tx.amount)}`;
             const items = (tx.items ?? [])
               .filter(isVisibleAuditItem)
               .map(
@@ -1321,7 +1307,7 @@ export async function openProfessionalZReportPrint(opts: {
                 .filter(Boolean)
                 .join(" ") || "Walk-in Customer";
             const header = `${new Date(pickup.occurred_at).toLocaleString()} | ${customer}${
-              pickup.short_id ? ` | Transaction: ${pickup.short_id}` : ""
+              pickup.short_id ? ` | ${pickup.short_id}` : ""
             }`;
             const items = (pickup.items ?? []).map(
               (item) =>
@@ -1398,8 +1384,13 @@ export async function openProfessionalZReportPrint(opts: {
     .activity-left, .activity-money { background: #f8fafc; padding: 18px; }
     .activity-items { padding: 18px; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
     .pill { display: inline-block; border: 1px solid #cbd5e1; border-radius: 999px; padding: 5px 10px; font-size: 9px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
-    .time { margin-top: 8px; color: #64748b; font-size: 10px; font-weight: 700; }
-    .customer { margin-top: 14px; font-size: 14px; font-weight: 800; }
+    .time { margin-top: 12px; color: #64748b; font-size: 10px; font-weight: 700; }
+    .customer { margin-top: 14px; font-size: 18px; line-height: 1.15; font-weight: 900; }
+    .transaction-ref { margin-top: 5px; color: #334155; font-size: 11px; font-weight: 800; }
+    .transaction-meta { display: grid; gap: 5px; margin-top: 12px; }
+    .transaction-meta > div { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #e2e8f0; padding-top: 5px; font-size: 9px; }
+    .transaction-meta span { color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+    .transaction-meta strong { color: #0f172a; text-align: right; }
     .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
     .chip { background: #f1f5f9; border-radius: 999px; color: #475569; display: inline-block; font-size: 9px; font-weight: 800; padding: 4px 7px; text-transform: uppercase; }
     .section-label { color: #64748b; font-size: 10px; font-weight: 800; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.1em; }
@@ -1705,6 +1696,7 @@ export async function openProfessionalDailySalesPrint(opts: {
       remaining_balance: string;
     }[];
     customer_name?: string | null;
+    salesperson_name?: string | null;
     customer_code?: string | null;
     wedding_party_name?: string | null;
     sales_total?: string | null;
@@ -1733,6 +1725,7 @@ export async function openProfessionalDailySalesPrint(opts: {
   pickupsToday?: {
     occurred_at: string;
     customer_name?: string | null;
+    salesperson_name?: string | null;
     customer_code?: string | null;
     short_id?: string | null;
     items?:
@@ -1859,9 +1852,11 @@ export async function openProfessionalDailySalesPrint(opts: {
         <section class="activity-card">
           <div class="activity-left">
             <div class="pill">${row.title}</div>
-            <div class="time">${tm}</div>
             <div class="customer">${customerInfo || "Walk-in Customer"}</div>
-            <div class="chips">${row.short_id ? `<span class="chip mono">Transaction ${row.short_id}</span>` : ""}${chips}</div>
+            ${row.short_id ? `<div class="transaction-ref mono">${escapeReportHtml(row.short_id)}</div>` : ""}
+            <div class="transaction-meta"><div><span>Salesperson</span><strong>${escapeReportHtml(row.salesperson_name || "Unassigned")}</strong></div></div>
+            <div class="chips">${chips}</div>
+            <div class="time">${tm}</div>
           </div>
           <div class="activity-items">
             <div class="section-label">${row.kind === "payment" ? "Payment Details" : "Line Items"}</div>
@@ -1933,7 +1928,8 @@ export async function openProfessionalDailySalesPrint(opts: {
           <div>
             <div class="time">${escapeReportHtml(tm)}</div>
             <div class="customer">${escapeReportHtml(customerInfo || "Walk-in Customer")}</div>
-            ${pickup.short_id ? `<div class="chips"><span class="chip mono">Transaction ${escapeReportHtml(pickup.short_id)}</span></div>` : ""}
+            ${pickup.short_id ? `<div class="transaction-ref mono">${escapeReportHtml(pickup.short_id)}</div>` : ""}
+            <div class="transaction-meta"><div><span>Salesperson</span><strong>${escapeReportHtml(pickup.salesperson_name || "Unassigned")}</strong></div></div>
           </div>
           <div>${itemRows || `<div class="muted">No picked-up item details recorded.</div>`}</div>
         </section>
@@ -2056,7 +2052,7 @@ export async function openProfessionalDailySalesPrint(opts: {
             row.kind === "payment" && row.subtitle
               ? ` ${textValue(row.subtitle)}`
               : ""
-          }${row.short_id ? ` | Transaction: ${row.short_id}` : ""} | ${
+          }${row.short_id ? ` | ${row.short_id}` : ""} | Salesperson: ${row.salesperson_name || "Unassigned"} | ${
             customerInfo || "Walk-in Customer"
           } | ${row.kind === "payment" ? "Payment" : "Sales"}: ${
             row.kind === "payment"
@@ -2154,7 +2150,7 @@ export async function openProfessionalDailySalesPrint(opts: {
             .filter(Boolean)
             .join(" | ");
           const header = `${new Date(pickup.occurred_at).toLocaleString()}${
-            pickup.short_id ? ` | Transaction: ${pickup.short_id}` : ""
+            pickup.short_id ? ` | ${pickup.short_id}` : ""
           } | ${customerInfo || "Walk-in Customer"}`;
           const items = (pickup.items ?? []).map(
             (item) =>
@@ -2198,8 +2194,13 @@ export async function openProfessionalDailySalesPrint(opts: {
     .activity-left, .activity-money { background: #f8fafc; padding: 18px; }
     .activity-items { padding: 18px; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
     .pill { display: inline-block; border: 1px solid #cbd5e1; border-radius: 999px; padding: 5px 10px; font-size: 9px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; }
-    .time { margin-top: 8px; color: #64748b; font-size: 10px; font-weight: 700; }
-    .customer { margin-top: 14px; font-size: 14px; font-weight: 800; }
+    .time { margin-top: 12px; color: #64748b; font-size: 10px; font-weight: 700; }
+    .customer { margin-top: 14px; font-size: 18px; line-height: 1.15; font-weight: 900; }
+    .transaction-ref { margin-top: 5px; color: #334155; font-size: 11px; font-weight: 800; }
+    .transaction-meta { display: grid; gap: 5px; margin-top: 12px; }
+    .transaction-meta > div { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid #e2e8f0; padding-top: 5px; font-size: 9px; }
+    .transaction-meta span { color: #64748b; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+    .transaction-meta strong { color: #0f172a; text-align: right; }
     .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
     .chip { background: #f1f5f9; border-radius: 999px; color: #475569; display: inline-block; font-size: 9px; font-weight: 800; padding: 4px 7px; text-transform: uppercase; }
     .section-label { color: #64748b; font-size: 10px; font-weight: 800; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.1em; }

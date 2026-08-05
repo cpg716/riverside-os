@@ -163,6 +163,7 @@ interface RegisterActivityItem {
   payments?: TransactionPayment[] | null;
   payment_applications?: OrderPaymentApplication[];
   cashier_name?: string | null;
+  salesperson_name?: string | null;
 }
 
 interface RegisterDaySummary {
@@ -453,6 +454,7 @@ interface ZReportSnapshot {
       check_number?: string | null;
     }> | null;
     customer_name: string;
+    salesperson_name?: string | null;
     transaction_display_id?: string | null;
     transaction_status?: string | null;
     transaction_total?: string | null;
@@ -922,6 +924,7 @@ async function openZReportFromSession(
     pickupsToday: (daySummary.pickups_today ?? []).map((pickup) => ({
       occurred_at: pickup.occurred_at,
       customer_name: pickup.customer_name,
+      salesperson_name: pickup.salesperson_name,
       customer_code: pickup.customer_code,
       short_id: pickup.short_id,
       sales_total: pickup.sales_total,
@@ -939,6 +942,7 @@ async function openZReportFromSession(
         amount: transaction.amount,
         payments: transaction.payments ?? null,
         customer_name: transaction.customer_name,
+        salesperson_name: transaction.salesperson_name,
         transaction_display_id: transaction.transaction_display_id,
         transaction_status: transaction.transaction_status,
         transaction_total: transaction.transaction_total,
@@ -1689,6 +1693,7 @@ export default function RegisterReports({
         pickupsToday: (printSummary.pickups_today ?? []).map((a) => ({
           occurred_at: a.occurred_at,
           customer_name: a.customer_name,
+          salesperson_name: a.salesperson_name,
           customer_code: a.customer_code,
           short_id: a.short_id,
           sales_total: a.sales_total,
@@ -1741,6 +1746,7 @@ export default function RegisterReports({
           "Order ID": a.order_id || "",
           "Customer Name": a.customer_name || "",
           "Customer #": a.customer_code || "",
+          Salesperson: a.salesperson_name || "",
           "Wedding Party": a.wedding_party_name || "",
           Item: item?.name ?? "",
           SKU: item?.sku ?? "",
@@ -2205,7 +2211,7 @@ export default function RegisterReports({
       {(!sessionId || canViewStorewideReports) && view !== "z-reports" && (
         <div className="mb-4 rounded-xl border border-app-warning/20 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
           <span className="font-bold">Store-wide view.</span> Managers with
-          register.reports see every lane.
+          register.reports see every Register.
         </div>
       )}
 
@@ -2854,6 +2860,9 @@ export default function RegisterReports({
                                         <Globe size={10} /> Online
                                       </span>
                                     )}
+                                  </div>
+                                  <div className="mt-2 text-xs font-bold text-app-text-muted">
+                                    Salesperson: {row.salesperson_name || "Unassigned"}
                                   </div>
                                 </div>
                               </div>
@@ -3604,7 +3613,7 @@ export default function RegisterReports({
                           <p className="mt-3 text-[11px] font-medium leading-relaxed text-app-text-muted">
                             {isReconciling
                               ? "This group is already closing. Avoid starting another close from a linked register."
-                              : "Close this shared drawer from Register #1 when every linked lane in the till group is ready."}
+                              : "Close this shared drawer from Register #1 when every linked Register in the till group is ready."}
                           </p>
                         </div>
                       );

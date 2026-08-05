@@ -75,9 +75,15 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
   await expect
     .poll(() => posNav.evaluate((element) => getComputedStyle(element).scrollbarWidth))
     .toBe("none");
-  await expect(page.getByRole("button", { name: "Start Wedding Sale" })).toHaveClass(
-    /bg-app-accent\/20/,
+  await expect(page.getByRole("button", { name: "Wedding Manager" })).toHaveClass(
+    /bg-violet-500\/20/,
   );
+  await expect(page.getByRole("button", { name: "Clear Sale" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Suit Swap" })).toHaveCount(0);
+  await page.getByRole("button", { name: "More Actions" }).click();
+  await expect(page.getByRole("button", { name: "Suit Swap" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "More sale actions" }).getByRole("button", { name: "Clear Sale" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Close more sale actions" }).click();
   await expect(page.getByTestId("pos-alteration-intake-trigger")).toHaveClass(
     /bg-app-warning\/20/,
   );
