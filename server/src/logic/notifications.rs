@@ -119,7 +119,6 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "nuorder_sync_success",
     "ops_alert",
     "order_due_stale",
-    "order_fully_fulfilled",
     "order_item_ready_for_pickup",
     "payment_batch_not_settled",
     "payment_deposit_needs_review",
@@ -217,7 +216,6 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
         | "store_email_inbound" => Some(Handling::Configurable(Category::CustomersLoyalty)),
         "morning_refund_queue"
         | "order_due_stale"
-        | "order_fully_fulfilled"
         | "order_item_ready_for_pickup"
         | "pickup_stale"
         | "special_order_ready_to_stage" => Some(Handling::Configurable(Category::Orders)),
@@ -332,7 +330,6 @@ fn notification_severity_filter_key(kind: &str, deep_link: &Value) -> &'static s
         | "morning_po_expected"
         | "morning_refund_queue"
         | "morning_wedding_today"
-        | "order_fully_fulfilled"
         | "po_draft_stale"
         | "po_received_unlabeled"
         | "po_submitted_no_expected_date"
@@ -2031,40 +2028,6 @@ pub async fn emit_customer_merge_completed(
         return Ok(());
     };
     fan_out_notification_to_staff_ids(pool, nid, &targets).await
-}
-
-pub async fn emit_order_fully_fulfilled(
-    pool: &PgPool,
-    transaction_id: Uuid,
-    order_ref: &str,
-) -> Result<(), sqlx::Error> {
-    let dedupe = format!("order_fully_fulfilled:{transaction_id}");
-    let title = format!("Order fully fulfilled: {order_ref}");
-    let body = "All lines are fulfilled — pickup/fulfillment is complete for this order.";
-    let deep = json!({ "type": "order", "transaction_id": transaction_id.to_string() });
-    let staff = staff_ids_for_order_scoped(pool, transaction_id).await?;
-    if staff.is_empty() {
-        return Ok(());
-    }
-    let aud = json!({
-        "mode": "staff_ids",
-        "staff_ids": staff.iter().map(|u| u.to_string()).collect::<Vec<_>>()
-    });
-    let Some(nid) = insert_app_notification_deduped(
-        pool,
-        "order_fully_fulfilled",
-        &title,
-        body,
-        deep,
-        "system",
-        aud,
-        Some(&dedupe),
-    )
-    .await?
-    else {
-        return Ok(());
-    };
-    fan_out_notification_to_staff_ids(pool, nid, &staff).await
 }
 
 pub async fn emit_order_item_ready_for_pickup(

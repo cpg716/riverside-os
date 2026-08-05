@@ -21,7 +21,7 @@ status: approved
 
 ## What this is
 
-The **Communications & Alerts** drawer is Riverside’s in-app notification center. It is where staff review new alerts, reopen earlier activity, and keep their inbox under control during the day.
+The **Communications & Alerts** drawer is Riverside’s in-app attention center. It is reserved for work that needs a person to read, decide, or act; routine system telemetry and successful workflow completions do not belong in the active inbox.
 
 For managers and approved admins, this same drawer also includes the **Announce** tab for team-wide announcements.
 
@@ -29,7 +29,7 @@ For managers and approved admins, this same drawer also includes the **Announce*
 
 Use this drawer when you need to:
 
-1. review new operational alerts
+1. review new actionable alerts
 2. open the exact order, task, appointment, product, PO, or settings area tied to a notification
 3. mark reviewed alerts as read
 4. complete task-like alerts
@@ -44,6 +44,8 @@ Use this drawer when you need to:
   - actionable single alerts open directly
   - bundles expand first
   - announcements expand for reading
+- Routine inventory reconciliation belongs in **Inventory → Reports → Inventory Reconciliation**.
+- Successful pickup and shipping completion remains in the related Transaction Record instead of generating a new notification.
 
 ## How to use the Inbox
 
@@ -100,7 +102,7 @@ If you have broadcast permission:
 
 ## What to watch for
 
-- Do not treat every alert like a task. Some rows are informational and should only be reviewed or dismissed.
+- The inbox should earn attention. Routine negative-stock findings and successful fulfillment events stay in their authoritative reports and records rather than creating bell noise.
 - Bundled rows are there to reduce clutter. Expand them to open the exact child item you need.
 - **Dismiss** removes the row from active inbox use, but it does not erase the underlying order, task, or record.
 - System alerts should stand out visually. If you do not understand a system alert, escalate instead of dismissing it casually.

@@ -182,4 +182,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("179_customer_email_collection.sql", include_str!("../../migrations/179_customer_email_collection.sql")),
     ("180_new_customer_contact_approval_defaults.sql", include_str!("../../migrations/180_new_customer_contact_approval_defaults.sql")),
     ("181_consolidate_legacy_audit_probe_alerts.sql", include_str!("../../migrations/181_consolidate_legacy_audit_probe_alerts.sql")),
+    ("182_retire_routine_notification_noise.sql", include_str!("../../migrations/182_retire_routine_notification_noise.sql")),
 ];

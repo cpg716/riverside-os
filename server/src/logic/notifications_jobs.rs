@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use crate::api::payments;
 use crate::auth::permissions::{
-    staff_has_permission, ALTERATIONS_MANAGE, CATALOG_EDIT, GIFT_CARDS_MANAGE, NOTIFICATIONS_VIEW,
-    ORDERS_VIEW, PROCUREMENT_VIEW, WEDDINGS_VIEW,
+    staff_has_permission, ALTERATIONS_MANAGE, GIFT_CARDS_MANAGE, NOTIFICATIONS_VIEW, ORDERS_VIEW,
+    PROCUREMENT_VIEW, WEDDINGS_VIEW,
 };
 use crate::logic::backups::BackupSettings;
 use crate::logic::integration_alerts;
@@ -444,10 +444,6 @@ pub async fn run_notification_generators(pool: &PgPool) -> Result<(), sqlx::Erro
     run_generator!(
         "appointment_soon_reminders",
         run_appointment_soon_reminders(pool)
-    );
-    run_generator!(
-        "negative_available_stock_admin",
-        run_negative_available_stock_admin(pool)
     );
     run_generator!(
         "pin_failure_security_digest",
@@ -2670,104 +2666,6 @@ async fn run_appointment_soon_reminders(pool: &PgPool) -> Result<(), sqlx::Error
             .execute(pool)
             .await?;
     }
-    Ok(())
-}
-
-/// Negative available stock (admin + catalog editors) — one bundled inbox row per store day.
-async fn run_negative_available_stock_admin(pool: &PgPool) -> Result<(), sqlx::Error> {
-    let mut admins = admin_staff_ids(pool).await?;
-    let mut editors = staff_ids_with_permission(pool, CATALOG_EDIT).await?;
-    admins.append(&mut editors);
-    admins.sort_unstable();
-    admins.dedup();
-    let tz_name = load_store_timezone_name(pool).await?;
-    let tz: Tz = tz_name.parse().unwrap_or(Tz::UTC);
-    let day_key = Utc::now()
-        .with_timezone(&tz)
-        .date_naive()
-        .format("%Y-%m-%d")
-        .to_string();
-    let bundle_dedupe = format!("negative_available_stock_bundle:{day_key}");
-
-    if admins.is_empty() {
-        let _ = delete_app_notification_by_dedupe(pool, &bundle_dedupe).await?;
-        let _ =
-            sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'negative_available_stock'"#)
-                .execute(pool)
-                .await?;
-        return Ok(());
-    }
-
-    let rows: Vec<(Uuid, Uuid, String, String, i32, i32)> = sqlx::query_as(
-        r#"
-        SELECT pv.id, p.id, pv.sku, p.name,
-               (pv.stock_on_hand - COALESCE(pv.reserved_stock, 0) - COALESCE(pv.on_layaway, 0)),
-               pv.stock_on_hand
-        FROM product_variants pv
-        INNER JOIN products p ON p.id = pv.product_id
-        WHERE COALESCE(p.is_active, TRUE)
-          AND (pv.stock_on_hand - COALESCE(pv.reserved_stock, 0) - COALESCE(pv.on_layaway, 0)) < 0
-        ORDER BY p.name, pv.sku
-        LIMIT 500
-        "#,
-    )
-    .fetch_all(pool)
-    .await?;
-
-    if rows.is_empty() {
-        let _ = delete_app_notification_by_dedupe(pool, &bundle_dedupe).await?;
-        let _ =
-            sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'negative_available_stock'"#)
-                .execute(pool)
-                .await?;
-        return Ok(());
-    }
-
-    let aud = morning_audience_json(&admins);
-    let n = rows.len();
-    let items: Vec<Value> = rows
-        .into_iter()
-        .map(
-            |(_variant_id, product_id, sku, product_name, available, on_hand)| {
-                bundle_row(
-                    sku.clone(),
-                    format!("{product_name} — available {available} (on hand {on_hand})"),
-                    json!({
-                        "type": "inventory",
-                        "section": "list",
-                        "product_id": product_id.to_string(),
-                    }),
-                )
-            },
-        )
-        .collect();
-
-    let title = format!("Negative available stock ({n} SKUs)");
-    let body = format!(
-        "{n} active variant(s) have available quantity below zero (reservations exceed on-hand). Expand the notification to open each SKU in Inventory, or go to Inventory to reconcile."
-    );
-    let deep = json!({
-        "type": "notification_bundle",
-        "bundle_kind": "negative_available_stock",
-        "items": items,
-    });
-
-    let nid = upsert_app_notification_by_dedupe(
-        pool,
-        "negative_available_stock_bundle",
-        &title,
-        &body,
-        deep,
-        "generator",
-        aud,
-        &bundle_dedupe,
-    )
-    .await?;
-    fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
-    // Legacy: one row per SKU (pre-bundle). Remove so inboxes keep a single bundle.
-    let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'negative_available_stock'"#)
-        .execute(pool)
-        .await?;
     Ok(())
 }
 

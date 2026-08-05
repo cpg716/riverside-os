@@ -6274,12 +6274,6 @@ async fn mark_transaction_pickup(
         .await?;
     }
 
-    let status_after: DbOrderStatus =
-        sqlx::query_scalar("SELECT status FROM transactions WHERE id = $1")
-            .bind(transaction_id)
-            .fetch_one(&mut *tx)
-            .await?;
-
     let customer_id: Option<Uuid> =
         sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
             .bind(transaction_id)
@@ -6319,22 +6313,6 @@ async fn mark_transaction_pickup(
 
     spawn_meilisearch_transaction_upsert(&state, transaction_id);
 
-    if status_after == DbOrderStatus::Fulfilled {
-        let pool = state.db.clone();
-        let oid = transaction_id;
-        let label = {
-            let s = oid.to_string();
-            s.chars().take(8).collect::<String>()
-        };
-        tokio::spawn(async move {
-            if let Err(e) =
-                crate::logic::notifications::emit_order_fully_fulfilled(&pool, oid, &label).await
-            {
-                tracing::error!(error = %e, "emit_order_fully_fulfilled");
-            }
-        });
-    }
-
     if let Some(customer_id) = customer_id {
         if let Err(error) = sqlx::query(
             r#"
@@ -6356,11 +6334,11 @@ async fn mark_transaction_pickup(
     }
 
     if let Some(alert_msg) = inventory_shortage_alert {
-        if let Err(e) =
-            crate::logic::notifications::broadcast_system_alert(&state.db, &alert_msg).await
-        {
-            tracing::error!(error = %e, "Failed to broadcast system alert for pickup negative stock");
-        }
+        tracing::warn!(
+            transaction_id = %transaction_id,
+            finding = alert_msg,
+            "pickup completed with inventory reconciliation finding"
+        );
     }
 
     // Accrue loyalty points if this pickup caused the order to become fully fulfilled.
@@ -6371,7 +6349,7 @@ async fn mark_transaction_pickup(
     Ok(Json(json!({
         "status": "ok",
         "warnings": if has_inventory_shortage {
-            vec!["Pickup completed with insufficient inventory; negative stock alert recorded.".to_string()]
+            vec!["Pickup completed with insufficient inventory; review Inventory Reports → Inventory Reconciliation.".to_string()]
         } else {
             Vec::<String>::new()
         }
@@ -6890,12 +6868,6 @@ async fn mark_transaction_ship(
         .await
         .map_err(TransactionError::Database)?;
 
-    let status_after: DbOrderStatus =
-        sqlx::query_scalar("SELECT status FROM transactions WHERE id = $1")
-            .bind(transaction_id)
-            .fetch_one(&mut *tx)
-            .await?;
-
     let customer_id: Option<Uuid> =
         sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
             .bind(transaction_id)
@@ -6927,28 +6899,12 @@ async fn mark_transaction_ship(
 
     spawn_meilisearch_transaction_upsert(&state, transaction_id);
 
-    if status_after == DbOrderStatus::Fulfilled {
-        let pool = state.db.clone();
-        let oid = transaction_id;
-        let label = {
-            let s = oid.to_string();
-            s.chars().take(8).collect::<String>()
-        };
-        tokio::spawn(async move {
-            if let Err(e) =
-                crate::logic::notifications::emit_order_fully_fulfilled(&pool, oid, &label).await
-            {
-                tracing::error!(error = %e, "emit_order_fully_fulfilled");
-            }
-        });
-    }
-
     if let Some(alert_msg) = inventory_shortage_alert {
-        if let Err(e) =
-            crate::logic::notifications::broadcast_system_alert(&state.db, &alert_msg).await
-        {
-            tracing::error!(error = %e, "Failed to broadcast system alert for shipping negative stock");
-        }
+        tracing::warn!(
+            transaction_id = %transaction_id,
+            finding = alert_msg,
+            "shipping completed with inventory reconciliation finding"
+        );
     }
 
     if let Err(e) = loyalty_logic::try_accrue_for_order(&state.db, transaction_id).await {
@@ -6958,7 +6914,7 @@ async fn mark_transaction_ship(
     Ok(Json(json!({
         "status": "ok",
         "warnings": if has_inventory_shortage {
-            vec!["Shipping completed with insufficient inventory; negative stock alert recorded.".to_string()]
+            vec!["Shipping completed with insufficient inventory; review Inventory Reports → Inventory Reconciliation.".to_string()]
         } else {
             Vec::<String>::new()
         }

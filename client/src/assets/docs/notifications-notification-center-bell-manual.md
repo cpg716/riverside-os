@@ -23,14 +23,14 @@ status: approved
 
 The bell is Riverside’s shared notification entry point. Use it to see whether anything new needs your attention and to open the full **Communications & Alerts** drawer.
 
-The number on the bell is your unread count. It tells you there is something new to review, not necessarily that everything is urgent.
+The number on the bell is your unread count. It represents new staff-facing work or communication, not routine system telemetry.
 
 ## When to use it
 
 Use the bell when you need to:
 
 1. check whether anything new came in during your shift
-2. review bundled alerts such as tasks, low stock, purchasing, or order reminders
+2. review bundled alerts such as tasks, purchasing, or order reminders
 3. open an alert and jump into the correct workspace
 4. clear reviewed alerts out of your active inbox
 
@@ -56,6 +56,8 @@ Use the bell when you need to:
 - A row that says **Tap to review** is usually a bundle. Expand it first, then open the exact line you need.
 - A row that says **Tap to open** should take you directly to the related record or workspace.
 - Update alerts open **Settings → Updates** so managers can run the update from the same task section.
+- Negative inventory is reviewed in **Inventory → Reports → Inventory Reconciliation**, not through the bell.
+- Successful pickup and shipping completion is recorded on the Transaction Record and does not create an inbox item.
 - **Announcements** are for reading, not completing.
 - **Complete** is only for task-like alerts. Do not use **Dismiss** when the work itself is still unfinished.
 

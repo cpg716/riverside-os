@@ -30,6 +30,8 @@ test("sale completion security and layout contract", async () => {
   expect(source).toContain("COMPLETION_PIN_RETURN_MS = 120_000");
   expect(source).toContain("if (printed) setGiftDialogOpen(false)");
   expect(source).toContain("sm:w-[min(70rem,calc(100vw-2rem))]");
+  expect(source).toContain("sm:h-auto");
+  expect(source).not.toContain("sm:h-[min(40rem,calc(100dvh-2rem))]");
   expect(source).toContain("min-h-16 w-full");
   expect(source).toContain('line.setAttribute("font-size", "16")');
 });

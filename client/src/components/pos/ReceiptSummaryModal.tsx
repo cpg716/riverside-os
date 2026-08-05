@@ -1313,7 +1313,7 @@ export default function ReceiptSummaryModal({
           aria-labelledby="receipt-summary-title"
         >
           <div
-            className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden text-app-text sm:h-[min(40rem,calc(100dvh-2rem))] sm:max-h-[calc(100dvh-2rem)]"
+            className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden text-app-text sm:h-auto sm:max-h-[calc(100dvh-2rem)]"
             data-testid="receipt-summary-modal"
           >
             <header className="relative flex shrink-0 items-center gap-4 border-b border-app-border px-3 py-3 pr-14 sm:px-7 sm:py-5 sm:pr-20">

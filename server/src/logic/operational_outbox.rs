@@ -122,13 +122,14 @@ async fn process_checkout_post_commit(
         return Ok(());
     }
 
-    for (index, message) in payload.negative_stock_alerts.iter().enumerate() {
-        notifications::broadcast_system_alert_with_key(
-            pool,
-            message,
-            &format!("checkout_negative_stock:{transaction_id}:{index}"),
-        )
-        .await?;
+    for message in &payload.negative_stock_alerts {
+        // Negative inventory is routine reconciliation work, not an interruption.
+        // The inventory ledger and Inventory Reports remain the review source.
+        tracing::warn!(
+            %transaction_id,
+            finding = message,
+            "checkout completed with negative inventory reconciliation finding"
+        );
     }
     for (index, message) in payload.checkout_recovery_alerts.iter().enumerate() {
         notifications::broadcast_system_alert_with_key(
