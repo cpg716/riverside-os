@@ -124,7 +124,7 @@ jobs:
           echo "sccache setup failed; continuing without the optional compiler cache"
           echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
           echo "SCCACHE_GHA_ENABLED=false" >> "$GITHUB_ENV"
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           shared-key: "ubuntu-pre-retag"
 
@@ -180,7 +180,7 @@ jobs:
           rustup default 1.91
           rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"
 
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           cache-workspace-crates: true
 
@@ -462,7 +462,7 @@ jobs:
           rustup default 1.91
           rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"
 
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           cache-workspace-crates: true
 
@@ -521,7 +521,7 @@ jobs:
           rustup default 1.91
           rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"
 
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           cache-workspace-crates: true
 
@@ -670,7 +670,7 @@ jobs:
           rustup default 1.91
           rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"
 
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           cache-workspace-crates: true
 
@@ -827,7 +827,7 @@ jobs:
           rustup default 1.91
           rustup toolchain uninstall stable || echo "Unpinned stable toolchain already absent"
 
-      - uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           cache-workspace-crates: true
 
