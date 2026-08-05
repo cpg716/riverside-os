@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Mail, RefreshCw, Save, Send } from "lucide-react";
+import { CheckCircle2, Mail, RefreshCw, Save, Send, TriangleAlert } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
@@ -25,6 +25,15 @@ type EmailSettingsResponse = {
   credentials_configured: boolean;
 };
 
+type EmailHealth = {
+  configured: boolean;
+  reachable: boolean;
+  smtp_reachable: boolean;
+  imap_reachable: boolean;
+  latency_ms: number;
+  message: string;
+};
+
 type EmailSettingsPanelProps = {
   baseUrl: string;
 };
@@ -37,6 +46,8 @@ export default function EmailSettingsPanel({ baseUrl }: EmailSettingsPanelProps)
   const [signature, setSignature] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
+  const [health, setHealth] = useState<EmailHealth | null>(null);
+  const [healthBusy, setHealthBusy] = useState(false);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -152,6 +163,22 @@ export default function EmailSettingsPanel({ baseUrl }: EmailSettingsPanelProps)
       toast("Mailbox sync could not run.", "error");
     } finally {
       setSyncBusy(false);
+    }
+  };
+
+  const checkHealth = async () => {
+    if (healthBusy) return;
+    setHealthBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/mailbox/health`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (!res.ok) throw new Error("email-health");
+      setHealth((await res.json()) as EmailHealth);
+    } catch {
+      toast("Email health check could not run.", "error");
+    } finally {
+      setHealthBusy(false);
     }
   };
 
@@ -309,7 +336,35 @@ export default function EmailSettingsPanel({ baseUrl }: EmailSettingsPanelProps)
             <RefreshCw className={`h-4 w-4 ${syncBusy ? "animate-spin" : ""}`} aria-hidden />
             {syncBusy ? "Syncing..." : "Sync Inbox Now"}
           </button>
+          <button
+            type="button"
+            disabled={healthBusy || !settings.enabled || !credentialsConfigured}
+            onClick={() => void checkHealth()}
+            className="ui-btn-secondary inline-flex h-11 items-center gap-2 px-5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${healthBusy ? "animate-spin" : ""}`} aria-hidden />
+            {healthBusy ? "Checking..." : "Check Email Health"}
+          </button>
         </div>
+        {health ? (
+          <div
+            className={`mt-4 rounded-2xl border p-4 text-xs font-semibold ${
+              health.reachable
+                ? "border-app-success/30 bg-app-success/10 text-app-success"
+                : "border-app-warning/30 bg-app-warning/10 text-app-warning"
+            }`}
+          >
+            <div className="flex items-center gap-2 font-black uppercase tracking-widest">
+              {health.reachable ? (
+                <CheckCircle2 className="h-4 w-4" aria-hidden />
+              ) : (
+                <TriangleAlert className="h-4 w-4" aria-hidden />
+              )}
+              SMTP {health.smtp_reachable ? "ready" : "failed"} · IMAP {health.imap_reachable ? "ready" : "failed"} · {health.latency_ms} ms
+            </div>
+            <p className="mt-2 normal-case text-app-text-muted">{health.message}</p>
+          </div>
+        ) : null}
       </section>
 
       <IntegrationCredentialsCard

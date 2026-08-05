@@ -118,6 +118,8 @@ async fn get_health(
     Ok(Json(json!({
         "configured": health.configured,
         "reachable": health.reachable,
+        "smtp_reachable": health.smtp_reachable,
+        "imap_reachable": health.imap_reachable,
         "latency_ms": health.latency_ms,
         "message": health.message,
     })))

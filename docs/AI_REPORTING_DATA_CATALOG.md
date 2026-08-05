@@ -178,10 +178,10 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | GET | `/api/transactions/refunds/due` | Refund queue (**`orders.refund_process`**). |
 | GET | `/api/transactions/{transaction_id}` | Transaction Record detail + lines + tenders (read auth: BO or register session). |
 | GET | `/api/transactions/{transaction_id}/audit` | **`order_activity_log`** for the Transaction Record (see §7). |
-| GET | `/api/transactions/{transaction_id}/receipt.escpos` | Receipt ESC/POS payload (reporting less common; print/reprint use case). Optional query **`gift`**, **`order_item_ids`** (subset lines). |
-| GET | `/api/transactions/{transaction_id}/receipt.html` | Receipt HTML using a legacy saved template when present, otherwise standard receipt HTML. Same auth as transaction detail; optional **`register_session_id`**, **`gift`**, **`order_item_ids`**. |
-| POST | `/api/transactions/{transaction_id}/receipt/send-email` | Podium **email** with inline receipt HTML body. Body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
-| POST | `/api/transactions/{transaction_id}/receipt/send-sms` | Podium **SMS** or **MMS** (optional **`png_base64`**); body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
+| GET | `/api/transactions/{transaction_id}/receipt.escpos` | Receipt ESC/POS payload (reporting less common; print/reprint use case). Optional query **`gift`**, **`transaction_line_ids`** (subset lines). |
+| GET | `/api/transactions/{transaction_id}/receipt.html` | Receipt HTML using a saved template when present, otherwise standard receipt HTML. Same auth as transaction detail; optional **`register_session_id`**, **`gift`**, **`transaction_line_ids`**. |
+| POST | `/api/transactions/{transaction_id}/receipt/send-email` | Store Email SMTP delivery with inline receipt HTML. Body may include **`gift`**, **`transaction_line_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
+| POST | `/api/transactions/{transaction_id}/receipt/send-sms` | Podium **SMS** or **MMS** (optional **`png_base64`**); body may include **`gift`**, **`transaction_line_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
 
 ### `/api/sessions/*`
 

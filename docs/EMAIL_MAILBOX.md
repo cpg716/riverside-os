@@ -55,9 +55,9 @@ The IONOS Cloud API is for IONOS cloud infrastructure management and is not used
 
 ## IMAP Dependency Policy
 
-Riverside intentionally pins the Rust IMAP client to `imap = "=2.4.1"` in `server/Cargo.toml`. That version currently pulls `imap-proto v0.10.2`, which may emit a Rust future-compatibility warning during `cargo check`.
+Riverside pins the Tokio-compatible Rust IMAP client to `async-imap = "=0.11.2"` in `server/Cargo.toml`. Keep mailbox dependency upgrades behind the focused send, health, sync, parsing, and message-state checks below.
 
-Do not override only the transitive `imap-proto` crate. The `imap` client owns that protocol-parser API contract, and forcing a newer parser without replacing the IMAP client has previously caused compatibility failures.
+Do not override only a transitive IMAP protocol parser. The client owns that parser API contract, so a piecemeal override can compile while breaking mailbox behavior.
 
 Until the mailbox code is migrated behind a tested IMAP adapter, treat the warning as accepted dependency risk. A safe migration must validate:
 
@@ -68,4 +68,4 @@ Until the mailbox code is migrated behind a tested IMAP adapter, treat the warni
 - mark read/archive behavior
 - notification fan-out for new mail
 
-Preferred future path: move IMAP access behind a small internal mailbox adapter, then test either a stable `imap` release or `async-imap` with Tokio support. Do not switch to `imap 3.x` while it remains alpha unless the full mailbox validation suite passes.
+The Settings health check validates both authenticated SMTP and authenticated IMAP access. **Sync Inbox Now** remains the final read-path check, and Receipt Builder **Send Test Email** is the final customer-delivery check.

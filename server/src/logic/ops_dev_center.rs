@@ -2929,7 +2929,7 @@ pub async fn health_snapshot(
     }
 
     // Podium
-    let podium_h = podium::health_check(http_client).await;
+    let podium_h = podium::health_check(pool, http_client).await;
     integrations.push(IntegrationHealthItem {
         key: "podium".to_string(),
         title: "Podium".to_string(),

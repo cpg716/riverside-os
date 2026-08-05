@@ -1257,7 +1257,7 @@ export default function SettingsWorkspace({
                     {
                       id: "podium",
                       label: "Podium Comms",
-                      desc: "Lifecycle SMS & HTML Email",
+                      desc: "SMS, inbox & reviews",
                       color: "bg-app-surface",
                       brand: "podium" as IntegrationBrand,
                       brandKind: "icon" as const,

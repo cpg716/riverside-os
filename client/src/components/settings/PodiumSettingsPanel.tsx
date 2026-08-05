@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { RefreshCw, CheckCircle2, Info } from "lucide-react";
+import { RefreshCw, CheckCircle2, Info, TriangleAlert } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
@@ -30,9 +30,20 @@ interface PodiumSmsConfig {
 
 interface PodiumReadiness {
   api_base: string;
+  credentials_configured: boolean;
   webhook_secret_configured: boolean;
   allow_unsigned_webhook: boolean;
   inbound_inbox_preview_enabled: boolean;
+  sms_send_enabled: boolean;
+  location_uid_configured: boolean;
+  widget_embed_enabled: boolean;
+}
+
+interface PodiumHealth {
+  configured: boolean;
+  reachable: boolean;
+  latency_ms: number;
+  message: string;
 }
 
 interface PodiumAuthorizeUrlResponse {
@@ -120,6 +131,8 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
   const { toast } = useToast();
   const [podiumSms, setPodiumSms] = useState<PodiumSmsConfig | null>(null);
   const [podiumReadiness, setPodiumReadiness] = useState<PodiumReadiness | null>(null);
+  const [podiumHealth, setPodiumHealth] = useState<PodiumHealth | null>(null);
+  const [healthBusy, setHealthBusy] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const fetchPodiumSmsSettings = useCallback(async () => {
@@ -168,6 +181,22 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
       toast("Communication error", "error");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const checkPodiumHealth = async () => {
+    if (healthBusy) return;
+    setHealthBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/podium-health`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (!res.ok) throw new Error("podium-health");
+      setPodiumHealth((await res.json()) as PodiumHealth);
+    } catch {
+      toast("Podium health check could not run.", "error");
+    } finally {
+      setHealthBusy(false);
     }
   };
 
@@ -314,7 +343,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
               {[
                 { label: "API Channel", val: podiumReadiness.api_base.replace('https://', '') },
-                { label: "Webhooks", val: podiumReadiness.webhook_secret_configured ? "Verified" : "Unsigned" },
+                { label: "Webhooks", val: podiumReadiness.webhook_secret_configured ? "Configured" : "Missing" },
                 { label: "Inbox Sync", val: podiumReadiness.inbound_inbox_preview_enabled ? "Enabled" : "Disabled" },
               ].map(stat => (
                 <div key={stat.label} className="ui-metric-cell ui-tint-neutral p-3">
@@ -324,6 +353,37 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
               ))}
            </div>
         )}
+
+        <div className="mb-8">
+          <button
+            type="button"
+            onClick={() => void checkPodiumHealth()}
+            disabled={healthBusy || !podiumSms.credentials_configured}
+            className="ui-btn-secondary inline-flex h-11 items-center gap-2 px-5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${healthBusy ? "animate-spin" : ""}`} aria-hidden />
+            {healthBusy ? "Checking..." : "Check Podium Health"}
+          </button>
+          {podiumHealth ? (
+            <div
+              className={`mt-4 rounded-2xl border p-4 text-xs font-semibold ${
+                podiumHealth.reachable
+                  ? "border-app-success/30 bg-app-success/10 text-app-success"
+                  : "border-app-warning/30 bg-app-warning/10 text-app-warning"
+              }`}
+            >
+              <div className="flex items-center gap-2 font-black uppercase tracking-widest">
+                {podiumHealth.reachable ? (
+                  <CheckCircle2 className="h-4 w-4" aria-hidden />
+                ) : (
+                  <TriangleAlert className="h-4 w-4" aria-hidden />
+                )}
+                {podiumHealth.reachable ? "Authenticated" : "Needs attention"} · {podiumHealth.latency_ms} ms
+              </div>
+              <p className="mt-2 normal-case text-app-text-muted">{podiumHealth.message}</p>
+            </div>
+          ) : null}
+        </div>
 
         <div className="flex flex-wrap items-center justify-between gap-4 mb-10 pb-10 border-b border-app-border/40">
            <div className="flex items-center gap-4">

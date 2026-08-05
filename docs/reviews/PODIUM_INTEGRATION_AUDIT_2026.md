@@ -2,6 +2,8 @@
 **Date:** 2026-05-23
 **Status:** Complete — All Planned APIs Wired and Production-Ready
 
+> **Current delivery boundary:** Podium owns SMS/MMS, inbox sync, contacts, and reviews. Customer email and email receipts use the first-party Store Email mailbox. Older references below to Podium email describe retired compatibility code, not the active production route.
+
 ## 1. Executive Summary
 The Podium integration in Riverside OS is a comprehensive, multi-channel communication engine that powers both automated operational messaging and manual CRM engagement. It features a sophisticated webhook ecosystem for inbound messaging, automatic customer matching/stub-creation logic, native support for sending thermal receipt images via MMS, and full bidirectional staff identity mapping. All major Podium API endpoints are now wired and in active use.
 

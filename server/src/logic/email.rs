@@ -1318,6 +1318,8 @@ struct MailboxMessageDbRow {
 pub struct EmailHealth {
     pub configured: bool,
     pub reachable: bool,
+    pub smtp_reachable: bool,
+    pub imap_reachable: bool,
     pub latency_ms: u64,
     pub message: String,
 }
@@ -1330,6 +1332,8 @@ pub async fn health_check(pool: &PgPool) -> EmailHealth {
             return EmailHealth {
                 configured: false,
                 reachable: false,
+                smtp_reachable: false,
+                imap_reachable: false,
                 latency_ms: 0,
                 message: format!("Email settings load failed: {e}"),
             };
@@ -1339,6 +1343,8 @@ pub async fn health_check(pool: &PgPool) -> EmailHealth {
         return EmailHealth {
             configured: false,
             reachable: false,
+            smtp_reachable: false,
+            imap_reachable: false,
             latency_ms: 0,
             message: "Email not configured (missing credentials)".to_string(),
         };
@@ -1347,17 +1353,19 @@ pub async fn health_check(pool: &PgPool) -> EmailHealth {
         return EmailHealth {
             configured: false,
             reachable: false,
+            smtp_reachable: false,
+            imap_reachable: false,
             latency_ms: 0,
             message: "Email disabled in settings".to_string(),
         };
     }
-    let cfg_for_test = cfg.clone();
-    let creds_for_test = creds.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let builder = if cfg_for_test.smtp_tls == "starttls" {
-            SmtpTransport::starttls_relay(&cfg_for_test.smtp_host)
+    let smtp_cfg = cfg.clone();
+    let smtp_creds = creds.clone();
+    let smtp_check = tokio::task::spawn_blocking(move || {
+        let builder = if smtp_cfg.smtp_tls == "starttls" {
+            SmtpTransport::starttls_relay(&smtp_cfg.smtp_host)
         } else {
-            SmtpTransport::relay(&cfg_for_test.smtp_host)
+            SmtpTransport::relay(&smtp_cfg.smtp_host)
         };
         let builder = match builder {
             Ok(b) => b,
@@ -1366,10 +1374,10 @@ pub async fn health_check(pool: &PgPool) -> EmailHealth {
             }
         };
         let mailer = builder
-            .port(cfg_for_test.smtp_port)
+            .port(smtp_cfg.smtp_port)
             .credentials(Credentials::new(
-                creds_for_test.smtp_username,
-                creds_for_test.smtp_password,
+                smtp_creds.smtp_username,
+                smtp_creds.smtp_password,
             ))
             .build();
         match mailer.test_connection() {
@@ -1377,28 +1385,73 @@ pub async fn health_check(pool: &PgPool) -> EmailHealth {
             Ok(false) => Err("SMTP test_connection returned false".to_string()),
             Err(e) => Err(format!("SMTP connection failed: {e}")),
         }
-    })
-    .await;
-    match result {
-        Ok(Ok(())) => EmailHealth {
-            configured: true,
-            reachable: true,
-            latency_ms: start.elapsed().as_millis() as u64,
-            message: "SMTP server is reachable".to_string(),
-        },
-        Ok(Err(msg)) => EmailHealth {
-            configured: true,
-            reachable: false,
-            latency_ms: start.elapsed().as_millis() as u64,
-            message: msg,
-        },
-        Err(e) => EmailHealth {
-            configured: true,
-            reachable: false,
-            latency_ms: start.elapsed().as_millis() as u64,
-            message: format!("SMTP health check task panicked: {e}"),
-        },
+    });
+    let imap_check = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        test_imap_connection(cfg, creds),
+    );
+    let (smtp_result, imap_result) = tokio::join!(smtp_check, imap_check);
+    let smtp_error = match smtp_result {
+        Ok(Ok(())) => None,
+        Ok(Err(message)) => Some(message),
+        Err(error) => Some(format!("SMTP health check task failed: {error}")),
+    };
+    let imap_error = match imap_result {
+        Ok(Ok(())) => None,
+        Ok(Err(error)) => Some(error.to_string()),
+        Err(_) => Some("IMAP health check timed out after 15 seconds".to_string()),
+    };
+    let smtp_reachable = smtp_error.is_none();
+    let imap_reachable = imap_error.is_none();
+    let message = match (smtp_error, imap_error) {
+        (None, None) => "SMTP sending and IMAP inbox access are healthy".to_string(),
+        (Some(smtp), None) => format!("SMTP failed: {smtp}; IMAP is healthy"),
+        (None, Some(imap)) => format!("SMTP is healthy; IMAP failed: {imap}"),
+        (Some(smtp), Some(imap)) => format!("SMTP failed: {smtp}; IMAP failed: {imap}"),
+    };
+    EmailHealth {
+        configured: true,
+        reachable: smtp_reachable && imap_reachable,
+        smtp_reachable,
+        imap_reachable,
+        latency_ms: start.elapsed().as_millis() as u64,
+        message,
     }
+}
+
+async fn test_imap_connection(
+    cfg: StoreEmailConfig,
+    creds: EmailCredentials,
+) -> Result<(), EmailError> {
+    let tcp = tokio::net::TcpStream::connect((cfg.imap_host.as_str(), cfg.imap_port))
+        .await
+        .map_err(|error| EmailError::Imap(error.to_string()))?;
+    let tls = TlsConnector::builder()
+        .build()
+        .map_err(|error| EmailError::Imap(error.to_string()))?;
+    let tls = tokio_native_tls::TlsConnector::from(tls)
+        .connect(cfg.imap_host.as_str(), tcp)
+        .await
+        .map_err(|error| EmailError::Imap(error.to_string()))?;
+    let mut client = async_imap::Client::new(tls);
+    client
+        .read_response()
+        .await
+        .map_err(|error| EmailError::Imap(error.to_string()))?
+        .ok_or_else(|| EmailError::Imap("IMAP server closed before greeting".to_string()))?;
+    let mut session = client
+        .login(creds.imap_username, creds.imap_password)
+        .await
+        .map_err(|error| EmailError::Imap(error.0.to_string()))?;
+    session
+        .select(cfg.imap_folder.as_str())
+        .await
+        .map_err(|error| EmailError::Imap(error.to_string()))?;
+    session
+        .logout()
+        .await
+        .map_err(|error| EmailError::Imap(error.to_string()))?;
+    Ok(())
 }
 
 impl MailboxMessageDbRow {

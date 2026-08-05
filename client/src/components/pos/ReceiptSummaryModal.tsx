@@ -769,8 +769,8 @@ export default function ReceiptSummaryModal({
         },
       );
       if (!res.ok) {
-        await res.json().catch(() => ({}));
-        toast("Could not email receipt.", "error");
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Could not email receipt.", "error");
         return;
       }
       toast(gift ? "Gift receipt emailed" : "Receipt emailed", "success");
@@ -855,8 +855,8 @@ export default function ReceiptSummaryModal({
         },
       );
       if (!res.ok) {
-        await res.json().catch(() => ({}));
-        toast("Could not text receipt.", "error");
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Could not text receipt.", "error");
         return;
       }
       const j = (await res.json().catch(() => ({}))) as { mode?: string };

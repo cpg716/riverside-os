@@ -3119,7 +3119,7 @@ async fn get_podium_health(
 ) -> Result<Json<Value>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
 
-    let health = crate::logic::podium::health_check(&state.http_client).await;
+    let health = crate::logic::podium::health_check(&state.db, &state.http_client).await;
     Ok(Json(json!({
         "configured": health.configured,
         "reachable": health.reachable,

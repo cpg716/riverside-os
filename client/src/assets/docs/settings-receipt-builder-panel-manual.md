@@ -40,7 +40,8 @@ Use this panel when changing the receipt logo, store name, header lines, footer 
 9. Use the preview to review the selected receipt situation.
 10. Use **Print Test** to send the current preview to the Epson receipt printer.
 11. Enter a destination under **Delivery tests** and use **Send Test Email** or **Send Test Text** to send the current preview without saving first. Email uses Store Email; text sends an attached receipt image through Podium.
-12. Click **Apply** to save the standard receipt settings.
+12. After both tests pass, complete one controlled Register sale and repeat **Email receipt** and **Text receipt** from **Sale Complete**. Builder tests prove the template delivery paths; Sale Complete proves the production Transaction receipt routes and customer handoff.
+13. Click **Apply** to save the standard receipt settings.
 
 Apply, Print Test, Send Test Email, and Send Test Text stay unavailable when the active template is missing a protected receipt field or repeats a token. Restore each field listed in the warning, remove duplicates, or reset that template before continuing. This prevents a saved receipt from losing or repeating its Transaction #, date/time, customer, salesperson, staff, Register #, items, order payments, subtotal, sales tax, total, paid amount, balance, tender, or status. Apply also remains unavailable if the other template still needs attention.
 

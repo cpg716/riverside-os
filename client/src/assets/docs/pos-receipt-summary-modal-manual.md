@@ -38,7 +38,7 @@ When a receipt is opened from Daily Sales, Transaction History, or Staff Profile
 
 - **Print receipt** sends the customer receipt through the station receipt-printer route. If it fails, the completed sale stays intact and Riverside offers retry, printer check, SMS, or email delivery.
 - **View receipt** opens the preview.
-- **Text receipt** and **Email receipt** send the customer copy when the sale has the needed customer contact information.
+- **Text receipt** sends the customer copy through Podium SMS/MMS; **Email receipt** sends it through Store Email. When delivery fails, Riverside shows the provider/setup reason so staff can correct the integration without repeating the sale.
 - **Gift receipt** prints a gift copy without exposing normal payment detail.
 - **Reports printer** opens the formatted receipt copy for the workstation report-printer path; it does not replace the Epson receipt-station print route.
 - A payer deposit receipt may show **Open Wedding Builder** when staff selected **Collect and Build Orders**. It returns to the original payer's **Wedding Deposit → Orders & Receipts** final review, where **Create All Member Transactions** posts the prepared separate member Transactions against their exact funded sources; it does not collect another tender.

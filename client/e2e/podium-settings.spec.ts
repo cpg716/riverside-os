@@ -75,7 +75,7 @@ test.describe("Settings Podium integration", () => {
       page.getByRole("heading", { level: 3, name: /podium comms/i }).first(),
     ).toBeVisible({ timeout: 25_000 });
     await expect(
-      page.getByText(/lifecycle sms & html email/i).first(),
+      page.getByText(/sms, inbox & reviews/i).first(),
     ).toBeVisible({ timeout: 25_000 });
   });
 });

@@ -1724,34 +1724,35 @@ pub struct PodiumHealth {
     pub message: String,
 }
 
-pub async fn health_check(http: &reqwest::Client) -> PodiumHealth {
+pub async fn health_check(pool: &PgPool, http: &reqwest::Client) -> PodiumHealth {
     let start = std::time::Instant::now();
-    let env_creds = match std::env::var("RIVERSIDE_PODIUM_CLIENT_ID")
-        .ok()
-        .zip(std::env::var("RIVERSIDE_PODIUM_CLIENT_SECRET").ok())
-    {
-        Some((id, secret)) if !id.is_empty() && !secret.is_empty() => (id, secret),
-        _ => {
+    let creds = match PodiumEnvCredentials::load(pool).await {
+        Some(creds) => creds,
+        None => {
             return PodiumHealth {
                 configured: false,
                 reachable: false,
                 latency_ms: 0,
-                message: "Podium not configured (RIVERSIDE_PODIUM_CLIENT_ID unset)".to_string(),
+                message: "Podium OAuth credentials are incomplete".to_string(),
             };
         }
     };
-    let token_url = std::env::var("RIVERSIDE_PODIUM_OAUTH_TOKEN_URL")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "https://api.podium.com/oauth/token".to_string());
-    let res = match add_podium_headers(http.post(&token_url), None)
-        .header("Content-Type", "application/json")
-        .json(&json!({
-            "client_id": env_creds.0,
-            "client_secret": env_creds.1,
-            "grant_type": "refresh_token",
-            "refresh_token": "health-check-probe",
-        }))
+
+    let health_token_cache = Arc::new(Mutex::new(PodiumTokenCache::default()));
+    let token = match get_valid_access_token(http, &health_token_cache, &creds).await {
+        Ok(token) => token,
+        Err(error) => {
+            return PodiumHealth {
+                configured: true,
+                reachable: false,
+                latency_ms: start.elapsed().as_millis() as u64,
+                message: format!("Podium OAuth authentication failed: {error}"),
+            };
+        }
+    };
+    let locations_url = format!("{}/v4/locations", creds.api_base_url.trim_end_matches('/'));
+    let res = match add_podium_headers(http.get(locations_url), Some(&token))
+        .query(&[("limit", 1_u8)])
         .send()
         .await
     {
@@ -1761,24 +1762,24 @@ pub async fn health_check(http: &reqwest::Client) -> PodiumHealth {
                 configured: true,
                 reachable: false,
                 latency_ms: start.elapsed().as_millis() as u64,
-                message: format!("Podium health check network error: {e}"),
+                message: format!("Podium API health check failed: {e}"),
             };
         }
     };
     let status = res.status();
-    if status.as_u16() == 400 || status.is_success() {
+    if status.is_success() {
         PodiumHealth {
             configured: true,
             reachable: true,
             latency_ms: start.elapsed().as_millis() as u64,
-            message: "Podium token endpoint is reachable".to_string(),
+            message: "Podium OAuth and read_locations access are healthy".to_string(),
         }
     } else {
         PodiumHealth {
             configured: true,
             reachable: false,
             latency_ms: start.elapsed().as_millis() as u64,
-            message: format!("Podium returned HTTP {}", status),
+            message: format!("Podium locations check returned HTTP {}", status),
         }
     }
 }

@@ -38,7 +38,7 @@ Email and text flows **do not** use `receipt_thermal_mode`; they use standard HT
 - **`GET /api/transactions/{transaction_id}/receipt.html`** — optional query:
   - **`register_session_id`** — same auth rules as Transaction Record read: BO staff with **`orders.view`**, or open register session with a positive allocation to the transaction.
   - **`gift=1`** / **`true`** / **`yes`** — gift receipt merge (pricing suppressed in template merge).
-  - **`order_item_ids`** — comma- or space-separated **`order_items.id`** (UUID) values; when present, only those lines appear on the merged receipt (must match at least one line or **400**).
+  - **`transaction_line_ids`** — comma- or space-separated **`transaction_lines.id`** (UUID) values; when present, only those lines appear on the merged receipt (must match at least one line or **400**).
 - Server loads **`receipt_studio_exported_html`**. If a legacy template exists, it runs **`merge_receipt_studio_html(tpl, order, cfg, gift)`**; otherwise it runs **`render_standard_receipt_html(order, cfg, gift)`**.
 - Empty Studio HTML no longer blocks receipt viewing.
 
@@ -60,7 +60,7 @@ External references: [New York sales-tax recordkeeping](https://www.tax.ny.gov/p
 
 **ReceiptLine print preference:** The ESC/POS endpoint returns both `receiptline_markdown` (template-based) and `escpos_base64` (legacy structured fallback). The POS client prefers the ReceiptLine path, transforming it client-side for printing. The raw ESC/POS fallback uses a fixed layout and does not honor the operator's template customizations, logo image, or loyalty tokens — it exists solely as a safety net when the client-side ReceiptLine transform fails.
 
-**Thermal ESC/POS:** **`GET /api/transactions/{transaction_id}/receipt.escpos`** supports the same **`gift`** and **`order_item_ids`** query parameters (full Transaction Record is the default when omitted).
+**Thermal ESC/POS:** **`GET /api/transactions/{transaction_id}/receipt.escpos`** supports the same **`gift`** and **`transaction_line_ids`** query parameters (full Transaction Record is the default when omitted).
 
 **Payment receipts:** Daily Sales payment-only activity uses **`GET /api/payments/allocations/{allocation_id}/receipt.escpos`** to print a payment receipt without merchandise lines. It includes customer name, Customer #, phone, applied Transaction Record, method details, amount paid, paid-to-date, and remaining balance.
 
@@ -70,18 +70,18 @@ External references: [New York sales-tax recordkeeping](https://www.tax.ny.gov/p
 
 ---
 
-## Email receipt (Podium, inline HTML)
+## Email receipt (Store Email, inline HTML)
 
-- **`POST /api/transactions/{transaction_id}/receipt/send-email`** — JSON body optional **`to_email`**; if omitted, uses the customer email on the Transaction Record. Optional **`gift`** (bool) and **`order_item_ids`** (UUID array; empty = all lines) — same semantics as the HTML route.
-- Builds legacy merged HTML when a saved template exists; otherwise builds the standard receipt HTML fallback. The body is wrapped for Podium with **`wrap_receipt_fragment_for_podium_email_inline`** (a single styled **`<div>`**, not a full `<html>` document, so inboxes treat it as normal message HTML rather than a downloadable file).
-- Sends via **`send_podium_email_message`** → Podium **`POST /v4/messages`** with **`channel.type`: `email`**, **`subject`**, HTML **`body`**.
-- Needs **`RIVERSIDE_PODIUM_*`**, **`podium_sms_config.email_send_enabled`**, and **`location_uid`**. Failures surface as **502** with a Podium hint string.
+- **`POST /api/transactions/{transaction_id}/receipt/send-email`** — JSON body optional **`to_email`**; if omitted, uses the customer email on the Transaction Record. Optional **`gift`** (bool) and **`transaction_line_ids`** (UUID array; empty = all lines) — same semantics as the HTML route.
+- Builds merged HTML when a saved template exists; otherwise builds the standard receipt HTML fallback. The saved-template fragment is wrapped as one email-safe styled **`<div>`**.
+- Sends through **`email::send_email`** using the configured Store Email SMTP account and records the outbound mailbox/customer notification evidence.
+- Needs Store Email enabled plus saved IONOS SMTP credentials. Failures surface as **502** with a Mailbox settings hint.
 
 ---
 
 ## Text receipt (Podium: ReceiptLine MMS image with SMS fallback)
 
-- **`POST /api/transactions/{transaction_id}/receipt/send-sms`** — JSON optional **`to_phone`**, optional **`png_base64`** (raw base64 PNG, no data-URL prefix), optional **`gift`** and **`order_item_ids`** (gift uses plain-text **`format_pos_gift_receipt_text_message`** when no PNG; MMS raster uses **`receipt.html`** with the same query params as the client).
+- **`POST /api/transactions/{transaction_id}/receipt/send-sms`** — JSON optional **`to_phone`**, optional **`png_base64`** (raw base64 PNG, no data-URL prefix), optional **`gift`** and **`transaction_line_ids`** (gift uses plain-text **`format_pos_gift_receipt_text_message`** when no PNG; MMS raster uses **`receipt.html`** with the same query params as the client).
 - **With `png_base64`:** decodes PNG (max **6 MiB** decoded), sends **`POST /v4/messages/attachment`** (multipart: JSON **`data`** + **`attachment`** file `receipt.png`) via **`send_podium_phone_message_with_png_attachment`**. Short caption text accompanies the image (MMS behavior depends on carrier / Podium). Response may include **`"mode": "mms_attachment"`**.
 - **Without image:** plain transactional body from **`receipt_plain_text`** (clamped length), **`send_podium_sms_message`**. Response **`"mode": "sms_text"`**.
 - **POS:** The Register rasterizes the same ReceiptLine preview used for Epson printing and sends it as an MMS image. If rasterization is unavailable, ROS sends the financially complete plain-text receipt instead. Gift receipts use only the selected gift lines.
@@ -93,6 +93,6 @@ Podium attachment endpoint is **rate-limited** (see Podium docs, typically **10 
 ## Related permissions and ops
 
 - Transaction Record receipt routes: **`docs/STAFF_PERMISSIONS.md`** (`orders.view` or register-session scoping).
-- Podium env and Settings → Integrations: **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**, **`DEVELOPER.md`**.
+- Store Email and Podium setup: **`docs/EMAIL_MAILBOX.md`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**, **`DEVELOPER.md`**.
 - **POS:** **`ReceiptSummaryModal`** — compact sale completion, standard print/send, receipt viewing, and separate **gift receipt** line pick for print/email/text when line items are present — **`docs/PLAN_PODIUM_REVIEWS.md`** for review invite on the same modal.
 - Reporting catalog entries for these paths: **`docs/AI_REPORTING_DATA_CATALOG.md`** (`/api/transactions/*`, `/api/hardware/*`).

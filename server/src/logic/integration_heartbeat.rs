@@ -38,7 +38,7 @@ pub async fn run_integration_heartbeat(
     record_status(pool, "qbo", &qbo_status, &qbo_detail, qbo_has_failed).await?;
 
     // 2. Podium
-    let podium_h = podium::health_check(http_client).await;
+    let podium_h = podium::health_check(pool, http_client).await;
     let (podium_status, podium_detail) = if !podium_h.configured {
         (
             "CAUTION".to_string(),

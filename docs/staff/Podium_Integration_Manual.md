@@ -72,7 +72,7 @@ Podium needs **OAuth app** credentials and a **refresh token** saved securely on
 
 Riverside requests these Podium OAuth scopes today: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, and `write_contacts`. If Podium shows an empty consent card or a generic authorization error, confirm the app has those products/scopes enabled in Podium and that the redirect URI belongs to the same Client ID.
 
-If anything fails, use the **readiness** strip (credentials, webhook secret, API base, toggles) before calling Podium support.
+If anything fails, use the **readiness** strip (credentials, webhook secret, API base, toggles), then click **Check Podium Health**. The live check refreshes the saved OAuth token and verifies authenticated `read_locations` access; a green result is stronger than basic network reachability but still does not send a message.
 
 ### 3.2 Turn SMS on
 

@@ -155,7 +155,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 | **Podium consent page says something went wrong** | Do not retry repeatedly; check whether the Podium app has all scopes enabled (`read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `write_contacts`) | IT / Podium support |
 | **No Messages tab** | Confirm **Relationship Hub** access | [CUSTOMER_HUB_AND_RBAC.md](../CUSTOMER_HUB_AND_RBAC.md) |
 | **Send Text button stays disabled** | Add message text; for new numbers add phone, first name, and last name | Manager checks **customers.hub_edit** |
-| **Send failed / Podium unavailable** | Readiness + toggles + location UID | Manager / IT |
+| **Send failed / Podium unavailable** | Readiness + toggles + location UID, then **Check Podium Health** | Manager / IT |
 | **Automated SMS never fires** | Customer **opt-in** + valid phone + template not empty | Admin + [Podium_Integration_Manual.md](Podium_Integration_Manual.md) |
 | **Staff name shows as a UUID** | Manager must link staff to Podium user in **Staff → Edit** | Manager |
 | **Review invite sent to opted-out customer** | Check profile **Opt out of review requests**; verify saved before sale completion | Manager / IT |
