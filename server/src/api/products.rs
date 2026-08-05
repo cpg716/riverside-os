@@ -3564,8 +3564,8 @@ async fn fetch_product_hub(
         SELECT
             units_sold_all_time,
             units_sold_last_30_days,
-            (CASE
-                WHEN first_sold_at IS NULL THEN 0
+            CASE
+                WHEN first_sold_at IS NULL THEN 0::numeric
                 ELSE (
                     units_sold_all_time::numeric
                     / GREATEST(
@@ -3576,10 +3576,10 @@ async fn fetch_product_hub(
                             + 1
                         )::integer
                     )::numeric
-                )
-            END)::numeric(14, 2) AS average_monthly_units_sold,
-            (CASE
-                WHEN first_sold_at IS NULL THEN 0
+                )::numeric(14, 2)
+            END AS average_monthly_units_sold,
+            CASE
+                WHEN first_sold_at IS NULL THEN 0::numeric
                 ELSE (
                     units_sold_all_time::numeric * 12::numeric
                     / GREATEST(
@@ -3590,8 +3590,8 @@ async fn fetch_product_hub(
                             + 1
                         )::integer
                     )::numeric
-                )
-            END)::numeric(14, 2) AS average_yearly_units_sold
+                )::numeric(14, 2)
+            END AS average_yearly_units_sold
         FROM totals
         "#,
     )
@@ -3672,8 +3672,8 @@ async fn fetch_product_hub(
             pv.reserved_stock,
             GREATEST(0, pv.stock_on_hand - pv.reserved_stock - pv.on_layaway)::integer AS available_stock,
             sales.last_sold_at,
-            (CASE
-                WHEN sales.first_sold_at IS NULL THEN 0
+            CASE
+                WHEN sales.first_sold_at IS NULL THEN 0::numeric
                 ELSE (
                     sales.total_units_sold::numeric
                     / GREATEST(
@@ -3684,10 +3684,10 @@ async fn fetch_product_hub(
                             + 1
                         )::integer
                     )::numeric
-                )
-            END)::numeric(14, 2) AS average_monthly_units_sold,
-            (CASE
-                WHEN sales.first_sold_at IS NULL THEN 0
+                )::numeric(14, 2)
+            END AS average_monthly_units_sold,
+            CASE
+                WHEN sales.first_sold_at IS NULL THEN 0::numeric
                 ELSE (
                     sales.total_units_sold::numeric * 12::numeric
                     / GREATEST(
@@ -3698,8 +3698,8 @@ async fn fetch_product_hub(
                             + 1
                         )::integer
                     )::numeric
-                )
-            END)::numeric(14, 2) AS average_yearly_units_sold,
+                )::numeric(14, 2)
+            END AS average_yearly_units_sold,
             COALESCE(po_open.qty_on_order, 0)::int4 AS qty_on_order,
             physical.last_physical_count_at,
             pv.reorder_point,

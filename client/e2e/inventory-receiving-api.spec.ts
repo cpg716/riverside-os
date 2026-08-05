@@ -207,16 +207,16 @@ test.describe("Inventory receiving API regressions", () => {
     expect(beforeHub.stats.total_reserved_units).toBe(0);
     expect(beforeHub.stats.total_available_units).toBe(2);
     expect(beforeHub.stats.units_sold_last_30_days).toBe(0);
-    expect(beforeHub.stats.average_monthly_units_sold).toBe("0.00");
-    expect(beforeHub.stats.average_yearly_units_sold).toBe("0.00");
+    expect(Number(beforeHub.stats.average_monthly_units_sold)).toBe(0);
+    expect(Number(beforeHub.stats.average_yearly_units_sold)).toBe(0);
     expect(beforeHub.stats.trailing_12_month_sales_rank).toBeGreaterThan(0);
     expect(beforeHub.stats.trailing_12_month_sales_rank_total).toBeGreaterThan(0);
     expect(beforeVariant?.stock_on_hand).toBe(2);
     expect(beforeVariant?.reserved_stock).toBe(0);
     expect(beforeVariant?.available_stock).toBe(2);
     expect(beforeVariant?.last_sold_at).toBeNull();
-    expect(beforeVariant?.average_monthly_units_sold).toBe("0.00");
-    expect(beforeVariant?.average_yearly_units_sold).toBe("0.00");
+    expect(Number(beforeVariant?.average_monthly_units_sold)).toBe(0);
+    expect(Number(beforeVariant?.average_yearly_units_sold)).toBe(0);
     expect(beforeHub.can_view_procurement).toBeTruthy();
     expect(beforeVariant?.qty_on_order).toBe(3);
 
