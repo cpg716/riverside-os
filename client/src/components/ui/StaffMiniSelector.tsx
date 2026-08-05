@@ -19,6 +19,7 @@ interface StaffMiniSelectorProps {
   placeholderAvatarId?: string;
   placeholderAvatarName?: string;
   fullWidth?: boolean;
+  showFullList?: boolean;
 }
 
 const baseUrl = getBaseUrl();
@@ -73,6 +74,7 @@ export default function StaffMiniSelector({
   placeholderAvatarId,
   placeholderAvatarName,
   fullWidth = false,
+  showFullList = false,
 }: StaffMiniSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -128,7 +130,7 @@ export default function StaffMiniSelector({
         {isOpen && (
           <div 
             data-testid="staff-selector-dropdown"
-            className={`absolute top-full left-0 right-0 mx-auto z-[190] mt-1 ${dropdownWidth} max-h-[15rem] overflow-y-auto rounded-xl border border-app-border bg-app-surface p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-150`}
+            className={`absolute top-full left-0 right-0 mx-auto z-[190] mt-1 ${dropdownWidth} ${showFullList ? "overflow-visible" : "max-h-[15rem] overflow-y-auto"} rounded-xl border border-app-border bg-app-surface p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-150`}
           >
             <button
               type="button"

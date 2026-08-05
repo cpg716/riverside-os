@@ -3213,9 +3213,9 @@ export function CustomerRelationshipHubDrawer({
               : (err ?? "No data.")}
         </p>
       ) : (
-        <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-3">
           {showHubSummary ? (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="order-2 flex flex-wrap items-center gap-2">
               {hub.is_vip ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-app-warning/20 bg-app-warning/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
                   <Sparkles size={12} aria-hidden />
@@ -3271,7 +3271,7 @@ export function CustomerRelationshipHubDrawer({
           ) : null}
 
           {showHubSummary ? (
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="order-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {[
                 {
                   label: "Balance answer",
@@ -3303,7 +3303,7 @@ export function CustomerRelationshipHubDrawer({
               ].map((card) => (
                 <div
                   key={card.label}
-                  className={`rounded-2xl border px-4 py-3 ${
+                  className={`rounded-2xl border px-3 py-2 ${
                     card.tone === "ok"
                       ? "border-app-success/20 bg-app-success/10 text-app-success"
                       : card.tone === "warn"
@@ -3326,7 +3326,7 @@ export function CustomerRelationshipHubDrawer({
           ) : null}
 
           {showHubSummary ? (
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+            <div className="order-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
               {[
                 {
                   label: `Lifetime${hub.couple_id ? " (Joint)" : ""}`,
@@ -3385,7 +3385,7 @@ export function CustomerRelationshipHubDrawer({
                   title={disabled ? disabledReason : undefined}
                   aria-label={disabled ? `${label}. ${disabledReason}` : undefined}
                   onClick={() => openHubStatTarget(target)}
-                  className={`rounded-2xl border px-4 py-3 ${
+                  className={`rounded-2xl border px-3 py-2 ${
                     label === "Profile" && hub.profile_complete
                       ? "border-app-success/20 bg-app-success/10"
                       : "border-app-border bg-app-surface-2/90"
@@ -3411,7 +3411,7 @@ export function CustomerRelationshipHubDrawer({
           {showHubSummary && hub.snapshot_items.length > 0 ? (
             <section
               data-testid="customer-snapshot-card"
-              className="rounded-2xl border border-app-border bg-app-surface-2/90 p-4"
+              className="order-2 rounded-2xl border border-app-border bg-app-surface-2/90 p-3"
             >
               <h3 className="mb-3 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
                 <RosieIcon size={14} alt="" />
@@ -3446,7 +3446,7 @@ export function CustomerRelationshipHubDrawer({
           {showHubSummary ? (
             <section
               data-testid="follow-up-opportunities-card"
-              className="border-t border-app-border pt-3"
+              className="order-2 border-t border-app-border pt-3"
             >
               <h3 className="mb-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
                 Follow-Up Opportunities
@@ -4709,10 +4709,10 @@ export function CustomerRelationshipHubDrawer({
           )}
 
           {tab === "profile" && (
-            <div className="order-1 space-y-6">
-              <div className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
-                <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
-                  <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="order-1 space-y-4" data-testid="customer-profile-details">
+              <div className="grid gap-3 xl:grid-cols-[1.45fr_0.55fr]">
+                <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
                     <div>
                       <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                         Customer profile
@@ -4733,7 +4733,7 @@ export function CustomerRelationshipHubDrawer({
                     </div>
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
                     <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       First name
                       <input
@@ -4762,7 +4762,7 @@ export function CustomerRelationshipHubDrawer({
                         className="ui-input mt-1 w-full p-2.5 text-sm font-semibold text-app-text read-only:opacity-80"
                       />
                     </label>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:col-span-2">
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:col-span-2 lg:col-span-1">
                       Company
                       <input
                         readOnly={!canHubEdit}
@@ -4819,7 +4819,7 @@ export function CustomerRelationshipHubDrawer({
                     <AddressAutocompleteInput
                       value={profileDraft.address_line1}
                       readOnly={!canHubEdit}
-                      className="sm:col-span-2"
+                      className="sm:col-span-2 lg:col-span-2"
                       inputClassName="ui-input mt-1 w-full p-2.5 text-sm font-semibold text-app-text read-only:opacity-80"
                       onChange={(value) =>
                         setProfileDraft((d) => ({
@@ -4838,7 +4838,7 @@ export function CustomerRelationshipHubDrawer({
                         }))
                       }
                     />
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:col-span-2">
+                    <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:col-span-2 lg:col-span-1">
                       Address line 2
                       <input
                         readOnly={!canHubEdit}
@@ -4927,9 +4927,9 @@ export function CustomerRelationshipHubDrawer({
                   </div>
                 </section>
 
-                <div className="space-y-4">
+                <div className="space-y-3">
                   <label
-                    className={`flex items-center gap-2 rounded-2xl border border-app-border bg-app-surface-2/80 p-4 text-sm font-bold text-app-text ${canHubEdit ? "cursor-pointer" : "cursor-not-allowed opacity-70"}`}
+                    className={`flex items-center gap-2 rounded-2xl border border-app-border bg-app-surface-2/80 p-3 text-sm font-bold text-app-text ${canHubEdit ? "cursor-pointer" : "cursor-not-allowed opacity-70"}`}
                   >
                     <input
                       type="checkbox"
@@ -4943,7 +4943,7 @@ export function CustomerRelationshipHubDrawer({
                     VIP customer
                   </label>
 
-                  <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+                  <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-3">
                     <h3 className="mb-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Register defaults
                     </h3>
@@ -5027,7 +5027,7 @@ export function CustomerRelationshipHubDrawer({
                   </section>
 
                   <section
-                    className={`rounded-2xl border p-4 ${
+                    className={`rounded-2xl border p-3 ${
                       hub.stats.marketing_needs_attention
                         ? "border-app-accent/40 bg-app-accent/10"
                         : "border-app-border bg-app-surface-2/80"
@@ -5036,7 +5036,7 @@ export function CustomerRelationshipHubDrawer({
                     <h3 className="mb-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Contact preferences
                     </h3>
-                    <div className="space-y-3 text-sm">
+                    <div className="grid gap-2 text-sm sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                       <label
                         className={`flex items-center gap-2 font-semibold text-app-text ${canHubEdit ? "cursor-pointer" : "cursor-not-allowed opacity-70"}`}
                       >
@@ -5144,11 +5144,11 @@ export function CustomerRelationshipHubDrawer({
                     </div>
                   </section>
 
-                  <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+                  <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-3">
                     <h3 className="mb-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Extended profile
                     </h3>
-                    <div className="space-y-3">
+                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
                       {(
                         [
                           ["custom_field_1", "Custom field 1"],
@@ -5256,17 +5256,17 @@ export function CustomerRelationshipHubDrawer({
                   ) : null}
                 </section>
               ) : null}
-              <div className="sticky bottom-0 z-20 -mx-2 rounded-2xl border border-app-border bg-app-surface/95 p-3 shadow-2xl shadow-black/10 backdrop-blur">
+              <div className="sticky bottom-0 z-20 -mx-1 rounded-2xl border border-app-border bg-app-surface/95 p-2 shadow-xl shadow-black/10 backdrop-blur">
                 {canHubEdit ? (
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-xs font-semibold text-app-text-muted">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="hidden text-xs font-semibold text-app-text-muted sm:block">
                       Save contact, address, and checkout settings before leaving this profile.
                     </p>
                     <button
                       type="button"
                       disabled={profileSaving}
                       onClick={() => void saveProfileDetails()}
-                      className="ui-btn-primary min-h-11 px-5 text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+                      className="ui-btn-primary min-h-9 px-4 text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
                     >
                       {profileSaving ? "Saving…" : "Save profile"}
                     </button>

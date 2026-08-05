@@ -33,6 +33,22 @@ test("staff selections close without parent labels reactivating the trigger", ()
   expect(weddingSelector).not.toContain("<label");
 });
 
+test("the Register primary salesperson menu shows the full roster", () => {
+  const selector = repoFile("client/src/components/ui/StaffMiniSelector.tsx");
+  const cart = repoFile("client/src/components/pos/Cart.tsx");
+
+  expect(selector).toContain("showFullList?: boolean");
+  expect(selector).toContain(
+    'showFullList ? "overflow-visible" : "max-h-[15rem] overflow-y-auto"',
+  );
+
+  const cartSelector = cart.slice(
+    cart.indexOf('placeholder="Select Salesperson..."') - 500,
+    cart.indexOf('placeholder="Select Salesperson..."') + 500,
+  );
+  expect(cartSelector).toContain("showFullList");
+});
+
 test("native labels do not wrap action buttons or shared selectors", () => {
   const files = [
     "client/src/components/inventory/QuickProcurementItemModal.tsx",

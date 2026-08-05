@@ -100,3 +100,5 @@ If ROSIE is unavailable, the hub remains usable.
 
 - [Customers Workspace](manual:customers-workspace)
 - [Orders Workspace](manual:orders-workspace)
+
+On the **Profile** tab, customer contact details appear first: name, phone, email, and address. The operational summary and insight cards follow below in a compact layout so staff can review or complete the customer record with less scrolling.

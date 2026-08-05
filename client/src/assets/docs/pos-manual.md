@@ -260,7 +260,7 @@ Gift card load receipts list the sold gift card number under the gift-card line 
 
 When staff open the loaded customer's profile from Register and save updated contact details, the selected customer shown in Register refreshes immediately.
 
-Choose the sale's primary salesperson from the Register header. The salesperson list closes as soon as a selection is made, and the chosen name remains visible on the header control.
+Choose the sale's primary salesperson from the Register header. The menu shows the full active Salesperson roster without an internal scrollbar, closes as soon as a selection is made, and keeps the chosen name visible on the header control.
 
 Customer search accepts initials and partial first-and-last-name fragments. For example, `C Garcia`, `Ch Gar`, and `Gar C` can find Chris Garcia; enter enough of each name to distinguish people with similar names, then confirm the phone or email shown before selecting the profile.
 

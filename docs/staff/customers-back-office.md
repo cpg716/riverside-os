@@ -4,6 +4,8 @@
 
 **Where in ROS:** Back Office → **Customers**. Subsections: **All Customers**, **Add Customer**, **Layaways** (all-customer layaway workspace), **RMS Charge** (all-customer private-label credit workspace), and **Duplicate Review** (all-customer profile review queue). Full-store shipment work now lives in the standalone **Shipping** workspace.
 
+In a customer's **Profile** tab, contact details are first: name, phone, email, and address. Summary and insight cards follow in a denser layout, keeping the fields staff use most above the fold and reducing scrolling.
+
 **Related permissions:** Browse/search/create use general customer access. Some hub tabs and customer-related workspaces are role-limited. If a tab or action is missing, ask a manager to review your customer, Orders, Shipping, RMS Charge, or Duplicate Review access.
 
 ---

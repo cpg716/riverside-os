@@ -27,6 +27,8 @@ That person is recorded as the checkout **operator** for the transaction. **Afte
 
 Every merchandise, alteration, special-order, custom-order, and wedding-order sale line must have a **Salesperson** before payment can finish. Select a default Salesperson at the top of the cart, or assign a Salesperson on individual lines. Use **Staff Admin** only when the sale should not commission to an individual salesperson; it is a protected no-commission system account. Gift-card-load-only and RMS Charge payment-only flows do not use salesperson attribution.
 
+The primary **Salesperson** menu at the top of the Register shows the full active roster at once. Select a name directly; there is no separate scrollbar inside this menu.
+
 ## Local draft cart (this device)
 
 While the till is open, an **in-progress sale** is **saved in the browser** on this device (`localforage`, key `ros_pos_active_sale`, scoped to your **register session id**) **only after you have at least one line item** in the cart (lines, linked customer, shipping selection, default salesperson, and cashier-for-sale).

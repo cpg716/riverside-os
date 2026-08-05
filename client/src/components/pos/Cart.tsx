@@ -5229,9 +5229,10 @@ export default function Cart({
                         setPrimarySalespersonId(id);
                       }}
                       placeholder="Select Salesperson..."
-                        displayLabel={
-                          hasLineSalespersonOverrides ? "SPLIT" : undefined
-                        }
+                      showFullList
+                      displayLabel={
+                        hasLineSalespersonOverrides ? "SPLIT" : undefined
+                      }
                       className="min-w-[12rem]"
                     />
                   </div>
