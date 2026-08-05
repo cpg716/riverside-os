@@ -267,7 +267,7 @@ For complete pre-release validation (service boot order, lint/build gates, and E
 
 ## Schema Contract, Migrations, And Seeds
 
-Fresh installs use the schema-contract baseline in **`migrations/001_core_identity_staff.sql`** through the current append-only migration **`migrations/133_qbo_backdated_sale_clearing.sql`**. The legacy pre-launch migration stream is archived under **`migrations/legacy_prelaunch_history/`** and is not part of normal fresh setup.
+Fresh installs use every numbered SQL file in **`migrations/`**, ordered by numeric prefix. The directory is the authoritative active baseline; tooling derives the current highest migration automatically instead of maintaining a second filename inventory. The legacy pre-launch migration stream is archived under **`migrations/legacy_prelaunch_history/`** and is not part of normal fresh setup.
 
 Apply active migrations with **`./scripts/apply-migrations-docker.sh`** or **`./scripts/apply-migrations-psql.sh`**. The ledger is the table **`public.ros_schema_migrations`** and should contain the active baseline filenames after a fresh baseline build. Runtime startup verifies the ledger and refuses pending migrations unless `RIVERSIDE_APPLY_PENDING_MIGRATIONS_ON_STARTUP=true` is set intentionally for a non-production startup apply.
 

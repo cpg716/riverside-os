@@ -141,8 +141,8 @@ jobs:
       - name: Install psql client and curl
         run: sudo apt-get update && sudo apt-get install -y postgresql-client curl
 
-      - name: Apply SQL migrations
-        run: ./scripts/apply-migrations-psql.sh
+      - name: Measure fresh SQL migration replay
+        run: ./scripts/check-fresh-migration-replay.sh
 
       - name: Seed E2E non-Admin staff (margin-pivot 403)
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_e2e_non_admin_staff.sql
@@ -537,8 +537,8 @@ jobs:
       - name: Install psql client and curl
         run: sudo apt-get update && sudo apt-get install -y postgresql-client curl
 
-      - name: Apply SQL migrations
-        run: ./scripts/apply-migrations-psql.sh
+      - name: Measure fresh SQL migration replay
+        run: ./scripts/check-fresh-migration-replay.sh
 
       - name: Seed E2E non-Admin staff (margin-pivot 403)
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_e2e_non_admin_staff.sql

@@ -18,6 +18,7 @@
     "check:counterpoint-fulfillment-incident": "node scripts/check-counterpoint-fulfillment-incident-evidence.mjs",
     "check:go-live-blockers": "node scripts/check-go-live-blockers.mjs",
     "check:dirty-migration-rehearsal": "node scripts/check-dirty-migration-rehearsal.mjs",
+    "check:migration-layout": "bash scripts/validate_migration_layout.sh",
     "check:pre-retag": "node scripts/check-pre-retag.mjs",
     "typecheck": "cd client && npm run typecheck",
     "build": "cd client && npm run build",

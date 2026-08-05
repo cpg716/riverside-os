@@ -14,7 +14,7 @@ The current system is contract-driven:
 
 ## Active Baseline
 
-The only active migration files in `migrations/` are:
+The foundational baseline through migration 133 is summarized below for domain orientation. This table is not the migration inventory; the numbered SQL files in `migrations/` and `validate_migration_layout.sh` are authoritative as later migrations are appended.
 
 | File | Domain |
 | --- | --- |
@@ -205,6 +205,8 @@ Use these checks when touching migrations, seeds, schema startup validation, or 
 
 ```bash
 bash scripts/validate_migration_layout.sh
+# Requires a dedicated database with an empty public schema:
+DATABASE_URL="postgresql://..." bash scripts/check-fresh-migration-replay.sh
 RIVERSIDE_DB_NAME=riverside_os bash scripts/migration-status-docker.sh
 RIVERSIDE_DB_NAME=riverside_os bash scripts/validate_schema_contract.sh
 psql "$DATABASE_URL" -f scripts/audit_data_integrity_diagnostics.sql
@@ -247,6 +249,14 @@ Migrations are **append-only and immutable** once applied to any environment:
 - run layout and schema-contract validation before commit
 - all new schema changes get the next numbered file (e.g. `038_...`)
 - use `IF NOT EXISTS` / `IF EXISTS` guards in new migrations for safe idempotency
+
+### Five-year migration policy
+
+- `migrations/` is the authoritative filename inventory. `validate_migration_layout.sh` derives ordering and the highest version from the directory, verifies the intentional `059` gap, and confirms packaged migration embedding.
+- CI replays the complete chain into an empty PostgreSQL `public` schema, records elapsed time, and warns when replay exceeds five minutes. Override the warning threshold only with `RIVERSIDE_MIGRATION_REPLAY_WARN_SECONDS` and document why.
+- Multi-step writes must use an explicit transaction when PostgreSQL permits it. Operations that cannot run transactionally must be idempotent and safe to resume after interruption.
+- Production/source-locked data repairs must remain narrowly identified, reviewed, and guarded against unrelated databases. Do not mix a one-store repair into a general schema migration when a dedicated reviewed repair is appropriate.
+- Do not squash or rewrite applied history merely because the file count grows. Propose a versioned fresh-install baseline only when measured replay exceeds five minutes, clean replay becomes unreliable, or historical assumptions materially impede new installations. Existing installations must retain a compatible immutable ledger path.
 
 For post-launch work, add a new numbered migration after the current active baseline. Never modify baseline files.
 

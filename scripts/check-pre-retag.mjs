@@ -39,6 +39,11 @@ const steps = [
     args: ["scripts/check-dirty-migration-rehearsal.mjs"],
   },
   {
+    label: "migration layout and embedding",
+    command: "bash",
+    args: ["scripts/validate_migration_layout.sh"],
+  },
+  {
     label: "server rustfmt",
     command: "cargo",
     args: ["fmt", "--manifest-path", "server/Cargo.toml", "--check"],
