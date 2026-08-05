@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { RefreshCw, CheckCircle2, Info, TriangleAlert } from "lucide-react";
+import { RefreshCw, CheckCircle2, Copy, ExternalLink, Info, TriangleAlert } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
@@ -29,6 +29,8 @@ interface PodiumSmsConfig {
 }
 
 interface PodiumReadiness {
+  client_id_configured: boolean;
+  client_secret_configured: boolean;
   api_base: string;
   credentials_configured: boolean;
   webhook_secret_configured: boolean;
@@ -134,6 +136,11 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
   const [podiumHealth, setPodiumHealth] = useState<PodiumHealth | null>(null);
   const [healthBusy, setHealthBusy] = useState(false);
   const [busy, setBusy] = useState(false);
+  const podiumRedirectUri = getPodiumOAuthRedirectUri();
+  const appCredentialsReady = Boolean(
+    podiumReadiness?.client_id_configured && podiumReadiness.client_secret_configured,
+  );
+  const callbackReady = Boolean(podiumRedirectUri?.startsWith("https://"));
 
   const fetchPodiumSmsSettings = useCallback(async () => {
     try {
@@ -202,9 +209,17 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
 
   const startPodiumOAuthConnect = async () => {
     if (!podiumSms) return;
-    const redirectUri = getPodiumOAuthRedirectUri();
+    if (!appCredentialsReady) {
+      toast("Save the Podium Client ID and Client Secret first.", "error");
+      return;
+    }
+    const redirectUri = podiumRedirectUri;
     if (!redirectUri) {
       toast("Podium callback URL is unavailable in this browser session.", "error");
+      return;
+    }
+    if (!callbackReady) {
+      toast("Open Riverside from its HTTPS address before connecting Podium.", "error");
       return;
     }
     const state = crypto.randomUUID();
@@ -229,9 +244,19 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
       }
       sessionStorage.setItem(PODIUM_OAUTH_STATE_STORAGE_KEY, state);
       sessionStorage.setItem(PODIUM_OAUTH_REDIRECT_STORAGE_KEY, redirectUri);
-      window.location.href = body.authorize_url;
+      window.location.assign(body.authorize_url);
     } catch {
       toast("Could not start Podium authorization.", "error");
+    }
+  };
+
+  const copyPodiumRedirectUri = async () => {
+    if (!podiumRedirectUri) return;
+    try {
+      await navigator.clipboard.writeText(podiumRedirectUri);
+      toast("Podium callback URL copied", "success");
+    } catch {
+      toast("Could not copy the callback URL. Select and copy it manually.", "error");
     }
   };
 
@@ -274,70 +299,134 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
       <ReviewInvitesSettingsCard baseUrl={baseUrl} />
 
       <section className="ui-card ui-tint-accent p-8 max-w-4xl shadow-xl">
-        {!podiumSms.credentials_configured && (
-          <div className="ui-panel ui-tint-warning mb-8 p-6 text-sm">
-            <h4 className="font-black uppercase tracking-widest text-app-warning flex items-center gap-2">
-              <Info className="h-4 w-4" />
-              Podium Credentials Needed
-            </h4>
-            <p className="mt-3 leading-relaxed text-app-text-muted font-medium">
-              Outbound communication is currently offline. Save the Podium
-              client credentials below, then authorize the account through
-              Podium.
-            </p>
-            <button
-               onClick={() => void startPodiumOAuthConnect()}
-               className="mt-6 ui-btn-secondary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest border-app-accent/40 text-app-accent hover:bg-app-accent hover:text-white transition-all shadow-lg shadow-app-accent/10"
-            >
-               Authorize via Podium Portal
-            </button>
-          </div>
-        )}
+        <div className="ui-panel ui-tint-warning mb-8 p-6 text-sm">
+          <h4 className="font-black uppercase tracking-widest text-app-warning flex items-center gap-2">
+            <Info className="h-4 w-4" />
+            Connect Podium in 3 steps
+          </h4>
+          <ol className="mt-4 space-y-4 font-medium text-app-text-muted">
+            <li>
+              <strong className="text-app-text">1. Create a Podium OAuth app.</strong>{" "}
+              Open the developer portal and register this exact HTTPS callback:
+              <code className="mt-2 block break-all rounded-xl bg-app-surface-2 p-3 text-[10px] font-bold text-app-text">
+                {podiumRedirectUri ?? "Callback unavailable"}
+              </code>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <a
+                  href="https://developer.podium.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ui-btn-secondary inline-flex min-h-9 items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                >
+                  Open Podium Developer Portal
+                  <ExternalLink className="h-3 w-3" aria-hidden />
+                </a>
+                <button
+                  type="button"
+                  disabled={!podiumRedirectUri}
+                  onClick={() => void copyPodiumRedirectUri()}
+                  className="ui-btn-secondary inline-flex min-h-9 items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  <Copy className="h-3 w-3" aria-hidden />
+                  Copy callback
+                </button>
+              </div>
+              {!callbackReady ? (
+                <p className="mt-2 font-bold text-app-warning">
+                  Podium requires HTTPS. Open the public HTTPS Riverside address first.
+                </p>
+              ) : null}
+            </li>
+            <li>
+              <strong className="text-app-text">2. Save the two app keys below.</strong>{" "}
+              Copy the Client ID and Client Secret from Podium.
+            </li>
+            <li>
+              <strong className="text-app-text">3. Approve Riverside.</strong>{" "}
+              This button unlocks when both keys and the HTTPS callback are ready.
+              <div>
+                <button
+                  type="button"
+                  onClick={() => void startPodiumOAuthConnect()}
+                  disabled={!appCredentialsReady || !callbackReady}
+                  className="mt-3 ui-btn-primary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                >
+                  {podiumSms.credentials_configured
+                    ? "Reconnect Podium Account"
+                    : "Connect Podium Account"}
+                </button>
+              </div>
+            </li>
+          </ol>
+        </div>
 
         <div className="mb-8">
           <IntegrationCredentialsCard
             baseUrl={baseUrl}
             integrationKey="podium"
-            title="Podium Credentials"
-            description="Save Podium messaging credentials here. The OAuth callback now saves the refresh token back to Riverside instead of asking staff to edit environment files."
+            title="Podium App Keys"
+            description="These are the only two values needed before account approval. Riverside saves the refresh token automatically."
             fields={[
               {
                 key: "client_id",
                 label: "Client ID",
                 type: "text",
-                help: "Required before starting the Podium authorization flow.",
               },
               {
                 key: "client_secret",
-                label: "Client secret",
-                help: "Required before starting the Podium authorization flow.",
-              },
-              {
-                key: "refresh_token",
-                label: "Refresh token",
-                help: "Usually saved automatically after Podium authorization.",
-              },
-              {
-                key: "webhook_secret",
-                label: "Webhook signing secret",
-                help: "Used to verify incoming Podium updates.",
-              },
-              {
-                key: "api_base_url",
-                label: "API host",
-                type: "url",
-                placeholder: "https://api.podium.com",
-              },
-              {
-                key: "oauth_token_url",
-                label: "OAuth token URL",
-                type: "url",
-                placeholder: "https://api.podium.com/oauth/token",
+                label: "Client Secret",
               },
             ]}
             onSaved={fetchPodiumSmsSettings}
           />
         </div>
+
+        <details className="mb-8 rounded-2xl border border-app-border bg-app-surface p-5">
+          <summary className="cursor-pointer text-xs font-black uppercase tracking-widest text-app-text">
+            Advanced and incoming-message setup
+          </summary>
+          <p className="mt-2 text-xs font-semibold leading-5 text-app-text-muted">
+            Not needed to connect Podium or test receipt texts. Add a webhook
+            secret only for incoming messages; leave API addresses at default.
+          </p>
+          <div className="mt-4">
+            <IntegrationCredentialsCard
+              baseUrl={baseUrl}
+              integrationKey="podium"
+              title="Advanced Podium Credentials"
+              description="Normally leave these blank."
+              fields={[
+                {
+                  key: "refresh_token",
+                  label: "Refresh Token",
+                  optional: true,
+                  help: "Manual recovery only; normally saved automatically.",
+                },
+                {
+                  key: "webhook_secret",
+                  label: "Webhook Signing Secret",
+                  optional: true,
+                  help: "Required only for verified incoming messages.",
+                },
+                {
+                  key: "api_base_url",
+                  label: "API Host Override",
+                  type: "url",
+                  optional: true,
+                  placeholder: "https://api.podium.com",
+                },
+                {
+                  key: "oauth_token_url",
+                  label: "OAuth Token URL Override",
+                  type: "url",
+                  optional: true,
+                  placeholder: "https://api.podium.com/oauth/token",
+                },
+              ]}
+              onSaved={fetchPodiumSmsSettings}
+            />
+          </div>
+        </details>
 
         {podiumReadiness && (
            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">

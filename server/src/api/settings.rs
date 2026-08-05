@@ -3068,6 +3068,8 @@ async fn patch_email_settings(
 
 #[derive(Debug, Serialize)]
 struct PodiumSmsReadinessResponse {
+    client_id_configured: bool,
+    client_secret_configured: bool,
     credentials_configured: bool,
     webhook_secret_configured: bool,
     allow_unsigned_webhook: bool,
@@ -3089,7 +3091,10 @@ async fn get_podium_sms_readiness(
             .fetch_one(&state.db)
             .await?;
     let cfg = StorePodiumSmsConfig::load_from_json(raw);
+    let app_credentials = podium_oauth_app_credential_status(&state.db).await;
     Ok(Json(PodiumSmsReadinessResponse {
+        client_id_configured: app_credentials.client_id_configured,
+        client_secret_configured: app_credentials.client_secret_configured,
         credentials_configured: PodiumEnvCredentials::load(&state.db).await.is_some(),
         webhook_secret_configured: podium_webhook_secret_from_env().is_some(),
         allow_unsigned_webhook: allow_unsigned_podium_webhook(),

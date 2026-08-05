@@ -53,9 +53,9 @@ POS and Back Office may use **merged staff + register** headers on some routes s
 
 **Where:** Back Office → **Settings** → **Integrations** → **Podium (SMS + web chat)**.
 
-### 3.1 Connect API credentials
+### 3.1 Connect Podium (three steps)
 
-Podium needs **OAuth app** credentials and a **refresh token** saved securely on the server. Routine credential setup now happens in **Back Office → Settings → Integrations → Podium**. The only credential-related environment setup admins should not manage in the UI is the root encryption key (`RIVERSIDE_CREDENTIALS_KEY`, with `QBO_TOKEN_ENC_KEY` only as a transitional fallback).
+The screen now separates the required connection steps from advanced settings. For receipt texts and other outbound messages, you only need to create a Podium OAuth app, save its two keys, and approve Riverside. Riverside saves the refresh token automatically.
 
 | Field in Riverside | Where it comes from |
 |--------------------|---------------------|
@@ -66,9 +66,11 @@ Podium needs **OAuth app** credentials and a **refresh token** saved securely on
 | **OAuth Token URL** | Normally leave default: `https://api.podium.com/oauth/token`. Only change it if Podium gives a different token URL. |
 | **Webhook Signing Secret** | Created/assigned when the Podium webhook is registered. Save it in Riverside so incoming deliveries can be verified. |
 
-1. Confirm the credentials card shows **Client ID** and **Client Secret** as **Saved**. If missing, an admin can enter or update them in this Settings screen.
-2. Register the **redirect URI** from the screen in Podium’s developer app. It must match **exactly** (including `http` vs `https`). Production should use the public Riverside host, for example `https://ros.riversidemens.com/callback` when the store tunnel is active. Local `localhost` redirects are only usable if Podium accepts them; otherwise use Cloudflare Tunnel or another HTTPS tunnel plus `VITE_PODIUM_OAUTH_REDIRECT_URI`.
-3. Click **Authorize via Podium Portal** / **Connect Podium (get refresh token)** (or connect again to refresh). Riverside asks the server to build the authorization URL with the saved Client ID, redirect URI, state, and required scopes, then Podium handles login/consent and Riverside exchanges the code for tokens server-side.
+1. Click **Open Podium Developer Portal**, create the OAuth app, and register the exact **HTTPS callback URL** displayed by Riverside. Podium requires HTTPS and the URI must match exactly.
+2. Copy only the **Client ID** and **Client Secret** into Riverside and save them.
+3. Click **Connect Podium Account**, sign in to Podium, and approve Riverside. The button stays disabled until both keys are saved and Riverside is open from an HTTPS address. After approval, Riverside exchanges the code and saves the refresh token securely.
+
+The refresh token, API host, and OAuth token URL are under **Advanced and incoming-message setup** because they are not normally entered by staff. The webhook signing secret is only needed when configuring verified incoming Podium messages.
 
 Riverside requests these Podium OAuth scopes today: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, and `write_contacts`. If Podium shows an empty consent card or a generic authorization error, confirm the app has those products/scopes enabled in Podium and that the redirect URI belongs to the same Client ID.
 

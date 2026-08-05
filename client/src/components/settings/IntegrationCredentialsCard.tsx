@@ -12,6 +12,7 @@ type CredentialStatusResponse = {
 export type IntegrationCredentialField = {
   key: string;
   label: string;
+  optional?: boolean;
   placeholder?: string;
   help?: string;
   type?: "password" | "url" | "text" | "textarea";
@@ -176,7 +177,7 @@ export default function IntegrationCredentialsCard({
                     isConfigured ? "text-app-success" : "text-app-warning"
                   }
                 >
-                  {isConfigured ? "Saved" : "Needed"}
+                  {isConfigured ? "Saved" : field.optional ? "Optional" : "Needed"}
                 </span>
               </label>
               {field.type === "textarea" ? (

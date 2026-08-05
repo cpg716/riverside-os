@@ -97,7 +97,11 @@ export default function PodiumOAuthCallback() {
         const j = (await res.json()) as { error?: string } & Partial<ExchangeOk>;
         if (!res.ok) {
           setStatus("error");
-          setMessage("Podium connection failed. Try again from Settings.");
+          setMessage(
+            j.error
+              ? `Podium connection failed: ${j.error}`
+              : "Podium connection failed. Try again from Settings.",
+          );
           return;
         }
         if (!j.refresh_token) {
