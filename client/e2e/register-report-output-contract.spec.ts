@@ -882,4 +882,17 @@ test.describe("Register report output integrity contracts", () => {
     expect(operationsHomeSource).toContain('title="What Changed Today"');
     expect(operationsHomeSource).toContain('title="What Needs Attention"');
   });
+
+  test("Register close metrics distinguish database commit time from total close time", () => {
+    const commitMetricStart = sessionsServerSource.indexOf("let commit_started");
+    const commitMetric = sessionsServerSource.slice(
+      commitMetricStart,
+      sessionsServerSource.indexOf("let snapshot_pool", commitMetricStart),
+    );
+
+    expect(commitMetric).toContain('"transaction_commit"');
+    expect(commitMetric).toContain("commit_started.elapsed()");
+    expect(commitMetric).toContain('"total"');
+    expect(commitMetric).toContain("close_started.elapsed()");
+  });
 });

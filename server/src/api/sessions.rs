@@ -3248,11 +3248,22 @@ async fn close_session(
         return Err(SessionError::SessionAlreadyClosed);
     }
 
+    let commit_started = std::time::Instant::now();
     tx.commit().await.map_err(SessionError::Database)?;
     crate::logic::operation_metrics::record_phase(
         state.db.clone(),
         "register_close",
         "transaction_commit",
+        commit_started.elapsed(),
+        true,
+        None,
+        Some(primary_id),
+        json!({ "closed_session_count": group_ids.len() }),
+    );
+    crate::logic::operation_metrics::record_phase(
+        state.db.clone(),
+        "register_close",
+        "total",
         close_started.elapsed(),
         true,
         None,

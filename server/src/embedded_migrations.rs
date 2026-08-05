@@ -181,4 +181,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("178_repair_txn_625003_backdated_reporting.sql", include_str!("../../migrations/178_repair_txn_625003_backdated_reporting.sql")),
     ("179_customer_email_collection.sql", include_str!("../../migrations/179_customer_email_collection.sql")),
     ("180_new_customer_contact_approval_defaults.sql", include_str!("../../migrations/180_new_customer_contact_approval_defaults.sql")),
+    ("181_consolidate_legacy_audit_probe_alerts.sql", include_str!("../../migrations/181_consolidate_legacy_audit_probe_alerts.sql")),
 ];
