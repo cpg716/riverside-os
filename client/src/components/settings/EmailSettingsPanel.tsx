@@ -370,13 +370,23 @@ export default function EmailSettingsPanel({ baseUrl }: EmailSettingsPanelProps)
       <IntegrationCredentialsCard
         baseUrl={baseUrl}
         integrationKey="email"
-        title="IONOS email credentials"
-        description="Save IMAP and SMTP credentials for info@riversidemens.com. Values are encrypted and hidden after save."
+        title="IONOS mailbox"
+        description="Enter the IONOS mailbox email and password once. Riverside securely saves the same login for sending and receiving email."
         fields={[
-          { key: "imap_username", label: "IMAP username", type: "text" },
-          { key: "imap_password", label: "IMAP password" },
-          { key: "smtp_username", label: "SMTP username", type: "text" },
-          { key: "smtp_password", label: "SMTP password" },
+          {
+            key: "imap_username",
+            linkedKeys: ["imap_username", "smtp_username"],
+            label: "Email address",
+            type: "text",
+            placeholder: credentialsConfigured
+              ? "Saved - enter only to replace"
+              : "info@riversidemens.com",
+          },
+          {
+            key: "imap_password",
+            linkedKeys: ["imap_password", "smtp_password"],
+            label: "Email password",
+          },
         ]}
         onSaved={loadSettings}
       />

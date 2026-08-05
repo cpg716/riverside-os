@@ -11,6 +11,7 @@ type CredentialStatusResponse = {
 
 export type IntegrationCredentialField = {
   key: string;
+  linkedKeys?: string[];
   label: string;
   optional?: boolean;
   placeholder?: string;
@@ -75,7 +76,11 @@ export default function IntegrationCredentialsCard({
       const credentials: Record<string, string> = {};
       for (const field of fields) {
         const value = (draft[field.key] ?? "").trim();
-        if (value) credentials[field.key] = value;
+        if (value) {
+          for (const key of field.linkedKeys ?? [field.key]) {
+            credentials[key] = value;
+          }
+        }
       }
       const res = await fetch(
         `${baseUrl}/api/settings/integration-credentials/${integrationKey}`,
@@ -104,28 +109,32 @@ export default function IntegrationCredentialsCard({
     }
   };
 
-  const clearCredential = async (credentialKey: string) => {
+  const clearCredential = async (field: IntegrationCredentialField) => {
     if (busy) return;
-    if (clearConfirmKey !== credentialKey) {
-      setClearConfirmKey(credentialKey);
+    if (clearConfirmKey !== field.key) {
+      setClearConfirmKey(field.key);
       return;
     }
     setBusy(true);
     try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/integration-credentials/${integrationKey}/${credentialKey}`,
-        {
-          method: "DELETE",
-          headers: backofficeHeaders() as Record<string, string>,
-        },
-      );
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(j.error ?? "Could not clear credential", "error");
-        return;
+      let nextStatus: CredentialStatusResponse | null = null;
+      for (const credentialKey of field.linkedKeys ?? [field.key]) {
+        const res = await fetch(
+          `${baseUrl}/api/settings/integration-credentials/${integrationKey}/${credentialKey}`,
+          {
+            method: "DELETE",
+            headers: backofficeHeaders() as Record<string, string>,
+          },
+        );
+        if (!res.ok) {
+          const j = (await res.json().catch(() => ({}))) as { error?: string };
+          toast(j.error ?? "Could not clear credential", "error");
+          return;
+        }
+        nextStatus = (await res.json()) as CredentialStatusResponse;
       }
-      setStatus((await res.json()) as CredentialStatusResponse);
-      setDraft((current) => ({ ...current, [credentialKey]: "" }));
+      if (nextStatus) setStatus(nextStatus);
+      setDraft((current) => ({ ...current, [field.key]: "" }));
       setClearConfirmKey(null);
       await onSaved?.();
       toast("Credential cleared", "success");
@@ -233,7 +242,7 @@ export default function IntegrationCredentialsCard({
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void clearCredential(field.key)}
+                  onClick={() => void clearCredential(field)}
                   className="mt-2 text-[10px] font-black uppercase tracking-widest text-app-warning hover:text-app-danger disabled:opacity-50"
                 >
                   {clearConfirmKey === field.key

@@ -27,7 +27,7 @@ Default settings are seeded for IONOS email:
 - SMTP security: SSL/TLS
 - Alternate SMTP: port `587` with STARTTLS
 
-Credentials are stored through Settings -> Email -> IONOS email credentials. They are encrypted in the existing integration credential store. Environment fallbacks are also supported:
+Credentials are stored through Settings -> Email -> IONOS mailbox. Staff enter the mailbox email address and password once; Riverside saves that login for both IMAP and SMTP. The values are encrypted in the existing integration credential store. Environment fallbacks are also supported:
 
 - `RIVERSIDE_EMAIL_IMAP_USERNAME`
 - `RIVERSIDE_EMAIL_IMAP_PASSWORD`
