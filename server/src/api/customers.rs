@@ -6096,6 +6096,7 @@ fn decode_customer_email_attachments(
                 .to_string()
                 .if_empty("application/octet-stream"),
             bytes,
+            content_id: None,
         });
     }
     Ok(decoded)

@@ -33,7 +33,7 @@ function textValue(value: unknown): string {
     : "";
 }
 
-export function compareVariationText(a: string, b: string): number {
+function compareVariationSegment(a: string, b: string): number {
   const aText = a.trim();
   const bText = b.trim();
   const aRank = APPAREL_SIZE_ORDER.get(aText.toUpperCase());
@@ -47,6 +47,21 @@ export function compareVariationText(a: string, b: string): number {
     numeric: true,
     sensitivity: "base",
   });
+}
+
+export function compareVariationText(a: string, b: string): number {
+  const aSegments = a.trim().split(/\s+\/\s+/);
+  const bSegments = b.trim().split(/\s+\/\s+/);
+  const segmentCount = Math.max(aSegments.length, bSegments.length);
+
+  for (let index = 0; index < segmentCount; index += 1) {
+    const comparison = compareVariationSegment(
+      aSegments[index] ?? "",
+      bSegments[index] ?? "",
+    );
+    if (comparison !== 0) return comparison;
+  }
+  return 0;
 }
 
 export function sortVariantsByVariation<T extends VariationSortable>(

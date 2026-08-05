@@ -7,6 +7,7 @@ import {
   variantSelectionChoiceLabel,
 } from "../src/components/pos/variantSelectionLogic";
 import type { VariantOption } from "../src/components/pos/VariantSelectionModal";
+import { sortVariantsByVariation } from "../src/lib/variantSort";
 
 function repoFile(relativePath: string): string {
   return readFileSync(
@@ -53,6 +54,39 @@ test("single-option shoe sizes remain directly selectable", () => {
   expect(model.steps).toEqual(["Option 1"]);
   expect(model.entries.map((entry) => entry.path)).toEqual([["10"], ["10.5"]]);
   expect(initialVariantSelectionPath(model.entries, "v2")).toEqual([]);
+});
+
+test("combined variation labels sort apparel sizes from smallest to largest", () => {
+  const labels = ["2XL", "3XL", "L", "M", "S", "XL"];
+  const sorted = sortVariantsByVariation(
+    labels.map((size) => ({
+      sku: `POLO-${size}`,
+      variation_label: `ATLANTIC BLUE / ${size}`,
+      variation_values: {},
+    })),
+  );
+
+  expect(sorted.map((entry) => entry.variation_label)).toEqual(
+    ["S", "M", "L", "XL", "2XL", "3XL"].map(
+      (size) => `ATLANTIC BLUE / ${size}`,
+    ),
+  );
+});
+
+test("combined variation labels sort numeric sizes numerically within each style", () => {
+  const sorted = sortVariantsByVariation(
+    [36, 30, 32].map((size) => ({
+      sku: `PANT-${size}`,
+      variation_label: `BLACK / ${size}`,
+      variation_values: {},
+    })),
+  );
+
+  expect(sorted.map((entry) => entry.variation_label)).toEqual([
+    "BLACK / 30",
+    "BLACK / 32",
+    "BLACK / 36",
+  ]);
 });
 
 test("shorter variation paths expose an explicit Standard choice", () => {

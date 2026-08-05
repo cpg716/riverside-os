@@ -86,6 +86,8 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 
 The **Stock Report** tab stays scoped to the parent item currently open in Product Hub. It lists every variation, including zero-stock variations, and finishes with a parent total row.
 
+Variations stay grouped by their leading attributes, such as color or style, and then follow merchandise size order from smallest to largest. Letter sizes appear as `S`, `M`, `L`, `XL`, `2XL`, `3XL`; numeric sizes appear in numeric order such as `30`, `32`, `36`. The on-screen Product Hub tables and printed Stock Report use the same order.
+
 - `Sales ranking` ranks the parent against active sellable parent items by positive, non-internal units sold during the trailing 12 months.
 - `Last 30 days` is the parent's qualifying unit sales across every variation during the trailing 30 days.
 - The parent `Average per month` divides all qualifying units by the elapsed calendar months from the first recorded sale through today. `Average per year` annualizes that monthly pace.

@@ -531,6 +531,8 @@ pub struct EmailAttachmentPayload {
     pub filename: String,
     pub content_type: String,
     pub bytes: Vec<u8>,
+    /// When set, render this part inline and reference it from HTML as `cid:<value>`.
+    pub content_id: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -681,11 +683,46 @@ async fn send_email_with_reply_context_and_attachments(
                 .header(ContentType::TEXT_HTML)
                 .body(html.clone()),
         );
-    let message = if attachments.is_empty() {
-        builder.multipart(body_part)
+    let mut inline_attachments = Vec::new();
+    let mut regular_attachments = Vec::new();
+    for attachment in attachments {
+        if attachment
+            .content_id
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+        {
+            inline_attachments.push(attachment);
+        } else {
+            regular_attachments.push(attachment);
+        }
+    }
+
+    let content_part = if inline_attachments.is_empty() {
+        body_part
     } else {
-        let mut mixed = MultiPart::mixed().multipart(body_part);
-        for attachment in attachments {
+        let mut related = MultiPart::related().multipart(body_part);
+        for attachment in inline_attachments {
+            let filename = attachment.filename.trim();
+            let content_id = attachment.content_id.as_deref().unwrap_or("").trim();
+            if filename.is_empty() || content_id.is_empty() || attachment.bytes.is_empty() {
+                continue;
+            }
+            let content_type = ContentType::parse(&attachment.content_type)
+                .unwrap_or_else(|_| ContentType::parse("application/octet-stream").unwrap());
+            related = related.singlepart(
+                Attachment::new_inline_with_name(content_id.to_string(), filename.to_string())
+                    .body(attachment.bytes, content_type),
+            );
+        }
+        related
+    };
+
+    let message = if regular_attachments.is_empty() {
+        builder.multipart(content_part)
+    } else {
+        let mut mixed = MultiPart::mixed().multipart(content_part);
+        for attachment in regular_attachments {
             let filename = attachment.filename.trim();
             if filename.is_empty() || attachment.bytes.is_empty() {
                 continue;

@@ -191,7 +191,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "customers-rms-charge-admin-section",
     title: "RMS Charge Workspace",
-    summary: "Review linked RMS Charge accounts, recent activity, open issues, and reconciliation support for the selected customer.",
+    summary: "Browse every RMS Charge customer, review recorded activity, and manage the weekly RMS account-list import.",
     markdown: manual_16_raw,
     tags: ["customers","rms-charge","r2s","support","reconciliation"],
   },

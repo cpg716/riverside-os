@@ -25,6 +25,8 @@ use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 const CPL: usize = 48;
 const RECEIPT_HEADER_FOOTER_WRAP_CPL: usize = 42;
 const RECEIPT_LOGO_WIDTH_PX: u32 = 384;
+const RECEIPTLINE_FONT_B_ON: &str = "{command:\\x1b\\x4d\\x01}";
+const RECEIPTLINE_FONT_A_ON: &str = "{command:\\x1b\\x4d\\x00}";
 const RECEIPT_LOGO_IMAGE: &[u8] =
     include_bytes!("../../../client/src/assets/images/riverside_logo.jpg");
 
@@ -233,6 +235,24 @@ fn set_bold(out: &mut Vec<u8>, on: bool) {
     out.extend_from_slice(&[0x1b, 0x45, if on { 1 } else { 0 }]);
 }
 
+fn set_compact_font(out: &mut Vec<u8>, on: bool) {
+    // Epson ESC/POS Font B is smaller than the normal Font A used elsewhere.
+    out.extend_from_slice(&[0x1b, 0x4d, if on { 1 } else { 0 }]);
+}
+
+fn push_tax_detail_lines(out: &mut Vec<u8>, item: &ReceiptLine) {
+    let lines = item.tax_detail_lines();
+    if lines.is_empty() {
+        return;
+    }
+    set_bold(out, false);
+    set_compact_font(out, true);
+    for (label, amount) in lines {
+        push_line(out, &format!("{label}: {}", money(amount)));
+    }
+    set_compact_font(out, false);
+}
+
 fn set_text_size(out: &mut Vec<u8>, size: u8) {
     out.extend_from_slice(&[0x1d, 0x21, size]);
 }
@@ -312,9 +332,7 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
                 push_line(out, label);
             } else {
                 push_line(out, &right_pair(label, &money(line_total(it))));
-                if let Some(tax_amount) = it.tax_amount {
-                    push_line(out, &right_pair("Tax", &money(tax_amount)));
-                }
+                push_tax_detail_lines(out, it);
             }
             set_bold(out, false);
             out.push(b'\n');
@@ -398,9 +416,7 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
             push_line(out, &format!("Gift Card #: {code}"));
         }
         if !gift {
-            if let Some(tax_amount) = it.tax_amount {
-                push_line(out, &right_pair("Tax", &money(tax_amount)));
-            }
+            push_tax_detail_lines(out, it);
         }
         let status_label = if matches!(it.adjustment, Some(ReceiptLineAdjustment::Exchanged)) {
             "Exchanged item"
@@ -438,13 +454,13 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
     if d.show_paid_line() {
         push_line(out, &right_pair(d.paid_label(), &money(d.amount_paid)));
     }
-    if let Some(prior_paid) = d.pickup_prior_paid {
-        push_line(out, &right_pair("Previously paid", &money(prior_paid)));
-    }
-    if d.balance_due > Decimal::ZERO || d.is_pickup_event() {
+    if !d.is_pickup_event() && !d.has_order_payments() && d.balance_due > Decimal::ZERO {
         push_line(out, &right_pair("Balance remaining", &money(d.balance_due)));
     }
-    if d.payments.is_empty() {
+    if d.is_pickup_event() || d.has_order_payments() {
+        // Tender and order allocation are combined below so they are not
+        // presented as separate, competing payment sections.
+    } else if d.payments.is_empty() {
         push_line(out, &format!("Tender: {}", d.payment_methods_summary));
     } else {
         push_line(out, "Tender:");
@@ -506,19 +522,93 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
             &format!("  Paid by {} · {}", source.payer_name, source.party_name),
         );
     }
-    if !d.payment_applications.is_empty() {
-        push_line(out, &format!("{}:", d.order_payment_heading()));
+    if d.is_pickup_event() || d.has_order_payments() {
+        let multiple_orders = d.payment_applications.len() > 1;
+        let tender_total = d
+            .payments
+            .iter()
+            .fold(Decimal::ZERO, |total, payment| total + payment.amount);
+        let single_application_matches_tender = !d.payments.is_empty()
+            && d.payment_applications
+                .first()
+                .is_some_and(|app| app.amount == tender_total);
+        push_line(
+            out,
+            if multiple_orders {
+                "Order payments"
+            } else {
+                "Order payment"
+            },
+        );
+        if let Some(prior_paid) = d.pickup_prior_paid {
+            push_line(out, &right_pair("Previously paid", &money(prior_paid)));
+        }
         for app in &d.payment_applications {
+            if multiple_orders {
+                push_line(
+                    out,
+                    &right_pair(
+                        &format!("Applied today to {}", app.target_display_id),
+                        &money(app.amount),
+                    ),
+                );
+                push_line(
+                    out,
+                    &right_pair(
+                        &format!("Balance on {}", app.target_display_id),
+                        &money(app.remaining_balance),
+                    ),
+                );
+            } else {
+                push_line(out, &format!("Order: {}", app.target_display_id));
+                if !single_application_matches_tender && !d.payments.is_empty() {
+                    push_line(out, &right_pair("Applied today", &money(app.amount)));
+                }
+            }
+        }
+        if d.payments.is_empty() {
+            if let Some(app) = d.payment_applications.first().filter(|_| !multiple_orders) {
+                push_line(out, &right_pair("Applied today", &money(app.amount)));
+            } else if d.is_pickup_event() {
+                push_line(out, d.payment_methods_summary.trim());
+            }
+        } else {
+            for payment in &d.payments {
+                push_line(
+                    out,
+                    &right_pair(
+                        &format!("Paid today - {}", tender_display_label(&payment.method)),
+                        &money(payment.amount),
+                    ),
+                );
+                if let (Some(cash_tendered), Some(change_due)) =
+                    (payment.cash_tendered, payment.change_due)
+                {
+                    if change_due > Decimal::ZERO {
+                        push_line(out, &right_pair("Cash Tendered", &money(cash_tendered)));
+                        push_line(out, &right_pair("Change", &money(change_due)));
+                    }
+                }
+            }
+        }
+        if !multiple_orders {
+            let remaining = d
+                .payment_applications
+                .first()
+                .map(|app| app.remaining_balance)
+                .or(d.pickup_balance_remaining)
+                .unwrap_or(d.balance_due);
+            push_line(out, &right_pair("Balance remaining", &money(remaining)));
             push_line(
                 out,
-                &right_pair(
-                    &format!("{} {}", app.activity_label(), app.target_display_id),
-                    &money(app.amount),
+                &format!(
+                    "Status: {}",
+                    if remaining <= Decimal::ZERO {
+                        "Paid in full"
+                    } else {
+                        "Balance due"
+                    }
                 ),
-            );
-            push_line(
-                out,
-                &right_pair("Remaining balance", &money(app.remaining_balance)),
             );
         }
     }
@@ -614,8 +704,15 @@ fn receiptline_item_lines(
             out_lines.push(format!("{label} |"));
         } else {
             out_lines.push(format!("{label} | {}", money(line_total(it))));
-            if let Some(tax_amount) = it.tax_amount {
-                out_lines.push(format!("Tax | {}", money(tax_amount)));
+            let tax_lines = it.tax_detail_lines();
+            if !tax_lines.is_empty() {
+                out_lines.push(RECEIPTLINE_FONT_B_ON.to_string());
+                out_lines.extend(
+                    tax_lines
+                        .into_iter()
+                        .map(|(tax_label, amount)| format!("{tax_label}: {} |", money(amount))),
+                );
+                out_lines.push(RECEIPTLINE_FONT_A_ON.to_string());
             }
         }
     }
@@ -775,8 +872,15 @@ fn receiptline_item_lines(
                         ));
                     }
                 }
-                if let Some(tax_amount) = it.tax_amount {
-                    out_lines.push(format!("Tax | {}", money(tax_amount)));
+                let tax_lines = it.tax_detail_lines();
+                if !tax_lines.is_empty() {
+                    out_lines.push(RECEIPTLINE_FONT_B_ON.to_string());
+                    out_lines.extend(
+                        tax_lines
+                            .into_iter()
+                            .map(|(tax_label, amount)| format!("{tax_label}: {} |", money(amount))),
+                    );
+                    out_lines.push(RECEIPTLINE_FONT_A_ON.to_string());
                 }
             }
         }
@@ -884,26 +988,87 @@ fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
     if d.payment_applications.is_empty() && !d.is_pickup_event() {
         return String::new();
     }
-    let mut lines = Vec::new();
-    if d.is_pickup_event() {
-        lines.push("^^^Pickup payment status".to_string());
-        if let Some(prior_paid) = d.pickup_prior_paid {
-            lines.push(format!("Previously paid | {}", money(prior_paid)));
+    let multiple_orders = d.payment_applications.len() > 1;
+    let tender_total = d
+        .payments
+        .iter()
+        .fold(Decimal::ZERO, |total, payment| total + payment.amount);
+    let single_application_matches_tender = !d.payments.is_empty()
+        && d.payment_applications
+            .first()
+            .is_some_and(|app| app.amount == tender_total);
+    let mut lines = vec![if multiple_orders {
+        "Order payments".to_string()
+    } else {
+        "Order payment".to_string()
+    }];
+
+    if let Some(prior_paid) = d.pickup_prior_paid {
+        lines.push(format!("Previously paid | {}", money(prior_paid)));
+    }
+
+    for app in &d.payment_applications {
+        if multiple_orders {
+            lines.push(format!(
+                "Applied today to {} | {}",
+                receiptline_escape(&app.target_display_id),
+                money(app.amount)
+            ));
+            lines.push(format!(
+                "Balance on {} | {}",
+                receiptline_escape(&app.target_display_id),
+                money(app.remaining_balance)
+            ));
+        } else {
+            lines.push(format!(
+                "Order | {}",
+                receiptline_escape(&app.target_display_id)
+            ));
+            if !single_application_matches_tender && !d.payments.is_empty() {
+                lines.push(format!("Applied today | {}", money(app.amount)));
+            }
         }
     }
-    if !d.payment_applications.is_empty() {
-        lines.push(format!("^^^{}", d.order_payment_heading()));
+
+    if d.payments.is_empty() {
+        if let Some(app) = d.payment_applications.first().filter(|_| !multiple_orders) {
+            lines.push(format!("Applied today | {}", money(app.amount)));
+        } else if d.is_pickup_event() {
+            lines.push(receiptline_escape(d.payment_methods_summary.trim()));
+        }
+    } else {
+        for payment in &d.payments {
+            lines.push(format!(
+                "Paid today - {} | {}",
+                receiptline_escape(&tender_display_label(&payment.method)),
+                money(payment.amount)
+            ));
+            if let (Some(cash_tendered), Some(change_due)) =
+                (payment.cash_tendered, payment.change_due)
+            {
+                if change_due > Decimal::ZERO {
+                    lines.push(format!("Cash Tendered | {}", money(cash_tendered)));
+                    lines.push(format!("Change | {}", money(change_due)));
+                }
+            }
+        }
     }
-    for app in &d.payment_applications {
+
+    if !multiple_orders {
+        let remaining = d
+            .payment_applications
+            .first()
+            .map(|app| app.remaining_balance)
+            .or(d.pickup_balance_remaining)
+            .unwrap_or(d.balance_due);
+        lines.push(format!("Balance remaining | {}", money(remaining)));
         lines.push(format!(
-            "{} {} | {}",
-            app.activity_label(),
-            receiptline_escape(&app.target_display_id),
-            money(app.amount)
-        ));
-        lines.push(format!(
-            "Remaining balance | {}",
-            money(app.remaining_balance)
+            "Status | {}",
+            if remaining <= Decimal::ZERO {
+                "Paid in full"
+            } else {
+                "Balance due"
+            }
         ));
     }
     lines.join("\n")
@@ -911,6 +1076,9 @@ fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
 
 fn receiptline_tender_lines(d: &ReceiptOrder, gift: bool) -> String {
     if gift {
+        return String::new();
+    }
+    if d.is_pickup_event() || d.has_order_payments() {
         return String::new();
     }
     if d.payments.is_empty() {
@@ -1009,10 +1177,13 @@ fn default_receiptline_template() -> &'static str {
 }
 
 fn default_receiptline_pickup_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n{{REGISTER_LINE}}\n---\n{{ITEM_LINES}}\n{{PAYMENT_BLOCK}}\n---\n{{PAYMENT_HISTORY_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n{{REGISTER_LINE}}\n---\n{{ITEM_LINES}}\n---\n{{PAYMENT_BLOCK}}\n{{SUBTOTAL_LINE}}\n{{TAX_LINE}}\n{{TOTAL_SAVINGS_LINE}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{GIFT_CARD_BALANCE}}\n{{WEDDING_DEPOSIT_LINES}}\n{{STATUS_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 fn receiptline_payment_history_block(d: &ReceiptOrder) -> String {
+    if d.is_pickup_event() || d.has_order_payments() {
+        return String::new();
+    }
     if d.payments.is_empty() {
         return String::new();
     }
@@ -1098,7 +1269,11 @@ pub fn build_receiptline_markdown(
     } else {
         format!("---\n{payment_lines}")
     };
-    let balance_line = if !gift && (d.balance_due > Decimal::ZERO || d.is_pickup_event()) {
+    let balance_line = if !gift
+        && !d.is_pickup_event()
+        && !d.has_order_payments()
+        && d.balance_due > Decimal::ZERO
+    {
         format!("Balance remaining | {}", money(d.balance_due))
     } else {
         String::new()
@@ -1318,6 +1493,8 @@ mod tests {
             contributes_to_totals: true,
             is_taxable: Some(true),
             tax_amount: Some(Decimal::new(213, 2)),
+            state_tax_amount: Some(Decimal::new(98, 2)),
+            local_tax_amount: Some(Decimal::new(115, 2)),
         }
     }
 
@@ -1349,6 +1526,8 @@ mod tests {
         let mut exempt = receipt_line("Exempt alteration", "EXEMPT", None);
         exempt.is_taxable = Some(false);
         exempt.tax_amount = Some(Decimal::ZERO);
+        exempt.state_tax_amount = Some(Decimal::ZERO);
+        exempt.local_tax_amount = Some(Decimal::ZERO);
         let order = receipt_order_with(vec![taxable, exempt]);
 
         let receiptline = receiptline_item_lines(&order, &ReceiptConfig::default(), false, false);
@@ -1356,12 +1535,18 @@ mod tests {
         let thermal = String::from_utf8_lossy(&thermal_bytes);
 
         for output in [&receiptline, thermal.as_ref()] {
-            assert!(output.contains("Tax"));
-            assert!(output.contains("$2.13"));
-            assert!(output.contains("$0.00"));
+            assert!(output.contains("4.75%: $1.15"));
+            assert!(output.contains("4.00%: $0.98"));
+            assert!(output.contains("Total Tax: $2.13"));
+            assert!(output.contains("4.75%: $0.00"));
+            assert!(output.contains("4.00%: $0.00"));
+            assert!(output.contains("Total Tax: $0.00"));
             assert!(!output.contains("Tax: Taxable"));
             assert!(!output.contains("Tax: Exempt"));
         }
+        assert!(thermal_bytes
+            .windows(3)
+            .any(|bytes| bytes == [0x1b, 0x4d, 0x01]));
     }
 
     #[test]

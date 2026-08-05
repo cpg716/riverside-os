@@ -276,6 +276,7 @@ impl MessagingService {
                             filename: "riverside-appointment.ics".to_string(),
                             content_type: "text/calendar; charset=utf-8".to_string(),
                             bytes: ics.into_bytes(),
+                            content_id: None,
                         }],
                     )
                     .await;

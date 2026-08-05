@@ -17,6 +17,7 @@ const saleComplete = repoFile(
 );
 const transactionsApi = repoFile("server/src/api/transactions.rs");
 const settingsApi = repoFile("server/src/api/settings.rs");
+const storeEmail = repoFile("server/src/logic/email.rs");
 
 test("Receipt Builder can send the current preview to typed email and phone destinations", () => {
   expect(receiptBuilder).toContain('aria-label="Test receipt email address"');
@@ -27,9 +28,14 @@ test("Receipt Builder can send the current preview to typed email and phone dest
     "`${baseUrl}/api/settings/receipt/test-${channel}`",
   );
   expect(receiptBuilder).toContain("receiptHtmlToPngBase64");
+  expect(receiptBuilder).toContain("png_base64: pngBase64");
+  expect(receiptBuilder).not.toContain("receiptEmailHtml");
   expect(settingsApi).toContain('"/receipt/test-email"');
   expect(settingsApi).toContain('"/receipt/test-sms"');
-  expect(settingsApi).toContain("email::send_email(");
+  expect(settingsApi).toContain("email::send_email_with_attachments(");
+  expect(settingsApi).toContain("RECEIPT_TEST_EMAIL_CONTENT_ID");
+  expect(settingsApi).toContain('"mode": "inline_png"');
+  expect(storeEmail).toContain("Attachment::new_inline_with_name");
   expect(settingsApi).toContain(
     "send_podium_phone_message_with_png_attachment",
   );

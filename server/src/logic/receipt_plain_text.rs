@@ -153,8 +153,8 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
             it.sku.trim(),
             var
         ));
-        if let Some(tax_amount) = it.tax_amount {
-            lines.push(format!("Tax {}", money(tax_amount)));
+        for (label, amount) in it.tax_detail_lines() {
+            lines.push(format!("{label}: {}", money(amount)));
         }
         if it.custom_item_type.as_deref() == Some("linked_pickup") {
             if let Some(source_label) = it
@@ -186,13 +186,13 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
             money(order.amount_paid)
         ));
     }
-    if let Some(prior_paid) = order.pickup_prior_paid {
-        lines.push(format!("Previously paid: {}", money(prior_paid)));
-    }
-    if order.balance_due > Decimal::ZERO || order.is_pickup_event() {
+    if !order.is_pickup_event() && !order.has_order_payments() && order.balance_due > Decimal::ZERO
+    {
         lines.push(format!("Balance remaining: {}", money(order.balance_due)));
     }
-    if order.payments.is_empty() {
+    if order.is_pickup_event() || order.has_order_payments() {
+        // Tender and allocation are combined below for order-payment receipts.
+    } else if order.payments.is_empty() {
         lines.push(format!("Tender: {}", order.payment_methods_summary.trim()));
     } else {
         lines.push("Tender:".to_string());
@@ -249,15 +249,86 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
             money(source.amount)
         ));
     }
-    if !order.payment_applications.is_empty() {
-        lines.push(format!("{}:", order.order_payment_heading()));
+    if order.is_pickup_event() || order.has_order_payments() {
+        let multiple_orders = order.payment_applications.len() > 1;
+        let tender_total = order
+            .payments
+            .iter()
+            .fold(Decimal::ZERO, |total, payment| total + payment.amount);
+        let single_application_matches_tender = !order.payments.is_empty()
+            && order
+                .payment_applications
+                .first()
+                .is_some_and(|app| app.amount == tender_total);
+        lines.push(if multiple_orders {
+            "Order payments".to_string()
+        } else {
+            "Order payment".to_string()
+        });
+        if let Some(prior_paid) = order.pickup_prior_paid {
+            lines.push(format!("Previously paid: {}", money(prior_paid)));
+        }
         for app in &order.payment_applications {
+            if multiple_orders {
+                lines.push(format!(
+                    "Applied today to {}: {}",
+                    app.target_display_id,
+                    money(app.amount)
+                ));
+                lines.push(format!(
+                    "Balance on {}: {}",
+                    app.target_display_id,
+                    money(app.remaining_balance)
+                ));
+            } else {
+                lines.push(format!("Order: {}", app.target_display_id));
+                if !single_application_matches_tender && !order.payments.is_empty() {
+                    lines.push(format!("Applied today: {}", money(app.amount)));
+                }
+            }
+        }
+        if order.payments.is_empty() {
+            if let Some(app) = order
+                .payment_applications
+                .first()
+                .filter(|_| !multiple_orders)
+            {
+                lines.push(format!("Applied today: {}", money(app.amount)));
+            } else if order.is_pickup_event() {
+                lines.push(order.payment_methods_summary.trim().to_string());
+            }
+        } else {
+            for payment in &order.payments {
+                lines.push(format!(
+                    "Paid today - {}: {}",
+                    tender_display_label(&payment.method),
+                    money(payment.amount)
+                ));
+                if let (Some(cash_tendered), Some(change_due)) =
+                    (payment.cash_tendered, payment.change_due)
+                {
+                    if change_due > Decimal::ZERO {
+                        lines.push(format!("Cash Tendered: {}", money(cash_tendered)));
+                        lines.push(format!("Change: {}", money(change_due)));
+                    }
+                }
+            }
+        }
+        if !multiple_orders {
+            let remaining = order
+                .payment_applications
+                .first()
+                .map(|app| app.remaining_balance)
+                .or(order.pickup_balance_remaining)
+                .unwrap_or(order.balance_due);
+            lines.push(format!("Balance remaining: {}", money(remaining)));
             lines.push(format!(
-                "{} {}: {} (remaining balance {})",
-                app.activity_label(),
-                app.target_display_id,
-                money(app.amount),
-                money(app.remaining_balance)
+                "Status: {}",
+                if remaining <= Decimal::ZERO {
+                    "Paid in full"
+                } else {
+                    "Balance due"
+                }
             ));
         }
     }
@@ -305,6 +376,12 @@ mod tests {
         let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
 
         assert!(text.lines().any(|line| line == "Receipt TXN-66736"));
+        assert!(text.contains("4.75%: $7.88"));
+        assert!(text.contains("4.00%: $7.00"));
+        assert!(text.contains("Total Tax: $14.88"));
+        assert!(text.contains("4.75%: $0.00"));
+        assert!(text.contains("4.00%: $0.00"));
+        assert!(text.contains("Total Tax: $0.00"));
         assert!(!text.contains("RETURN /"));
     }
 

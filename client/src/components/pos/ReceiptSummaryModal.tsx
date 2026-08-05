@@ -199,7 +199,7 @@ function compactReceiptLineTaxAmounts(markup: string): string {
   const document = new DOMParser().parseFromString(markup, "image/svg+xml");
   document.querySelectorAll("g[transform]").forEach((line) => {
     const text = line.textContent?.replace(/\s+/g, "") ?? "";
-    if (/^Tax-?\$\d/.test(text)) {
+    if (/^(?:4\.75%|4\.00%|TotalTax):-?\$\d/.test(text)) {
       line.setAttribute("font-size", "16");
       line.setAttribute("fill", "#64748b");
     }

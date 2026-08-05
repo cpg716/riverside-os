@@ -575,7 +575,7 @@ async fn get_receipt_preview_html(
 struct TestReceiptEmailBody {
     to_email: String,
     subject: Option<String>,
-    html: String,
+    png_base64: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -585,8 +585,8 @@ struct TestReceiptSmsBody {
     png_base64: String,
 }
 
-const MAX_RECEIPT_TEST_HTML_BYTES: usize = 512 * 1024;
 const MAX_RECEIPT_TEST_PNG_BYTES: usize = 6 * 1024 * 1024;
+const RECEIPT_TEST_EMAIL_CONTENT_ID: &str = "riverside-receipt-builder-preview";
 
 async fn post_receipt_test_email(
     State(state): State<AppState>,
@@ -600,9 +600,12 @@ async fn post_receipt_test_email(
             "Invalid test email address.".to_string(),
         ));
     }
-    if body.html.trim().is_empty() || body.html.len() > MAX_RECEIPT_TEST_HTML_BYTES {
+    let png = base64::engine::general_purpose::STANDARD
+        .decode(body.png_base64.trim())
+        .map_err(|_| SettingsError::InvalidPayload("Invalid receipt PNG data.".to_string()))?;
+    if png.is_empty() || png.len() > MAX_RECEIPT_TEST_PNG_BYTES {
         return Err(SettingsError::InvalidPayload(
-            "Receipt email preview is empty or too large.".to_string(),
+            "Receipt image is empty or too large for email delivery.".to_string(),
         ));
     }
     let subject = body
@@ -611,14 +614,29 @@ async fn post_receipt_test_email(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("Riverside receipt builder test");
-    email::send_email(
-        &state.db, to_email, subject, &body.html, None, None, "outbound",
+    let html = format!(
+        "<div style=\"background:#f3f4f6;padding:24px;font-family:Arial,sans-serif\"><div style=\"width:576px;max-width:100%;margin:0 auto;background:#fff;padding:16px\"><img src=\"cid:{RECEIPT_TEST_EMAIL_CONTENT_ID}\" alt=\"Riverside receipt\" width=\"576\" style=\"display:block;width:100%;max-width:576px;height:auto;border:0\"></div></div>"
+    );
+    email::send_email_with_attachments(
+        &state.db,
+        to_email,
+        subject,
+        &html,
+        None,
+        None,
+        "outbound",
+        vec![email::EmailAttachmentPayload {
+            filename: "riverside-receipt.png".to_string(),
+            content_type: "image/png".to_string(),
+            bytes: png,
+            content_id: Some(RECEIPT_TEST_EMAIL_CONTENT_ID.to_string()),
+        }],
     )
     .await
     .map_err(|error| {
         SettingsError::InvalidPayload(format!("Test receipt email failed: {error}"))
     })?;
-    Ok(Json(json!({ "status": "sent" })))
+    Ok(Json(json!({ "status": "sent", "mode": "inline_png" })))
 }
 
 async fn post_receipt_test_sms(

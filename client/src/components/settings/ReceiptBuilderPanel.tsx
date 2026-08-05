@@ -17,10 +17,27 @@ import {
 } from "../../lib/receiptPrint";
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
+import { duplicateReceiptTokens } from "./receiptTemplateValidation";
 
 const EPSON_RECEIPT_CPL = 48;
 const EPSON_RECEIPT_PAPER = "80mm";
 const RECEIPT_LOGO_WIDTH_PX = 384;
+const RECEIPTLINE_FONT_B_ON = "{command:\\x1b\\x4d\\x01}";
+const RECEIPTLINE_FONT_A_ON = "{command:\\x1b\\x4d\\x00}";
+
+function previewTaxLines(
+  localAmount: string,
+  stateAmount: string,
+  totalAmount: string,
+) {
+  return [
+    RECEIPTLINE_FONT_B_ON,
+    `4.75%: ${localAmount} |`,
+    `4.00%: ${stateAmount} |`,
+    `Total Tax: ${totalAmount} |`,
+    RECEIPTLINE_FONT_A_ON,
+  ];
+}
 
 function compactReceiptLineTaxAmounts(markup: string): string {
   if (!markup.trim().startsWith("<svg") || typeof DOMParser === "undefined") {
@@ -29,7 +46,7 @@ function compactReceiptLineTaxAmounts(markup: string): string {
   const document = new DOMParser().parseFromString(markup, "image/svg+xml");
   document.querySelectorAll("g[transform]").forEach((line) => {
     const text = line.textContent?.replace(/\s+/g, "") ?? "";
-    if (/^Tax-?\$\d/.test(text)) {
+    if (/^(?:4\.75%|4\.00%|TotalTax):-?\$\d/.test(text)) {
       line.setAttribute("font-size", "16");
       line.setAttribute("fill", "#64748b");
     }
@@ -144,7 +161,6 @@ const DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE = `{{LOGO_IMAGE}}
 {{ITEM_LINES}}
 ---
 {{PAYMENT_BLOCK}}
-{{PAYMENT_HISTORY_BLOCK}}
 {{SUBTOTAL_LINE}}
 {{TAX_LINE}}
 {{TOTAL_SAVINGS_LINE}}
@@ -165,16 +181,6 @@ function linesToText(lines: string[]) {
 
 function textToLines(value: string) {
   return value.split(/\r?\n/);
-}
-
-function duplicateReceiptTokens(template: string) {
-  const counts = new Map<string, number>();
-  for (const token of template.match(/\{\{[A-Z_]+\}\}/g) ?? []) {
-    counts.set(token, (counts.get(token) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .filter(([, count]) => count > 1)
-    .map(([token]) => token);
 }
 
 function escapeReceiptlineText(value: string) {
@@ -406,7 +412,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           "Variation: Medium / Navy |",
           "| SKU I-1003713601 | $83.80",
           "Reg $104.75 Sale $83.80 (20% Discount) |",
-          "Tax | $7.12",
+          ...previewTaxLines("$3.98", "$0.00", "$3.98"),
         ].join("\n");
       case "pickup":
         return [
@@ -414,13 +420,13 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           "Variation: 42R / Black |",
           "Order Date: 04/10/2026 01:15 PM |",
           "| SKU I-40092180 | $350.00",
-          "Tax | $29.75",
+          ...previewTaxLines("$16.63", "$14.00", "$30.63"),
           "",
           '"Tuxedo Pants" |',
           "Variation: 34 / Black |",
           "Order Date: 04/10/2026 01:15 PM |",
           "| SKU I-40092181 | $150.00",
-          "Tax | $12.75",
+          ...previewTaxLines("$7.13", "$6.00", "$13.13"),
         ].join("\n");
       case "return":
         return [
@@ -428,7 +434,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           '"100% Lambswool Sweater" |',
           "Variation: Medium / Navy |",
           "| SKU I-1003713601 | -$83.80",
-          "Tax | -$7.12",
+          ...previewTaxLines("-$3.98", "$0.00", "-$3.98"),
         ].join("\n");
       case "exchange":
         return [
@@ -436,13 +442,13 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           '"Tuxedo Shirt - White" |',
           "Variation: 16.5 / 34-35 |",
           "| SKU I-40092182 | -$65.00",
-          "Tax | -$5.53",
+          ...previewTaxLines("-$3.09", "$0.00", "-$3.09"),
           "",
           "^^^Taken Today",
           '"Tuxedo Shirt - Ivory" |',
           "Variation: 16.5 / 34-35 |",
           "| SKU I-40092183 | $70.00",
-          "Tax | $5.96",
+          ...previewTaxLines("$3.33", "$0.00", "$3.33"),
         ].join("\n");
       case "gift":
         return [
@@ -458,54 +464,54 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           "Variation: Medium / Navy |",
           "| SKU I-1003713601 | $83.80",
           "Reg $104.75 Sale $83.80 (20% Discount) |",
-          "Tax | $7.23",
+          ...previewTaxLines("$3.98", "$0.00", "$3.98"),
           "",
           "^^^PICKED UP",
           '"Tuxedo Shirt" |',
           "Variation: 16.5 / 34-35 / White |",
           "Order Date: 04/10/2026 01:15 PM |",
           "| SKU I-40092182 | $65.00",
-          "Tax | $5.61",
+          ...previewTaxLines("$3.09", "$0.00", "$3.09"),
           "",
           "^^^SHIPPED",
           '"Silk Tie" |',
           "Variation: Burgundy |",
           "| SKU I-50012345 | $45.00",
-          "Tax | $3.88",
+          ...previewTaxLines("$2.14", "$1.80", "$3.94"),
           "",
           "^^^Special Order",
           '"Navy Blazer" |',
           "Variation: 42R / Navy |",
           "| SKU I-2004829302 | $295.00",
-          "Tax | $25.46",
+          ...previewTaxLines("$14.01", "$11.80", "$25.81"),
           "",
           "^^^Custom Order",
           '"Made-to-Measure Suit" |',
           "| SKU CUSTOM-MTM | $895.00",
-          "Tax | $77.24",
+          ...previewTaxLines("$42.51", "$35.80", "$78.31"),
           "",
           "^^^Wedding Order",
           '"Groomsman Suit" |',
           "Variation: 40R / Charcoal |",
           "| SKU I-30088420 | $260.00",
-          "Tax | $22.44",
+          ...previewTaxLines("$12.35", "$10.40", "$22.75"),
           "",
           "^^^Layaway",
           '"Overcoat" |',
           "Variation: 42 / Camel |",
           "| SKU I-60022410 | $325.00",
-          "Tax | $28.04",
+          ...previewTaxLines("$15.44", "$13.00", "$28.44"),
           "",
           "^^^Alterations",
           '"ALTERATION FEE" |',
           "Hem trousers |",
           "| SKU ROS-ALTERATION-FEE | $18.00",
-          "Tax | $0.00",
+          ...previewTaxLines("$0.00", "$0.00", "$0.00"),
           "",
           "^^^Shipping",
           '"SHIPPING FEE" |',
           "| SKU ROS-SHIPPING-FEE | $12.00",
-          "Tax | $0.00",
+          ...previewTaxLines("$0.00", "$0.00", "$0.00"),
         ].join("\n");
     }
   })();
@@ -514,38 +520,38 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       case "pickup":
         return {
           subtotal: "Subtotal | $500.00",
-          tax: "Sales Tax | $42.50",
+          tax: "Sales Tax | $43.76",
           savings: "",
-          total: "Total | ^^$542.50",
-          paid: "Paid | $542.50",
+          total: "Total | ^^$543.76",
+          paid: "Paid | $543.76",
           tender: "Tender CC | $250.00",
         };
       case "return":
         return {
           subtotal: "Subtotal | -$83.80",
-          tax: "Sales Tax | -$7.12",
+          tax: "Sales Tax | -$3.98",
           savings: "",
-          total: "Refund Total | ^^$90.92",
-          paid: "Refunded | $90.92",
-          tender: "Refund CC | $90.92",
+          total: "Refund Total | ^^$87.78",
+          paid: "Refunded | $87.78",
+          tender: "Refund CC | $87.78",
         };
       case "exchange":
         return {
           subtotal: "Subtotal | $5.00",
-          tax: "Sales Tax | $0.43",
+          tax: "Sales Tax | $0.24",
           savings: "",
-          total: "Balance Due | ^^$5.43",
-          paid: "Paid | $5.43",
-          tender: "Tender Cash | $5.43",
+          total: "Balance Due | ^^$5.24",
+          paid: "Paid | $5.24",
+          tender: "Tender Cash | $5.24",
         };
       case "mixed":
         return {
           subtotal: "Subtotal | $1,998.80",
-          tax: "Sales Tax | $169.90",
+          tax: "Sales Tax | $166.32",
           savings: "Total Savings | $20.95",
-          total: "Total | ^^$2,168.70",
-          paid: "Paid | $2,168.70",
-          tender: "Tender Cash | $425.00\nTender CC | $1,668.70",
+          total: "Total | ^^$2,165.12",
+          paid: "Paid | $2,165.12",
+          tender: "Tender Cash | $425.00\nTender CC | $1,665.12",
         };
       case "gift":
         return {
@@ -559,11 +565,11 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       case "sale":
         return {
           subtotal: "Subtotal | $83.80",
-          tax: "Sales Tax | $7.12",
+          tax: "Sales Tax | $3.98",
           savings: "Total Savings | $20.95",
-          total: "Total | ^^$90.92",
-          paid: "Paid | $90.92",
-          tender: "Tender Cash | $90.92",
+          total: "Total | ^^$87.78",
+          paid: "Paid | $87.78",
+          tender: "Tender Cash | $87.78",
         };
     }
   })();
@@ -610,38 +616,38 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
         previewScenario === "mixed"
           ? [
               "---",
-              "Payments toward existing orders:",
-              "Order TXN-566027 | $140.00",
-              "Remaining balance | $120.00",
+              "Order payment",
+              "Order | TXN-566027",
+              "Applied today | $140.00",
+              "Paid today - Cash | $425.00",
+              "Paid today - CC | $1,665.12",
+              "Balance remaining | $120.00",
+              "Status | Balance due",
             ].join("\n")
           : previewScenario === "pickup"
             ? [
-                "^^^Pickup payment status",
+                "Order payment",
+                "Order | TXN-566027",
                 "Previously paid | $292.50",
-                "^^^Payments toward existing orders",
-                "Order TXN-566027 | $250.00",
-                "Remaining balance | $0.00",
+                "Paid today - CC | $250.00",
+                "Balance remaining | $0.00",
+                "Status | Paid in full",
               ].join("\n")
             : "",
       )
-      .replaceAll(
-        "{{PAYMENT_HISTORY_BLOCK}}",
-        previewScenario === "pickup"
-          ? [
-              "| ^Payment History |",
-              "---",
-              "04/10/2026 Cash | $292.50",
-              "04/26/2026 CC | $250.00",
-            ].join("\n")
-          : "",
-      )
+      .replaceAll("{{PAYMENT_HISTORY_BLOCK}}", "")
       .replaceAll("{{SUBTOTAL_LINE}}", previewFinancialLines.subtotal)
       .replaceAll("{{TAX_LINE}}", previewFinancialLines.tax)
       .replaceAll("{{TOTAL_SAVINGS_LINE}}", previewFinancialLines.savings)
       .replaceAll("{{TOTAL_LINE}}", previewFinancialLines.total)
       .replaceAll("{{PAID_LINE}}", previewFinancialLines.paid)
       .replaceAll("{{BALANCE_LINE}}", "")
-      .replaceAll("{{TENDER_LINE}}", previewFinancialLines.tender)
+      .replaceAll(
+        "{{TENDER_LINE}}",
+        previewScenario === "mixed" || previewScenario === "pickup"
+          ? ""
+          : previewFinancialLines.tender,
+      )
       .replaceAll(
         "{{GIFT_CARD_BALANCE}}",
         previewScenario === "mixed" ? "Gift Card Balance | $25.00" : "",
@@ -734,9 +740,6 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
     }
   };
 
-  const receiptEmailHtml = () =>
-    `<div style="background:#f3f4f6;padding:24px;font-family:Arial,sans-serif"><div style="width:576px;max-width:100%;margin:0 auto;background:#fff;padding:16px;color:#111">${receiptLineSvg}</div></div>`;
-
   const sendTestReceipt = async (channel: "email" | "sms") => {
     const destination =
       channel === "email" ? testEmail.trim() : testPhone.trim();
@@ -753,19 +756,20 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
         "Content-Type": "application/json",
         ...(backofficeHeaders() as Record<string, string>),
       };
+      const pngBase64 = await receiptHtmlToPngBase64(
+        `<div style="width:576px;background:#fff;padding:16px;color:#111">${receiptLineSvg}</div>`,
+      );
       const payload =
         channel === "email"
           ? {
               to_email: destination,
               subject: "Riverside receipt builder test",
-              html: receiptEmailHtml(),
+              png_base64: pngBase64,
             }
           : {
               to_phone: destination,
               body: `${cfg.store_name} — Receipt builder test (image attached).`,
-              png_base64: await receiptHtmlToPngBase64(
-                `<div style="width:576px;background:#fff;padding:16px;color:#111">${receiptLineSvg}</div>`,
-              ),
+              png_base64: pngBase64,
             };
       const res = await fetch(
         `${baseUrl}/api/settings/receipt/test-${channel}`,
@@ -1194,35 +1198,30 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     ["Barcode", "{{BARCODE_IMAGE}}"],
                     ["Footer", "{{FOOTER_LINES}}"],
                     ["Cut", "{{CUT}}"],
-                    activeTab === "pickup"
-                      ? ["Payment History", "{{PAYMENT_HISTORY_BLOCK}}"]
-                      : null,
-                  ]
-                    .filter((item): item is [string, string] => item !== null)
-                    .map(([label, token]) => (
-                      <button
-                        key={label}
-                        type="button"
-                        onClick={() => {
-                          const tokens = token.split("\n");
-                          let newTemplate = effectiveTemplate.trimEnd();
-                          tokens.forEach((t) => {
-                            if (!newTemplate.includes(t)) {
-                              newTemplate += `\n${t}`;
-                            }
-                          });
-                          setCfg({
-                            ...cfg,
-                            [activeTab === "standard"
-                              ? "receiptline_template"
-                              : "receiptline_pickup_template"]: newTemplate,
-                          });
-                        }}
-                        className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-text transition-colors hover:border-app-accent"
-                      >
-                        Add {label}
-                      </button>
-                    ))}
+                  ].map(([label, token]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => {
+                        const tokens = token.split("\n");
+                        let newTemplate = effectiveTemplate.trimEnd();
+                        tokens.forEach((t) => {
+                          if (!newTemplate.includes(t)) {
+                            newTemplate += `\n${t}`;
+                          }
+                        });
+                        setCfg({
+                          ...cfg,
+                          [activeTab === "standard"
+                            ? "receiptline_template"
+                            : "receiptline_pickup_template"]: newTemplate,
+                        });
+                      }}
+                      className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-text transition-colors hover:border-app-accent"
+                    >
+                      Add {label}
+                    </button>
+                  ))}
                   <button
                     type="button"
                     onClick={() =>

@@ -108,6 +108,28 @@ pub struct ReceiptLine {
     pub is_taxable: Option<bool>,
     /// Saved state and local sales tax attributable to this displayed line.
     pub tax_amount: Option<Decimal>,
+    /// Saved NYS state-tax component attributable to this displayed line.
+    pub state_tax_amount: Option<Decimal>,
+    /// Saved Erie County local-tax component attributable to this displayed line.
+    pub local_tax_amount: Option<Decimal>,
+}
+
+impl ReceiptLine {
+    /// Customer-facing tax rows built from the saved ledger components. The
+    /// percentage labels describe the configured NYS/Erie components; amounts
+    /// are never recalculated from display prices.
+    pub fn tax_detail_lines(&self) -> Vec<(&'static str, Decimal)> {
+        let Some(total) = self.tax_amount else {
+            return Vec::new();
+        };
+
+        match (self.local_tax_amount, self.state_tax_amount) {
+            (Some(local), Some(state)) => {
+                vec![("4.75%", local), ("4.00%", state), ("Total Tax", total)]
+            }
+            _ => vec![("Total Tax", total)],
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

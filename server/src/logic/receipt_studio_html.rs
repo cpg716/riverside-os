@@ -109,14 +109,16 @@ fn build_items_table(order: &ReceiptOrder) -> String {
             String::new()
         };
         let line_tax = it
-            .tax_amount
-            .map(|tax_amount| {
+            .tax_detail_lines()
+            .into_iter()
+            .map(|(label, amount)| {
                 format!(
-                    "<br><span style=\"font-size:10px;color:#64748b\">Tax {}</span>",
-                    money(tax_amount)
+                    "<br><span style=\"font-size:10px;color:#64748b\">{}: {}</span>",
+                    html_escape(label),
+                    money(amount)
                 )
             })
-            .unwrap_or_default();
+            .collect::<String>();
         let fulfillment = format!(
             "<br><span style=\"font-size:11px;font-weight:700;color:#374151\">{}</span>",
             fulfillment_label(order, it)
@@ -187,6 +189,9 @@ fn build_items_table_gift(order: &ReceiptOrder) -> String {
 }
 
 fn build_tender_summary(order: &ReceiptOrder) -> String {
+    if order.is_pickup_event() || order.has_order_payments() {
+        return String::new();
+    }
     let mut rows = if order.payments.is_empty() {
         vec![format!(
             "<div><span>Tender</span><strong>{}</strong></div>",
@@ -230,39 +235,121 @@ fn build_tender_summary(order: &ReceiptOrder) -> String {
 }
 
 fn build_payment_applications(order: &ReceiptOrder) -> String {
-    if order.payment_applications.is_empty() {
+    if order.payment_applications.is_empty() && !order.is_pickup_event() {
         return String::new();
     }
-    let rows = order
-        .payment_applications
+    let multiple_orders = order.payment_applications.len() > 1;
+    let tender_total = order
+        .payments
         .iter()
-        .map(|app| {
-            format!(
-                "<div style=\"display:flex;justify-content:space-between;gap:12px\"><span>{} {}</span><span>{} · remaining balance {}</span></div>",
-                app.activity_label(),
-                html_escape(&app.target_display_id),
-                money(app.amount),
-                money(app.remaining_balance)
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("");
-    format!(
-        "<div style=\"margin-top:8px;font-size:12px\"><strong>{}</strong>{rows}</div>",
-        order.order_payment_heading()
-    )
-}
-
-fn build_pickup_payment_summary(order: &ReceiptOrder) -> String {
-    match order.pickup_prior_paid {
-        Some(prior_paid) => {
-            format!(
-                "<div><span>Previously paid</span><strong>{}</strong></div>",
-                money(prior_paid)
-            )
+        .fold(Decimal::ZERO, |total, payment| total + payment.amount);
+    let single_application_matches_tender = !order.payments.is_empty()
+        && order
+            .payment_applications
+            .first()
+            .is_some_and(|app| app.amount == tender_total);
+    let mut rows = vec![format!(
+        "<div><span>{}</span></div>",
+        if multiple_orders {
+            "Order payments"
+        } else {
+            "Order payment"
         }
-        None => String::new(),
+    )];
+    if let Some(prior_paid) = order.pickup_prior_paid {
+        rows.push(format!(
+            "<div><span>Previously paid</span><strong>{}</strong></div>",
+            money(prior_paid)
+        ));
     }
+    for app in &order.payment_applications {
+        if multiple_orders {
+            rows.push(format!(
+                "<div><span>Applied today to {}</span><strong>{}</strong></div>",
+                html_escape(&app.target_display_id),
+                money(app.amount)
+            ));
+            rows.push(format!(
+                "<div><span>Balance on {}</span><strong>{}</strong></div>",
+                html_escape(&app.target_display_id),
+                money(app.remaining_balance)
+            ));
+        } else {
+            rows.push(format!(
+                "<div><span>Order</span><strong>{}</strong></div>",
+                html_escape(&app.target_display_id)
+            ));
+            if !single_application_matches_tender && !order.payments.is_empty() {
+                rows.push(format!(
+                    "<div><span>Applied today</span><strong>{}</strong></div>",
+                    money(app.amount)
+                ));
+            }
+        }
+    }
+    if order.payments.is_empty() {
+        if let Some(app) = order
+            .payment_applications
+            .first()
+            .filter(|_| !multiple_orders)
+        {
+            rows.push(format!(
+                "<div><span>Applied today</span><strong>{}</strong></div>",
+                money(app.amount)
+            ));
+        } else if order.is_pickup_event() {
+            rows.push(format!(
+                "<div><span>{}</span></div>",
+                html_escape(order.payment_methods_summary.trim())
+            ));
+        }
+    } else {
+        for payment in &order.payments {
+            rows.push(format!(
+                "<div><span>Paid today - {}</span><strong>{}</strong></div>",
+                html_escape(&tender_display_label(&payment.method)),
+                money(payment.amount)
+            ));
+            if let (Some(cash_tendered), Some(change_due)) =
+                (payment.cash_tendered, payment.change_due)
+            {
+                if change_due > Decimal::ZERO {
+                    rows.push(format!(
+                        "<div><span>Cash tendered</span><strong>{}</strong></div>",
+                        money(cash_tendered)
+                    ));
+                    rows.push(format!(
+                        "<div><span>Change</span><strong>{}</strong></div>",
+                        money(change_due)
+                    ));
+                }
+            }
+        }
+    }
+    if !multiple_orders {
+        let remaining = order
+            .payment_applications
+            .first()
+            .map(|app| app.remaining_balance)
+            .or(order.pickup_balance_remaining)
+            .unwrap_or(order.balance_due);
+        rows.push(format!(
+            "<div><span>Balance remaining</span><strong>{}</strong></div>",
+            money(remaining)
+        ));
+        rows.push(format!(
+            "<div><span>Status</span><strong>{}</strong></div>",
+            if remaining <= Decimal::ZERO {
+                "Paid in full"
+            } else {
+                "Balance due"
+            }
+        ));
+    }
+    format!(
+        "<div class=\"order-payment-summary\" style=\"margin-top:8px;font-size:12px\">{}</div>",
+        rows.join("")
+    )
 }
 
 fn build_paid_summary(order: &ReceiptOrder) -> String {
@@ -419,7 +506,10 @@ pub fn render_standard_receipt_html(
         } else {
             String::new()
         };
-        let balance = if order.balance_due > Decimal::ZERO || order.is_pickup_event() {
+        let balance = if !order.is_pickup_event()
+            && !order.has_order_payments()
+            && order.balance_due > Decimal::ZERO
+        {
             format!(
                 "<div><span>Balance remaining</span><strong>{}</strong></div>",
                 money(order.balance_due)
@@ -438,7 +528,6 @@ pub fn render_standard_receipt_html(
   {}
   {}
   {}
-  {}
 </div>"#,
             money(order.subtotal_price),
             money(order.tax_total),
@@ -446,7 +535,6 @@ pub fn render_standard_receipt_html(
             order.total_label(),
             money(order.total_price),
             build_paid_summary(order),
-            build_pickup_payment_summary(order),
             balance,
             build_tender_summary(order),
             format!(
@@ -704,7 +792,9 @@ pub fn merge_receipt_studio_html(
         replace_all(&mut out, "{{ROS_AMOUNT_PAID}}", "—");
         replace_all(&mut out, "{{ROS_BALANCE_DUE}}", "—");
     } else {
-        let tender_summary = if order.payments.is_empty() {
+        let tender_summary = if order.is_pickup_event() || order.has_order_payments() {
+            String::new()
+        } else if order.payments.is_empty() {
             html_escape(&order.payment_methods_summary)
         } else {
             let mut lines = Vec::new();
@@ -729,9 +819,8 @@ pub fn merge_receipt_studio_html(
             lines.join("<br>")
         };
         let payment_summary = format!(
-            "{}{}{}{}",
+            "{}{}{}",
             tender_summary,
-            build_pickup_payment_summary(order),
             format!(
                 "{}{}",
                 build_wedding_deposit_summary(order),
@@ -838,6 +927,8 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
                 contributes_to_totals: true,
                 is_taxable: Some(true),
                 tax_amount: Some(Decimal::new(1488, 2)),
+                state_tax_amount: Some(Decimal::new(700, 2)),
+                local_tax_amount: Some(Decimal::new(788, 2)),
             },
             crate::logic::receipt_shared::ReceiptLine {
                 product_name: "Silk tie".to_string(),
@@ -857,6 +948,8 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
                 contributes_to_totals: true,
                 is_taxable: Some(false),
                 tax_amount: Some(Decimal::ZERO),
+                state_tax_amount: Some(Decimal::ZERO),
+                local_tax_amount: Some(Decimal::ZERO),
             },
         ],
         is_tax_exempt: false,
@@ -906,8 +999,12 @@ mod tests {
         assert!(html.contains("Register #1"));
         assert!(html.contains("Salesperson:"));
         assert!(html.contains("Staff:"));
-        assert!(html.contains("Tax $14.88"));
-        assert!(html.contains("Tax $0.00"));
+        assert!(html.contains("4.75%: $7.88"));
+        assert!(html.contains("4.00%: $7.00"));
+        assert!(html.contains("Total Tax: $14.88"));
+        assert!(html.contains("4.75%: $0.00"));
+        assert!(html.contains("4.00%: $0.00"));
+        assert!(html.contains("Total Tax: $0.00"));
         assert!(!html.contains("Tax: Taxable"));
         assert!(html.contains("Taken today"));
         assert!(html.contains("<th scope=\"col\""));

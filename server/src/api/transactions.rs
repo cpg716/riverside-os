@@ -630,6 +630,12 @@ impl TransactionDetailResponse {
                             ((it.state_tax + it.local_tax) * Decimal::from(effective_qty))
                                 .round_dp(2),
                         ),
+                        state_tax_amount: Some(
+                            (it.state_tax * Decimal::from(effective_qty)).round_dp(2),
+                        ),
+                        local_tax_amount: Some(
+                            (it.local_tax * Decimal::from(effective_qty)).round_dp(2),
+                        ),
                     });
                 }
                 if it.quantity_returned > 0 {
@@ -667,6 +673,8 @@ impl TransactionDetailResponse {
                         tax_amount: Some(
                             -(it.returned_state_tax + it.returned_local_tax).round_dp(2),
                         ),
+                        state_tax_amount: Some(-it.returned_state_tax.round_dp(2)),
+                        local_tax_amount: Some(-it.returned_local_tax.round_dp(2)),
                     });
                 }
             }
@@ -695,6 +703,8 @@ impl TransactionDetailResponse {
                     contributes_to_totals: false,
                     is_taxable: None,
                     tax_amount: None,
+                    state_tax_amount: None,
+                    local_tax_amount: None,
                 });
             }
         }
@@ -724,6 +734,8 @@ impl TransactionDetailResponse {
                 contributes_to_totals: true,
                 is_taxable: Some(false),
                 tax_amount: Some(Decimal::ZERO),
+                state_tax_amount: Some(Decimal::ZERO),
+                local_tax_amount: Some(Decimal::ZERO),
             });
         }
         if receipt_items.is_empty() && !payment_only {
@@ -1335,6 +1347,14 @@ mod tests {
         let receipt = detail.build_receipt_data(None).expect("receipt builds");
 
         assert_eq!(receipt.items[0].tax_amount, Some(Decimal::new(3000, 2)));
+        assert_eq!(
+            receipt.items[0].state_tax_amount,
+            Some(Decimal::new(2000, 2))
+        );
+        assert_eq!(
+            receipt.items[0].local_tax_amount,
+            Some(Decimal::new(1000, 2))
+        );
         assert_eq!(receipt.tax_total, Decimal::new(3000, 2));
     }
 
@@ -1700,10 +1720,15 @@ mod tests {
         for output in rendered {
             assert!(output.contains("Picked-up Suit"));
             assert!(output.contains("SHIPPING FEE"));
-            assert!(output.contains("Payment in Full on Order"));
+            assert_eq!(output.matches("Order payment").count(), 1);
             assert!(output.contains("Current checkout total"));
             assert!(output.contains("Previously paid"));
+            assert!(output.contains("Paid today"));
             assert!(output.contains("Balance remaining"));
+            assert!(output.contains("Paid in full"));
+            assert!(!output.contains("Pickup payment status"));
+            assert!(!output.contains("Payment in Full on Order"));
+            assert!(!output.contains("Payment History"));
             assert!(output.contains("145.00"));
         }
     }
@@ -1755,10 +1780,14 @@ mod tests {
         for output in rendered {
             assert!(output.contains("Current checkout total"));
             assert!(!output.contains("Collected now"));
+            assert_eq!(output.matches("Order payment").count(), 1);
             assert!(output.contains("Previously paid"));
             assert!(output.contains("282.75"));
             assert!(output.contains("Balance remaining"));
+            assert!(output.contains("Paid in full"));
             assert!(output.contains("No tender collected at pickup"));
+            assert!(!output.contains("Pickup payment status"));
+            assert!(!output.contains("Payment History"));
         }
     }
 
@@ -1815,11 +1844,14 @@ mod tests {
             crate::logic::receipt_plain_text::format_pos_receipt_text_message(&receipt, &cfg),
         ];
         for output in rendered {
-            assert!(output.contains("Deposit on Order"));
-            assert!(output.contains("Order TXN-ORDER"));
+            assert_eq!(output.matches("Order payment").count(), 1);
+            assert!(output.contains("TXN-ORDER"));
             assert!(output.contains("Total charged today"));
             assert!(output.contains("Paid today"));
-            assert!(output.to_ascii_lowercase().contains("remaining balance"));
+            assert!(output.contains("Balance remaining"));
+            assert!(output.contains("Balance due"));
+            assert!(!output.contains("Deposit on Order"));
+            assert!(!output.contains("Payment in Full on Order"));
             assert!(!output.contains("Applied payments"));
             assert!(!output.contains("Taken Today"));
             assert!(!output.contains("Payments toward existing orders"));
@@ -1854,6 +1886,26 @@ mod tests {
         assert_eq!(receipt.total_price, Decimal::new(40775, 2));
         assert_eq!(receipt.amount_paid, Decimal::new(40775, 2));
         assert_eq!(receipt.payment_applications.len(), 1);
+
+        let cfg = crate::api::settings::ReceiptConfig::default();
+        let rendered = [
+            crate::logic::receipt_escpos::build_receiptline_markdown(
+                &receipt,
+                &cfg,
+                &std::collections::HashMap::new(),
+                &crate::logic::receipt_escpos::LoyaltyReceiptData::default(),
+            ),
+            crate::logic::receipt_studio_html::render_standard_receipt_html(&receipt, &cfg, false),
+            crate::logic::receipt_plain_text::format_pos_receipt_text_message(&receipt, &cfg),
+        ];
+        for output in rendered {
+            assert!(output.contains("Order payment"));
+            assert!(output.contains("O-117694"));
+            assert!(output.contains("Applied today"));
+            assert!(output.contains("142.75"));
+            assert!(output.contains("Paid today"));
+            assert!(output.contains("407.75"));
+        }
     }
 
     #[test]
@@ -3184,6 +3236,8 @@ async fn build_refund_event_receipt_order(
                     && (returned.refund_state_tax + returned.refund_local_tax) != Decimal::ZERO,
             ),
             tax_amount: Some(-(returned.refund_state_tax + returned.refund_local_tax).round_dp(2)),
+            state_tax_amount: Some(-returned.refund_state_tax.round_dp(2)),
+            local_tax_amount: Some(-returned.refund_local_tax.round_dp(2)),
         });
     }
     if let Some(replacement_receipt) = replacement_receipt.as_ref() {
