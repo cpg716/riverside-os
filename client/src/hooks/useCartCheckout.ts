@@ -25,6 +25,10 @@ import {
 import { playPosScanError } from "../lib/posAudio";
 import { isRegisterReconciliationLocked } from "../lib/serverRecovery";
 import { printReceiptText } from "../lib/receiptPrint";
+import {
+  finishPosJourneyTiming,
+  startPosJourneyTiming,
+} from "../lib/posJourneyTelemetry";
 
 interface UseCartCheckoutProps {
   sessionId: string;
@@ -504,6 +508,7 @@ export function useCartCheckout({
         }
         toast("Pickup completed successfully.", "success");
         setLastReceiptTransactionLineIds(deliveredItemIds);
+        startPosJourneyTiming("receipt_ready");
         setLastTransactionId(pickupTransactionId);
         void clearBlockedCheckoutRecovery({ recoveryTransactionId: pickupTransactionId });
 
@@ -790,6 +795,7 @@ export function useCartCheckout({
 
       const queueApprovedProviderSale = async () => {
         await enqueueCheckout(payload, apiAuth());
+        startPosJourneyTiming("receipt_ready");
         try {
           await printApprovedPaymentPendingSyncReceipt({
             checkoutClientId,
@@ -802,12 +808,14 @@ export function useCartCheckout({
             "Approved card sale saved locally and printed as Pending Sync. Riverside will post it automatically when the Main Hub reconnects.",
             "success",
           );
+          finishPosJourneyTiming("receipt_ready", true);
         } catch (printError) {
           console.error("Pending-sync receipt print failed", printError);
           toast(
             "Approved card sale is saved locally for sync, but the Pending Sync receipt did not print. Do not run the card again.",
             "error",
           );
+          finishPosJourneyTiming("receipt_ready", false);
         }
         if (execution?.clearAfterCheckout !== false) {
           clearCart();
@@ -1085,6 +1093,7 @@ export function useCartCheckout({
       setLastCashChangeDueCents(cashChangeDueCents(applied));
       if (execution?.emitSaleCompleted !== false) {
         setLastReceiptTransactionLineIds(receiptTransactionLineIds);
+        startPosJourneyTiming("receipt_ready");
         setLastTransactionId(receiptTransactionId);
       }
       if (execution?.clearAfterCheckout !== false) {

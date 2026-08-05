@@ -809,7 +809,7 @@ test.describe("tax audit contract", () => {
       (JSON.parse(discountedReceiptBody) as { receiptline_markdown?: string })
         .receiptline_markdown ?? "";
     expect(discountedReceipt).toContain("Subtotal | $105.00");
-    expect(discountedReceipt).toContain("Taxes | $4.99");
+    expect(discountedReceipt).toContain("Sales Tax | $4.99");
     expect(discountedReceipt).toContain("Total Savings | $10.00");
     expect(discountedReceipt).toContain("Total | ^^$109.99");
     expect(discountedReceipt).toContain("Status | Complete");

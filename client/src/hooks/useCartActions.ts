@@ -22,6 +22,11 @@ import {
 } from "../lib/cartTax";
 import { playPosScanSuccess } from "../lib/posAudio";
 import { isCustomOrderSku } from "../lib/customOrders";
+import {
+  cancelPosJourneyTiming,
+  finishPosJourneyTimingAfterPaint,
+  startPosJourneyTiming,
+} from "../lib/posJourneyTelemetry";
 
 function newCartRowId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
@@ -293,27 +298,32 @@ export function useCartActions({
     orderLifecycleStatus?: CartLineItem["order_lifecycle_status"],
   ) => {
     if (!checkoutOperator) {
+      cancelPosJourneyTiming("scan_to_line");
       toast("Sign in as cashier on the register sign-in screen before adding items.", "error");
       return;
     }
 
     if (isCustomOrderSku(item.sku) && !item.custom_item_type) {
+      cancelPosJourneyTiming("scan_to_line");
       setPendingCustomItem(item);
       setCustomPromptOpen(true);
       return;
     }
 
     if (giftCardLoadMeta && item.sku === giftCardLoadMeta.sku) {
+      cancelPosJourneyTiming("scan_to_line");
       toast("Use the Gift card button to add a load amount and card code.", "error");
       return;
     }
 
     if (rmsPaymentMeta && item.sku === rmsPaymentMeta.sku) {
       if (lines.some((l) => l.sku === rmsPaymentMeta.sku)) {
+        cancelPosJourneyTiming("scan_to_line");
         toast("RMS CHARGE PAYMENT is already in the cart.", "error");
         return;
       }
       if (activeWeddingMember) {
+        cancelPosJourneyTiming("scan_to_line");
         toast("Clear the wedding party link before collecting an R2S payment.", "error");
         return;
       }
@@ -324,10 +334,12 @@ export function useCartActions({
 
     if (staffAccountPaymentMeta && item.sku === staffAccountPaymentMeta.sku) {
       if (lines.some((l) => l.sku === staffAccountPaymentMeta.sku)) {
+        cancelPosJourneyTiming("scan_to_line");
         toast("STAFF ACCOUNT PAYMENT is already in the cart.", "error");
         return;
       }
       if (activeWeddingMember) {
+        cancelPosJourneyTiming("scan_to_line");
         toast("Clear the wedding party link before collecting a Staff Account payment.", "error");
         return;
       }
@@ -441,6 +453,7 @@ export function useCartActions({
     setSearchResults([]);
     playPosScanSuccess();
     onReadyForNextScan();
+    finishPosJourneyTimingAfterPaint("scan_to_line", true);
   }, [
     checkoutOperator, giftCardLoadMeta, rmsPaymentMeta, staffAccountPaymentMeta, lines, activeWeddingMember,
     selectedCustomer, defaultFulfillment, toast, setPendingCustomItem,
@@ -535,6 +548,7 @@ export function useCartActions({
       if (!ensureSaleCashier()) return;
       const trimmed = code.trim();
       if (trimmed.length < 2) return;
+      startPosJourneyTiming("scan_to_line");
 
       const existing = lines.find(l => l.sku.toLowerCase() === trimmed.toLowerCase() || l.vendor_sku?.toLowerCase() === trimmed.toLowerCase());
       if (existing) {
@@ -543,6 +557,7 @@ export function useCartActions({
         setSearchResults([]);
         playPosScanSuccess();
         onReadyForNextScan();
+        finishPosJourneyTimingAfterPaint("scan_to_line", true);
         return;
       }
 
@@ -552,8 +567,10 @@ export function useCartActions({
         const exact = results.filter(r => r.sku.toLowerCase() === trimmed.toLowerCase() || r.vendor_sku?.toLowerCase() === trimmed.toLowerCase());
         if (exact.length === 1) {
           addItem(exact[0]);
+        } else {
+          cancelPosJourneyTiming("scan_to_line");
         }
-      }).catch(() => {});
+      }).catch(() => finishPosJourneyTimingAfterPaint("scan_to_line", false));
     },
     [ensureSaleCashier, setSearch, lines, setLines, setSearchResults, addItem, onReadyForNextScan],
   );

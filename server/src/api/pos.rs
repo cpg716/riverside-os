@@ -21,8 +21,119 @@ use crate::auth::permissions::{
     POS_RMS_CHARGE_LOOKUP, POS_RMS_CHARGE_PAYMENT_COLLECT, POS_RMS_CHARGE_USE,
 };
 use crate::logic::shippo::{self, ShippoError};
-use crate::logic::{pos_rms_charge, staff_accounts};
+use crate::logic::{operation_metrics, pos_rms_charge, staff_accounts};
 use crate::middleware;
+
+const MAX_POS_JOURNEY_SAMPLES: usize = 20;
+const MAX_POS_JOURNEY_DURATION_MS: f64 = 600_000.0;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PosJourneyMetricBatch {
+    register_session_id: Uuid,
+    samples: Vec<PosJourneyMetricInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PosJourneyMetricInput {
+    phase: String,
+    duration_ms: f64,
+    success: bool,
+    runtime_surface: String,
+    online: bool,
+}
+
+fn allowlisted_pos_journey_phase(value: &str) -> Option<&'static str> {
+    match value {
+        "search_to_result" => Some("search_to_result"),
+        "scan_to_line" => Some("scan_to_line"),
+        "pay_open" => Some("pay_open"),
+        "tender_confirmed" => Some("tender_confirmed"),
+        "receipt_ready" => Some("receipt_ready"),
+        "close_complete" => Some("close_complete"),
+        _ => None,
+    }
+}
+
+fn allowlisted_runtime_surface(value: &str) -> Option<&'static str> {
+    match value {
+        "tauri_desktop" => Some("tauri_desktop"),
+        "pwa_standalone" => Some("pwa_standalone"),
+        "browser_tab" => Some("browser_tab"),
+        _ => None,
+    }
+}
+
+fn bounded_header<'a>(headers: &'a HeaderMap, name: &'static str) -> Option<&'a str> {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 128)
+}
+
+async fn record_pos_journey_metrics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PosJourneyMetricBatch>,
+) -> Result<Json<Value>, PosMetaError> {
+    middleware::require_pos_register_session_for_checkout(
+        &state,
+        &headers,
+        body.register_session_id,
+    )
+    .await
+    .map_err(|(_, body)| {
+        PosMetaError::Unauthorized(
+            body.0
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("invalid register session")
+                .to_string(),
+        )
+    })?;
+
+    if body.samples.is_empty() || body.samples.len() > MAX_POS_JOURNEY_SAMPLES {
+        return Err(PosMetaError::BadRequest(format!(
+            "samples must contain between 1 and {MAX_POS_JOURNEY_SAMPLES} entries"
+        )));
+    }
+
+    let mut validated = Vec::with_capacity(body.samples.len());
+    for sample in body.samples {
+        let phase = allowlisted_pos_journey_phase(sample.phase.trim())
+            .ok_or_else(|| PosMetaError::BadRequest("unknown POS journey phase".to_string()))?;
+        if !sample.duration_ms.is_finite()
+            || sample.duration_ms < 0.0
+            || sample.duration_ms > MAX_POS_JOURNEY_DURATION_MS
+        {
+            return Err(PosMetaError::BadRequest(
+                "duration_ms must be finite and between 0 and 600000".to_string(),
+            ));
+        }
+        let runtime_surface = allowlisted_runtime_surface(sample.runtime_surface.trim())
+            .ok_or_else(|| PosMetaError::BadRequest("unknown runtime_surface".to_string()))?;
+        validated.push(operation_metrics::PosJourneyMetricSample {
+            phase,
+            duration_ms: sample.duration_ms,
+            success: sample.success,
+            runtime_surface,
+            online: sample.online,
+        });
+    }
+
+    operation_metrics::record_pos_journey_batch(
+        &state.db,
+        body.register_session_id,
+        bounded_header(&headers, crate::api::CLIENT_BUILD_SHA_HEADER),
+        bounded_header(&headers, "x-riverside-station-key"),
+        &validated,
+    )
+    .await?;
+
+    Ok(Json(json!({ "recorded": validated.len() })))
+}
 
 #[derive(Debug, Error)]
 pub enum PosMetaError {
@@ -1130,6 +1241,42 @@ pub fn router() -> Router<AppState> {
             "/shipping/manual-quote",
             post(post_pos_manual_shipping_quote),
         )
+        .route("/journey-metrics", post(record_pos_journey_metrics))
+}
+
+#[cfg(test)]
+mod pos_journey_metric_tests {
+    use super::*;
+
+    #[test]
+    fn journey_phases_and_runtime_surfaces_are_strictly_allowlisted() {
+        assert_eq!(
+            allowlisted_pos_journey_phase("receipt_ready"),
+            Some("receipt_ready")
+        );
+        assert_eq!(allowlisted_pos_journey_phase("customer_name"), None);
+        assert_eq!(
+            allowlisted_runtime_surface("tauri_desktop"),
+            Some("tauri_desktop")
+        );
+        assert_eq!(allowlisted_runtime_surface("unknown"), None);
+    }
+
+    #[test]
+    fn journey_payload_rejects_unknown_privacy_sensitive_fields() {
+        let parsed = serde_json::from_value::<PosJourneyMetricBatch>(json!({
+            "register_session_id": Uuid::nil(),
+            "samples": [{
+                "phase": "search_to_result",
+                "duration_ms": 125.0,
+                "success": true,
+                "runtime_surface": "browser_tab",
+                "online": true,
+                "search_text": "private query"
+            }]
+        }));
+        assert!(parsed.is_err());
+    }
 }
 
 #[cfg(test)]

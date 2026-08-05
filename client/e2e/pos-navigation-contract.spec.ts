@@ -91,6 +91,12 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
     /bg-app-danger\/15/,
   );
 
+  // Cart workspace actions intentionally collapse the rail to restore selling
+  // space. Re-open it before asserting the active workspace's sub-navigation.
+  const expandSidebar = page.getByRole("button", { name: "Expand sidebar" });
+  if (await expandSidebar.isVisible().catch(() => false)) {
+    await expandSidebar.click();
+  }
   await posNav.getByRole("button", { name: "Customers", exact: true }).click();
   await expect(posNav.getByRole("button", { name: "All", exact: true })).toBeVisible();
   await expect(posNav.getByRole("button", { name: "Add", exact: true })).toBeVisible();

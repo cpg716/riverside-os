@@ -31,6 +31,10 @@ import { enqueueFailedPrint } from "../../lib/printRetryQueue";
 import { openPrintableHtml } from "../../lib/browserPrint";
 import type { OrderPaymentCartLine } from "./types";
 import { isOrderStatus } from "./orderLoadStatus";
+import {
+  finishPosJourneyTiming,
+  finishPosJourneyTimingAfterPaint,
+} from "../../lib/posJourneyTelemetry";
 
 export type RefundProcessResult = {
   status: string;
@@ -405,6 +409,9 @@ export default function ReceiptSummaryModal({
           const data = (await res.json()) as OrderDetail;
           if (controller.signal.aborted) return;
           setTransactionDetail(data);
+          if (presentation === "completion") {
+            finishPosJourneyTimingAfterPaint("receipt_ready", true);
+          }
           const c = data.customer;
           if (c) {
             setPhoneDraft((c.phone ?? "").trim());
@@ -421,16 +428,29 @@ export default function ReceiptSummaryModal({
             };
           }
           toast(body.error || "Could not load receipt details.", "error");
+          if (presentation === "completion") {
+            finishPosJourneyTiming("receipt_ready", false);
+          }
         }
       } catch (e) {
         if (controller.signal.aborted) return;
         console.error("Failed to fetch order detail", e);
         toast("Could not load receipt details", "error");
+        if (presentation === "completion") {
+          finishPosJourneyTiming("receipt_ready", false);
+        }
       }
     };
     void fetchDetail();
     return () => controller.abort();
-  }, [transactionId, baseUrl, registerSessionId, getAuthHeaders, toast]);
+  }, [
+    transactionId,
+    baseUrl,
+    registerSessionId,
+    getAuthHeaders,
+    presentation,
+    toast,
+  ]);
 
   useEffect(() => {
     if (!transactionDetail) return;

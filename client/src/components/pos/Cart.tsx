@@ -92,6 +92,7 @@ import {
   CHECKOUT_RECOVERY_RESOLVED_EVENT,
   type CheckoutRecoveryResolvedDetail,
 } from "../../lib/offlineQueue";
+import { startPosJourneyTiming } from "../../lib/posJourneyTelemetry";
 
 export type { CheckoutPayload } from "./types";
 
@@ -756,6 +757,10 @@ export default function Cart({
 
   // --- UI States (Restored to Cart.tsx) ---
   const [checkoutDrawerOpen, setCheckoutDrawerOpen] = useState(false);
+  const openCheckoutDrawer = useCallback(() => {
+    startPosJourneyTiming("pay_open");
+    setCheckoutDrawerOpen(true);
+  }, []);
   const [belowCostApprovalPromptOpen, setBelowCostApprovalPromptOpen] =
     useState(false);
   const [belowCostApproval, setBelowCostApproval] = useState<{
@@ -1347,7 +1352,7 @@ export default function Cart({
     setCheckoutDepositLedger("");
     setPosShipping(null);
     if (args.action === "refund") {
-      setCheckoutDrawerOpen(true);
+      openCheckoutDrawer();
         toast(
           `Refund credit for ${receiptLabel} moved to Pay. Select the refund tender to finish.`,
           "success",
@@ -1374,7 +1379,7 @@ export default function Cart({
     setCheckoutDepositLedger,
     setPrimarySalespersonId,
     setPosShipping,
-    setCheckoutDrawerOpen,
+    openCheckoutDrawer,
     toast,
     ],
   );
@@ -2915,8 +2920,8 @@ export default function Cart({
       setBelowCostApprovalPromptOpen(true);
       return;
     }
-    setCheckoutDrawerOpen(true);
-  }, [activeBelowCostApproval, belowCostManualDiscountLines.length]);
+    openCheckoutDrawer();
+  }, [activeBelowCostApproval, belowCostManualDiscountLines.length, openCheckoutDrawer]);
 
   const ensurePosTokenForSession = useCallback(async () => {
     const success = await hydratePosRegisterAuthIfNeeded({
@@ -3866,7 +3871,7 @@ export default function Cart({
         setLines(refundCreditLines);
         setSelectedLineKey(refundCreditLines[0]?.cart_row_id ?? null);
 
-        setCheckoutDrawerOpen(true);
+        openCheckoutDrawer();
         toast(
           `${refundCreditLines.length} negative item line(s) from ${receiptLabel} loaded. Select Original Card to complete the Helcim refund.`,
           "success",
@@ -4009,7 +4014,7 @@ export default function Cart({
       setOrderPaymentLines,
       setPrimarySalespersonId,
       setSelectedLineKey,
-      setCheckoutDrawerOpen,
+      openCheckoutDrawer,
       setCheckoutAppliedPayments,
       setCheckoutDepositLedger,
       setEditingOrderPaymentLine,
@@ -4047,7 +4052,7 @@ export default function Cart({
         setManagerOverrideManagerPin(pin);
         setShowReadinessOverrideModal(false);
         // Open checkout drawer
-        setCheckoutDrawerOpen(true);
+        openCheckoutDrawer();
         toast("Manager override approved", "success");
         return true;
       } else {
@@ -4065,7 +4070,7 @@ export default function Cart({
       return false;
     }
     },
-    [baseUrl, apiAuth, pickupTransactionId, lines, toast],
+    [baseUrl, apiAuth, pickupTransactionId, lines, openCheckoutDrawer, toast],
   );
 
   const closePickupPaymentOverride = useCallback(() => {
@@ -5974,7 +5979,7 @@ export default function Cart({
                         })}
                       </div>
                     </div>
-                    <button type="button" onClick={() => setCheckoutDrawerOpen(true)} className="ui-btn-primary min-h-12 px-5">Final Payment</button>
+                    <button type="button" onClick={openCheckoutDrawer} className="ui-btn-primary min-h-12 px-5">Final Payment</button>
                   </div>
                   <p className="mt-3 text-xs font-bold text-app-text-muted">Only an approved payer tender followed by Complete Sale posts the deposits. A decline posts nothing and keeps these reviewed order drafts available.</p>
                 </div>
@@ -8408,7 +8413,7 @@ export default function Cart({
             setActiveWeddingMember(payerMember);
             setActiveWeddingPartyName(partyName);
             setWeddingDepositPostPaymentAction("deposit_only");
-            setCheckoutDrawerOpen(true);
+            openCheckoutDrawer();
             toast(
               `Added ${members.length} reviewed member deposit${members.length === 1 ? "" : "s"}. Complete the payer payment once to finish.`,
               "success",
@@ -8776,7 +8781,7 @@ export default function Cart({
             });
             setBelowCostApprovalPromptOpen(false);
             toast("Below-cost discount approved. Continue to Pay.", "success");
-            setCheckoutDrawerOpen(true);
+            openCheckoutDrawer();
             return true;
           } catch {
             toast(

@@ -222,6 +222,7 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 5. **Guarded Actions**: Run maintenance actions only with explicit reason + dual confirmation.
 6. **Bug Manager Overlay**: Keep ROS bug reports as source-of-truth and attach bugs to active incidents for triage context.
 7. **Updates tab**: Manage and monitor software updates for the Main Hub server, Windows desktop app, and PWA clients.
+8. **Register Performance tab**: Review 24-hour sample counts, median, p95, maximum duration, and failures for product search, barcode-to-Cart, Payment opening, tender confirmation, receipt readiness, and Register close. These operational measurements exclude customer, search, receipt, Access PIN, and card content and expire after 30 days.
 
 ### Updates tab (Settings → ROS Dev Center → Updates)
 

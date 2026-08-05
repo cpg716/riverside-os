@@ -39,7 +39,7 @@ Staff-facing details for engineers: **[Parked sales and RMS charges](../POS_PARK
 
 ## Adding items (intelligent search)
 
-1. **Scan** a barcode or **type** SKU or keywords in the search field.
+1. **Scan** a barcode or **type** SKU or keywords in the search field. Typed suggestions begin after a short pause; press **Enter** when you want an immediate lookup.
 2. **Single match:** the line may drop in automatically.
 3. **Multiple matches:** a **product / variation picker** opens. **Item to Build** stays at the top with the product and every completed choice. Select the correct **size / color / style**. Use **Back** to return one step, or tap a completed choice under **Item to Build** to edit from that point. On the pricing review, enter an approved **Line discount %** when needed and verify the unit price before **Add to Sale**. The price appears once until it is adjusted; then **Regular unit price** and **Final unit price** appear together for comparison. **Line pricing** is attached directly above the full-size PIN pad as one calculator surface. The completed options, calculator, **Back**, and **Add to Sale** remain together in one fixed screen with no scrolling or repeated product summary. At the first step, **Back** returns to the Cart without adding an item.
 4. **Search suggestions:** keyword matches may list **best‑selling styles first** (recent store sales by product), then alphabetically — so common names like “suit” still surface many **different** products, not only one matrix with many sizes.

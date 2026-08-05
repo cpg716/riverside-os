@@ -2,8 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type RmsPaymentLineMeta } from "../components/pos/types";
 import { type SearchResult } from "../components/pos/cart/PosSearchResultList";
 import { fetchWithTimeout } from "../lib/api";
+import {
+  cancelPosJourneyTiming,
+  ensurePosJourneyTimingStarted,
+  finishPosJourneyTimingAfterPaint,
+  startPosJourneyTiming,
+} from "../lib/posJourneyTelemetry";
 
 const POS_SEARCH_TIMEOUT_MS = 5_000;
+const POS_SEARCH_DEBOUNCE_MS = 250;
 const ALTERATION_SERVICE_SKU = "ROS-ALTERATION-SERVICE";
 
 function isInternalAlterationServiceSku(sku: string | null | undefined): boolean {
@@ -66,11 +73,13 @@ export function usePosSearch({
     const isCurrent = () => requestId === searchRequestRef.current;
     searchAbortRef.current?.abort();
     if (q.length < 2 || !hasSearchableTerm(q)) {
+      cancelPosJourneyTiming("search_to_result");
       searchAbortRef.current = null;
       setSearchResults([]);
       setSearchStatus("idle");
       return [];
     }
+    ensurePosJourneyTimingStarted("search_to_result");
     const abortController = new AbortController();
     searchAbortRef.current = abortController;
     setSearchStatus("loading");
@@ -79,6 +88,7 @@ export function usePosSearch({
     if (isInternalAlterationServiceSku(q)) {
       setSearchResults([]);
       setSearchStatus("complete");
+      finishPosJourneyTimingAfterPaint("search_to_result", true);
       toast("Use ALTERATIONS to start a Quick Alteration Record.", "info");
       return [];
     }
@@ -101,6 +111,7 @@ export function usePosSearch({
       if (isCurrent()) {
         setSearchResults(results);
         setSearchStatus("complete");
+        finishPosJourneyTimingAfterPaint("search_to_result", true);
       }
       return results;
     }
@@ -124,6 +135,7 @@ export function usePosSearch({
       if (isCurrent()) {
         setSearchResults(results);
         setSearchStatus("complete");
+        finishPosJourneyTimingAfterPaint("search_to_result", true);
       }
       return results;
     }
@@ -140,6 +152,7 @@ export function usePosSearch({
           if (!res.ok) {
             setSearchResults([]);
             setSearchStatus("error");
+            finishPosJourneyTimingAfterPaint("search_to_result", false);
             toast(
               "RMS payment line is not available. Sign in or run migrations.",
               "error",
@@ -150,6 +163,7 @@ export function usePosSearch({
           if (!payload) {
             setSearchResults([]);
             setSearchStatus("error");
+            finishPosJourneyTimingAfterPaint("search_to_result", false);
             toast(
               "RMS payment line is not available. Ensure layout POS products are created.",
               "error",
@@ -176,11 +190,13 @@ export function usePosSearch({
         if (!isCurrent()) return [];
         setSearchResults(results);
         setSearchStatus("complete");
+        finishPosJourneyTimingAfterPaint("search_to_result", true);
         return results;
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return [];
         setSearchResults([]);
         setSearchStatus("error");
+        finishPosJourneyTimingAfterPaint("search_to_result", false);
         toast("Could not load RMS payment line.", "error");
       }
       return [];
@@ -238,12 +254,14 @@ export function usePosSearch({
         if (!isCurrent()) return [];
         setSearchResults(collected);
         setSearchStatus("complete");
+        finishPosJourneyTimingAfterPaint("search_to_result", true);
         return collected;
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") {
           if (abortController.signal.aborted || !isCurrent()) return [];
           setSearchResults([]);
           setSearchStatus("error");
+          finishPosJourneyTimingAfterPaint("search_to_result", false);
           toast("SKU lookup timed out. Check the Main Hub connection and try again.", "error");
           return [];
         }
@@ -251,6 +269,7 @@ export function usePosSearch({
         console.error("POS SKU Scan Error", e);
         setSearchResults([]);
         setSearchStatus("error");
+        finishPosJourneyTimingAfterPaint("search_to_result", false);
         toast(`SKU NOT FOUND: ${q}`, "info");
         return [];
       } finally {
@@ -335,12 +354,17 @@ export function usePosSearch({
         }
       }
       setSearchStatus(failures.length > 0 && finalResults.length === 0 ? "error" : "complete");
+      finishPosJourneyTimingAfterPaint(
+        "search_to_result",
+        failures.length === 0 || finalResults.length > 0,
+      );
       return finalResults;
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return [];
       console.error("POS Search Error", e);
       setSearchResults([]);
       setSearchStatus("error");
+      finishPosJourneyTimingAfterPaint("search_to_result", false);
       toast("Product search failed. Check the Main Hub connection and try again.", "error");
       return [];
     } finally {
@@ -350,6 +374,7 @@ export function usePosSearch({
 
   useEffect(() => {
     if (search.trim().length < 2 || !hasSearchableTerm(search)) {
+      cancelPosJourneyTiming("search_to_result");
       searchRequestRef.current += 1;
       searchAbortRef.current?.abort();
       searchAbortRef.current = null;
@@ -361,6 +386,7 @@ export function usePosSearch({
       }
       return;
     }
+    startPosJourneyTiming("search_to_result");
     if (searchDebounceRef.current) {
       clearTimeout(searchDebounceRef.current);
     }
@@ -368,7 +394,7 @@ export function usePosSearch({
     setSearchStatus("loading");
     searchDebounceRef.current = setTimeout(() => {
       void runSearch(search);
-    }, 400);
+    }, POS_SEARCH_DEBOUNCE_MS);
     return () => {
       if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     };

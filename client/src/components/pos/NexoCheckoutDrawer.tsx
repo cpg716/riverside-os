@@ -37,6 +37,11 @@ import {
 import { isApprovedProviderPayment } from "./paymentLineGuards";
 import ManagerApprovalModal from "./ManagerApprovalModal";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import {
+  finishPosJourneyTiming,
+  finishPosJourneyTimingAfterPaint,
+  startPosJourneyTiming,
+} from "../../lib/posJourneyTelemetry";
 
 // Cash rounding is configured in Settings → Register (Terminal Overrides).
 // Value is fetched from /api/settings/pos-station-config/public on drawer open.
@@ -719,6 +724,10 @@ export default function NexoCheckoutDrawer({
   const baseUrl = getBaseUrl();
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (isOpen) finishPosJourneyTimingAfterPaint("pay_open", true);
+  }, [isOpen]);
 
   const [tab, setTab] = useState<NexoTenderTab>("card_terminal");
   const [keypad, setKeypad] = useState("");
@@ -1791,6 +1800,7 @@ export default function NexoCheckoutDrawer({
           "This Card Not Present approval is not the exact attempt for this sale and customer. It was not added; review it in Payments Health.",
           "error",
         );
+        finishPosJourneyTiming("tender_confirmed", false);
         return false;
       }
       if (
@@ -1809,6 +1819,7 @@ export default function NexoCheckoutDrawer({
           "This approved Helcim payment belongs to a different sale and was not added. Recover or refund it from Payments Health.",
           "error",
         );
+        finishPosJourneyTiming("tender_confirmed", false);
         return false;
       }
       const isRefundAttempt =
@@ -1820,7 +1831,10 @@ export default function NexoCheckoutDrawer({
             ? -Math.abs(attempt.amount_cents)
             : attempt.amount_cents
           : pendingHelcimCentsRef.current;
-      if (amtCents === 0) return false;
+      if (amtCents === 0) {
+        finishPosJourneyTiming("tender_confirmed", false);
+        return false;
+      }
       if (hasAppliedHelcimAttempt(applied, attempt)) {
         if (hostedManual) activeHostedManualCardContextRef.current = null;
         setKeypad("");
@@ -1829,6 +1843,7 @@ export default function NexoCheckoutDrawer({
         setManualCardHandoffUrl(null);
         pendingHelcimCentsRef.current = 0;
         pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+        finishPosJourneyTimingAfterPaint("tender_confirmed", true);
         return false;
       }
       setApplied((prev) => {
@@ -1866,6 +1881,7 @@ export default function NexoCheckoutDrawer({
       setManualCardHandoffUrl(null);
       pendingHelcimCentsRef.current = 0;
       pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+      finishPosJourneyTimingAfterPaint("tender_confirmed", true);
       return true;
     },
     [
@@ -1891,6 +1907,7 @@ export default function NexoCheckoutDrawer({
           latestSaleIdentity.checkoutClientId,
         )
       ) {
+        finishPosJourneyTiming("tender_confirmed", false);
         return;
       }
       if (
@@ -1906,6 +1923,7 @@ export default function NexoCheckoutDrawer({
           "A Card Not Present update for another sale, customer, or attempt was not attached. Review it in Payments Health.",
           "error",
         );
+        finishPosJourneyTiming("tender_confirmed", false);
         return;
       }
       setHelcimAttempt(attempt);
@@ -1916,6 +1934,7 @@ export default function NexoCheckoutDrawer({
           pendingHelcimCentsRef.current = 0;
           pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
           toast("This approved Helcim payment belongs to a different sale and cannot be added here.", "error");
+          finishPosJourneyTiming("tender_confirmed", false);
           return;
         }
         const isHostedManual = isHostedManualHelcimAttempt(attempt);
@@ -1947,6 +1966,7 @@ export default function NexoCheckoutDrawer({
             attempt.status === "canceled" ? "info" : "error",
           );
         }
+        finishPosJourneyTiming("tender_confirmed", false);
       }
     },
     [
@@ -2538,6 +2558,7 @@ export default function NexoCheckoutDrawer({
         return;
       }
       setHelcimAttemptLoading(true);
+      startPosJourneyTiming("tender_confirmed");
       let startAmbiguous = false;
       const idempotencyKey =
         savedCardIdempotencyKeyRef.current ??
@@ -2593,6 +2614,7 @@ export default function NexoCheckoutDrawer({
             "This Helcim saved-card response belongs to another register session or sale. It remains in Payments Health and was not attached here.",
             "error",
           );
+          finishPosJourneyTiming("tender_confirmed", false);
           return;
         }
         setHelcimAttempt(body);
@@ -2601,16 +2623,20 @@ export default function NexoCheckoutDrawer({
         if (body.status === "approved" || body.status === "captured") {
           if (body.error_code === "amount_mismatch") {
             toast(body.safe_message ?? "Helcim returned an unexpected saved-card amount. Review Payments Health before retrying.", "error");
+            finishPosJourneyTiming("tender_confirmed", false);
             return;
           }
           pendingHelcimCentsRef.current = amtCents;
           addApprovedHelcimAttempt(body, "card_saved", "HELCIM VAULT");
         } else {
           toast(body.error_message ?? "Helcim saved card was not approved.", "error");
+          finishPosJourneyTiming("tender_confirmed", false);
         }
       } catch (error) {
         if (startAmbiguous || isAmbiguousProviderStartException(error)) {
           setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
+        } else {
+          finishPosJourneyTiming("tender_confirmed", false);
         }
         toast(error instanceof Error ? error.message : "Could not charge Helcim saved card.", "error");
       } finally {
@@ -2658,6 +2684,7 @@ export default function NexoCheckoutDrawer({
       setHelcimUnverifiedNotice(null);
       setManualCardHandoffUrl(null);
       setHelcimAttemptLoading(true);
+      startPosJourneyTiming("tender_confirmed");
       pendingHelcimCentsRef.current = amtCents;
       pendingHelcimTenderRef.current = {
         method: "card_not_present",
@@ -2708,6 +2735,7 @@ export default function NexoCheckoutDrawer({
             "A Card Not Present request completed for the prior sale and was not attached here. Review it in Payments Health.",
             "info",
           );
+          finishPosJourneyTiming("tender_confirmed", false);
           return;
         }
         if (
@@ -2747,6 +2775,7 @@ export default function NexoCheckoutDrawer({
         setManualCardHandoffUrl(null);
         setHelcimAttemptLoading(false);
         toast(error instanceof Error ? error.message : "Could not start Card Not Present.", "error");
+        finishPosJourneyTiming("tender_confirmed", false);
       } finally {
         if (activeHostedManualCardContextRef.current?.requestId === requestContext.requestId) {
           setHelcimAttemptLoading(false);
@@ -2970,6 +2999,7 @@ export default function NexoCheckoutDrawer({
         setManualRefundApprovalOpen(true);
         return;
       }
+      startPosJourneyTiming("tender_confirmed");
       setApplied((prev) => [
         ...prev,
         {
@@ -2999,6 +3029,7 @@ export default function NexoCheckoutDrawer({
       setOfflineCardApprovalCode("");
       setOfflineCardLast4("");
       setOfflineCardReason("");
+      finishPosJourneyTimingAfterPaint("tender_confirmed", true);
       return;
     }
 
@@ -3114,12 +3145,19 @@ export default function NexoCheckoutDrawer({
           },
         };
         if (returnOnlyRefundMode && onProcessLinkedCardRefund) {
+          startPosJourneyTiming("tender_confirmed");
           setLinkedRefundProcessing(true);
           try {
             const approvedRefund = await onProcessLinkedCardRefund(pendingRefund);
             if (approvedRefund) {
               setApplied((prev) => [...prev, approvedRefund]);
+              finishPosJourneyTimingAfterPaint("tender_confirmed", true);
+            } else {
+              finishPosJourneyTiming("tender_confirmed", false);
             }
+          } catch (error) {
+            finishPosJourneyTiming("tender_confirmed", false);
+            throw error;
           } finally {
             setLinkedRefundProcessing(false);
           }
@@ -3163,6 +3201,7 @@ export default function NexoCheckoutDrawer({
 
       let startAmbiguous = false;
       setHelcimAttemptLoading(true);
+      startPosJourneyTiming("tender_confirmed");
       try {
         pendingHelcimTenderRef.current = {
           method: "card_terminal",
@@ -3225,6 +3264,7 @@ export default function NexoCheckoutDrawer({
             "This terminal response belongs to another register session or sale. It remains in Payments Health and was not attached here.",
             "error",
           );
+          finishPosJourneyTiming("tender_confirmed", false);
           return;
         }
         pendingHelcimCentsRef.current = amtCents;
@@ -3242,6 +3282,7 @@ export default function NexoCheckoutDrawer({
           void loadProviderSettings();
         } else {
           pendingHelcimTenderRef.current = { method: "card_terminal", label: "HELCIM CARD" };
+          finishPosJourneyTiming("tender_confirmed", false);
         }
         toast(
           error instanceof Error ? error.message : "Error initializing Helcim payment",
@@ -3302,6 +3343,7 @@ export default function NexoCheckoutDrawer({
         ? parseMoneyToCents(staffAccount.current_balance) + amtCents
         : null;
 
+    startPosJourneyTiming("tender_confirmed");
     setApplied((prev) => [
       ...prev,
       {
@@ -3442,6 +3484,7 @@ export default function NexoCheckoutDrawer({
     setDonationNote("");
     setCheckNumber("");
     setRmsReferenceNumber("");
+    finishPosJourneyTimingAfterPaint("tender_confirmed", true);
   }, [giftCardCode, donationNote, checkNumber, remainingCents, cashRounding.rounded, tab, offlineCardApprovalCode, offlineCardLast4, offlineCardReason, providerSettings, providerSettingsLoading, helcimAttempt, helcimAttemptBelongsToCurrentCheckout, helcimOutcomeBlocksCheckout, registerLaneUnavailable, registerTerminalRoute, selectedTerminalKey, selectedTerminalConfigured, selectedTerminalInUseBy, selectedTerminalInUseByOtherRegister, selectedTerminalInUseByEarlierCheckoutOnCurrentRegister, selectedTerminalNeedsOverride, terminalOverrideConfirmed, terminalOverrideApproval, registerLane, registerSessionId, registerSessionIdentity, refundOriginalTransactionId, deferCardRefund, returnOnlyRefundMode, onProcessLinkedCardRefund, baseUrl, backofficeHeaders, customerId, customerCode, checkoutClientId, checkoutIdentity, toast, applied, setApplied, addApprovedHelcimAttempt, beforeApplyTender, rmsSelectedAccount, rmsPrograms, rmsSelectedProgramCode, rmsReferenceNumber, rmsSummary, rmsResolve, rmsPaymentCollectionMode, rmsNoCreditApproval, chargeSavedHelcimCard, fetchGiftCardPreview, loadProviderSettings, startHostedManualCardPayment, storeCreditBalanceCents, storeCreditError, storeCreditLoading, staffAccount]);
 
   const removePaymentLine = async (line: AppliedPaymentLine) => {

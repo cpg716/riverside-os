@@ -30,8 +30,9 @@ Use it to review health, recent incidents, guarded operations, and diagnostic hi
 1. Open ROS Dev Center from the protected settings area.
 2. Review available diagnostics and any degraded feed indicators.
 3. Check the connection pool, server environment, E2E regression lane, and guarded action cards before escalating.
-4. Share report IDs, routes, or correlation IDs with support.
-5. Run protected actions only when a manager or developer asks for them.
+4. Open **Register Performance** to review the last 24 hours of median, p95, maximum, and failure counts for product search, barcode-to-Cart, Payment opening, tender confirmation, receipt readiness, and Register close.
+5. Share report IDs, routes, or correlation IDs with support.
+6. Run protected actions only when a manager or developer asks for them.
 
 ## When to use it
 
@@ -47,6 +48,8 @@ Use ROS Dev Center when:
 Diagnostic feeds load independently. If one feed fails, the rest of the Dev Center should still render useful information with a quiet degraded message for the failed feed.
 
 That means a missing incident feed should not hide available audit history, protected actions, or system status.
+
+Register Performance records elapsed time, success/failure, Register session, workstation identity, build, runtime surface, and online state. It does **not** record customer details, search terms, SKUs, receipt content, Access PINs, card data, provider references, or staff-entered notes. Samples are retained for 30 days; the panel summarizes the last 24 hours. A p95 value means 95% of recorded attempts completed at or below that duration. Establish performance targets only after representative store-workstation traffic has accumulated.
 
 Database diagnostics never turn a failed request into a disconnected pool with zero errors or zero migrations. When the current probe is unavailable, Riverside either keeps the last confirmed snapshot and labels it, or shows **Unavailable** and an em dash. Treat those states as missing evidence, not as zero activity.
 

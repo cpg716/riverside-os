@@ -20,6 +20,7 @@ import {
 import { useToast } from "../ui/ToastProviderLogic";
 import BugReportsSettingsPanel from "../settings/BugReportsSettingsPanel";
 import UpdateManagerPanel from "../settings/UpdateManagerPanel";
+import PosJourneyMetricsPanel from "./PosJourneyMetricsPanel";
 
 const baseUrl = getBaseUrl();
 
@@ -31,6 +32,7 @@ type OperationsCenterTab =
   | "stations"
   | "alerts"
   | "integrations"
+  | "performance"
   | "bugs"
   | "updates";
 type ReadinessCheckStatus =
@@ -1291,6 +1293,7 @@ export default function RosOperationsCenter({
               { id: "stations", label: "Stations Fleet" },
               { id: "alerts", label: "Alert Triage" },
               { id: "integrations", label: "Integration Health" },
+              { id: "performance", label: "Register Performance" },
               { id: "bugs", label: "Bug Manager" },
               { id: "updates", label: "Updates" },
             ] as const
@@ -2072,6 +2075,16 @@ export default function RosOperationsCenter({
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* TAB: REGISTER PERFORMANCE */}
+        {activeTab === "performance" && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <PosJourneyMetricsPanel
+              headers={headers}
+              refreshSignal={loadedAt}
+            />
           </div>
         )}
 

@@ -45,6 +45,15 @@ test("remote workspace searches debounce and cancel superseded requests", async 
   }
 });
 
+test("Register product search responds quickly and cancels superseded requests", async () => {
+  const registerSearch = await source("hooks/usePosSearch.ts");
+
+  expect(registerSearch).toContain("const POS_SEARCH_DEBOUNCE_MS = 250");
+  expect(registerSearch).toContain("searchAbortRef.current?.abort()");
+  expect(registerSearch).toContain("signal: abortController.signal");
+  expect(registerSearch).toContain("requestId === searchRequestRef.current");
+});
+
 test("universal search keeps concurrent server sources and client cancellation", async () => {
   const globalSearch = await source(
     "components/layout/GlobalCommandSearch.tsx",

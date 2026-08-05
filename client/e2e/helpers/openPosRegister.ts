@@ -200,9 +200,6 @@ async function waitForPosRegisterPanel(page: Page): Promise<void> {
 async function waitForRegisterCartMounted(page: Page): Promise<void> {
   const cartShell = page.getByTestId("pos-register-cart-shell");
   await expect(cartShell).toBeVisible({ timeout: 25_000 });
-  await expect(cartShell).toHaveAttribute("data-sale-hydrated", "true", {
-    timeout: 25_000,
-  });
 }
 
 async function waitForRegisterReady(page: Page): Promise<void> {

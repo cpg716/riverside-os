@@ -37,6 +37,10 @@ import {
 import RosieInsightSummary from "../help/RosieInsightSummary";
 import RosieIcon from "../common/RosieIcon";
 import ManagerApprovalModal from "./ManagerApprovalModal";
+import {
+  finishPosJourneyTiming,
+  startPosJourneyTiming,
+} from "../../lib/posJourneyTelemetry";
 
 const MANDATORY_NOTE_OVER_USD = 5;
 
@@ -1421,6 +1425,7 @@ export default function CloseRegisterModal({
         setLoading(false);
         return false;
       }
+      startPosJourneyTiming("close_complete");
       const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/close`, {
         method: "POST",
         headers: jsonAuthHeaders(),
@@ -1477,15 +1482,18 @@ export default function CloseRegisterModal({
           `${result.business_date} is closed separately. ${result.next_business_date ?? "The next business day"} must be closed next.`,
           "success",
         );
+        finishPosJourneyTiming("close_complete", true);
         return true;
       }
       onCloseComplete();
+      finishPosJourneyTiming("close_complete", true);
       return true;
     } catch (err: unknown) {
       toast(
         err instanceof Error ? err.message : "Failed to close session",
         "error",
       );
+      finishPosJourneyTiming("close_complete", false);
       setLoading(false);
       return false;
     }

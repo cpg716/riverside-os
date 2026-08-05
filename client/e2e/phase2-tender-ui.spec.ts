@@ -38,7 +38,6 @@ async function openPosRegisterSurface(
 
   await ensurePosRegisterSessionOpen(page);
   const productSearch = page.getByTestId("pos-product-search");
-  const giftCardAction = page.getByTestId("pos-action-gift-card");
   const registerTab = page.getByTestId("pos-sidebar-tab-register");
   if (await registerTab.isVisible().catch(() => false)) {
     await expect(registerTab).toBeEnabled();
@@ -47,13 +46,19 @@ async function openPosRegisterSurface(
   await ensurePosSaleCashierSignedIn(page);
 
   await expect(productSearch).toBeVisible({ timeout: 25_000 });
-  await expect(giftCardAction).toBeVisible({ timeout: 25_000 });
 }
 
 async function seedGiftCardCartLine(
   page: Parameters<typeof test>[0]["page"],
 ): Promise<void> {
-  await page.getByTestId("pos-action-gift-card").click();
+  const giftCardAction = page.getByTestId("pos-action-gift-card");
+  if (!(await giftCardAction.isVisible().catch(() => false))) {
+    await page.getByRole("button", { name: "More Actions", exact: true }).click();
+    await expect(
+      page.getByRole("dialog", { name: /more sale actions/i }),
+    ).toBeVisible({ timeout: 10_000 });
+  }
+  await giftCardAction.click();
 
   const dialog = page.getByRole("dialog", { name: /gift card/i });
   await expect(dialog).toBeVisible({ timeout: 15_000 });
