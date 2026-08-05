@@ -38,6 +38,13 @@ payment, and a new shipping fee: Sale Complete and customer receipts stay on
 the current checkout Transaction Record, display the picked-up lines as linked
 fulfillment context, and total today's payment allocation plus today's fee.
 
+Pickup balance handling stays inside that Register workflow. Before the pickup
+is loaded, staff see the authoritative remaining balance and choose either to
+stage the full balance and continue directly to tender or to skip payment for
+now. A skipped payment does not bypass release coverage: if recorded payments
+do not cover merchandise already released plus the selected pickup, the pickup
+API requires audited Manager Access before completion.
+
 Sale Complete and receipts separate the current checkout from lifetime
 Transaction history. A previously paid pickup reports zero collected now,
 the amount paid before this checkout, and the post-pickup remaining balance.

@@ -235,13 +235,12 @@ historical order total and payment history.
 
 From **Customer Orders**, select only the lines the customer is taking and tap
 **Continue with Pickup**. Riverside closes Customer Orders and returns to the
-Cart so staff can review those items, add a new purchase, or continue without a
-new tender when the pickup is already paid. It does not open Payment or add the
-historical balance automatically. Use **Add Payment** only when the customer is
-intentionally paying some or all of that balance today, then use **Pay** or
-**Complete Pickup** when the Cart is ready. If the selected Orders will still
-have a balance after staged payments, Riverside requires an explicit choice:
-**Go Back / Add Payment** or **Pick Up Without Payment**. A fully picked-up
+Cart so staff can review those items or add a new purchase. If money remains
+due, **Pay at Pickup?** shows the exact remaining balance. Choose **Pay Balance
+Now** to stage the full balance and pickup together before tender, or **Skip
+Payment for Now** to keep the balance open. If recorded deposits do not cover
+the merchandise being released, Complete Pickup requests Manager Access before
+allowing the skip. A fully picked-up
 Transaction Record with money due remains **Open** and searchable until its
 balance reaches `$0.00`; physical pickup time is still retained for fulfillment
 and revenue reporting.

@@ -116,7 +116,10 @@ interface OrderLoadModalProps {
     order: CustomerOrder,
     item: OrderItem,
   ) => Promise<boolean>;
-  onPickupToCart?: (selections: PickupSelection[]) => Promise<boolean>;
+  onPickupToCart?: (
+    selections: PickupSelection[],
+    options?: { continueToPayment?: boolean },
+  ) => Promise<boolean>;
   onCancelledToRefundCart?: (order: CustomerOrder) => Promise<boolean>;
   onRecordedRefundToCart?: (order: CustomerOrder) => Promise<boolean>;
 }
@@ -217,7 +220,11 @@ export default function OrderLoadModal({
     retainedPrice: string;
   } | null>(null);
   const [pickupBusy, setPickupBusy] = useState(false);
-  const [confirmUnpaidPickup, setConfirmUnpaidPickup] = useState(false);
+  const [pickupPaymentDecision, setPickupPaymentDecision] = useState<{
+    balanceDueCents: number;
+    stagedPaymentCents: number;
+    remainingBalanceCents: number;
+  } | null>(null);
   const [pickupConfirm, setPickupConfirm] = useState<{
     mode: ReleaseMode;
     order: CustomerOrder;
@@ -332,6 +339,7 @@ export default function OrderLoadModal({
   useEffect(() => {
     if (!isOpen || !customerId) return;
     setPickupBasket([]);
+    setPickupPaymentDecision(null);
     setSelectedOrderItems([]);
     setViewingItemsOrderId(null);
     setLastCancellationResult(null);
@@ -673,7 +681,10 @@ export default function OrderLoadModal({
     );
   };
 
-  const startPickupBasket = async (allowUnpaidBalance = false) => {
+  const startPickupBasket = async (
+    allowUnpaidBalance = false,
+    continueToPayment = false,
+  ) => {
     if (!onPickupToCart || pickupBasket.length === 0) return;
     const stagedPaymentByTransaction = new Map(
       stagedOrderPayments.map((payment) => [
@@ -681,19 +692,32 @@ export default function OrderLoadModal({
         parseMoneyToCents(payment.amount),
       ]),
     );
-    const remainingBalanceCents = pickupBasket.reduce((sum, entry) => {
-      const balanceDueCents = parseMoneyToCents(entry.order.balance_due);
-      const stagedPaymentCents =
-        stagedPaymentByTransaction.get(entry.order.id) ?? 0;
-      return sum + Math.max(0, balanceDueCents - stagedPaymentCents);
-    }, 0);
+    const balanceDueCents = pickupBasket.reduce(
+      (sum, entry) => sum + parseMoneyToCents(entry.order.balance_due),
+      0,
+    );
+    const stagedPaymentCents = pickupBasket.reduce(
+      (sum, entry) =>
+        sum + (stagedPaymentByTransaction.get(entry.order.id) ?? 0),
+      0,
+    );
+    const remainingBalanceCents = Math.max(
+      0,
+      balanceDueCents - stagedPaymentCents,
+    );
     if (!allowUnpaidBalance && remainingBalanceCents > 0) {
-      setConfirmUnpaidPickup(true);
+      setPickupPaymentDecision({
+        balanceDueCents,
+        stagedPaymentCents,
+        remainingBalanceCents,
+      });
       return;
     }
     setPickupBusy(true);
     try {
-      const loaded = await onPickupToCart(pickupBasket);
+      const loaded = await onPickupToCart(pickupBasket, {
+        continueToPayment,
+      });
       if (loaded) {
         setPickupBasket([]);
         setPickupConfirm(null);
@@ -703,6 +727,40 @@ export default function OrderLoadModal({
       setPickupBusy(false);
     }
   };
+
+  const payPickupBalanceNow = () => {
+    if (!onMakePayment) {
+      toast("Transaction payment is unavailable for this pickup.", "error");
+      return;
+    }
+    for (const entry of pickupBasket) {
+      const balanceDueCents = parseMoneyToCents(entry.order.balance_due);
+      if (balanceDueCents > 0) {
+        onMakePayment(entry.order, balanceDueCents);
+      }
+    }
+    setPickupPaymentDecision(null);
+    void startPickupBasket(true, true);
+  };
+
+  const skipPickupPaymentForNow = () => {
+    setPickupPaymentDecision(null);
+    void startPickupBasket(true);
+  };
+
+  const pickupPaymentDecisionMessage = pickupPaymentDecision
+    ? [
+        pickupPaymentDecision.stagedPaymentCents > 0
+          ? [
+              `Order balance due: ${formatUsdFromCents(pickupPaymentDecision.balanceDueCents)}`,
+              `Already staged in this cart: ${formatUsdFromCents(pickupPaymentDecision.stagedPaymentCents)}`,
+              `Additional payment needed: ${formatUsdFromCents(pickupPaymentDecision.remainingBalanceCents)}`,
+            ].join("\n")
+          : `Balance remaining: ${formatUsdFromCents(pickupPaymentDecision.remainingBalanceCents)}`,
+        "",
+        "Paying stages the full balance with this pickup and continues directly to tender. Skipping keeps the balance open. Manager Access will be requested at Complete Pickup only if recorded payments do not cover the merchandise being released.",
+      ].join("\n")
+    : "";
 
   const releaseSelectedLines = async () => {
     if (!selectedOrder) return;
@@ -1946,16 +2004,14 @@ export default function OrderLoadModal({
         />
       )}
       <ConfirmationModal
-        isOpen={confirmUnpaidPickup}
-        title="Balance Will Remain Open"
-        message="One or more selected Orders will still have a balance after the staged payments. Choose Go Back / Add Payment to collect it now, or explicitly continue without payment. Fully picked-up Orders with a balance remain open until paid."
-        confirmLabel="Pick Up Without Payment"
-        cancelLabel="Go Back / Add Payment"
-        onConfirm={() => {
-          setConfirmUnpaidPickup(false);
-          void startPickupBasket(true);
-        }}
-        onClose={() => setConfirmUnpaidPickup(false)}
+        isOpen={pickupPaymentDecision != null}
+        title="Pay at Pickup?"
+        message={pickupPaymentDecisionMessage}
+        confirmLabel="Pay Balance Now"
+        cancelLabel="Skip Payment for Now"
+        onConfirm={payPickupBalanceNow}
+        onCancel={skipPickupPaymentForNow}
+        onClose={() => setPickupPaymentDecision(null)}
         variant="info"
       />
       {cancelOrder && (

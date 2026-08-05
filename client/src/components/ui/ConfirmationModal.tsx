@@ -6,6 +6,7 @@ import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 interface ConfirmationModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onCancel?: () => void;
   onConfirm: () => void;
   title: string;
   message: string;
@@ -18,6 +19,7 @@ interface ConfirmationModalProps {
 export default function ConfirmationModal({
   isOpen,
   onClose,
+  onCancel,
   onConfirm,
   title,
   message,
@@ -108,7 +110,7 @@ export default function ConfirmationModal({
           <button
             type="button"
             disabled={loading}
-            onClick={onClose}
+            onClick={onCancel ?? onClose}
             className="ui-btn-secondary flex-1"
           >
             {cancelLabel}

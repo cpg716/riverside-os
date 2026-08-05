@@ -8953,7 +8953,10 @@ export default function Cart({
             onAddItemToOrder={addItemToExistingOrder}
             onUpdateOrderItem={updateExistingOrderItem}
             onDeleteOrderItem={deleteExistingOrderItem}
-            onPickupToCart={async (selections: PickupSelection[]) => {
+            onPickupToCart={async (
+              selections: PickupSelection[],
+              options?: { continueToPayment?: boolean },
+            ) => {
               try {
                 const loaded = await Promise.all(
                   selections.map(async ({ order, items }) => {
@@ -9122,9 +9125,10 @@ export default function Cart({
                     0,
                   ) + cartLines.length;
                 toast(
-                  `Pickup cart now has ${totalPickupItemCount} item(s) from ${preservedPickupSelections.length + selectionsForCheckout.length} order(s). Review the Cart, add any new items, and use Add Payment only if the customer is paying a balance today.`,
+                  `Pickup cart now has ${totalPickupItemCount} item(s) from ${preservedPickupSelections.length + selectionsForCheckout.length} order(s). Review the Cart, then use Pay for the balance staged with this pickup or Complete Pickup when payment was skipped.`,
                   "success",
                 );
+                if (options?.continueToPayment) openCheckoutDrawer();
                 return true;
               } catch (error) {
                 toast(

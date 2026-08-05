@@ -88,7 +88,7 @@ test("starting pickup returns selected items to Cart without forcing Payment", (
   expect(cart).toContain("stagedOrderPayments={orderPaymentLines}");
   expect(pickupHandoff).toContain("mergePickupCartLines(");
   expect(pickupHandoff).toContain(
-    "use Add Payment only if the customer is paying a balance today.",
+    "use Pay for the balance staged with this pickup or Complete Pickup when payment was skipped.",
   );
   expect(pickupHandoff).not.toContain("const paymentLines");
   expect(pickupHandoff).not.toContain("setOrderPaymentLines(");
@@ -98,11 +98,26 @@ test("starting pickup returns selected items to Cart without forcing Payment", (
 
 test("pickup with a remaining balance requires an explicit payment choice", () => {
   const modal = repoFile("client/src/components/pos/OrderLoadModal.tsx");
+  const confirmation = repoFile(
+    "client/src/components/ui/ConfirmationModal.tsx",
+  );
   const transactions = repoFile("server/src/api/transactions.rs");
 
-  expect(modal).toContain('title="Balance Will Remain Open"');
-  expect(modal).toContain('confirmLabel="Pick Up Without Payment"');
-  expect(modal).toContain('cancelLabel="Go Back / Add Payment"');
+  expect(modal).toContain('title="Pay at Pickup?"');
+  expect(modal).toContain('confirmLabel="Pay Balance Now"');
+  expect(modal).toContain('cancelLabel="Skip Payment for Now"');
+  expect(modal).toContain("onConfirm={payPickupBalanceNow}");
+  expect(modal).toContain("onCancel={skipPickupPaymentForNow}");
+  expect(modal).toContain("onMakePayment(entry.order, balanceDueCents)");
+  expect(modal).toContain("void startPickupBasket(true, true)");
+  expect(modal).toContain("continueToPayment");
+  expect(repoFile("client/src/components/pos/Cart.tsx")).toContain(
+    "if (options?.continueToPayment) openCheckoutDrawer();",
+  );
+  expect(modal).toContain(
+    "Manager Access will be requested at Complete Pickup only if recorded payments do not cover",
+  );
+  expect(confirmation).toContain("onClick={onCancel ?? onClose}");
   expect(modal).toContain("remainingBalanceCents > 0");
   expect(transactions).toContain("fully_picked_up_transaction_status(balance_due)");
   expect(transactions).toContain("DbOrderStatus::Open");
