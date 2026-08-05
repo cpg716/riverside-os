@@ -108,12 +108,12 @@ fn build_items_table(order: &ReceiptOrder) -> String {
         } else {
             String::new()
         };
-        let taxability = it
-            .is_taxable
-            .map(|is_taxable| {
+        let line_tax = it
+            .tax_amount
+            .map(|tax_amount| {
                 format!(
-                    "<br><span style=\"font-size:11px;color:#4b5563\">Tax: {}</span>",
-                    if is_taxable { "Taxable" } else { "Exempt" }
+                    "<br><span style=\"font-size:10px;color:#64748b\">Tax {}</span>",
+                    money(tax_amount)
                 )
             })
             .unwrap_or_default();
@@ -151,7 +151,7 @@ fn build_items_table(order: &ReceiptOrder) -> String {
             html_escape(&it.product_name),
             var,
             html_escape(&it.sku),
-            format!("{fulfillment}{pickup_source}{taxability}"),
+            format!("{fulfillment}{pickup_source}{line_tax}"),
             it.quantity,
             money(line_total),
             price_detail,
@@ -837,6 +837,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
                 adjustment: None,
                 contributes_to_totals: true,
                 is_taxable: Some(true),
+                tax_amount: Some(Decimal::new(1488, 2)),
             },
             crate::logic::receipt_shared::ReceiptLine {
                 product_name: "Silk tie".to_string(),
@@ -855,6 +856,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
                 adjustment: None,
                 contributes_to_totals: true,
                 is_taxable: Some(false),
+                tax_amount: Some(Decimal::ZERO),
             },
         ],
         is_tax_exempt: false,
@@ -904,7 +906,9 @@ mod tests {
         assert!(html.contains("Register #1"));
         assert!(html.contains("Salesperson:"));
         assert!(html.contains("Staff:"));
-        assert!(html.contains("Tax: Taxable"));
+        assert!(html.contains("Tax $14.88"));
+        assert!(html.contains("Tax $0.00"));
+        assert!(!html.contains("Tax: Taxable"));
         assert!(html.contains("Taken today"));
         assert!(html.contains("<th scope=\"col\""));
     }

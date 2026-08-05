@@ -23,14 +23,16 @@ status: approved
 
 The receipt preview shows the customer receipt after checkout or when reopening a historical Transaction Receipt. It should match the Receipt Builder style closely enough that staff can trust what will print, email, or text.
 
+Each merchandise line shows its saved state-plus-local tax amount as a smaller secondary row. Riverside does not repeat “Taxable” or “Exempt”; the financial summary still shows the authoritative total sales tax for the Transaction Record.
+
 When a completed sale includes wedding deposits for other party members, Sale Complete and the payer receipt list every beneficiary, party, amount, and destination. The receipt says whether money was held for that member's future order or applied to an exact Transaction Record. These amounts stay separate from the payer's merchandise total while still explaining the full tender collected. When the held deposit later funds the member's order, that member receipt identifies the original payer and wedding party.
 
 ## How to use it
 
-1. Review the outcome label, transaction total or amount collected, tender, balance, customer, and Transaction number on the completion screen.
+1. Review the outcome label, transaction total or amount collected, tender, balance, customer, and Transaction number in the enlarged completion workspace.
 2. Choose print, view, text, email, gift receipt, or reports printer from the receipt action bar, which stays visible without scrolling.
-3. Confirm the preview or printer path shows the formatted receipt before handing it off.
-4. Choose **Begin new sale** when finished. The next-sale Access PIN screen appears only after the completion screen closes.
+3. Confirm the preview or printer path shows the formatted receipt before handing it off. A successful gift-receipt print closes the gift chooser automatically.
+4. Choose the taller **Begin new sale** action when finished. For register security, Riverside also closes an unattended completion screen and returns to Access PIN entry after two minutes.
 
 When a receipt is opened from Daily Sales, Transaction History, or Staff Profile history, Riverside labels it **Transaction Receipt** (or **Return / Exchange Receipt**) and ends with **Close receipt**. A Daily Sales payment record reprints the payment-event receipt from that day, not the target order's lifetime purchase receipt. Historical receipt review never presents **Sale complete** or **Begin new sale** because no new checkout was just completed.
 
@@ -39,7 +41,7 @@ When a receipt is opened from Daily Sales, Transaction History, or Staff Profile
 - **Print receipt** sends the customer receipt through the station receipt-printer route. If it fails, the completed sale stays intact and Riverside offers retry, printer check, SMS, or email delivery.
 - **View receipt** opens the preview.
 - **Text receipt** sends the customer copy through Podium SMS/MMS; **Email receipt** sends it through Store Email. When delivery fails, Riverside shows the provider/setup reason so staff can correct the integration without repeating the sale.
-- **Gift receipt** prints a gift copy without exposing normal payment detail.
+- **Gift receipt** prints a gift copy without exposing normal payment detail and closes its line chooser after a successful print.
 - **Reports printer** opens the formatted receipt copy for the workstation report-printer path; it does not replace the Epson receipt-station print route.
 - A payer deposit receipt may show **Open Wedding Builder** when staff selected **Collect and Build Orders**. It returns to the original payer's **Wedding Deposit → Orders & Receipts** final review, where **Create All Member Transactions** posts the prepared separate member Transactions against their exact funded sources; it does not collect another tender.
 - **Wedding Deposit → Orders & Receipts** can reopen both the original payer receipt and each posted member receipt. These are historical reprints and do not reopen the cash drawer.

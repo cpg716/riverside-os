@@ -5012,7 +5012,7 @@ export default function Cart({
 
   return (
     <div
-      className="relative grid h-full min-h-0 w-full overflow-hidden bg-app-bg lg:[grid-template-columns:minmax(0,1fr)_clamp(300px,28vw,376px)]"
+      className="relative grid h-full min-h-0 w-full overflow-hidden bg-app-bg lg:[grid-template-columns:minmax(0,1fr)_clamp(330px,31vw,414px)]"
       data-testid="pos-register-cart-shell"
       data-sale-hydrated={saleHydrated ? "true" : "false"}
       data-cashier-blocked={!checkoutOperator ? "true" : "false"}
@@ -6530,12 +6530,12 @@ export default function Cart({
         >
         {/* ── Keypad — fixed touch height in the bottom checkout dock ── */}
         <div
-          className="flex h-[22rem] min-h-[22rem] shrink-0 flex-col px-2 pb-2 pt-2 sm:px-2.5"
+          className="flex h-[24rem] min-h-[24rem] shrink-0 flex-col px-2.5 pb-2.5 pt-2.5 sm:px-3"
           data-testid="pos-register-keypad"
         >
           {/* Display / mode hint */}
           <div className="mb-2 shrink-0 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2">
-            <p className="text-[9px] font-black uppercase leading-snug tracking-widest text-app-text-muted">
+            <p className="text-[10px] font-black uppercase leading-snug tracking-widest text-app-text-muted">
               {selectedLineKey
                 ? keypadMode === "qty"
                   ? "Quantity — use - for negative, Apply"
@@ -6543,7 +6543,7 @@ export default function Cart({
                 : "Select a line, then tap Qty or Sale price"}
             </p>
             <p
-              className={`mt-0.5 text-right text-lg font-black tabular-nums sm:text-xl ${
+              className={`mt-0.5 text-right text-2xl font-black tabular-nums sm:text-3xl ${
                 keypadMode === "qty" && keypadBuffer.startsWith("-")
                   ? "text-app-danger"
                   : "text-app-text"
@@ -6575,7 +6575,7 @@ export default function Cart({
                   type="button"
                   disabled={!selectedLineKey}
                   onClick={() => handleNumpadKey(key)}
-                  className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-lg font-black transition-all duration-150 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-disabled disabled:opacity-100 disabled:shadow-none sm:text-xl ${key === "CLEAR" ? "border-app-danger/50 bg-app-danger/10 text-app-danger hover:bg-app-danger/18 focus-visible:ring-app-danger/20" : "border-app-border bg-app-surface text-app-text hover:bg-app-surface-3"}`}
+                  className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-xl font-black transition-all duration-150 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-disabled disabled:opacity-100 disabled:shadow-none sm:text-2xl ${key === "CLEAR" ? "border-app-danger/50 bg-app-danger/10 text-app-danger hover:bg-app-danger/18 focus-visible:ring-app-danger/20" : "border-app-border bg-app-surface text-app-text hover:bg-app-surface-3"}`}
                 >
                   {key}
                 </button>
@@ -6587,7 +6587,7 @@ export default function Cart({
                 onClick={() =>
                   handleNumpadKey(keypadMode === "qty" ? "-" : "%")
                 }
-                className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-lg font-black text-white shadow-xl transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-disabled disabled:opacity-100 disabled:shadow-none sm:text-xl ${
+                className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-xl font-black text-white shadow-xl transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-disabled disabled:opacity-100 disabled:shadow-none sm:text-2xl ${
                   keypadMode === "qty"
                     ? "border-app-danger bg-app-danger shadow-app-danger/20 focus-visible:ring-app-danger/25"
                     : "border-app-info bg-app-info shadow-app-info/20 focus-visible:ring-app-info/25"
@@ -6599,7 +6599,7 @@ export default function Cart({
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey("$")}
-                className="flex cursor-pointer items-center justify-center rounded-xl border-b-4 border-app-info bg-app-info text-lg font-black text-white shadow-xl shadow-app-info/20 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-info/25 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-disabled disabled:opacity-100 disabled:shadow-none sm:text-xl"
+                className="flex cursor-pointer items-center justify-center rounded-xl border-b-4 border-app-info bg-app-info text-xl font-black text-white shadow-xl shadow-app-info/20 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-info/25 disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-disabled disabled:opacity-100 disabled:shadow-none sm:text-2xl"
               >
                 $
               </button>
@@ -6735,7 +6735,7 @@ export default function Cart({
                  openCheckoutDrawerWithGuard();
                }
              }}
-            className={`ui-touch-target group relative flex h-[5.125rem] min-h-[5.125rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${hasCheckoutWork ? "bg-app-success border-app-success text-white hover:brightness-110 shadow-2xl shadow-app-success/40" : "cursor-not-allowed border-app-border bg-app-surface-3 text-app-text-disabled shadow-none"}`}
+            className={`ui-touch-target group relative flex h-[5.75rem] min-h-[5.75rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${hasCheckoutWork ? "bg-app-success border-app-success text-white hover:brightness-110 shadow-2xl shadow-app-success/40" : "cursor-not-allowed border-app-border bg-app-surface-3 text-app-text-disabled shadow-none"}`}
            >
              <div className="flex flex-col items-start pl-3 sm:pl-5">
                 <span className="text-[9px] font-black uppercase tracking-[0.28em] opacity-70">
@@ -6749,7 +6749,7 @@ export default function Cart({
                     ? `${selectedCustomer.first_name} ${selectedCustomer.last_name} — Pay`
                     : "Walk-in — Pay"}
                 </span>
-                <span className="text-2xl font-black tabular-nums tracking-tighter italic sm:text-3xl">
+                <span className="text-3xl font-black tabular-nums tracking-tighter italic sm:text-4xl">
                 {collectingWeddingOrderDraft
                   ? "Save Member Order & Next"
                   : pickupTransactionId && totals.totalCents === 0

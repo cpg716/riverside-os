@@ -153,11 +153,8 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
             it.sku.trim(),
             var
         ));
-        if let Some(is_taxable) = it.is_taxable {
-            lines.push(format!(
-                "Tax: {}",
-                if is_taxable { "Taxable" } else { "Exempt" }
-            ));
+        if let Some(tax_amount) = it.tax_amount {
+            lines.push(format!("Tax {}", money(tax_amount)));
         }
         if it.custom_item_type.as_deref() == Some("linked_pickup") {
             if let Some(source_label) = it

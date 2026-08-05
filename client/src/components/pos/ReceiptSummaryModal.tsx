@@ -190,6 +190,23 @@ function transactionDisplayFallback(transactionId: unknown): string {
   return normalized ? normalized.slice(0, 8).toUpperCase() : "";
 }
 
+const COMPLETION_PIN_RETURN_MS = 120_000;
+
+function compactReceiptLineTaxAmounts(markup: string): string {
+  if (!markup.trim().startsWith("<svg") || typeof DOMParser === "undefined") {
+    return markup;
+  }
+  const document = new DOMParser().parseFromString(markup, "image/svg+xml");
+  document.querySelectorAll("g[transform]").forEach((line) => {
+    const text = line.textContent?.replace(/\s+/g, "") ?? "";
+    if (/^Tax-?\$\d/.test(text)) {
+      line.setAttribute("font-size", "16");
+      line.setAttribute("fill", "#64748b");
+    }
+  });
+  return document.documentElement.outerHTML;
+}
+
 export default function ReceiptSummaryModal({
   transactionId,
   onClose,
@@ -564,15 +581,23 @@ export default function ReceiptSummaryModal({
     onCompletionNextAction?.();
   }, [onClose, onCompletionNextAction, submitReviewInviteIfNeeded]);
 
+  useEffect(() => {
+    if (presentation !== "completion" || !transactionId) return;
+    const timeoutId = window.setTimeout(() => {
+      onClose();
+    }, COMPLETION_PIN_RETURN_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [onClose, presentation, transactionId]);
+
   const handlePrint = useCallback(
     async (opts?: { gift?: boolean; transactionLineIds?: string[] }) => {
-      if (!transactionId) return;
+      if (!transactionId) return false;
       const attemptLabel = opts?.gift ? "gift receipt" : "receipt";
       if (opts?.gift) {
         const ids = opts.transactionLineIds;
         if (ids !== undefined && ids.length === 0) {
           toast("Select at least one line for the gift receipt.", "error");
-          return;
+          return false;
         }
       }
       setPrinting(true);
@@ -618,6 +643,7 @@ export default function ReceiptSummaryModal({
         setPrintingSuccessMessage(
           `${opts?.gift ? "Gift receipt" : "Receipt"} sent to the station printer.`,
         );
+        return true;
       } catch (e: unknown) {
         console.error("Printing failed", e);
         const message =
@@ -641,6 +667,7 @@ export default function ReceiptSummaryModal({
             printableBase64,
           });
         }
+        return false;
       } finally {
         setPrinting(false);
       }
@@ -1130,7 +1157,7 @@ export default function ReceiptSummaryModal({
     ? `${transactionDetail.customer.first_name} ${transactionDetail.customer.last_name}`.trim()
     : "Walk-in customer";
 
-  const runGiftPrint = () => {
+  const runGiftPrint = async () => {
     if (giftPickEmpty) {
       toast(
         "Select at least one line for the gift receipt (or keep all lines checked).",
@@ -1139,11 +1166,12 @@ export default function ReceiptSummaryModal({
       return;
     }
     const ids = getGiftLineIds();
-    void handlePrint({
+    const printed = await handlePrint({
       gift: true,
       transactionLineIds:
         ids.length > 0 && ids.length < itemRows.length ? ids : undefined,
     });
+    if (printed) setGiftDialogOpen(false);
   };
 
   const fetchReceiptHtml = async (opts?: {
@@ -1180,13 +1208,15 @@ export default function ReceiptSummaryModal({
       if (res.ok) {
         const payload = (await res.json()) as { receiptline_markdown?: string };
         if (payload.receiptline_markdown?.trim()) {
-          return String(
-            transform(payload.receiptline_markdown, {
-              cpl: 48,
-              encoding: "cp437",
-              spacing: false,
-              margin: "full",
-            }),
+          return compactReceiptLineTaxAmounts(
+            String(
+              transform(payload.receiptline_markdown, {
+                cpl: 48,
+                encoding: "cp437",
+                spacing: false,
+                margin: "full",
+              }),
+            ),
           );
         }
       }
@@ -1268,7 +1298,7 @@ export default function ReceiptSummaryModal({
   };
 
   const compactActionButton =
-    "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text shadow-sm transition-colors hover:bg-app-surface-3 disabled:opacity-50 touch-manipulation";
+    "inline-flex min-h-14 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-4 text-[11px] font-black uppercase tracking-widest text-app-text shadow-sm transition-colors hover:bg-app-surface-3 disabled:opacity-50 touch-manipulation";
 
   const root = document.getElementById("drawer-root");
   if (!root) return null;
@@ -1277,16 +1307,16 @@ export default function ReceiptSummaryModal({
     <>
       <div className="ui-overlay-backdrop !z-[200] p-2 sm:p-4">
         <div
-          className="w-full max-w-none overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:max-w-4xl"
+          className="w-full max-w-none overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:w-[min(70rem,calc(100vw-2rem))]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="receipt-summary-title"
         >
           <div
-            className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden text-app-text sm:max-h-[calc(100dvh-2rem)]"
+            className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden text-app-text sm:h-[min(40rem,calc(100dvh-2rem))] sm:max-h-[calc(100dvh-2rem)]"
             data-testid="receipt-summary-modal"
           >
-            <header className="relative flex shrink-0 items-center gap-3 border-b border-app-border px-3 py-3 pr-14 sm:px-5 sm:py-4 sm:pr-16">
+            <header className="relative flex shrink-0 items-center gap-4 border-b border-app-border px-3 py-3 pr-14 sm:px-7 sm:py-5 sm:pr-20">
               <div
                 className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ring-1 sm:h-12 sm:w-12 ${
                   pendingRefundAmountCents != null
@@ -1309,11 +1339,11 @@ export default function ReceiptSummaryModal({
               <div className="min-w-0 text-left">
                 <h2
                   id="receipt-summary-title"
-                  className="text-lg font-black uppercase italic tracking-tighter text-app-text sm:text-2xl"
+                  className="text-lg font-black uppercase italic tracking-tighter text-app-text sm:text-3xl"
                 >
                   {completionTitle}
                 </h2>
-                <p className="line-clamp-2 text-[9px] font-bold uppercase tracking-wider text-app-text-muted sm:text-[10px] sm:tracking-widest">
+                <p className="line-clamp-2 text-[9px] font-bold uppercase tracking-wider text-app-text-muted sm:text-[11px] sm:tracking-widest">
                   {activityLabel} · {customerName} · Transaction #
                   {transactionDetail?.transaction_display_id ??
                     transactionDisplayFallback(transactionId)}
@@ -1331,7 +1361,7 @@ export default function ReceiptSummaryModal({
             </header>
 
             <section
-              className="shrink-0 border-b border-app-border bg-app-surface px-3 py-2.5 sm:px-5 sm:py-3"
+              className="shrink-0 border-b border-app-border bg-app-surface px-3 py-2.5 sm:px-7 sm:py-4"
               aria-label="Receipt actions"
             >
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
@@ -1343,7 +1373,7 @@ export default function ReceiptSummaryModal({
                     pendingRefundAmountCents != null
                   }
                   onClick={() => void handlePrint()}
-                  className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border-b-4 border-emerald-800 bg-emerald-600 px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-md transition-all hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 touch-manipulation sm:col-span-1"
+                  className="col-span-2 inline-flex min-h-14 items-center justify-center gap-2 rounded-xl border-b-4 border-emerald-800 bg-emerald-600 px-4 text-[11px] font-black uppercase tracking-widest text-white shadow-md transition-all hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 touch-manipulation sm:col-span-1"
                 >
                   <Printer className="h-4 w-4 shrink-0" />
                   {printing ? "Generating…" : "Print receipt"}
@@ -1391,7 +1421,7 @@ export default function ReceiptSummaryModal({
                   type="button"
                   disabled={!transactionDetail || !giftReceiptAvailable}
                   onClick={() => setGiftDialogOpen(true)}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-violet-500 bg-[color-mix(in_srgb,violet_16%,var(--app-surface-2))] px-3 text-[10px] font-black uppercase tracking-widest text-violet-800 shadow-sm transition-colors hover:bg-[color-mix(in_srgb,violet_24%,var(--app-surface-2))] disabled:opacity-50 dark:text-violet-200"
+                  className="inline-flex min-h-14 items-center justify-center gap-2 rounded-xl border border-violet-500 bg-[color-mix(in_srgb,violet_16%,var(--app-surface-2))] px-4 text-[11px] font-black uppercase tracking-widest text-violet-800 shadow-sm transition-colors hover:bg-[color-mix(in_srgb,violet_24%,var(--app-surface-2))] disabled:opacity-50 dark:text-violet-200"
                 >
                   <Gift className="h-4 w-4 shrink-0" />
                   Gift receipt
@@ -1399,7 +1429,7 @@ export default function ReceiptSummaryModal({
               </div>
             </section>
 
-            <div className="grid min-h-0 flex-1 content-start gap-3 p-3 sm:grid-cols-[minmax(0,1.05fr)_minmax(18rem,0.95fr)] sm:p-4 lg:gap-4 lg:px-5">
+            <div className="grid min-h-0 flex-1 content-start gap-4 p-3 sm:grid-cols-[minmax(0,1.05fr)_minmax(20rem,0.95fr)] sm:p-5 lg:gap-5 lg:px-7">
               <div className="min-w-0 space-y-3">
                 {pendingRefundAmountCents != null ? (
                   <section
@@ -1492,7 +1522,7 @@ export default function ReceiptSummaryModal({
                       <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted sm:text-[10px]">
                         {totalLabel}
                       </p>
-                      <p className="text-2xl font-black tabular-nums tracking-tighter text-app-text sm:text-3xl">
+                      <p className="text-2xl font-black tabular-nums tracking-tighter text-app-text sm:text-4xl">
                         {summaryTotal.startsWith("-")
                           ? `-$${summaryTotal.slice(1)}`
                           : `$${summaryTotal}`}
@@ -1856,7 +1886,7 @@ export default function ReceiptSummaryModal({
               </p>
             ) : null}
 
-            <footer className="shrink-0 border-t border-app-border bg-app-surface px-3 py-2.5 sm:px-5 sm:py-3">
+            <footer className="shrink-0 border-t border-app-border bg-app-surface px-3 py-2.5 sm:px-7 sm:py-4">
               <button
                 type="button"
                 onClick={() => void (completionNextActionLabel && onCompletionNextAction ? closeWithCompletionNextAction() : closeWithReviewChoice())}
@@ -1865,7 +1895,7 @@ export default function ReceiptSummaryModal({
                 className={
                   historicalPresentation
                     ? "ui-btn-secondary flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl text-xs font-black uppercase tracking-widest touch-manipulation disabled:opacity-60"
-                    : "group flex min-h-12 w-full items-center justify-between rounded-2xl bg-app-accent px-4 py-1.5 text-white shadow-lg transition-all hover:opacity-90 active:scale-[0.99] touch-manipulation disabled:opacity-60"
+                    : "group flex min-h-16 w-full items-center justify-between rounded-2xl bg-app-accent px-5 py-2.5 text-white shadow-lg transition-all hover:opacity-90 active:scale-[0.99] touch-manipulation disabled:opacity-60"
                 }
               >
                 {historicalPresentation ? (
@@ -1879,13 +1909,13 @@ export default function ReceiptSummaryModal({
                       <span className="text-[8px] font-black uppercase tracking-widest text-white/80">
                         {completionNextActionEyebrow ?? "Next guest"}
                       </span>
-                      <span className="text-sm font-black tracking-tight">
+                      <span className="text-base font-black tracking-tight sm:text-lg">
                         {reviewInviteSaving
                           ? "Saving review preference…"
                           : completionNextActionLabel ?? "Begin new sale"}
                       </span>
                     </div>
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-app-surface text-app-accent shadow-lg transition-transform group-hover:translate-x-0.5">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-app-surface text-app-accent shadow-lg transition-transform group-hover:translate-x-0.5">
                       <ArrowRight className="h-[18px] w-[18px]" />
                     </div>
                   </>

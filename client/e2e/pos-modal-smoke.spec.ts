@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 import {
   openBackofficeSidebarTab,
   signInToBackOffice,
@@ -19,6 +20,19 @@ const MODAL_VIEWPORTS: ModalViewport[] = [
   { label: "phone_390x844", width: 390, height: 844 },
   { label: "tablet_768x1024", width: 768, height: 1024 },
 ];
+
+test("sale completion security and layout contract", async () => {
+  const source = await readFile(
+    new URL("../src/components/pos/ReceiptSummaryModal.tsx", import.meta.url),
+    "utf8",
+  );
+
+  expect(source).toContain("COMPLETION_PIN_RETURN_MS = 120_000");
+  expect(source).toContain("if (printed) setGiftDialogOpen(false)");
+  expect(source).toContain("sm:w-[min(70rem,calc(100vw-2rem))]");
+  expect(source).toContain("min-h-16 w-full");
+  expect(source).toContain('line.setAttribute("font-size", "16")');
+});
 
 async function openPosRegisterSurface(
   page: Parameters<typeof test>[0]["page"],

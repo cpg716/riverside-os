@@ -626,6 +626,10 @@ impl TransactionDetailResponse {
                         is_taxable: Some(
                             !self.is_tax_exempt && (it.state_tax + it.local_tax) != Decimal::ZERO,
                         ),
+                        tax_amount: Some(
+                            ((it.state_tax + it.local_tax) * Decimal::from(effective_qty))
+                                .round_dp(2),
+                        ),
                     });
                 }
                 if it.quantity_returned > 0 {
@@ -660,6 +664,9 @@ impl TransactionDetailResponse {
                             !self.is_tax_exempt
                                 && (it.returned_state_tax + it.returned_local_tax) != Decimal::ZERO,
                         ),
+                        tax_amount: Some(
+                            -(it.returned_state_tax + it.returned_local_tax).round_dp(2),
+                        ),
                     });
                 }
             }
@@ -687,6 +694,7 @@ impl TransactionDetailResponse {
                     adjustment: None,
                     contributes_to_totals: false,
                     is_taxable: None,
+                    tax_amount: None,
                 });
             }
         }
@@ -715,6 +723,7 @@ impl TransactionDetailResponse {
                 adjustment: None,
                 contributes_to_totals: true,
                 is_taxable: Some(false),
+                tax_amount: Some(Decimal::ZERO),
             });
         }
         if receipt_items.is_empty() && !payment_only {
@@ -1316,6 +1325,17 @@ mod tests {
             .expect("shipping fee is present");
         assert_eq!(shipping.product_name, "SHIPPING FEE");
         assert_eq!(shipping.unit_price, Decimal::new(1250, 2));
+    }
+
+    #[test]
+    fn receipt_lines_carry_the_saved_state_and_local_tax_amount() {
+        let item = sample_item(2, 0);
+        let detail = sample_transaction_detail(vec![item]);
+
+        let receipt = detail.build_receipt_data(None).expect("receipt builds");
+
+        assert_eq!(receipt.items[0].tax_amount, Some(Decimal::new(3000, 2)));
+        assert_eq!(receipt.tax_total, Decimal::new(3000, 2));
     }
 
     #[test]
@@ -3163,6 +3183,7 @@ async fn build_refund_event_receipt_order(
                 !original_detail.is_tax_exempt
                     && (returned.refund_state_tax + returned.refund_local_tax) != Decimal::ZERO,
             ),
+            tax_amount: Some(-(returned.refund_state_tax + returned.refund_local_tax).round_dp(2)),
         });
     }
     if let Some(replacement_receipt) = replacement_receipt.as_ref() {

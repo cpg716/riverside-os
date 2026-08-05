@@ -22,6 +22,21 @@ const EPSON_RECEIPT_CPL = 48;
 const EPSON_RECEIPT_PAPER = "80mm";
 const RECEIPT_LOGO_WIDTH_PX = 384;
 
+function compactReceiptLineTaxAmounts(markup: string): string {
+  if (!markup.trim().startsWith("<svg") || typeof DOMParser === "undefined") {
+    return markup;
+  }
+  const document = new DOMParser().parseFromString(markup, "image/svg+xml");
+  document.querySelectorAll("g[transform]").forEach((line) => {
+    const text = line.textContent?.replace(/\s+/g, "") ?? "";
+    if (/^Tax-?\$\d/.test(text)) {
+      line.setAttribute("font-size", "16");
+      line.setAttribute("fill", "#64748b");
+    }
+  });
+  return document.documentElement.outerHTML;
+}
+
 type ReceiptPreviewScenario =
   "sale" | "mixed" | "pickup" | "return" | "exchange" | "gift";
 
@@ -391,7 +406,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           "Variation: Medium / Navy |",
           "| SKU I-1003713601 | $83.80",
           "Reg $104.75 Sale $83.80 (20% Discount) |",
-          "Tax: Taxable |",
+          "Tax | $7.12",
         ].join("\n");
       case "pickup":
         return [
@@ -399,13 +414,13 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           "Variation: 42R / Black |",
           "Order Date: 04/10/2026 01:15 PM |",
           "| SKU I-40092180 | $350.00",
-          "Tax: Taxable |",
+          "Tax | $29.75",
           "",
           '"Tuxedo Pants" |',
           "Variation: 34 / Black |",
           "Order Date: 04/10/2026 01:15 PM |",
           "| SKU I-40092181 | $150.00",
-          "Tax: Taxable |",
+          "Tax | $12.75",
         ].join("\n");
       case "return":
         return [
@@ -413,7 +428,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           '"100% Lambswool Sweater" |',
           "Variation: Medium / Navy |",
           "| SKU I-1003713601 | -$83.80",
-          "Tax: Taxable |",
+          "Tax | -$7.12",
         ].join("\n");
       case "exchange":
         return [
@@ -421,13 +436,13 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           '"Tuxedo Shirt - White" |',
           "Variation: 16.5 / 34-35 |",
           "| SKU I-40092182 | -$65.00",
-          "Tax: Taxable |",
+          "Tax | -$5.53",
           "",
           "^^^Taken Today",
           '"Tuxedo Shirt - Ivory" |',
           "Variation: 16.5 / 34-35 |",
           "| SKU I-40092183 | $70.00",
-          "Tax: Taxable |",
+          "Tax | $5.96",
         ].join("\n");
       case "gift":
         return [
@@ -443,54 +458,54 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           "Variation: Medium / Navy |",
           "| SKU I-1003713601 | $83.80",
           "Reg $104.75 Sale $83.80 (20% Discount) |",
-          "Tax: Taxable |",
+          "Tax | $7.23",
           "",
           "^^^PICKED UP",
           '"Tuxedo Shirt" |',
           "Variation: 16.5 / 34-35 / White |",
           "Order Date: 04/10/2026 01:15 PM |",
           "| SKU I-40092182 | $65.00",
-          "Tax: Taxable |",
+          "Tax | $5.61",
           "",
           "^^^SHIPPED",
           '"Silk Tie" |',
           "Variation: Burgundy |",
           "| SKU I-50012345 | $45.00",
-          "Tax: Taxable |",
+          "Tax | $3.88",
           "",
           "^^^Special Order",
           '"Navy Blazer" |',
           "Variation: 42R / Navy |",
           "| SKU I-2004829302 | $295.00",
-          "Tax: Taxable |",
+          "Tax | $25.46",
           "",
           "^^^Custom Order",
           '"Made-to-Measure Suit" |',
           "| SKU CUSTOM-MTM | $895.00",
-          "Tax: Taxable |",
+          "Tax | $77.24",
           "",
           "^^^Wedding Order",
           '"Groomsman Suit" |',
           "Variation: 40R / Charcoal |",
           "| SKU I-30088420 | $260.00",
-          "Tax: Taxable |",
+          "Tax | $22.44",
           "",
           "^^^Layaway",
           '"Overcoat" |',
           "Variation: 42 / Camel |",
           "| SKU I-60022410 | $325.00",
-          "Tax: Taxable |",
+          "Tax | $28.04",
           "",
           "^^^Alterations",
           '"ALTERATION FEE" |',
           "Hem trousers |",
           "| SKU ROS-ALTERATION-FEE | $18.00",
-          "Tax: Exempt |",
+          "Tax | $0.00",
           "",
           "^^^Shipping",
           '"SHIPPING FEE" |',
           "| SKU ROS-SHIPPING-FEE | $12.00",
-          "Tax: Exempt |",
+          "Tax | $0.00",
         ].join("\n");
     }
   })();
@@ -780,10 +795,14 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
     }
   };
 
-  const receiptLineSvg = transform(getReceiptLineMarkup(), {
-    cpl: EPSON_RECEIPT_CPL,
-    encoding: "cp437",
-  });
+  const receiptLineSvg = compactReceiptLineTaxAmounts(
+    String(
+      transform(getReceiptLineMarkup(), {
+        cpl: EPSON_RECEIPT_CPL,
+        encoding: "cp437",
+      }),
+    ),
+  );
 
   return (
     <div className="space-y-8">

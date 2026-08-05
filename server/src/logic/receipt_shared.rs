@@ -106,6 +106,8 @@ pub struct ReceiptLine {
     /// Customer-facing taxability for this line. `None` is reserved for linked
     /// fulfillment-only lines whose original tax detail is not part of this event.
     pub is_taxable: Option<bool>,
+    /// Saved state and local sales tax attributable to this displayed line.
+    pub tax_amount: Option<Decimal>,
 }
 
 #[derive(Debug, Clone)]

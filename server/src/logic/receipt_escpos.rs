@@ -312,15 +312,8 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
                 push_line(out, label);
             } else {
                 push_line(out, &right_pair(label, &money(line_total(it))));
-                if let Some(is_taxable) = it.is_taxable {
-                    push_line(
-                        out,
-                        if is_taxable {
-                            "Tax: Taxable"
-                        } else {
-                            "Tax: Exempt"
-                        },
-                    );
+                if let Some(tax_amount) = it.tax_amount {
+                    push_line(out, &right_pair("Tax", &money(tax_amount)));
                 }
             }
             set_bold(out, false);
@@ -405,15 +398,8 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
             push_line(out, &format!("Gift Card #: {code}"));
         }
         if !gift {
-            if let Some(is_taxable) = it.is_taxable {
-                push_line(
-                    out,
-                    if is_taxable {
-                        "Tax: Taxable"
-                    } else {
-                        "Tax: Exempt"
-                    },
-                );
+            if let Some(tax_amount) = it.tax_amount {
+                push_line(out, &right_pair("Tax", &money(tax_amount)));
             }
         }
         let status_label = if matches!(it.adjustment, Some(ReceiptLineAdjustment::Exchanged)) {
@@ -628,11 +614,8 @@ fn receiptline_item_lines(
             out_lines.push(format!("{label} |"));
         } else {
             out_lines.push(format!("{label} | {}", money(line_total(it))));
-            if let Some(is_taxable) = it.is_taxable {
-                out_lines.push(format!(
-                    "Tax: {} |",
-                    if is_taxable { "Taxable" } else { "Exempt" }
-                ));
+            if let Some(tax_amount) = it.tax_amount {
+                out_lines.push(format!("Tax | {}", money(tax_amount)));
             }
         }
     }
@@ -792,11 +775,8 @@ fn receiptline_item_lines(
                         ));
                     }
                 }
-                if let Some(is_taxable) = it.is_taxable {
-                    out_lines.push(format!(
-                        "Tax: {} |",
-                        if is_taxable { "Taxable" } else { "Exempt" }
-                    ));
+                if let Some(tax_amount) = it.tax_amount {
+                    out_lines.push(format!("Tax | {}", money(tax_amount)));
                 }
             }
         }
@@ -1337,6 +1317,7 @@ mod tests {
             adjustment: None,
             contributes_to_totals: true,
             is_taxable: Some(true),
+            tax_amount: Some(Decimal::new(213, 2)),
         }
     }
 
@@ -1360,6 +1341,27 @@ mod tests {
         assert!(lines.contains("Alteration: Hem Pants"));
         assert!(lines.contains("SHIPPING FEE"));
         assert!(!lines.contains("^^^Shipping"));
+    }
+
+    #[test]
+    fn customer_receipts_show_saved_line_tax_amounts() {
+        let taxable = receipt_line("Taxable suit", "TAXABLE", None);
+        let mut exempt = receipt_line("Exempt alteration", "EXEMPT", None);
+        exempt.is_taxable = Some(false);
+        exempt.tax_amount = Some(Decimal::ZERO);
+        let order = receipt_order_with(vec![taxable, exempt]);
+
+        let receiptline = receiptline_item_lines(&order, &ReceiptConfig::default(), false, false);
+        let thermal_bytes = build_receipt_escpos(&order, &ReceiptConfig::default(), HashMap::new());
+        let thermal = String::from_utf8_lossy(&thermal_bytes);
+
+        for output in [&receiptline, thermal.as_ref()] {
+            assert!(output.contains("Tax"));
+            assert!(output.contains("$2.13"));
+            assert!(output.contains("$0.00"));
+            assert!(!output.contains("Tax: Taxable"));
+            assert!(!output.contains("Tax: Exempt"));
+        }
     }
 
     #[test]
