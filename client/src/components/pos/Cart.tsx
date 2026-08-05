@@ -5343,22 +5343,6 @@ export default function Cart({
               </button>
               <button
                 type="button"
-                disabled={
-                  lines.length === 0 &&
-                  !selectedCustomer &&
-                  checkoutAppliedPayments.length === 0 &&
-                  !providerCheckoutIdentityHeld
-                }
-                onClick={() => setShowClearConfirm(true)}
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/10 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
-              >
-                <RotateCcw size={20} aria-hidden />
-                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Clear Sale
-                </span>
-              </button>
-              <button
-                type="button"
                 data-testid="pos-action-wedding-deposit"
                 onClick={openWeddingDepositTool}
                 title={
@@ -5371,6 +5355,18 @@ export default function Cart({
                 <Heart size={20} aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Wedding Manager
+                </span>
+              </button>
+              <button
+                type="button"
+                data-testid="pos-exchange-wizard-trigger"
+                onClick={() => setExchangeWizardOpen(true)}
+                title="Exchange or return"
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/15 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+              >
+                <ArrowLeftRight size={20} />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
+                  Return / Exchange
                 </span>
               </button>
               <button
@@ -5393,18 +5389,6 @@ export default function Cart({
               </button>
               <button
                 type="button"
-                data-testid="pos-exchange-wizard-trigger"
-                onClick={() => setExchangeWizardOpen(true)}
-                title="Exchange or return"
-                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/15 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
-              >
-                <ArrowLeftRight size={20} />
-                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
-                  Return / Exchange
-                </span>
-              </button>
-              <button
-                type="button"
                 onClick={() => setShowAllSaleActions((current) => !current)}
                 aria-expanded={showAllSaleActions}
                 className="ui-touch-target flex min-h-[86px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/40 bg-app-info/10 px-2 text-center text-app-info shadow-sm transition-all hover:border-app-info/70 hover:bg-app-info/20 active:scale-95"
@@ -5412,6 +5396,22 @@ export default function Cart({
                 <Grid3X3 size={20} aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   More Actions
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={
+                  lines.length === 0 &&
+                  !selectedCustomer &&
+                  checkoutAppliedPayments.length === 0 &&
+                  !providerCheckoutIdentityHeld
+                }
+                onClick={() => setShowClearConfirm(true)}
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-danger/60 bg-app-danger/10 px-2 text-center text-app-danger shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-danger hover:text-white disabled:cursor-not-allowed disabled:border-app-border disabled:bg-app-surface-3 disabled:text-app-text-muted disabled:opacity-80 disabled:shadow-none disabled:hover:bg-app-surface-3 disabled:hover:text-app-text-muted dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+              >
+                <RotateCcw size={20} aria-hidden />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
+                  Clear Sale
                 </span>
               </button>
               {showAllSaleActions ? createPortal(

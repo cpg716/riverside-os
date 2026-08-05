@@ -271,9 +271,14 @@ test("POS product search explains no matches and action cards are not clipped", 
   await expect(page.getByText("No products found", { exact: true })).toHaveCount(0);
 
   const actionToolbar = page.getByRole("toolbar", { name: "Cart actions" });
-  await expect(actionToolbar.getByRole("button").first()).toContainText(
-    "Customer Orders",
-  );
+  await expect(actionToolbar.getByRole("button")).toHaveText([
+    /Customer Orders/i,
+    /Wedding Manager/i,
+    /Return \/ Exchange/i,
+    /Start Alteration/i,
+    /More Actions/i,
+    /Clear Sale/i,
+  ]);
   await actionToolbar.getByRole("button", { name: "More Actions", exact: true }).click();
   const moreActionsDialog = page.getByRole("dialog", { name: "More sale actions" });
   await expect(
@@ -347,6 +352,21 @@ test("POS variation picker adds selected SKU after search results close", async 
   await productResult.click({ force: true });
 
   await page.getByRole("button", { name: "40R", exact: true }).click();
+  const completedSelectionRegion = page.getByTestId(
+    "variant-selection-scroll-region",
+  );
+  const completedSelectionMetrics = await completedSelectionRegion.evaluate(
+    (element) => ({
+      clientHeight: element.clientHeight,
+      overflowY: getComputedStyle(element).overflowY,
+      scrollHeight: element.scrollHeight,
+    }),
+  );
+  expect(completedSelectionMetrics.overflowY).toBe("hidden");
+  expect(completedSelectionMetrics.scrollHeight).toBeLessThanOrEqual(
+    completedSelectionMetrics.clientHeight + 1,
+  );
+  await expect(page.getByTestId("variant-pricing-pinpad")).toBeVisible();
   await page.getByRole("button", { name: /add to sale/i }).click();
 
   const cartLine = page.getByRole("button", {

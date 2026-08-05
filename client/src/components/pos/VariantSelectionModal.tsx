@@ -276,35 +276,49 @@ export default function VariantSelectionModal({
       <div className="flex h-full min-h-0 flex-col bg-app-surface px-5 py-4">
         <div
           data-testid="variant-selection-scroll-region"
-          className="min-h-0 flex-1 overflow-y-auto no-scrollbar"
+          className={`flex min-h-0 flex-1 flex-col no-scrollbar ${
+            isSelectionComplete ? "overflow-hidden" : "overflow-y-auto"
+          }`}
         >
           <section
             data-testid="variant-item-to-build"
-            className="mb-4 shrink-0 rounded-2xl border-2 border-app-accent/30 bg-app-accent/5 p-4 shadow-sm"
+            className={`shrink-0 rounded-2xl border-2 border-app-accent/30 bg-app-accent/5 shadow-sm ${
+              isSelectionComplete ? "mb-3 p-4" : "mb-4 p-4"
+            }`}
           >
-            <div className="flex items-start gap-3">
-              {product.image_url ? (
-                <img
-                  src={product.image_url}
-                  alt=""
-                  className="h-14 w-14 shrink-0 rounded-xl border border-app-border bg-white object-contain"
-                />
-              ) : (
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-accent">
-                  <Package size={26} aria-hidden />
+            {!isSelectionComplete ? (
+              <div className="flex items-start gap-3">
+                {product.image_url ? (
+                  <img
+                    src={product.image_url}
+                    alt=""
+                    className="h-14 w-14 shrink-0 rounded-xl border border-app-border bg-white object-contain"
+                  />
+                ) : (
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-accent">
+                    <Package size={26} aria-hidden />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-black uppercase tracking-[0.24em] text-app-accent">
+                    Item to Build
+                  </p>
+                  <h3 className="mt-1 text-lg font-black uppercase leading-tight tracking-tight text-app-text">
+                    {product.name}
+                  </h3>
                 </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-app-accent">
-                  Item to Build
-                </p>
-                <h3 className="mt-1 text-lg font-black uppercase leading-tight tracking-tight text-app-text">
-                  {product.name}
-                </h3>
               </div>
-            </div>
+            ) : (
+              <p className="text-[11px] font-black uppercase tracking-[0.24em] text-app-accent">
+                Selected options
+              </p>
+            )}
 
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <div
+              className={`grid gap-2 ${
+                isSelectionComplete ? "mt-2 grid-cols-3" : "mt-4 sm:grid-cols-2"
+              }`}
+            >
               {attributeSteps.map((step, index) => {
                 const selection = selections[index];
                 const isCurrentStep = index === currentStepIndex;
@@ -314,7 +328,9 @@ export default function VariantSelectionModal({
                     type="button"
                     disabled={!selection}
                     onClick={() => editSelection(index)}
-                    className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                    className={`rounded-xl border text-left transition-colors ${
+                      isSelectionComplete ? "min-h-24 px-4 py-3" : "px-3 py-2"
+                    } ${
                       selection
                         ? "border-app-accent/30 bg-app-surface hover:border-app-accent"
                         : isCurrentStep
@@ -327,10 +343,18 @@ export default function VariantSelectionModal({
                         : undefined
                     }
                   >
-                    <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    <span
+                      className={`block font-black uppercase tracking-widest text-app-text-muted ${
+                        isSelectionComplete ? "text-[10px]" : "text-[9px]"
+                      }`}
+                    >
                       {step}
                     </span>
-                    <span className="mt-0.5 flex items-center justify-between gap-2 text-xs font-black uppercase tracking-wide text-app-text">
+                    <span
+                      className={`mt-1 flex items-center justify-between gap-2 font-black uppercase tracking-wide text-app-text ${
+                        isSelectionComplete ? "text-sm" : "text-xs"
+                      }`}
+                    >
                       <span>
                         {selection
                           ? variantSelectionChoiceLabel(selection)
@@ -348,12 +372,6 @@ export default function VariantSelectionModal({
                 );
               })}
             </div>
-            {isSelectionComplete ? (
-              <p className="mt-3 text-[10px] font-bold leading-relaxed text-app-text-muted">
-                Review pricing below. Use Back or select any completed option
-                above to edit the variation before confirming.
-              </p>
-            ) : null}
           </section>
 
           {initialVariant ? (
@@ -399,9 +417,9 @@ export default function VariantSelectionModal({
               </div>
             </div>
           ) : (
-            <div className="animate-in zoom-in-95 pb-4 duration-500">
+            <div className="mt-auto shrink-0 animate-in zoom-in-95 duration-500">
               {allowPriceOverride ? (
-                <div className="space-y-4 rounded-2xl border border-app-border bg-app-surface-2 p-5">
+                <div className="space-y-2 rounded-t-2xl border border-b-0 border-app-border bg-app-surface-2 p-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-app-text">
                       <CircleDollarSign size={14} />
@@ -420,19 +438,27 @@ export default function VariantSelectionModal({
                     )}
                   </div>
 
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-xl border border-app-border bg-app-surface p-3">
-                      <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        Regular unit price
-                      </span>
-                      <span className="mt-1 block text-lg font-black tabular-nums text-app-text">
-                        $
-                        {centsToFixed2(
-                          parseMoneyToCents(finalVariant?.retail_price || "0"),
-                        )}
-                      </span>
-                    </div>
-                    <label className="rounded-xl border border-app-border bg-app-surface p-3">
+                  <div className="grid grid-cols-3 gap-2">
+                    {priceOverride ? (
+                      <div className="rounded-xl border border-app-border bg-app-surface p-3">
+                        <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Regular unit price
+                        </span>
+                        <span className="mt-1 block text-lg font-black tabular-nums text-app-text">
+                          $
+                          {centsToFixed2(
+                            parseMoneyToCents(
+                              finalVariant?.retail_price || "0",
+                            ),
+                          )}
+                        </span>
+                      </div>
+                    ) : null}
+                    <label
+                      className={`rounded-xl border border-app-border bg-app-surface p-3 ${
+                        priceOverride ? "" : "col-span-2"
+                      }`}
+                    >
                       <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                         Line discount %
                       </span>
@@ -453,16 +479,12 @@ export default function VariantSelectionModal({
                         </span>
                       </div>
                       <span className="mt-1 block text-[9px] font-bold text-app-text-muted">
-                        Enter 0–100. Manager Access is requested above your
-                        staff limit.
+                        Manager Access above your limit.
                       </span>
                     </label>
-                  </div>
-
-                  <div className="flex h-12 items-center justify-center rounded-2xl bg-app-surface-2 px-6 ring-2 ring-app-border transition-all shadow-inner overflow-hidden">
-                    <div className="text-center">
+                    <div className="rounded-xl border border-app-border bg-app-surface p-3 text-center">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        Final unit price
+                        {priceOverride ? "Final unit price" : "Unit price"}
                       </span>
                       <span
                         data-testid="variant-final-unit-price"
@@ -487,7 +509,7 @@ export default function VariantSelectionModal({
         {isSelectionComplete && allowPriceOverride ? (
           <div
             data-testid="variant-pricing-pinpad"
-            className="shrink-0 border-t border-app-border bg-app-surface pt-3"
+            className="shrink-0 rounded-b-2xl border border-app-border bg-app-surface p-3"
           >
             <div className="grid grid-cols-4 gap-2">
               <div className="col-span-3 grid grid-cols-3 gap-2">
