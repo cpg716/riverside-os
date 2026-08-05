@@ -475,6 +475,7 @@ pub async fn control_board_search_variant_ids(
     });
     let mut sq = index.search();
     sq.with_query(query_text)
+        .with_matching_strategy(MatchingStrategies::ALL)
         .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(CONTROL_BOARD_MEILI_HIT_CAP);
     if let Some(ref f) = filter {
@@ -712,13 +713,57 @@ pub async fn alteration_search_ids(
 mod tests {
     use super::{
         candidate_ids_are_unique, candidate_ids_may_be_truncated, classify_full_reindex_proof,
-        customer_name_query_tokens, merge_customer_search_result_sets,
-        recorded_index_health_allows_authority, FullReindexProofRow, FullReindexProofStatus,
-        SearchHealthRow, CUSTOMER_MEILI_HIT_CAP,
+        control_board_search_variant_ids, customer_name_query_tokens,
+        merge_customer_search_result_sets, recorded_index_health_allows_authority,
+        FullReindexProofRow, FullReindexProofStatus, SearchHealthRow, CUSTOMER_MEILI_HIT_CAP,
     };
-    use crate::logic::meilisearch_client::{INDEX_CUSTOMERS, INDEX_HELP};
+    use crate::logic::meilisearch_client::{INDEX_CUSTOMERS, INDEX_HELP, INDEX_VARIANTS};
     use chrono::{Duration, Utc};
+    use meilisearch_sdk::client::Client;
+    use serde_json::{json, Value};
     use uuid::Uuid;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn control_board_search_requires_every_query_term() {
+        let mock = MockServer::start().await;
+        let variant_id = Uuid::new_v4();
+        Mock::given(method("POST"))
+            .and(path(format!("/indexes/{INDEX_VARIANTS}/search")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "hits": [{ "id": variant_id }],
+                "query": "B-1526419",
+                "processingTimeMs": 1,
+                "limit": 5_000,
+                "offset": 0,
+                "estimatedTotalHits": 1
+            })))
+            .mount(&mock)
+            .await;
+        let client = Client::new(mock.uri(), None::<&str>).expect("Meilisearch client");
+
+        let results = control_board_search_variant_ids(
+            &client,
+            "B-1526419",
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            None,
+            None,
+            false,
+        )
+        .await
+        .expect("control-board search");
+
+        assert_eq!(results, vec![variant_id]);
+        let requests = mock.received_requests().await.expect("search requests");
+        let body: Value = serde_json::from_slice(&requests[0].body).expect("search body JSON");
+        assert_eq!(body["matchingStrategy"], "all");
+    }
 
     #[test]
     fn candidate_cap_is_not_authoritative_for_paging() {
