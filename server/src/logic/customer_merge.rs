@@ -47,6 +47,34 @@ const MERGE_RISK_SQL: &str = r#"
         ) AS relationship_history
 "#;
 
+const MERGE_MISSING_PROFILE_SQL: &str = r#"
+    UPDATE customers AS master
+    SET
+        first_name = COALESCE(NULLIF(BTRIM(master.first_name), ''), NULLIF(BTRIM(slave.first_name), ''), master.first_name),
+        last_name = COALESCE(NULLIF(BTRIM(master.last_name), ''), NULLIF(BTRIM(slave.last_name), ''), master.last_name),
+        company_name = COALESCE(NULLIF(BTRIM(master.company_name), ''), NULLIF(BTRIM(slave.company_name), '')),
+        email = COALESCE(NULLIF(BTRIM(master.email), ''), NULLIF(BTRIM($3::text), '')),
+        phone = COALESCE(NULLIF(BTRIM(master.phone), ''), NULLIF(BTRIM(slave.phone), '')),
+        address_line1 = COALESCE(NULLIF(BTRIM(master.address_line1), ''), NULLIF(BTRIM(slave.address_line1), '')),
+        address_line2 = COALESCE(NULLIF(BTRIM(master.address_line2), ''), NULLIF(BTRIM(slave.address_line2), '')),
+        city = COALESCE(NULLIF(BTRIM(master.city), ''), NULLIF(BTRIM(slave.city), '')),
+        state = COALESCE(NULLIF(BTRIM(master.state), ''), NULLIF(BTRIM(slave.state), '')),
+        postal_code = COALESCE(NULLIF(BTRIM(master.postal_code), ''), NULLIF(BTRIM(slave.postal_code), '')),
+        date_of_birth = COALESCE(master.date_of_birth, slave.date_of_birth),
+        anniversary_date = COALESCE(master.anniversary_date, slave.anniversary_date),
+        custom_field_1 = COALESCE(NULLIF(BTRIM(master.custom_field_1), ''), NULLIF(BTRIM(slave.custom_field_1), '')),
+        custom_field_2 = COALESCE(NULLIF(BTRIM(master.custom_field_2), ''), NULLIF(BTRIM(slave.custom_field_2), '')),
+        custom_field_3 = COALESCE(NULLIF(BTRIM(master.custom_field_3), ''), NULLIF(BTRIM(slave.custom_field_3), '')),
+        custom_field_4 = COALESCE(NULLIF(BTRIM(master.custom_field_4), ''), NULLIF(BTRIM(slave.custom_field_4), '')),
+        podium_conversation_url = COALESCE(NULLIF(BTRIM(master.podium_conversation_url), ''), NULLIF(BTRIM(slave.podium_conversation_url), '')),
+        preferred_salesperson_id = COALESCE(master.preferred_salesperson_id, slave.preferred_salesperson_id),
+        is_vip = master.is_vip OR slave.is_vip,
+        review_requests_opt_out = master.review_requests_opt_out OR slave.review_requests_opt_out
+    FROM customers AS slave
+    WHERE master.id = $1
+      AND slave.id = $2
+"#;
+
 fn merge_risk_reasons(risk: MergeRiskRow) -> Vec<String> {
     let mut reasons = Vec::new();
     if risk.account_access {
@@ -199,6 +227,8 @@ pub async fn merge_customers(
             blocking_reasons.join(", ")
         )));
     }
+
+    merge_missing_customer_profile(&mut tx, master, slave).await?;
 
     let slave_pts: i32 = sqlx::query_scalar("SELECT loyalty_points FROM customers WHERE id = $1")
         .bind(slave)
@@ -381,6 +411,49 @@ pub async fn merge_customers(
     Ok(())
 }
 
+async fn merge_missing_customer_profile(
+    tx: &mut Transaction<'_, Postgres>,
+    master: Uuid,
+    slave: Uuid,
+) -> Result<(), sqlx::Error> {
+    let slave_email: Option<String> =
+        sqlx::query_scalar("SELECT email FROM customers WHERE id = $1 FOR UPDATE")
+            .bind(slave)
+            .fetch_one(&mut **tx)
+            .await?;
+
+    // Email is unique. Release the duplicate row's value only when the selected
+    // master needs it, then copy it in the same transaction.
+    sqlx::query(
+        r#"
+        UPDATE customers
+        SET email = NULL
+        WHERE id = $2
+          AND NULLIF(BTRIM($3::text), '') IS NOT NULL
+          AND EXISTS (
+              SELECT 1
+              FROM customers AS master
+              WHERE master.id = $1
+                AND NULLIF(BTRIM(master.email), '') IS NULL
+          )
+        "#,
+    )
+    .bind(master)
+    .bind(slave)
+    .bind(slave_email.as_deref())
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(MERGE_MISSING_PROFILE_SQL)
+        .bind(master)
+        .bind(slave)
+        .bind(slave_email.as_deref())
+        .execute(&mut **tx)
+        .await?;
+
+    Ok(())
+}
+
 async fn merge_store_credit_accounts(
     tx: &mut Transaction<'_, Postgres>,
     master: Uuid,
@@ -526,5 +599,90 @@ mod tests {
             .expect("customer merge risk query matches the current schema");
 
         assert!(merge_risk_reasons(risk).is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an isolated migrated test database"]
+    async fn merge_profile_fills_blanks_without_overwriting_master_values() {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .expect("TEST_DATABASE_URL must name an isolated migrated test database");
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = pool.begin().await.expect("begin test transaction");
+        let master = Uuid::new_v4();
+        let slave = Uuid::new_v4();
+        let slave_email = format!("merge-{slave}@example.test");
+
+        sqlx::query(
+            r#"
+            INSERT INTO customers (
+                id, customer_code, first_name, last_name, email, phone,
+                address_line1, city, state, postal_code,
+                marketing_email_opt_in, is_vip, review_requests_opt_out
+            ) VALUES
+                ($1, $2, 'Primary', '', NULL, '555-PRIMARY', NULL, NULL, NULL, NULL, FALSE, FALSE, FALSE),
+                ($3, $4, 'Duplicate', 'Person', $5, '555-DUPLICATE', '10 Main St', 'Buffalo', 'NY', '14202', TRUE, TRUE, TRUE)
+            "#,
+        )
+        .bind(master)
+        .bind(format!("TEST-{master}"))
+        .bind(slave)
+        .bind(format!("TEST-{slave}"))
+        .bind(&slave_email)
+        .execute(&mut *tx)
+        .await
+        .expect("insert test customers");
+
+        merge_missing_customer_profile(&mut tx, master, slave)
+            .await
+            .expect("merge missing profile data");
+
+        let merged: (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            bool,
+            bool,
+            bool,
+        ) = sqlx::query_as(
+            r#"
+                SELECT first_name, last_name, email, phone, address_line1,
+                       marketing_email_opt_in, is_vip, review_requests_opt_out
+                FROM customers
+                WHERE id = $1
+                "#,
+        )
+        .bind(master)
+        .fetch_one(&mut *tx)
+        .await
+        .expect("load merged profile");
+
+        assert_eq!(merged.0, "Primary");
+        assert_eq!(merged.1, "Person");
+        assert_eq!(merged.2.as_deref(), Some(slave_email.as_str()));
+        assert_eq!(merged.3.as_deref(), Some("555-PRIMARY"));
+        assert_eq!(merged.4.as_deref(), Some("10 Main St"));
+        assert!(!merged.5, "marketing consent must remain master-owned");
+        assert!(
+            merged.6,
+            "VIP status should be preserved from either profile"
+        );
+        assert!(
+            merged.7,
+            "review opt-out must be preserved from either profile"
+        );
+
+        let retained_slave_email: Option<String> =
+            sqlx::query_scalar("SELECT email FROM customers WHERE id = $1")
+                .bind(slave)
+                .fetch_one(&mut *tx)
+                .await
+                .expect("load retained duplicate email");
+        assert!(retained_slave_email.is_none());
+
+        tx.rollback().await.expect("roll back test customers");
     }
 }

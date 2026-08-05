@@ -78,7 +78,7 @@ The same Add Customer intake is used from POS when staff search by a name, phone
 
 - **Customer groups** / **VIP** bulk actions may live on list or **hub** — follow **manager** training.
 - **Lightspeed import** is an **admin** workflow. **Merge** requires the `customers.merge` permission and is available from the Relationship Hub or All Customers — see [CUSTOMERS_LIGHTSPEED_REFERENCE.md](../CUSTOMERS_LIGHTSPEED_REFERENCE.md).
-- **Merge** can be completed from either the customer **Relationship Hub** or **All Customers**. In the Hub, search for the other profile, review the impact preview, choose the master profile to keep, and confirm. The operation is blocked when linked history requires the records to remain separate.
+- **Merge** can be completed from either the customer **Relationship Hub** or **All Customers**. In the Hub, search for the other profile, review the impact preview, choose the master profile to keep, and confirm. Existing values on the master remain authoritative; blank contact details, address fields, dates, and other profile details are filled from the duplicate. The operation is blocked when linked history requires the records to remain separate.
 
 ## Common issues and fixes
 
