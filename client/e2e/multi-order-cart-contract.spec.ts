@@ -69,6 +69,9 @@ test("Register Customer Orders exposes audited line cancellation and refund hand
   expect(modal).toContain("inventory_disposition");
   expect(modal).toContain("credit_applied_to_balance");
   expect(modal).toContain("onRecordedRefundToCart");
+  expect(modal).toContain("return Array.isArray(data) ? data : []");
+  expect(modal).toContain("Cancelled items remain listed below");
+  expect(modal).toContain("quantity_cancelled");
   expect(cart).toContain("RETURN_TRANSACTION_REFUND_HANDOFF");
   expect(server).toContain("balance_due - cancellation_total");
   expect(server).toContain("reserved_stock = reserved_stock - $1");
@@ -280,5 +283,14 @@ test("checkout recovery reports an error without persistent blocking badges", ()
   expect(topBar).not.toContain("checkout recovery item");
   expect(offlineQueue).toContain(
     'dispatchAppToast(`Checkout synchronization failed: ${normalizedMessage}`, "error")',
+  );
+});
+
+test("exchange return credit first satisfies the unpaid balance", () => {
+  const wizard = repoFile("client/src/components/pos/PosExchangeWizard.tsx");
+
+  expect(wizard).toContain("selectedReturnCents - balanceDueCents");
+  expect(wizard).toContain(
+    "Math.min(refundableAfterBalanceCents, Math.max(0, paidCents))",
   );
 });

@@ -2,6 +2,7 @@
 pub mod alterations_scheduler;
 
 pub mod backups;
+pub mod blocked_exchange_recovery_repair;
 pub mod bug_reports;
 pub mod checkout_validate;
 pub mod commission_events;

@@ -144,7 +144,12 @@ function refundableCreditCents(detail: TransactionDetailLite): number {
 
 function paidReturnCreditCents(detail: TransactionDetailLite, selectedReturnCents: number): number {
   const paidCents = parseMoneyToCents(detail.amount_paid);
-  return Math.min(selectedReturnCents, Math.max(0, paidCents));
+  const balanceDueCents = Math.max(0, parseMoneyToCents(detail.balance_due));
+  const refundableAfterBalanceCents = Math.max(
+    0,
+    selectedReturnCents - balanceDueCents,
+  );
+  return Math.min(refundableAfterBalanceCents, Math.max(0, paidCents));
 }
 
 function originalSalespersonId(detail: TransactionDetailLite): string | null {

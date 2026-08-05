@@ -64,6 +64,7 @@ export interface OrderItem {
   variation_label: string | null;
   quantity: number;
   quantity_returned?: number;
+  quantity_cancelled?: number;
   unit_price: string;
   fulfillment: string;
   order_lifecycle_status?: string | null;
@@ -121,6 +122,7 @@ interface OrderLoadModalProps {
 }
 
 interface OrderItemCancellationPreview {
+  transaction_id: string;
   original_balance_due: string;
   cancellation_total: string;
   credit_applied_to_balance: string;
@@ -165,6 +167,10 @@ const releaseLabel = (mode: ReleaseMode) =>
 
 const remainingOrderItemQuantity = (item: OrderItem) =>
   Math.max(0, item.quantity - Math.max(0, item.quantity_returned ?? 0));
+
+const isFullyCancelledOrderItem = (item: OrderItem) =>
+  (item.quantity_cancelled ?? 0) > 0 &&
+  (item.quantity_cancelled ?? 0) >= item.quantity;
 
 const isCompletedOrderItem = (item: OrderItem) =>
   item.is_fulfilled ||
@@ -225,6 +231,10 @@ export default function OrderLoadModal({
   const [cancelItemPreview, setCancelItemPreview] =
     useState<OrderItemCancellationPreview | null>(null);
   const [cancelItemError, setCancelItemError] = useState<string | null>(null);
+  const [lastCancellationResult, setLastCancellationResult] =
+    useState<OrderItemCancellationPreview | null>(null);
+  const [lastCancellationHandoffError, setLastCancellationHandoffError] =
+    useState<string | null>(null);
   const [pickupSelection, setPickupSelection] = useState<
     Record<string, boolean>
   >({});
@@ -260,9 +270,7 @@ export default function OrderLoadModal({
       );
     }
     const data = (await res.json()) as OrderItem[];
-    return Array.isArray(data)
-      ? data.filter((item) => remainingOrderItemQuantity(item) > 0)
-      : [];
+    return Array.isArray(data) ? data : [];
   };
 
   const loadOrderItems = async (orderId: string) => {
@@ -270,8 +278,15 @@ export default function OrderLoadModal({
     try {
       const items = await fetchOrderItems(orderId);
       setSelectedOrderItems(items);
+      const activeItems = items.filter(
+        (item) => !isFullyCancelledOrderItem(item),
+      );
       const allCompleted =
-        items.length > 0 && items.every(isCompletedOrderItem);
+        activeItems.length > 0 &&
+        activeItems.every(
+          (item) =>
+            item.is_fulfilled || item.order_lifecycle_status === "picked_up",
+        );
       setOrders((previous) =>
         previous.map((order) =>
           order.id === orderId && allCompleted
@@ -319,6 +334,8 @@ export default function OrderLoadModal({
     setPickupBasket([]);
     setSelectedOrderItems([]);
     setViewingItemsOrderId(null);
+    setLastCancellationResult(null);
+    setLastCancellationHandoffError(null);
     setLoading(true);
     const params = new URLSearchParams({
       customer_id: customerId,
@@ -909,6 +926,7 @@ export default function OrderLoadModal({
       return;
     setOrderMutationBusy(true);
     setCancelItemError(null);
+    setLastCancellationHandoffError(null);
     try {
       const res = await fetch(
         `${baseUrl}/api/transactions/${selectedOrder.id}/order-line-cancellations`,
@@ -942,6 +960,7 @@ export default function OrderLoadModal({
         ),
       );
       await loadOrderItems(selectedOrder.id);
+      setLastCancellationResult(result);
       setCancelItem(null);
       setCancelItemPreview(null);
       setCancelItemReason("");
@@ -952,8 +971,18 @@ export default function OrderLoadModal({
           "success",
         );
         if (onRecordedRefundToCart) {
-          onClose();
-          await onRecordedRefundToCart(refreshedOrder);
+          const refundLoaded = await onRecordedRefundToCart(refreshedOrder);
+          if (refundLoaded) {
+            onClose();
+          } else {
+            setLastCancellationHandoffError(
+              "The cancellation was recorded, but its refund could not be loaded into Pay. Reopen this Transaction Record and retry the refund handoff; do not cancel the item again.",
+            );
+          }
+        } else {
+          setLastCancellationHandoffError(
+            "The cancellation was recorded, but this Register cannot load its refund into Pay. Reopen the Transaction Record from a Register before taking any refund action.",
+          );
         }
       } else {
         toast(
@@ -1391,6 +1420,36 @@ export default function OrderLoadModal({
                   Close
                 </button>
               </div>
+              {lastCancellationResult &&
+              lastCancellationResult.transaction_id === selectedOrder?.id ? (
+                <div
+                  role="status"
+                  className="mb-3 rounded-xl border border-app-info/30 bg-app-info/10 p-3 text-xs font-semibold text-app-text"
+                >
+                  <p className="font-black text-app-info">
+                    Cancellation recorded —{" "}
+                    {formatCurrency(lastCancellationResult.cancellation_total)} credit
+                  </p>
+                  {parseMoneyToCents(lastCancellationResult.refund_due) > 0 ? (
+                    <p className="mt-1">
+                      {formatCurrency(lastCancellationResult.credit_applied_to_balance)} reduced the unpaid balance and {formatCurrency(lastCancellationResult.refund_due)} is due back to the customer in Pay.
+                    </p>
+                  ) : parseMoneyToCents(lastCancellationResult.balance_due_after) > 0 ? (
+                    <p className="mt-1">
+                      The credit reduced the unpaid balance. {formatCurrency(lastCancellationResult.balance_due_after)} remains due, so no customer refund was created.
+                    </p>
+                  ) : (
+                    <p className="mt-1">
+                      The credit cleared the unpaid balance. No customer refund is due. Cancelled items remain listed below for the Transaction Record.
+                    </p>
+                  )}
+                  {lastCancellationHandoffError ? (
+                    <p className="mt-2 font-bold text-app-danger">
+                      {lastCancellationHandoffError}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -1433,12 +1492,16 @@ export default function OrderLoadModal({
                 </button>
               </div>
               <div className="max-h-72 space-y-2 overflow-y-auto">
-                {selectedOrderItems.map((item) => (
+                {selectedOrderItems.map((item) => {
+                  const fullyCancelled = isFullyCancelledOrderItem(item);
+                  return (
                   <div
                     key={item.transaction_line_id}
                     className={`flex flex-col gap-3 rounded-xl border p-3 text-xs ${
-                      isCompletedOrderItem(item)
-                        ? "border-emerald-200 bg-emerald-50/50 opacity-60"
+                      fullyCancelled
+                        ? "border-app-danger/30 bg-app-danger/5"
+                        : isCompletedOrderItem(item)
+                          ? "border-emerald-200 bg-emerald-50/50 opacity-60"
                         : "border-app-border bg-app-surface-2/30"
                     }`}
                   >
@@ -1476,18 +1539,22 @@ export default function OrderLoadModal({
                         </span>
                         <span
                           className={`mt-2 w-fit rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${
-                            item.order_lifecycle_status ===
-                              "needs_measurements" ||
-                            (item.order_lifecycle_status === "received" &&
-                              item.alteration_status)
+                            fullyCancelled
+                              ? "border-app-danger/30 bg-app-danger/10 text-app-danger"
+                              : item.order_lifecycle_status ===
+                                  "needs_measurements" ||
+                                (item.order_lifecycle_status === "received" &&
+                                  item.alteration_status)
                               ? "border-app-warning/25 bg-app-warning/10 text-app-warning"
                               : "border-app-border bg-app-surface text-app-text-muted"
                           }`}
                         >
-                          {lineLifecycleLabel(
-                            item.order_lifecycle_status,
-                            item.alteration_status,
-                          )}
+                          {fullyCancelled
+                            ? `Cancelled · ${item.quantity_cancelled ?? item.quantity} of ${item.quantity}`
+                            : lineLifecycleLabel(
+                                item.order_lifecycle_status,
+                                item.alteration_status,
+                              )}
                         </span>
                         {item.fulfillment === "wedding_order" && (
                           <span className="mt-1 text-[10px] font-bold uppercase tracking-widest text-rose-600">
@@ -1712,7 +1779,8 @@ export default function OrderLoadModal({
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
                 Add or save lines to update the original order. Existing order
