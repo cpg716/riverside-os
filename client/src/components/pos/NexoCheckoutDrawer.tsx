@@ -327,6 +327,7 @@ function helcimAttemptStatusLabel(attempt: HelcimAttempt): string {
   const { status } = attempt;
   if (status === "pending") {
     if (isHelcimCardRefundAttempt(attempt)) return "Waiting for Refund";
+    if (attempt.error_code === "terminal_retry_declined") return "Try Card Again";
     return isHostedManualHelcimAttempt(attempt)
       ? "Waiting for CNP Confirmation"
       : "Waiting for Card";
@@ -361,6 +362,9 @@ function helcimAttemptDetail(attempt: HelcimAttempt): string {
   if (attempt.status === "pending") {
     if (isHelcimCardRefundAttempt(attempt)) {
       return "Waiting for Helcim refund approval.";
+    }
+    if (attempt.error_code === "terminal_retry_declined") {
+      return "The card was declined, but Helcim is keeping this reader request open for Try Again. ROS is watching the same invoice for the final result.";
     }
     return isHostedManualHelcimAttempt(attempt)
       ? "Complete the secure Helcim Card Not Present form."

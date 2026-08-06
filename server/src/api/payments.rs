@@ -51,6 +51,7 @@ const PAYMENTS_DEPOSIT_ADJUST: &str = "payments.deposit.adjust";
 const PAYMENTS_SYNC: &str = "payments.sync";
 const PAYMENTS_TERMINAL_OVERRIDE: &str = "payments.terminal.override";
 const HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES: i64 = 5;
+const HELCIM_TERMINAL_RETRY_POLL_SECONDS: i64 = 4;
 const HELCIM_ROS_ERROR_RECOVERY_MIN_SECONDS: i64 = 30;
 const HELCIM_PAY_INITIALIZATION_STALE_MINUTES: i64 = 2;
 const HELCIM_ATTEMPT_STREAM_MAX_SECONDS: u16 = 600;
@@ -11897,7 +11898,7 @@ async fn release_helcim_terminal_attempt(
         }
 
         let config = helcim::HelcimConfig::from_env();
-        match recover_helcim_attempt_by_invoice(&state, &attempt, &config).await? {
+        match recover_helcim_attempt_by_invoice(&state, &attempt, &config, false).await? {
             HelcimInvoiceRecovery::Recovered(recovered)
                 if matches!(recovered.status.as_str(), "approved" | "captured") =>
             {
@@ -12576,6 +12577,62 @@ async fn refresh_helcim_attempt_from_provider(
         return Ok((None, false));
     }
 
+    if attempt.status == "pending"
+        && attempt.error_code.as_deref() == Some("terminal_retry_declined")
+    {
+        let now = Utc::now();
+        if attempt.created_at
+            < now - ChronoDuration::minutes(HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES)
+        {
+            sqlx::query(
+                r#"
+                UPDATE payment_provider_attempts
+                SET status = 'failed',
+                    error_code = 'declined',
+                    error_message = 'Helcim did not report an approval before the terminal Try Again window ended.',
+                    completed_at = now(),
+                    updated_at = now()
+                WHERE id = $1
+                  AND provider = 'helcim'
+                  AND status = 'pending'
+                  AND error_code = 'terminal_retry_declined'
+                "#,
+            )
+            .bind(attempt.id)
+            .execute(&state.db)
+            .await
+            .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+            return load_helcim_attempt_row(state, attempt.id)
+                .await
+                .map(|attempt| (Some(attempt), false));
+        }
+        if attempt.updated_at > now - ChronoDuration::seconds(HELCIM_TERMINAL_RETRY_POLL_SECONDS) {
+            return Ok((None, false));
+        }
+        if let HelcimInvoiceRecovery::Recovered(recovered) =
+            recover_helcim_attempt_by_invoice(state, attempt, &config, true).await?
+        {
+            return Ok((Some(recovered), false));
+        }
+        sqlx::query(
+            r#"
+            UPDATE payment_provider_attempts
+            SET updated_at = now()
+            WHERE id = $1
+              AND provider = 'helcim'
+              AND status = 'pending'
+              AND error_code = 'terminal_retry_declined'
+            "#,
+        )
+        .bind(attempt.id)
+        .execute(&state.db)
+        .await
+        .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+        return load_helcim_attempt_row(state, attempt.id)
+            .await
+            .map(|attempt| (Some(attempt), false));
+    }
+
     let Some(transaction_id) = helcim_attempt_provider_status_reference(attempt)
         .filter(|value| !value.starts_with("helcim-sim-"))
     else {
@@ -12588,7 +12645,7 @@ async fn refresh_helcim_attempt_from_provider(
             return Ok((None, false));
         }
         return Ok(
-            match recover_helcim_attempt_by_invoice(state, attempt, &config).await? {
+            match recover_helcim_attempt_by_invoice(state, attempt, &config, false).await? {
                 HelcimInvoiceRecovery::Recovered(attempt) => (Some(attempt), false),
                 HelcimInvoiceRecovery::NoMatch => (None, true),
                 HelcimInvoiceRecovery::Unresolved => (None, false),
@@ -12662,17 +12719,29 @@ async fn refresh_helcim_attempt_from_provider(
     let Some(status) = final_helcim_attempt_status(&provider_status) else {
         return Ok((None, false));
     };
+    let terminal_retry_decline =
+        helcim_terminal_try_again_decline(attempt, &transaction, status, Utc::now());
 
-    // A terminal can report a decline before Helcim finishes the same invoice.
-    // Search by the ROS invoice before preserving that failure so a late
+    // Helcim may keep the physical reader on the same ROS invoice after a
+    // declined card and let the customer try another card. Search the full
+    // invoice before finalizing that individual decline so one later exact
     // approval can recover the original attempt and its ledger link.
-    if !is_helcim_return_attempt(attempt) && attempt.status == "failed" && status == "failed" {
+    if !is_helcim_return_attempt(attempt)
+        && status == "failed"
+        && (attempt.status == "failed" || terminal_retry_decline)
+    {
         if let HelcimInvoiceRecovery::Recovered(recovered) =
-            recover_helcim_attempt_by_invoice(state, attempt, &config).await?
+            recover_helcim_attempt_by_invoice(state, attempt, &config, terminal_retry_decline)
+                .await?
         {
             return Ok((Some(recovered), false));
         }
     }
+    let persisted_status = if terminal_retry_decline {
+        "pending"
+    } else {
+        status
+    };
 
     let provider_transaction_id = transaction
         .transaction_id_string()
@@ -12696,11 +12765,13 @@ async fn refresh_helcim_attempt_from_provider(
             provider_payment_id = CASE WHEN $7 THEN $3 ELSE provider_payment_id END,
             provider_transaction_id = CASE WHEN $7 THEN provider_transaction_id ELSE $3 END,
             error_code = CASE
+                WHEN $8 THEN 'terminal_retry_declined'
                 WHEN $2 = 'failed' THEN 'declined'
                 WHEN $2 = 'canceled' THEN 'canceled'
                 ELSE NULL
             END,
             error_message = CASE
+                WHEN $8 THEN 'Card declined; the Helcim reader may still allow Try Again. ROS is watching this invoice for the final result.'
                 WHEN $2 = 'failed' THEN COALESCE($5, 'Helcim payment was declined.')
                 WHEN $2 = 'canceled' THEN COALESCE($5, 'Canceled on Helcim terminal.')
                 ELSE NULL
@@ -12709,22 +12780,25 @@ async fn refresh_helcim_attempt_from_provider(
                 WHEN $7 THEN raw_audit_reference
                 ELSE COALESCE($4, raw_audit_reference)
             END,
-            completed_at = now()
+            completed_at = CASE WHEN $8 THEN NULL ELSE now() END,
+            updated_at = now()
         WHERE id = $1
           AND provider = 'helcim'
           AND (
               status IN ('pending', 'expired')
               OR ($6::boolean AND status = 'failed' AND $2 IN ('approved', 'captured'))
+              OR ($8::boolean AND status = 'failed')
           )
         "#,
     )
     .bind(attempt.id)
-    .bind(status)
+    .bind(persisted_status)
     .bind(provider_transaction_id)
     .bind(raw_audit_reference)
     .bind(warning)
     .bind(attempt.status == "failed")
     .bind(is_helcim_return_attempt(attempt))
+    .bind(terminal_retry_decline)
     .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -12742,16 +12816,73 @@ async fn refresh_helcim_attempt_from_provider(
         .map(|attempt| (Some(attempt), false))
 }
 
+fn helcim_terminal_try_again_decline(
+    attempt: &HelcimAttemptRow,
+    transaction: &helcim::HelcimCardTransaction,
+    normalized_status: &str,
+    now: DateTime<Utc>,
+) -> bool {
+    if normalized_status != "failed"
+        || is_helcim_return_attempt(attempt)
+        || is_hosted_manual_helcim_attempt(attempt)
+        || is_saved_card_helcim_attempt(attempt)
+        || (attempt.terminal_id.is_none() && attempt.device_id.is_none())
+        || attempt.created_at
+            < now - ChronoDuration::minutes(HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES)
+    {
+        return false;
+    }
+
+    let transaction_type = transaction
+        .transaction_type()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let invoice_number = transaction
+        .invoice_number
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default();
+
+    matches!(transaction_type.as_str(), "purchase" | "sale")
+        && invoice_number == helcim_manual_invoice_number(attempt.id)
+}
+
 enum HelcimInvoiceRecovery {
     Recovered(HelcimAttemptRow),
     NoMatch,
     Unresolved,
 }
 
+fn select_helcim_invoice_recovery_position(
+    statuses: &[Option<String>],
+    approved_only: bool,
+) -> (Option<usize>, usize) {
+    let approved_positions: Vec<usize> = statuses
+        .iter()
+        .enumerate()
+        .filter_map(|(index, status)| {
+            let status = status.as_deref()?.trim().to_ascii_lowercase();
+            matches!(
+                status.as_str(),
+                "approved" | "approval" | "captured" | "capture"
+            )
+            .then_some(index)
+        })
+        .collect();
+    let selected_position = match approved_positions.as_slice() {
+        [position] => Some(*position),
+        [] if !approved_only && statuses.len() == 1 => Some(0),
+        _ => None,
+    };
+    (selected_position, approved_positions.len())
+}
+
 async fn recover_helcim_attempt_by_invoice(
     state: &AppState,
     attempt: &HelcimAttemptRow,
     config: &helcim::HelcimConfig,
+    approved_only: bool,
 ) -> Result<HelcimInvoiceRecovery, PaymentError> {
     if is_hosted_manual_helcim_attempt(attempt) {
         return Ok(
@@ -12843,19 +12974,24 @@ async fn recover_helcim_attempt_by_invoice(
     if matches.is_empty() {
         return Ok(HelcimInvoiceRecovery::NoMatch);
     }
-    if matches.len() != 1 {
+    let match_statuses: Vec<Option<String>> =
+        matches.iter().map(|row| row.status.clone()).collect();
+    let (selected_position, approved_match_count) =
+        select_helcim_invoice_recovery_position(&match_statuses, approved_only);
+    let Some(selected_position) = selected_position else {
         if matches.len() > 1 {
             tracing::warn!(
                 target = "helcim",
                 attempt_id = %attempt.id,
                 invoice_number = %invoice_number,
                 exact_matches = matches.len(),
-                "Helcim invoice recovery found multiple exact movements and was blocked"
+                approved_matches = approved_match_count,
+                "Helcim invoice recovery did not find one unique approved movement and was blocked"
             );
         }
         return Ok(HelcimInvoiceRecovery::Unresolved);
-    }
-    let row = matches.pop().expect("exactly one Helcim invoice match");
+    };
+    let row = matches.swap_remove(selected_position);
     let provider_status = row.status.unwrap_or_default().trim().to_ascii_lowercase();
     let Some(status) = final_helcim_attempt_status(&provider_status) else {
         return Ok(HelcimInvoiceRecovery::Unresolved);
@@ -14390,6 +14526,74 @@ mod tests {
     }
 
     #[test]
+    fn terminal_purchase_decline_keeps_exact_invoice_open_for_try_again() {
+        let mut attempt = sample_helcim_attempt_row("pending");
+        attempt.terminal_id = Some("terminal-1".to_string());
+        attempt.raw_audit_reference = Some("helcim:terminal:purchase".to_string());
+        let mut transaction =
+            helcim::simulated_card_transaction("52737827", attempt.amount_cents, "USD", "declined");
+        transaction.invoice_number = Some(helcim_manual_invoice_number(attempt.id));
+        transaction
+            .extra
+            .insert("type".to_string(), json!("purchase"));
+
+        assert!(helcim_terminal_try_again_decline(
+            &attempt,
+            &transaction,
+            "failed",
+            attempt.created_at + ChronoDuration::seconds(30),
+        ));
+
+        transaction.invoice_number = Some(format!("ROS-{}", Uuid::new_v4().simple()));
+        assert!(!helcim_terminal_try_again_decline(
+            &attempt,
+            &transaction,
+            "failed",
+            attempt.created_at + ChronoDuration::seconds(30),
+        ));
+    }
+
+    #[test]
+    fn terminal_try_again_window_expires_without_approval() {
+        let mut attempt = sample_helcim_attempt_row("pending");
+        attempt.terminal_id = Some("terminal-1".to_string());
+        attempt.raw_audit_reference = Some("helcim:terminal:purchase".to_string());
+        let mut transaction =
+            helcim::simulated_card_transaction("52737827", attempt.amount_cents, "USD", "declined");
+        transaction.invoice_number = Some(helcim_manual_invoice_number(attempt.id));
+        transaction
+            .extra
+            .insert("type".to_string(), json!("purchase"));
+
+        assert!(!helcim_terminal_try_again_decline(
+            &attempt,
+            &transaction,
+            "failed",
+            attempt.created_at
+                + ChronoDuration::minutes(HELCIM_TERMINAL_PENDING_TIMEOUT_MINUTES + 1),
+        ));
+    }
+
+    #[test]
+    fn terminal_try_again_recovery_selects_one_approval_over_the_decline() {
+        let decline = Some("declined".to_string());
+        let approval = Some("approved".to_string());
+
+        assert_eq!(
+            select_helcim_invoice_recovery_position(&[decline.clone(), approval], true),
+            (Some(1), 1)
+        );
+        assert_eq!(
+            select_helcim_invoice_recovery_position(&[decline.clone()], true),
+            (None, 0)
+        );
+        assert_eq!(
+            select_helcim_invoice_recovery_position(&[decline], false),
+            (Some(0), 0)
+        );
+    }
+
+    #[test]
     fn hosted_manual_checkout_token_is_not_a_settlement_reference() {
         let mut attempt = sample_helcim_attempt_row("pending");
         attempt.provider_transaction_id = None;
@@ -14644,7 +14848,8 @@ mod tests {
         assert!(recovery.contains("page: Some(page)"));
         assert!(recovery.contains("if page_is_exhausted"));
         assert!(recovery.contains("if !listing_exhausted"));
-        assert!(recovery.contains("if matches.len() != 1"));
+        assert!(recovery.contains("approved_only"));
+        assert!(recovery.contains("select_helcim_invoice_recovery_position"));
     }
 
     #[test]

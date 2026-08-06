@@ -189,3 +189,22 @@ test("a nonmatching terminal attempt is refreshed without entering the active sa
     "setCheckoutClientId(newCheckoutClientId())",
   );
 });
+
+test("Helcim Try Again keeps the exact invoice open for a later approval", () => {
+  const drawer = repoFile("client/src/components/pos/NexoCheckoutDrawer.tsx");
+  const payments = repoFile("server/src/api/payments.rs");
+  const webhooks = repoFile("server/src/api/webhooks.rs");
+
+  expect(drawer).toContain('attempt.error_code === "terminal_retry_declined"');
+  expect(drawer).toContain('return "Try Card Again"');
+  expect(drawer).toContain(
+    "ROS is watching the same invoice for the final result",
+  );
+  expect(payments).toContain("helcim_terminal_try_again_decline");
+  expect(payments).toContain("recover_helcim_attempt_by_invoice");
+  expect(payments).toContain("approved_positions");
+  expect(payments).toContain("terminal_retry_declined");
+  expect(webhooks).toContain("helcim_terminal_decline_keeps_invoice_open");
+  expect(webhooks).toContain("$3 IN ('approved', 'captured')");
+  expect(webhooks).toContain("LOWER(COALESCE(error_code, '')) IN ('decline', 'declined')");
+});

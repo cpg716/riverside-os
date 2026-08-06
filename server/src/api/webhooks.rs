@@ -1169,6 +1169,22 @@ fn helcim_ros_invoice_correlation(invoice_number: Option<&str>) -> HelcimRosInvo
         .unwrap_or(HelcimRosInvoiceCorrelation::Invalid)
 }
 
+fn helcim_terminal_decline_keeps_invoice_open(
+    normalized_status: &str,
+    provider_transaction_type: Option<&str>,
+    invoice_number: Option<&str>,
+    attempt_id: Uuid,
+    terminal_id: Option<&str>,
+    attempt_is_return: bool,
+) -> bool {
+    normalized_status == "failed"
+        && !attempt_is_return
+        && terminal_id.is_some_and(|value| !value.trim().is_empty())
+        && helcim_provider_transaction_is_return(provider_transaction_type) == Some(false)
+        && helcim_ros_invoice_correlation(invoice_number)
+            == HelcimRosInvoiceCorrelation::Attempt(attempt_id)
+}
+
 fn helcim_webhook_transaction_id_mismatch(
     requested_transaction_id: &str,
     fetched_transaction_id: Option<&str>,
@@ -1303,10 +1319,11 @@ async fn handle_helcim_card_transaction(
         String,
         Option<String>,
         Option<String>,
+        Option<String>,
     )> = sqlx::query_as(
         r#"
         SELECT id, checkout_client_id, amount_cents, currency, raw_audit_reference,
-               provider_payment_id
+               provider_payment_id, COALESCE(terminal_id, device_id)
         FROM payment_provider_attempts
         WHERE provider = 'helcim'
           AND (
@@ -1358,16 +1375,22 @@ async fn handle_helcim_card_transaction(
                         String,
                         Option<String>,
                         Option<String>,
+                        Option<String>,
                     )> = sqlx::query_as(
                         r#"
                     SELECT id, checkout_client_id, amount_cents, currency, raw_audit_reference,
-                           provider_payment_id
+                           provider_payment_id, COALESCE(terminal_id, device_id)
                     FROM payment_provider_attempts
                     WHERE id = $1
                       AND provider = 'helcim'
                       AND (
                           status = 'pending'
                           OR (status = 'failed' AND error_code = 'outcome_unknown')
+                          OR (
+                              $3 IN ('approved', 'captured')
+                              AND status = 'failed'
+                              AND LOWER(COALESCE(error_code, '')) IN ('decline', 'declined')
+                          )
                       )
                       AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%refund%'
                       AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%reverse%'
@@ -1378,6 +1401,7 @@ async fn handle_helcim_card_transaction(
                     )
                     .bind(invoice_attempt_id)
                     .bind(&terminal_id)
+                    .bind(&normalized_status)
                     .fetch_optional(&mut *tx)
                     .await?;
 
@@ -1397,7 +1421,7 @@ async fn handle_helcim_card_transaction(
 
     let evidence_mismatch = match direct_candidates.as_slice() {
         [] => None,
-        [(_, _, expected_amount_cents, expected_currency, raw_audit_reference, _)] => {
+        [(_, _, expected_amount_cents, expected_currency, raw_audit_reference, _, _)] => {
             helcim_provider_result_mismatch_evidence(
                 *expected_amount_cents,
                 expected_currency,
@@ -1485,6 +1509,19 @@ async fn handle_helcim_card_transaction(
     let mut provider_payment_id: Option<String> = None;
     if let Some(candidate) = direct_candidates.first() {
         matched_attempt_is_return = helcim_attempt_reference_is_return(candidate.4.as_deref());
+        let terminal_retry_decline = helcim_terminal_decline_keeps_invoice_open(
+            &normalized_status,
+            provider_transaction_type.as_deref(),
+            invoice_number.as_deref(),
+            candidate.0,
+            candidate.6.as_deref(),
+            matched_attempt_is_return,
+        );
+        let persisted_status = if terminal_retry_decline {
+            "pending"
+        } else {
+            normalized_status.as_str()
+        };
         let updated: Option<(Uuid, Option<Uuid>, Option<String>)> = sqlx::query_as(
             r#"
             UPDATE payment_provider_attempts
@@ -1492,20 +1529,29 @@ async fn handle_helcim_card_transaction(
                 provider_transaction_id = CASE WHEN $6 THEN provider_transaction_id ELSE $2 END,
                 provider_payment_id = CASE WHEN $6 THEN $2 ELSE provider_payment_id END,
                 raw_audit_reference = CASE WHEN $6 THEN raw_audit_reference ELSE $3 END,
-                error_code = CASE WHEN $1 = 'failed' THEN COALESCE($4, 'declined') ELSE NULL END,
-                error_message = CASE WHEN $1 = 'failed' THEN COALESCE($5, 'Helcim payment was declined.') ELSE NULL END,
-                completed_at = now()
+                error_code = CASE
+                    WHEN $8 THEN 'terminal_retry_declined'
+                    WHEN $1 = 'failed' THEN COALESCE($4, 'declined')
+                    ELSE NULL
+                END,
+                error_message = CASE
+                    WHEN $8 THEN 'Card declined; the Helcim reader may still allow Try Again. ROS is watching this invoice for the final result.'
+                    WHEN $1 = 'failed' THEN COALESCE($5, 'Helcim payment was declined.')
+                    ELSE NULL
+                END,
+                completed_at = CASE WHEN $8 THEN NULL ELSE now() END
             WHERE id = $7
             RETURNING id, checkout_client_id, provider_payment_id
             "#,
         )
-        .bind(&normalized_status)
+        .bind(persisted_status)
         .bind(&provider_transaction_id)
         .bind(&audit_reference)
         .bind(provider_status.clone())
         .bind(provider_warning.clone())
         .bind(matched_attempt_is_return)
         .bind(candidate.0)
+        .bind(terminal_retry_decline)
         .fetch_optional(&mut *tx)
         .await?;
         if let Some((id, checkout_client_id, stored_provider_payment_id)) = updated {
@@ -2672,6 +2718,38 @@ mod tests {
     }
 
     #[test]
+    fn helcim_terminal_decline_keeps_only_the_exact_purchase_invoice_open() {
+        let attempt_id =
+            Uuid::parse_str("4b1c7a4f-3a1e-43dc-bb10-bfcb20c7b1e2").expect("attempt UUID");
+        let invoice = "ROS-4b1c7a4f3a1e43dcbb10bfcb20c7b1e2";
+
+        assert!(helcim_terminal_decline_keeps_invoice_open(
+            "failed",
+            Some("purchase"),
+            Some(invoice),
+            attempt_id,
+            Some("terminal-1"),
+            false,
+        ));
+        assert!(!helcim_terminal_decline_keeps_invoice_open(
+            "failed",
+            Some("refund"),
+            Some(invoice),
+            attempt_id,
+            Some("terminal-1"),
+            true,
+        ));
+        assert!(!helcim_terminal_decline_keeps_invoice_open(
+            "failed",
+            Some("purchase"),
+            Some("ROS-11111111222233334444555555555555"),
+            attempt_id,
+            Some("terminal-1"),
+            false,
+        ));
+    }
+
+    #[test]
     fn helcim_card_webhook_fallback_requires_no_provider_id_owner() {
         let source = include_str!("webhooks.rs");
         let handler = source
@@ -2709,6 +2787,10 @@ mod tests {
         assert!(!direct_id_lookup.contains("invoice_number.clone()"));
         assert!(invoice_binding.contains("status = 'pending'"));
         assert!(invoice_binding.contains("error_code = 'outcome_unknown'"));
+        assert!(invoice_binding.contains("$3 IN ('approved', 'captured')"));
+        assert!(
+            invoice_binding.contains("LOWER(COALESCE(error_code, '')) IN ('decline', 'declined')")
+        );
         assert!(invoice_binding.contains("$2 = '' OR terminal_id = $2 OR device_id = $2"));
         assert!(invoice_binding
             .contains("NULLIF(TRIM(COALESCE(terminal_id, device_id, '')), '') IS NOT NULL"));
