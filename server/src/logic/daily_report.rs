@@ -876,6 +876,15 @@ pub async fn store_report(
         r#"
         INSERT INTO daily_financial_reports (report_date, generated_by, report_payload, html_content, is_test)
         VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (report_date) WHERE is_test = false
+        DO UPDATE SET
+            generated_at = CURRENT_TIMESTAMP,
+            generated_by = EXCLUDED.generated_by,
+            report_payload = EXCLUDED.report_payload,
+            html_content = EXCLUDED.html_content,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE daily_financial_reports.sent_at IS NULL
+           OR daily_financial_reports.send_error IS NOT NULL
         RETURNING id
         "#,
     )
@@ -889,7 +898,7 @@ pub async fn store_report(
     Ok(id)
 }
 
-pub async fn mark_sent(
+pub async fn record_delivery_result(
     pool: &PgPool,
     report_id: Uuid,
     recipients: &[String],
@@ -898,8 +907,16 @@ pub async fn mark_sent(
     sqlx::query(
         r#"
         UPDATE daily_financial_reports
-        SET sent_at = CURRENT_TIMESTAMP,
-            sent_to = $2,
+        SET sent_at = CASE
+                WHEN sent_at IS NOT NULL THEN sent_at
+                WHEN $3::text IS NULL THEN CURRENT_TIMESTAMP
+                ELSE NULL
+            END,
+            sent_to = ARRAY(
+                SELECT DISTINCT recipient
+                FROM unnest(COALESCE(sent_to, ARRAY[]::text[]) || $2::text[]) AS recipient
+                ORDER BY recipient
+            ),
             send_error = $3,
             updated_at = CURRENT_TIMESTAMP
         WHERE id = $1

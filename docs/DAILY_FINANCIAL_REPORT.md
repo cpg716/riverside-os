@@ -81,13 +81,22 @@ The report is rendered as a professional HTML email with:
 After the register Z-close:
 1. ROS saves the EOD snapshot
 2. ROS ensures the pending QBO journal for the business date
-3. **ROS checks daily report config** — if enabled + auto-send + recipients configured:
+3. **ROS checks daily report config** — if enabled:
    - Generates the report for the exact business date closed by the Z-report, even when staff closes it the following morning
    - Renders HTML email
    - Stores the report in `daily_financial_reports`
+4. If auto-send is enabled and recipients are configured:
    - Emails to all configured recipients
-   - Records sent status and any errors
-4. If a report was already sent for this date, the auto-send is skipped (no duplicates)
+   - Records only successfully delivered recipients and any errors
+5. If a report was already sent for this date, the auto-send is skipped (no duplicates)
+
+If delivery fails for one or more recipients, ROS leaves the report in an error
+state instead of marking the business date sent. Successful recipients remain
+recorded, and **Resend** retries only the recipients that did not receive that
+failed delivery. Regenerating the same unsent business date refreshes the
+existing archive row instead of failing the one-report-per-date constraint. A
+failed automatic delivery also creates an actionable system alert directing
+staff to the report history and retry action.
 
 ## Test Send
 
@@ -105,7 +114,8 @@ The Settings panel shows all generated reports with:
 - Sent status (✓ sent, ✗ error, ⏳ not sent)
 - Test badge for test sends
 - **View** — opens an in-app HTML preview modal
-- **Resend** — re-emails the stored report to configured recipients
+- **Resend** — for a failed delivery, retries only recipients not already sent;
+  otherwise re-emails the stored report to configured recipients
 
 ## API Endpoints
 
@@ -160,4 +170,4 @@ All endpoints require `settings.admin` permission.
 - [staff/qbo-bridge.md](staff/qbo-bridge.md) — QuickBooks staging and sync
 - [QBO_JOURNAL_TEST_MATRIX.md](QBO_JOURNAL_TEST_MATRIX.md) — Journal verification
 
-**Last reviewed:** 2026-05-27
+**Last reviewed:** 2026-08-06

@@ -78,11 +78,18 @@ async fn get_config(
 async fn update_config(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<DailyReportConfig>,
+    Json(mut body): Json<DailyReportConfig>,
 ) -> Result<Json<DailyReportConfig>, DailyReportError> {
     require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
         .await
         .map_err(|_| DailyReportError::Forbidden)?;
+    body.recipient_emails = normalize_recipients(&body.recipient_emails)?;
+    body.subject_template = body.subject_template.trim().to_string();
+    if body.subject_template.is_empty() {
+        return Err(DailyReportError::InvalidPayload(
+            "Email subject template is required".to_string(),
+        ));
+    }
     daily_report::save_config(&state.db, &body).await?;
     Ok(Json(body))
 }
@@ -132,9 +139,29 @@ async fn send_report(
         .map_err(|_| DailyReportError::Forbidden)?;
 
     let config = daily_report::load_config(&state.db).await?;
-    if config.recipient_emails.is_empty() {
+    let configured_recipients = normalize_recipients(&config.recipient_emails)?;
+    if configured_recipients.is_empty() {
         return Err(DailyReportError::InvalidPayload(
             "No recipient emails configured".to_string(),
+        ));
+    }
+
+    let existing_delivery = load_delivery_state(&state.db, body.date).await?;
+    if existing_delivery
+        .as_ref()
+        .is_some_and(|delivery| delivery.sent_at.is_some() && delivery.send_error.is_none())
+    {
+        return Err(DailyReportError::InvalidPayload(
+            "This business date was already sent; use Resend from report history".to_string(),
+        ));
+    }
+    let previously_sent = existing_delivery
+        .map(|delivery| delivery.sent_to)
+        .unwrap_or_default();
+    let recipients = recipients_for_resend(&configured_recipients, &previously_sent, true);
+    if recipients.is_empty() {
+        return Err(DailyReportError::InvalidPayload(
+            "No recipients need delivery".to_string(),
         ));
     }
 
@@ -149,7 +176,7 @@ async fn send_report(
 
     let mut successful_recipients: Vec<String> = vec![];
     let mut send_errors: Vec<String> = vec![];
-    for recipient in &config.recipient_emails {
+    for recipient in &recipients {
         if let Err(e) = email::send_email(
             &state.db, recipient, &subject, &html, None, None, "outbound",
         )
@@ -168,7 +195,13 @@ async fn send_report(
         Some(send_errors.join("; "))
     };
 
-    daily_report::mark_sent(&state.db, id, &successful_recipients, error_msg.as_deref()).await?;
+    daily_report::record_delivery_result(
+        &state.db,
+        id,
+        &successful_recipients,
+        error_msg.as_deref(),
+    )
+    .await?;
 
     Ok(Json(json!({
         "id": id,
@@ -198,9 +231,9 @@ async fn test_send_report(
 
     let config = daily_report::load_config(&state.db).await?;
     let recipients = if let Some(ref override_email) = body.email_override {
-        vec![override_email.clone()]
+        normalize_recipients(std::slice::from_ref(override_email))?
     } else if !config.recipient_emails.is_empty() {
-        config.recipient_emails.clone()
+        normalize_recipients(&config.recipient_emails)?
     } else {
         return Err(DailyReportError::InvalidPayload(
             "No recipient emails configured and no override provided".to_string(),
@@ -275,7 +308,13 @@ async fn test_send_report(
         Some(send_errors.join("; "))
     };
 
-    daily_report::mark_sent(&state.db, id, &successful_recipients, error_msg.as_deref()).await?;
+    daily_report::record_delivery_result(
+        &state.db,
+        id,
+        &successful_recipients,
+        error_msg.as_deref(),
+    )
+    .await?;
 
     Ok(Json(json!({
         "id": id,
@@ -364,6 +403,13 @@ struct ReportDetailRow {
     is_test: bool,
 }
 
+#[derive(FromRow)]
+struct DeliveryState {
+    sent_at: Option<chrono::DateTime<chrono::Utc>>,
+    sent_to: Vec<String>,
+    send_error: Option<String>,
+}
+
 async fn get_report(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -425,13 +471,21 @@ async fn resend_report(
     ))?;
 
     let config = daily_report::load_config(&state.db).await?;
-    let recipients = body
+    let retrying_failed_delivery = body.email_override.is_none() && row.send_error.is_some();
+    let requested_recipients = body
         .email_override
         .unwrap_or(config.recipient_emails.clone());
+    let requested_recipients = normalize_recipients(&requested_recipients)?;
+    let previously_sent = row.sent_to.clone().unwrap_or_default();
+    let recipients = recipients_for_resend(
+        &requested_recipients,
+        &previously_sent,
+        retrying_failed_delivery,
+    );
 
     if recipients.is_empty() {
         return Err(DailyReportError::InvalidPayload(
-            "No recipients".to_string(),
+            "No recipients need delivery".to_string(),
         ));
     }
 
@@ -442,6 +496,7 @@ async fn resend_report(
             .replace("{date}", &row.report_date.to_string())
     );
 
+    let mut successful_recipients: Vec<String> = vec![];
     let mut send_errors: Vec<String> = vec![];
     for recipient in &recipients {
         if let Err(e) = email::send_email(
@@ -450,6 +505,8 @@ async fn resend_report(
         .await
         {
             send_errors.push(format!("{recipient}: {e}"));
+        } else {
+            successful_recipients.push(recipient.clone());
         }
     }
 
@@ -459,11 +516,17 @@ async fn resend_report(
         Some(send_errors.join("; "))
     };
 
-    daily_report::mark_sent(&state.db, id, &recipients, error_msg.as_deref()).await?;
+    daily_report::record_delivery_result(
+        &state.db,
+        id,
+        &successful_recipients,
+        error_msg.as_deref(),
+    )
+    .await?;
 
     Ok(Json(json!({
         "id": id,
-        "sent_to": recipients,
+        "sent_to": successful_recipients,
         "errors": error_msg,
         "status": if error_msg.is_some() { "partial_failure" } else { "resent" }
     })))
@@ -482,6 +545,49 @@ async fn get_store_name(state: &AppState) -> String {
     .unwrap_or_else(|| "Riverside".to_string())
 }
 
+fn normalize_recipients(recipients: &[String]) -> Result<Vec<String>, DailyReportError> {
+    email::normalize_email_recipients(recipients).map_err(|error| match error {
+        email::EmailError::InvalidPayload(message) => DailyReportError::InvalidPayload(message),
+        other => DailyReportError::InvalidPayload(other.to_string()),
+    })
+}
+
+fn recipients_for_resend(
+    requested: &[String],
+    previously_sent: &[String],
+    retrying_failed_delivery: bool,
+) -> Vec<String> {
+    if !retrying_failed_delivery {
+        return requested.to_vec();
+    }
+
+    requested
+        .iter()
+        .filter(|recipient| {
+            !previously_sent
+                .iter()
+                .any(|sent| sent.eq_ignore_ascii_case(recipient))
+        })
+        .cloned()
+        .collect()
+}
+
+async fn load_delivery_state(
+    pool: &PgPool,
+    business_date: NaiveDate,
+) -> Result<Option<DeliveryState>, sqlx::Error> {
+    sqlx::query_as(
+        r#"
+        SELECT sent_at, COALESCE(sent_to, ARRAY[]::text[]) AS sent_to, send_error
+        FROM daily_financial_reports
+        WHERE report_date = $1 AND is_test = false
+        "#,
+    )
+    .bind(business_date)
+    .fetch_optional(pool)
+    .await
+}
+
 // ── Auto-send after close (called from register close logic) ─────────────────
 
 pub async fn auto_send_daily_report(pool: &PgPool, business_date: chrono::NaiveDate) {
@@ -493,28 +599,31 @@ pub async fn auto_send_daily_report(pool: &PgPool, business_date: chrono::NaiveD
         }
     };
 
-    if !config.enabled || !config.auto_send_after_close || config.recipient_emails.is_empty() {
+    if !config.enabled {
         return;
     }
 
-    // Check if this business date was already sent (non-test).
-    let already_sent: bool = sqlx::query_scalar(
-        r#"
-        SELECT EXISTS (
-            SELECT 1 FROM daily_financial_reports
-            WHERE report_date = $1 AND is_test = false AND sent_at IS NOT NULL
-        )
-        "#,
-    )
-    .bind(business_date)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(true);
+    // Preserve successful recipients from a partial attempt so retries only
+    // target addresses that have not received this business date.
+    let existing_delivery = match load_delivery_state(pool, business_date).await {
+        Ok(delivery) => delivery,
+        Err(error) => {
+            tracing::error!(%error, %business_date, "Failed to load daily report delivery state");
+            return;
+        }
+    };
 
-    if already_sent {
+    if existing_delivery
+        .as_ref()
+        .is_some_and(|delivery| delivery.sent_at.is_some() && delivery.send_error.is_none())
+    {
         tracing::info!("Daily report already sent for {business_date}; skipping auto-send.");
         return;
     }
+
+    let previously_sent = existing_delivery
+        .map(|delivery| delivery.sent_to)
+        .unwrap_or_default();
 
     let store_name = sqlx::query_scalar::<_, String>(
         "SELECT COALESCE(receipt_config->>'store_name', 'Riverside') FROM store_settings WHERE id = 1",
@@ -543,13 +652,27 @@ pub async fn auto_send_daily_report(pool: &PgPool, business_date: chrono::NaiveD
         }
     };
 
+    if !config.auto_send_after_close || config.recipient_emails.is_empty() {
+        tracing::info!(%business_date, "Daily financial report generated and stored without email delivery");
+        return;
+    }
+
+    let configured_recipients = match normalize_recipients(&config.recipient_emails) {
+        Ok(recipients) => recipients,
+        Err(error) => {
+            tracing::error!(%error, %business_date, "Daily report recipients are invalid");
+            return;
+        }
+    };
+    let pending_recipients = recipients_for_resend(&configured_recipients, &previously_sent, true);
+
     let subject = config
         .subject_template
         .replace("{date}", &business_date.to_string());
 
     let mut successful_recipients: Vec<String> = vec![];
     let mut errors: Vec<String> = vec![];
-    for recipient in &config.recipient_emails {
+    for recipient in &pending_recipients {
         if let Err(e) =
             email::send_email(pool, recipient, &subject, &html, None, None, "outbound").await
         {
@@ -566,16 +689,66 @@ pub async fn auto_send_daily_report(pool: &PgPool, business_date: chrono::NaiveD
         Some(errors.join("; "))
     };
 
-    let _ = daily_report::mark_sent(pool, id, &successful_recipients, error_msg.as_deref()).await;
+    if let Err(error) =
+        daily_report::record_delivery_result(pool, id, &successful_recipients, error_msg.as_deref())
+            .await
+    {
+        tracing::error!(%error, %business_date, "Failed to record daily report delivery result");
+        return;
+    }
 
     if errors.is_empty() {
         tracing::info!(
             "Daily financial report auto-sent for {business_date} to {:?}",
-            config.recipient_emails
+            pending_recipients
         );
     } else {
         tracing::warn!(
             "Daily financial report auto-send partial failure for {business_date}: {error_msg:?}"
+        );
+        let _ = crate::logic::notifications::broadcast_system_alert(
+            pool,
+            &format!(
+                "Daily Financial Report email failed for {business_date}. Open Settings → Daily Financial Report to review the error and retry failed recipients."
+            ),
+        )
+        .await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_recipients, recipients_for_resend};
+
+    #[test]
+    fn recipient_normalization_trims_deduplicates_and_lowercases() {
+        let recipients = normalize_recipients(&[
+            " Owner@Example.com ".to_string(),
+            "owner@example.com; accountant@example.com".to_string(),
+        ])
+        .expect("valid recipients");
+
+        assert_eq!(
+            recipients,
+            vec!["owner@example.com", "accountant@example.com"]
+        );
+    }
+
+    #[test]
+    fn failed_delivery_retry_skips_successful_recipients() {
+        let requested = vec![
+            "owner@example.com".to_string(),
+            "accountant@example.com".to_string(),
+        ];
+        let previously_sent = vec!["OWNER@example.com".to_string()];
+
+        assert_eq!(
+            recipients_for_resend(&requested, &previously_sent, true),
+            vec!["accountant@example.com"]
+        );
+        assert_eq!(
+            recipients_for_resend(&requested, &previously_sent, false),
+            requested
         );
     }
 }

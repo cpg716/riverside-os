@@ -111,7 +111,7 @@ Typical areas (labels may group differently by build):
 ### Daily Financial Report
 
 - **Enable/Disable**: Master toggle for report generation and storage.
-- **Auto-Send After Close**: When enabled, the report is automatically emailed to all configured recipients after Z-close.
+- **Auto-Send After Close**: When enabled, the archived report is automatically emailed to all configured recipients after Z-close. Email delivery is optional; the enabled master toggle still generates and archives the report without recipients.
 - **Recipient Emails**: Add/remove email addresses that receive the daily report.
 - **Subject Template**: Customize the email subject; `{date}` is replaced with the business date.
 - **Include QBO Status**: Toggle QBO journal sync status badge in the report.
@@ -119,7 +119,7 @@ Typical areas (labels may group differently by build):
 - **Generate**: Manually create a report for any date.
 - **Generate & Send**: Create and email a report to all recipients.
 - **Test Send**: Send the most recent completed report with `[TEST]` prefix. Supports email override.
-- **Report History**: View all generated reports with net sales, status badges, and actions to **View** (in-app HTML preview) or **Resend**.
+- **Report History**: View all generated reports with net sales, status badges, and actions to **View** (in-app HTML preview) or **Resend**. For a failed or partial delivery, **Resend** targets only recipients not already recorded as successful. Automatic failures also create a system alert for manager review.
 - See [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md) for API details and email template specs.
 
 ### Database

@@ -258,7 +258,7 @@ pub fn normalize_email_recipients(recipients: &[String]) -> Result<Vec<String>, 
     }
     if out.len() > 12 {
         return Err(EmailError::InvalidPayload(
-            "bug report notifications support up to 12 recipients".to_string(),
+            "email delivery supports up to 12 recipients".to_string(),
         ));
     }
     Ok(out)
