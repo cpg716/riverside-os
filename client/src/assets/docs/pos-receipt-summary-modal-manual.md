@@ -30,6 +30,7 @@ When a completed sale includes wedding deposits for other party members, Sale Co
 ## How to use it
 
 1. Review the outcome label, transaction total or amount collected, tender, balance, customer, and Transaction number in the enlarged completion workspace.
+   - For a cash overpayment, the right side beneath **Receipt contact** shows a large, high-contrast **Change due** amount with **Return to customer** guidance. Give that amount back before beginning the next sale.
 2. Choose print, view, text, email, gift receipt, or reports printer from the receipt action bar, which stays visible without scrolling.
 3. Confirm the preview or printer path shows the formatted receipt before handing it off. A successful gift-receipt print closes the gift chooser automatically.
 4. Choose the taller **Begin new sale** action when finished. For register security, Riverside also closes an unattended completion screen and returns to Access PIN entry after two minutes.

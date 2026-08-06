@@ -26,6 +26,10 @@ test("sale completion security and layout contract", async () => {
     new URL("../src/components/pos/ReceiptSummaryModal.tsx", import.meta.url),
     "utf8",
   );
+  const checkoutSource = await readFile(
+    new URL("../src/components/pos/NexoCheckoutDrawer.tsx", import.meta.url),
+    "utf8",
+  );
 
   expect(source).toContain("COMPLETION_PIN_RETURN_MS = 120_000");
   expect(source).toContain("if (printed) setGiftDialogOpen(false)");
@@ -34,6 +38,11 @@ test("sale completion security and layout contract", async () => {
   expect(source).not.toContain("sm:h-[min(40rem,calc(100dvh-2rem))]");
   expect(source).toContain("min-h-16 w-full");
   expect(source).toContain('line.setAttribute("font-size", "16")');
+  expect(source).toContain('data-testid="receipt-change-due"');
+  expect(source).toContain("Return to customer");
+  expect(checkoutSource).toContain("Paid to Sale Amount");
+  expect(checkoutSource).toContain("cash_tendered_cents");
+  expect(checkoutSource).toContain("change_due_cents");
 });
 
 async function openPosRegisterSurface(

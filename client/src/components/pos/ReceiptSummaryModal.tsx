@@ -1684,22 +1684,13 @@ export default function ReceiptSummaryModal({
                   </p>
                 ) : null}
 
-                {cashChangeDueCents > 0 ||
-                loadedGiftCards.length > 0 ||
+                {loadedGiftCards.length > 0 ||
                 displayedOrderPayments.length > 0 ||
                 pickupApplications.length > 0 ? (
                   <section
                     className="space-y-2 rounded-2xl border border-app-border bg-app-surface-2 px-3 py-2.5"
                     aria-label="Completion details"
                   >
-                    {cashChangeDueCents > 0 ? (
-                      <div className="flex items-center justify-between gap-3 text-sm font-black text-emerald-700 dark:text-emerald-200">
-                        <span>Change due</span>
-                        <span className="tabular-nums">
-                          ${centsToFixed2(cashChangeDueCents)}
-                        </span>
-                      </div>
-                    ) : null}
                     {loadedGiftCards.length > 0 ? (
                       <div className="text-[10px] font-semibold text-app-text">
                         <span className="font-black uppercase tracking-wider text-violet-700 dark:text-violet-300">
@@ -1818,6 +1809,25 @@ export default function ReceiptSummaryModal({
                     require a customer on file.
                   </p>
                 )}
+
+                {cashChangeDueCents > 0 ? (
+                  <section
+                    data-testid="receipt-change-due"
+                    className="rounded-2xl border-2 border-emerald-500/55 bg-emerald-500/15 px-4 py-3 text-center shadow-sm sm:px-6 sm:py-5"
+                    aria-label="Change due"
+                    role="status"
+                  >
+                    <p className="text-[11px] font-black uppercase tracking-[0.24em] text-emerald-800 dark:text-emerald-200 sm:text-sm">
+                      Change due
+                    </p>
+                    <p className="mt-1 text-4xl font-black tabular-nums tracking-tighter text-emerald-800 dark:text-emerald-100 sm:text-6xl">
+                      ${centsToFixed2(cashChangeDueCents)}
+                    </p>
+                    <p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-emerald-800/80 dark:text-emerald-200/80 sm:text-[10px]">
+                      Return to customer
+                    </p>
+                  </section>
+                ) : null}
 
                 {reviewInviteEligible ? (
                   <section

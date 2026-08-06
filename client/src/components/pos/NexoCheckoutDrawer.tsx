@@ -5554,8 +5554,17 @@ export default function NexoCheckoutDrawer({
                          </div>
                       </div>
                     )}
-                   {applied.map(p => (
-                     <div key={p.id} className="group flex items-center justify-between rounded-lg border border-app-border bg-app-surface-2 p-2.5 transition-all hover:border-app-input-border">
+                   {applied.map(p => {
+                     const changeDueCents = typeof p.metadata?.change_due_cents === "number"
+                       ? Math.max(0, Math.trunc(p.metadata.change_due_cents))
+                       : 0;
+                     const cashTenderedCents = typeof p.metadata?.cash_tendered_cents === "number"
+                       ? Math.max(0, Math.trunc(p.metadata.cash_tendered_cents))
+                       : p.amountCents + changeDueCents;
+                     const showsCashChange = p.method === "cash" && p.amountCents > 0 && changeDueCents > 0;
+
+                     return (
+                     <div key={p.id} className="group flex items-start justify-between rounded-lg border border-app-border bg-app-surface-2 p-2.5 transition-all hover:border-app-input-border">
                         <div className="flex flex-col min-w-0">
                            <span className="truncate text-xs font-black uppercase">{p.label}</span>
                            {p.metadata?.check_number && <span className="mt-0.5 truncate font-mono text-[10px] text-app-text-muted">Check #{p.metadata.check_number}</span>}
@@ -5570,9 +5579,16 @@ export default function NexoCheckoutDrawer({
                                RMS Payment · {p.metadata.masked_account}
                              </span>
                            )}
+                           {showsCashChange ? (
+                             <div className="mt-2 space-y-1 border-t border-app-border/60 pt-2 text-[10px] font-bold text-app-text-muted">
+                               <div className="flex items-center justify-between gap-4"><span>Payment</span><span className="tabular-nums text-app-text">${centsToFixed2(cashTenderedCents)}</span></div>
+                               <div className="flex items-center justify-between gap-4"><span>Paid to Sale Amount</span><span className="tabular-nums text-app-text">${centsToFixed2(p.amountCents)}</span></div>
+                               <div className="flex items-center justify-between gap-4 text-emerald-700 dark:text-emerald-300"><span>Change Due</span><span className="tabular-nums">${centsToFixed2(changeDueCents)}</span></div>
+                             </div>
+                           ) : null}
                         </div>
                         <div className="flex items-center gap-2.5 ml-2">
-                           <span className="text-[11px] font-black tabular-nums tracking-tight opacity-90">
+                           <span className={`text-[11px] font-black tabular-nums tracking-tight opacity-90 ${showsCashChange ? "sr-only" : ""}`}>
                              {p.amountCents < 0
                                ? `Refund $${centsToFixed2(Math.abs(p.amountCents))}`
                                : `$${centsToFixed2(p.amountCents)}`}
@@ -5580,7 +5596,8 @@ export default function NexoCheckoutDrawer({
                            <button onClick={() => void removePaymentLine(p)} className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-app-text-muted transition-all hover:bg-rose-500/10 hover:text-rose-500" aria-label={`Remove ${p.label} payment`}><Trash2 size={14} /></button>
                         </div>
                      </div>
-                   ))}
+                     );
+                   })}
                    {(currentPaymentIsDeposit || depositDisplayCents > 0) && (
                      <div className="flex flex-col gap-2">
                        <div className="flex items-center justify-between p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
