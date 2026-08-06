@@ -589,7 +589,7 @@ pub fn render_standard_receipt_html(
   <style>
     :root {{ color-scheme: light; }}
     body {{ margin:0; background:#f4f4f5; color:#111827; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
-    .paper {{ width:320px; margin:24px auto; background:#fff; padding:22px 18px; border-radius:14px; box-shadow:0 20px 45px rgba(15,23,42,.16); overflow-wrap:break-word; word-wrap:break-word; }}
+    .paper {{ width:320px; max-width:100%; box-sizing:border-box; margin:24px auto; background:#fff; padding:22px 18px; border-radius:14px; box-shadow:0 20px 45px rgba(15,23,42,.16); overflow-wrap:break-word; word-wrap:break-word; }}
     .center {{ text-align:center; }}
     .store {{ font-weight:900; font-size:20px; letter-spacing:.02em; text-transform:uppercase; }}
     .title {{ margin-top:10px; font-weight:900; text-transform:uppercase; letter-spacing:.16em; font-size:11px; }}
@@ -871,7 +871,12 @@ pub fn wrap_receipt_fragment_as_email_document(fragment: &str) -> String {
 pub fn wrap_receipt_fragment_for_podium_email_inline(fragment: &str) -> String {
     let t = fragment.trim();
     format!(
-        r#"<div style="font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.35;max-width:600px;margin:0 auto;color:#111827;background:#ffffff;">{t}</div>"#
+        r#"<div class="ros-receipt-email" style="font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;line-height:1.35;width:100%;max-width:600px;box-sizing:border-box;margin:0 auto;color:#111827;background:#ffffff;overflow-wrap:anywhere;">
+<style>
+.ros-receipt-email,.ros-receipt-email * {{ box-sizing:border-box; }}
+.ros-receipt-email [style*="width:"],.ros-receipt-email svg,.ros-receipt-email img,.ros-receipt-email table {{ max-width:100%!important; }}
+.ros-receipt-email svg,.ros-receipt-email img {{ height:auto!important; }}
+</style>{t}</div>"#
     )
 }
 
@@ -973,7 +978,20 @@ mod tests {
 
         assert!(html.contains("<title>Receipt TXN-66736</title>"));
         assert!(html.contains("<div class=\"title\">Receipt</div>"));
+        assert!(html.contains("width:320px; max-width:100%; box-sizing:border-box;"));
         assert!(!html.contains("RETURN /"));
+    }
+
+    #[test]
+    fn studio_email_wrapper_constrains_fixed_width_receipts() {
+        let html = wrap_receipt_fragment_for_podium_email_inline(
+            r#"<div style="width:576px;padding:16px"><svg width="576"></svg></div>"#,
+        );
+
+        assert!(html.contains("width:100%;max-width:600px;box-sizing:border-box;"));
+        assert!(html.contains(r#"[style*="width:"]"#));
+        assert!(html.contains("max-width:100%!important;"));
+        assert!(html.contains("height:auto!important;"));
     }
 
     #[test]

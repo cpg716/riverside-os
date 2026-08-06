@@ -770,7 +770,11 @@ fn receiptline_item_lines(
             );
         }
 
-        for it in items {
+        for (item_index, it) in items.into_iter().enumerate() {
+            if item_index > 0 {
+                out_lines.push("---".to_string());
+            }
+
             if let Some(details) = &it.custom_order_details {
                 let note = match details {
                     serde_json::Value::String(s) => s.clone(),
@@ -1552,6 +1556,24 @@ mod tests {
         assert!(thermal_bytes
             .windows(3)
             .any(|bytes| bytes == [0x1b, 0x4d, 0x01]));
+    }
+
+    #[test]
+    fn receiptline_separates_items_within_the_same_section() {
+        let order = receipt_order_with(vec![
+            receipt_line("First suit", "FIRST", None),
+            receipt_line("Second suit", "SECOND", None),
+        ]);
+
+        let receiptline = receiptline_item_lines(&order, &ReceiptConfig::default(), false, false);
+        let first_item = receiptline.find("First suit").expect("first item");
+        let second_item = receiptline.find("Second suit").expect("second item");
+
+        assert_eq!(receiptline.matches("\n---\n").count(), 1, "{receiptline}");
+        assert!(
+            receiptline[first_item..second_item].contains("\n---\n"),
+            "{receiptline}"
+        );
     }
 
     #[test]
