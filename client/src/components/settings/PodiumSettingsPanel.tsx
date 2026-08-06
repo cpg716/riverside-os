@@ -7,6 +7,8 @@ import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import ReviewInvitesSettingsCard from "./ReviewInvitesSettingsCard";
 import {
   getPodiumOAuthRedirectUri,
+  isPodiumOAuthBrowserOriginReady,
+  PODIUM_PUBLIC_APP_ORIGIN,
   PODIUM_OAUTH_STATE_STORAGE_KEY,
   PODIUM_OAUTH_REDIRECT_STORAGE_KEY
 } from "../../lib/podiumOAuth";
@@ -140,7 +142,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
   const appCredentialsReady = Boolean(
     podiumReadiness?.client_id_configured && podiumReadiness.client_secret_configured,
   );
-  const callbackReady = Boolean(podiumRedirectUri?.startsWith("https://"));
+  const callbackReady = isPodiumOAuthBrowserOriginReady(podiumRedirectUri);
 
   const fetchPodiumSmsSettings = useCallback(async () => {
     try {
@@ -332,9 +334,19 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                 </button>
               </div>
               {!callbackReady ? (
-                <p className="mt-2 font-bold text-app-warning">
-                  Podium requires HTTPS. Open the public HTTPS Riverside address first.
-                </p>
+                <div className="mt-3 rounded-xl border border-app-warning/40 bg-app-warning/10 p-3">
+                  <p className="font-bold text-app-warning">
+                    This browser is using Riverside&apos;s internal address. Open Secure Riverside
+                    before connecting so Podium returns to the same signed-in browser session.
+                  </p>
+                  <a
+                    href={PODIUM_PUBLIC_APP_ORIGIN}
+                    className="ui-btn-secondary mt-2 inline-flex min-h-9 items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Open Secure Riverside
+                    <ExternalLink className="h-3 w-3" aria-hidden />
+                  </a>
+                </div>
               ) : null}
             </li>
             <li>

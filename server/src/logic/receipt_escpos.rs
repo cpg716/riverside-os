@@ -772,7 +772,7 @@ fn receiptline_item_lines(
 
         for (item_index, it) in items.into_iter().enumerate() {
             if item_index > 0 {
-                out_lines.push("---".to_string());
+                out_lines.push(String::new());
             }
 
             if let Some(details) = &it.custom_order_details {
@@ -1559,7 +1559,7 @@ mod tests {
     }
 
     #[test]
-    fn receiptline_separates_items_within_the_same_section() {
+    fn receiptline_spaces_items_within_the_same_section() {
         let order = receipt_order_with(vec![
             receipt_line("First suit", "FIRST", None),
             receipt_line("Second suit", "SECOND", None),
@@ -1569,11 +1569,12 @@ mod tests {
         let first_item = receiptline.find("First suit").expect("first item");
         let second_item = receiptline.find("Second suit").expect("second item");
 
-        assert_eq!(receiptline.matches("\n---\n").count(), 1, "{receiptline}");
+        assert!(!receiptline.contains("\n---\n"), "{receiptline}");
         assert!(
-            receiptline[first_item..second_item].contains("\n---\n"),
+            receiptline[first_item..second_item].contains("\n\n"),
             "{receiptline}"
         );
+        assert!(receiptline.contains("\"Second suit\""), "{receiptline}");
     }
 
     #[test]

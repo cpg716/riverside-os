@@ -66,7 +66,7 @@ The screen now separates the required connection steps from advanced settings. F
 | **OAuth Token URL** | Normally leave default: `https://api.podium.com/oauth/token`. Only change it if Podium gives a different token URL. |
 | **Webhook Signing Secret** | Created/assigned when the Podium webhook is registered. Save it in Riverside so incoming deliveries can be verified. |
 
-1. Click **Open Podium Developer Portal**, create the OAuth app, and register the exact **HTTPS callback URL** displayed by Riverside. Podium requires HTTPS and the URI must match exactly.
+1. Click **Open Podium Developer Portal**, create the OAuth app, and register **`https://ros.riversidemens.com/callback`**. Riverside displays this public callback even when Settings was opened from the Main Hub's internal address. If Riverside shows **Open Secure Riverside**, use that action and sign in at the secure address before continuing; OAuth must start and finish on the same browser origin.
 2. Copy only the **Client ID** and **Client Secret** into Riverside and save them.
 3. Click **Connect Podium Account**, sign in to Podium, and approve Riverside. The button stays disabled until both keys are saved and Riverside is open from an HTTPS address. After approval, Riverside exchanges the code and saves the refresh token securely.
 

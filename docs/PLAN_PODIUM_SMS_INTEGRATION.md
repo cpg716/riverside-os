@@ -152,7 +152,7 @@ Per [Get Started](https://docs.podium.com/docs/getting-started):
 
 ### Saving Podium OAuth credentials (Settings UI)
 
-1. In the Podium developer app, register a redirect URI that matches what the client will send — typically **`${staff-app-origin}/callback`** (e.g. **`http://localhost:5173/callback`** in Vite dev, or **`https://<host>/callback`** in production). Podium’s portal may require **HTTPS** for some setups; if it does, use Vite **`server.https`**, Cloudflare Tunnel or another HTTPS tunnel, and optional **`VITE_PODIUM_OAUTH_REDIRECT_URI`** (see **`client/.env.example`**). The current store tunnel pattern uses `https://ros.riversidemens.com/callback`.
+1. In the Podium developer app, register **`https://ros.riversidemens.com/callback`** for production. Riverside displays that public callback even when staff initially open Settings from the Main Hub's LAN address, but OAuth remains gated until the browser is using the matching public origin because CSRF state and the Back Office session cannot cross origins. Loopback development continues to use **`${staff-app-origin}/callback`**; a different HTTPS deployment can set **`VITE_PODIUM_OAUTH_REDIRECT_URI`** (see **`client/.env.example`**).
 2. Save the Podium **Client ID** and **Client Secret** in **Back Office → Settings → Integrations → Podium**.
 3. **Back Office → Settings → Integrations → Podium → Connect Podium** (or **Connect Podium (refresh token)**). After authorization, the client route **`/callback`** exchanges the code **on the server** (client secret never in the browser) and saves the refresh token through the encrypted integration credentials endpoint.
 
