@@ -184,9 +184,18 @@ fn text_at(value: &Value, paths: &[&str]) -> Option<String> {
 }
 
 fn webhook_event(value: &Value) -> String {
-    text_at(value, &["/event", "/type", "/data/event", "/data/type"])
-        .unwrap_or_default()
-        .to_ascii_lowercase()
+    text_at(
+        value,
+        &[
+            "/metadata/eventType",
+            "/event",
+            "/type",
+            "/data/event",
+            "/data/type",
+        ],
+    )
+    .unwrap_or_default()
+    .to_ascii_lowercase()
 }
 
 fn webhook_channel(value: &Value) -> CustomerNotificationChannel {
@@ -321,4 +330,26 @@ pub async fn apply_podium_failure_webhook(
 
 pub fn now_metadata() -> Value {
     json!({ "recorded_at": Utc::now() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn podium_failure_event_uses_documented_metadata_envelope() {
+        let value = json!({
+            "data": {
+                "conversation": {
+                    "channel": { "identifier": "+18015551212", "type": "phone" }
+                },
+                "failureReason": "landline"
+            },
+            "metadata": { "eventType": "message.failed", "eventUid": "event-1" }
+        });
+
+        assert_eq!(webhook_event(&value), "message.failed");
+        assert_eq!(webhook_identifier(&value).as_deref(), Some("+18015551212"));
+        assert_eq!(webhook_failure_reason(&value).as_deref(), Some("landline"));
+    }
 }

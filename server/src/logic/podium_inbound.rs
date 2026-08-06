@@ -64,6 +64,30 @@ fn extract_phone_raw(value: &Value) -> Option<String> {
             "/sender/phoneNumber",
         ],
     )
+    .or_else(|| {
+        let channel_type = extract_text(
+            value,
+            &[
+                "/data/conversation/channel/type",
+                "/conversation/channel/type",
+            ],
+        )
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+        extract_text(
+            value,
+            &[
+                "/data/conversation/channel/identifier",
+                "/conversation/channel/identifier",
+            ],
+        )
+        .filter(|identifier| {
+            !identifier.contains('@')
+                && (channel_type.is_empty()
+                    || channel_type.contains("phone")
+                    || channel_type.contains("sms"))
+        })
+    })
 }
 
 fn extract_email_raw(value: &Value) -> Option<String> {
@@ -78,10 +102,39 @@ fn extract_email_raw(value: &Value) -> Option<String> {
             "/sender/email",
         ],
     )
+    .or_else(|| {
+        let channel_type = extract_text(
+            value,
+            &[
+                "/data/conversation/channel/type",
+                "/conversation/channel/type",
+            ],
+        )
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+        extract_text(
+            value,
+            &[
+                "/data/conversation/channel/identifier",
+                "/conversation/channel/identifier",
+            ],
+        )
+        .filter(|identifier| identifier.contains('@') || channel_type.contains("email"))
+    })
 }
 
 fn detect_channel(value: &Value, has_phone: bool, has_email: bool) -> &'static str {
-    let ch = extract_text(value, &["/channel", "/data/channel", "/type"]).unwrap_or_default();
+    let ch = extract_text(
+        value,
+        &[
+            "/data/conversation/channel/type",
+            "/conversation/channel/type",
+            "/channel",
+            "/data/channel",
+            "/type",
+        ],
+    )
+    .unwrap_or_default();
     let c = ch.to_ascii_lowercase();
     if c.contains("email") || (!has_phone && has_email) {
         "email"
@@ -94,7 +147,7 @@ fn detect_channel(value: &Value, has_phone: bool, has_email: bool) -> &'static s
 fn podium_webhook_is_outbound(value: &Value) -> bool {
     let classify = |s: &str| -> Option<bool> {
         let l = s.to_ascii_lowercase();
-        if l.contains("message.sent") || l == "sent" {
+        if l.contains("message.sent") || l.contains("message.failed") || l == "sent" {
             return Some(true);
         }
         if l.contains("message.received") {
@@ -109,6 +162,7 @@ fn podium_webhook_is_outbound(value: &Value) -> bool {
         "/data/type",
         "/data/event",
         "/data/eventType",
+        "/metadata/eventType",
     ] {
         if let Some(s) = value.pointer(ptr).and_then(|v| v.as_str()) {
             if let Some(out) = classify(s) {
@@ -781,5 +835,64 @@ pub async fn ingest_from_webhook(
                 .await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn documented_phone_message_envelope_is_classified() {
+        let value = serde_json::json!({
+            "data": {
+                "conversation": {
+                    "channel": { "identifier": "+18015551212", "type": "phone" },
+                    "uid": "conversation-1"
+                },
+                "uid": "message-1"
+            },
+            "metadata": { "eventType": "message.received", "eventUid": "event-1" }
+        });
+
+        assert_eq!(extract_phone_raw(&value).as_deref(), Some("+18015551212"));
+        assert_eq!(extract_email_raw(&value), None);
+        assert_eq!(detect_channel(&value, true, false), "sms");
+        assert!(!podium_webhook_is_outbound(&value));
+    }
+
+    #[test]
+    fn documented_email_message_envelope_is_classified() {
+        let value = serde_json::json!({
+            "data": {
+                "conversation": {
+                    "channel": { "identifier": "customer@example.com", "type": "email" }
+                }
+            },
+            "metadata": { "eventType": "message.sent" }
+        });
+
+        assert_eq!(extract_phone_raw(&value), None);
+        assert_eq!(
+            extract_email_raw(&value).as_deref(),
+            Some("customer@example.com")
+        );
+        assert_eq!(detect_channel(&value, false, true), "email");
+        assert!(podium_webhook_is_outbound(&value));
+    }
+
+    #[test]
+    fn documented_failed_message_is_outbound() {
+        let value = serde_json::json!({
+            "data": {
+                "conversation": {
+                    "channel": { "identifier": "+18015551212", "type": "phone" }
+                },
+                "failureReason": "landline"
+            },
+            "metadata": { "eventType": "message.failed", "eventUid": "event-1" }
+        });
+
+        assert!(podium_webhook_is_outbound(&value));
     }
 }

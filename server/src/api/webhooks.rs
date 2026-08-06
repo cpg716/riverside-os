@@ -135,11 +135,12 @@ struct ShippoWebhookPayload {
     data: Option<ShippoWebhookData>,
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct PodiumWebhookPayload {
-    id: String,
-    event: String,
-    data: Option<serde_json::Value>,
+fn podium_webhook_event_type(value: &Value) -> Option<&str> {
+    ["/metadata/eventType", "/eventType", "/event"]
+        .into_iter()
+        .find_map(|path| value.pointer(path).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|event| !event.is_empty())
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -310,27 +311,28 @@ async fn post_podium_webhook(
         }
     };
 
-    let _payload: PodiumWebhookPayload = match serde_json::from_value(value.clone()) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::warn!(target = "podium_webhook", event = "strict_validation_failed", error = %e);
-            if let Err(record_error) = record_podium_webhook_failure(
-                &state.db,
-                raw,
-                "strict validation failed",
-                StatusCode::BAD_REQUEST.as_u16(),
-            )
-            .await
-            {
-                tracing::warn!(
-                    target = "podium_webhook",
-                    event = "failure_record_failed",
-                    error = %record_error
-                );
-            }
-            return StatusCode::BAD_REQUEST.into_response();
+    if podium_webhook_event_type(&value).is_none() {
+        tracing::warn!(
+            target = "podium_webhook",
+            event = "strict_validation_failed",
+            error = "missing event type"
+        );
+        if let Err(record_error) = record_podium_webhook_failure(
+            &state.db,
+            raw,
+            "strict validation failed",
+            StatusCode::BAD_REQUEST.as_u16(),
+        )
+        .await
+        {
+            tracing::warn!(
+                target = "podium_webhook",
+                event = "failure_record_failed",
+                error = %record_error
+            );
         }
-    };
+        return StatusCode::BAD_REQUEST.into_response();
+    }
 
     match record_podium_webhook_delivery(&state.db, raw, &value).await {
         Ok(PodiumWebhookDisposition::Duplicate) => {
@@ -2292,6 +2294,19 @@ pub fn integrations_router() -> Router<AppState> {
 mod tests {
     use super::*;
     use axum::http::HeaderValue;
+
+    #[test]
+    fn podium_payload_accepts_documented_message_envelope() {
+        let payload = json!({
+            "data": { "uid": "message-1" },
+            "metadata": { "eventType": "message.received", "eventUid": "event-1" }
+        });
+
+        assert_eq!(
+            podium_webhook_event_type(&payload),
+            Some("message.received")
+        );
+    }
 
     fn signed_helcim_headers(
         webhook_id: &str,

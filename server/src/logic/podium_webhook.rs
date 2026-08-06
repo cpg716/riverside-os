@@ -144,7 +144,14 @@ fn payload_sha256_hex(body: &[u8]) -> String {
 
 /// Stable key for idempotency + inbox dedupe.
 pub fn podium_webhook_idempotency_key(value: &Value, body: &[u8]) -> String {
-    for ptr in ["/uid", "/id", "/data/uid", "/data/id", "/message/uid"] {
+    for ptr in [
+        "/metadata/eventUid",
+        "/uid",
+        "/id",
+        "/data/uid",
+        "/data/id",
+        "/message/uid",
+    ] {
         if let Some(s) = value.pointer(ptr).and_then(|v| v.as_str()) {
             let t = s.trim();
             if !t.is_empty() {
@@ -246,5 +253,18 @@ mod tests {
             std::env::remove_var("RIVERSIDE_PODIUM_WEBHOOK_SECRET");
         }
         assert!(r.is_ok(), "{r:?}");
+    }
+
+    #[test]
+    fn idempotency_prefers_podium_event_uid() {
+        let value = serde_json::json!({
+            "data": { "uid": "message-1" },
+            "metadata": { "eventUid": "event-1", "eventType": "message.failed" }
+        });
+
+        assert_eq!(
+            podium_webhook_idempotency_key(&value, b"unused"),
+            "podium:event-1"
+        );
     }
 }
