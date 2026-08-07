@@ -117,6 +117,7 @@ When an alteration is marked `ready`:
 - Email sent via `store_email::try_send_operational_email()`
 - All sends recorded to `podium_message` table (Customer Messages section)
 - Comprehensive logging via `tracing` with target `notification_scheduler`
+- Operational SMS bodies, operational Store Email subjects/HTML, Podium review SMS/email, and receipt delivery envelopes are stored in `store_settings.podium_sms_config` and edited under Settings → Integrations → Podium. Empty legacy fields merge to code defaults at read/send time.
 
 ### Appointment Lifecycle
 - Appointment confirmation sends when a linked customer appointment is created.
@@ -162,12 +163,14 @@ All sent messages appear in:
 ### Podium Settings
 - Configure in Settings → Integrations → Podium
 - Required: `client_id`, `client_secret`, `refresh_token`, `location_uid`
-- SMS templates: `ready_for_pickup`, `alteration_ready`
+- SMS templates: `ready_for_pickup`, `alteration_ready`, `appointment_confirmation`, `appointment_reminder`, and `unknown_sender_welcome`
+- Review templates: Podium SMS body, Podium email subject, and Podium email body; review bodies require `{review_url}`
+- Receipt delivery templates: normal/gift Podium MMS captions and Store Email subjects
 
 ### Email Settings
 - Configure in Settings → Integrations → Email
 - Required: SMTP server, credentials
-- Email templates: `ready_for_pickup_subject`, `ready_for_pickup_html`
+- Email templates: ready-for-pickup, alteration-ready, appointment-confirmation, and appointment-reminder subject/body pairs
 
 ### Customer Opt-In
 - SMS: `transactional_sms_opt_in` or `marketing_sms_opt_in`

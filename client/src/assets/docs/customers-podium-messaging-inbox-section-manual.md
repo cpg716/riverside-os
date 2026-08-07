@@ -35,7 +35,7 @@ In Operations and POS, this surface is for communications follow-up only. It is 
 
 Use this inbox to decide who needs a response, not to replace the Customer Hub. A recent message without a linked customer should be handled carefully: search the customer first, confirm phone or email ownership, then create or link a contact only when staff can identify the person.
 
-The screen refreshes the Riverside copy every minute while it is open. Podium webhooks are still the fastest path for new inbound messages; **Pull from Podium** fills missed history. Riverside also runs a background Podium pull every 30 hours by default when Podium is configured. If the inbox looks stale, check the **Inbox updating** row before assuming there are no current conversations.
+The screen refreshes the Riverside copy every minute while it is open. Podium webhooks are still the fastest path for new inbound messages; Riverside stores verified webhook events in a retryable queue before acknowledging them. **Pull from Podium** fills missed history, including cursor-paged message history, and Riverside also runs a background pull every 30 hours by default. If the inbox looks stale, check the **Inbox updating** row and webhook readiness before assuming there are no current conversations.
 
 ## Tips
 

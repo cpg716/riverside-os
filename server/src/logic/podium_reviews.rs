@@ -1,5 +1,6 @@
 //! Podium post-sale review invite tracking.
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -8,8 +9,9 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::logic::notifications::{admin_staff_ids, staff_ids_with_permission, upsert_bundle_item};
 use crate::logic::podium::{self, PodiumTokenCache};
+
+pub const REVIEW_INVITE_DELAY_DAYS: i64 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -65,12 +67,15 @@ pub enum ReviewInviteError {
     NotFound,
     #[error("podium error: {0}")]
     Podium(#[from] podium::PodiumError),
+    #[error("review invite delivery failed: {0}")]
+    Delivery(String),
 }
 
 type OrderReviewGateRow = (
     Option<Uuid>,
     Option<chrono::DateTime<chrono::Utc>>,
     Option<chrono::DateTime<chrono::Utc>>,
+    Option<String>,
     Option<String>,
     String,
     String,
@@ -81,6 +86,88 @@ type OrderReviewGateRow = (
     bool,
     bool,
 );
+
+#[derive(Debug, Clone)]
+pub struct ReviewInviteDelivery {
+    pub channel: &'static str,
+    pub provider_message_id: Option<String>,
+}
+
+pub async fn deliver_review_invite_link(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+    phone: Option<&str>,
+    email: Option<&str>,
+    first_name: Option<&str>,
+    transaction_ref: &str,
+    invite: &podium::PodiumReviewInviteResult,
+) -> Result<ReviewInviteDelivery, ReviewInviteError> {
+    let review_url = invite
+        .review_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            ReviewInviteError::Delivery("Podium did not return a review URL.".to_string())
+        })?;
+    let config = podium::load_store_podium_config(pool).await?;
+    let templates = config.review_templates.merged_defaults();
+    let store_name: String = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(
+            NULLIF(BTRIM(receipt_config->>'store_name'), ''),
+            'Riverside Men''s Shop'
+        )
+        FROM store_settings
+        WHERE id = 1
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let first_name = first_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("there");
+    let vars = [
+        ("first_name", first_name),
+        ("transaction_ref", transaction_ref),
+        ("review_url", review_url),
+        ("store_name", store_name.as_str()),
+    ];
+    if let Some(phone) = phone.and_then(podium::normalize_phone_e164) {
+        let body = podium::apply_template_placeholders(&templates.sms_body, &vars);
+        let sent = podium::send_podium_sms_message_tracked(pool, http, podium_cache, &phone, &body)
+            .await?;
+        return Ok(ReviewInviteDelivery {
+            channel: "sms",
+            provider_message_id: sent.provider_message_id,
+        });
+    }
+    if let Some(email) = email
+        .map(str::trim)
+        .filter(|address| podium::looks_like_email(address))
+    {
+        let subject = podium::apply_template_placeholders(&templates.email_subject, &vars);
+        let body = podium::apply_template_placeholders(&templates.email_body, &vars);
+        let sent = podium::send_podium_email_message_tracked(
+            pool,
+            http,
+            podium_cache,
+            email,
+            &subject,
+            &body,
+        )
+        .await?;
+        return Ok(ReviewInviteDelivery {
+            channel: "email",
+            provider_message_id: sent.provider_message_id,
+        });
+    }
+    Err(ReviewInviteError::Delivery(
+        "Customer does not have a deliverable phone number or email address.".to_string(),
+    ))
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ReviewInviteChoiceResult {
@@ -106,7 +193,7 @@ impl ReviewInviteChoiceResult {
         Self {
             ok: true,
             status: "sent".to_string(),
-            message: "Review request sent through Podium.".to_string(),
+            message: "Review request accepted for delivery.".to_string(),
             provider_id: Some(provider_id),
             review_url,
         }
@@ -117,8 +204,8 @@ impl ReviewInviteChoiceResult {
 /// for completed, fulfilled sales and enforces one invite per customer per 180 days.
 pub async fn apply_post_sale_review_choice(
     pool: &PgPool,
-    http: &reqwest::Client,
-    podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+    _http: &reqwest::Client,
+    _podium_cache: &Arc<Mutex<PodiumTokenCache>>,
     transaction_id: Uuid,
     skip_invite: bool,
 ) -> Result<ReviewInviteChoiceResult, ReviewInviteError> {
@@ -153,6 +240,7 @@ pub async fn apply_post_sale_review_choice(
             t.review_invite_suppressed_at,
             t.review_invite_sent_at,
             t.podium_review_invite_id,
+            t.podium_review_invite_status,
             t.display_id,
             t.status::text,
             c.phone,
@@ -174,6 +262,7 @@ pub async fn apply_post_sale_review_choice(
                 WHERE recent.customer_id = t.customer_id
                   AND recent.id <> t.id
                   AND recent.review_invite_sent_at > NOW() - INTERVAL '180 days'
+                  AND recent.podium_review_invite_status IN ('sent', 'delivered')
             ) AS recent_customer_invite
         FROM transactions t
         LEFT JOIN customers c ON c.id = t.customer_id
@@ -191,8 +280,9 @@ pub async fn apply_post_sale_review_choice(
         customer_id,
         suppressed_at,
         sent_at,
-        provider_id,
-        display_id,
+        _provider_id,
+        invite_status,
+        _display_id,
         status,
         phone,
         email,
@@ -240,6 +330,13 @@ pub async fn apply_post_sale_review_choice(
         return Ok(ReviewInviteChoiceResult::new(
             "already_saved",
             "Review request choice was already saved for this sale.",
+        ));
+    }
+    if matches!(invite_status.as_deref(), Some("scheduled" | "sending")) {
+        tx.commit().await?;
+        return Ok(ReviewInviteChoiceResult::new(
+            invite_status.as_deref().unwrap_or("scheduled"),
+            "Review request is already scheduled.",
         ));
     }
 
@@ -323,88 +420,481 @@ pub async fn apply_post_sale_review_choice(
         ));
     }
 
-    tx.commit().await?;
-
-    let invite = match podium::create_podium_review_invite(
-        pool,
-        http,
-        podium_cache,
-        phone.as_deref(),
-        email.as_deref(),
-    )
-    .await
-    {
-        Ok(invite) => invite,
-        Err(podium::PodiumError::NotConfigured) => {
-            return Ok(ReviewInviteChoiceResult::new(
-                "not_configured",
-                "Review requests are unavailable until Podium is configured.",
-            ));
-        }
-        Err(error) => return Err(error.into()),
-    };
-    let final_provider_id = invite
-        .provider_id
-        .as_deref()
-        .or(provider_id.as_deref())
-        .unwrap_or("podium_review_invite_sent")
-        .to_string();
-
+    let scheduled_for: DateTime<Utc> =
+        sqlx::query_scalar("SELECT review_invite_delivery_time(NOW())")
+            .fetch_one(&mut *tx)
+            .await?;
     sqlx::query(
         r#"
         UPDATE transactions
-        SET review_invite_sent_at = NOW(),
-            podium_review_invite_id = $2,
-            podium_review_url = $3,
-            podium_review_invite_status = 'sent'
+        SET podium_review_invite_status = 'scheduled',
+            review_invite_scheduled_for = $2,
+            review_invite_claimed_at = NULL,
+            review_invite_last_error = NULL,
+            review_invite_attempts = 0
         WHERE id = $1
           AND review_invite_sent_at IS NULL
           AND review_invite_suppressed_at IS NULL
         "#,
     )
     .bind(transaction_id)
-    .bind(final_provider_id.as_str())
-    .bind(invite.review_url.as_deref())
+    .bind(scheduled_for)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(ReviewInviteChoiceResult::new(
+        "scheduled",
+        "Review request scheduled for five days after fulfillment.",
+    ))
+}
+
+pub async fn schedule_latest_customer_review_invite(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+    customer_id: Uuid,
+) -> Result<ReviewInviteChoiceResult, ReviewInviteError> {
+    let transaction_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT t.id
+        FROM transactions t
+        WHERE t.customer_id = $1
+          AND t.status::text = 'fulfilled'
+          AND EXISTS (
+              SELECT 1 FROM transaction_lines tl
+              WHERE tl.transaction_id = t.id
+                AND COALESCE(tl.is_internal, false) = false
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM transaction_lines tl
+              WHERE tl.transaction_id = t.id
+                AND COALESCE(tl.is_internal, false) = false
+                AND COALESCE(tl.is_fulfilled, false) = false
+          )
+        ORDER BY COALESCE(t.fulfilled_at, t.booked_at) DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some(transaction_id) = transaction_id else {
+        return Err(ReviewInviteError::Delivery(
+            "Customer does not have an eligible fulfilled Transaction.".to_string(),
+        ));
+    };
+    apply_post_sale_review_choice(pool, http, podium_cache, transaction_id, false).await
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ClaimedReviewInvite {
+    transaction_id: Uuid,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ReviewDeliveryRow {
+    transaction_id: Uuid,
+    customer_id: Option<Uuid>,
+    display_id: String,
+    first_name: Option<String>,
+    phone: Option<String>,
+    email: Option<String>,
+    review_requests_opt_out: bool,
+    has_reviewable_lines: bool,
+    all_reviewable_lines_fulfilled: bool,
+    recent_customer_invite: bool,
+    podium_review_invite_id: Option<String>,
+    podium_review_url: Option<String>,
+}
+
+async fn claim_due_review_invite(
+    pool: &PgPool,
+) -> Result<Option<ClaimedReviewInvite>, sqlx::Error> {
+    sqlx::query_as(
+        r#"
+        WITH candidate AS (
+            SELECT id
+            FROM transactions
+            WHERE review_invite_sent_at IS NULL
+              AND review_invite_suppressed_at IS NULL
+              AND review_invite_attempts < 5
+              AND (
+                  (podium_review_invite_status = 'scheduled' AND review_invite_scheduled_for <= NOW())
+                  OR (
+                      podium_review_invite_status = 'sending'
+                      AND review_invite_claimed_at < NOW() - INTERVAL '15 minutes'
+                  )
+              )
+            ORDER BY review_invite_scheduled_for, booked_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        )
+        UPDATE transactions transaction
+        SET podium_review_invite_status = 'sending',
+            review_invite_claimed_at = NOW(),
+            review_invite_last_attempt_at = NOW(),
+            review_invite_attempts = review_invite_attempts + 1,
+            review_invite_last_error = NULL
+        FROM candidate
+        WHERE transaction.id = candidate.id
+        RETURNING transaction.id AS transaction_id
+        "#,
+    )
+    .fetch_optional(pool)
+    .await
+}
+
+async fn load_review_delivery_row(
+    pool: &PgPool,
+    transaction_id: Uuid,
+) -> Result<Option<ReviewDeliveryRow>, sqlx::Error> {
+    sqlx::query_as(
+        r#"
+        SELECT
+            t.id AS transaction_id,
+            t.customer_id,
+            t.display_id,
+            c.first_name,
+            c.phone,
+            c.email,
+            COALESCE(c.review_requests_opt_out, false) AS review_requests_opt_out,
+            EXISTS (
+                SELECT 1 FROM transaction_lines tl
+                WHERE tl.transaction_id = t.id AND COALESCE(tl.is_internal, false) = false
+            ) AS has_reviewable_lines,
+            NOT EXISTS (
+                SELECT 1 FROM transaction_lines tl
+                WHERE tl.transaction_id = t.id
+                  AND COALESCE(tl.is_internal, false) = false
+                  AND COALESCE(tl.is_fulfilled, false) = false
+            ) AS all_reviewable_lines_fulfilled,
+            EXISTS (
+                SELECT 1 FROM transactions recent
+                WHERE recent.customer_id = t.customer_id
+                  AND recent.id <> t.id
+                  AND recent.review_invite_sent_at > NOW() - INTERVAL '180 days'
+                  AND recent.podium_review_invite_status IN ('sent', 'delivered')
+            ) AS recent_customer_invite,
+            t.podium_review_invite_id,
+            t.podium_review_url
+        FROM transactions t
+        LEFT JOIN customers c ON c.id = t.customer_id
+        WHERE t.id = $1 AND t.status::text = 'fulfilled'
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(pool)
+    .await
+}
+
+async fn suppress_claimed_review_invite(
+    pool: &PgPool,
+    transaction_id: Uuid,
+    status: &str,
+    provider_marker: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        UPDATE transactions
+        SET review_invite_suppressed_at = NOW(),
+            review_invite_scheduled_for = NULL,
+            review_invite_claimed_at = NULL,
+            podium_review_invite_id = COALESCE(podium_review_invite_id, $3),
+            podium_review_invite_status = $2
+        WHERE id = $1 AND podium_review_invite_status = 'sending'
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(status)
+    .bind(provider_marker)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn fail_claimed_review_invite(
+    pool: &PgPool,
+    transaction_id: Uuid,
+    error: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        UPDATE transactions
+        SET podium_review_invite_status = 'failed',
+            review_invite_scheduled_for = NULL,
+            review_invite_claimed_at = NULL,
+            review_invite_last_error = LEFT($2, 4000)
+        WHERE id = $1 AND podium_review_invite_status = 'sending'
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(error)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn deliver_claimed_review_invite(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+    transaction_id: Uuid,
+) -> Result<ReviewInviteChoiceResult, ReviewInviteError> {
+    let policy = load_store_review_policy(pool).await?;
+    if !policy.review_invites_enabled {
+        suppress_claimed_review_invite(
+            pool,
+            transaction_id,
+            "skipped_policy_disabled",
+            "ros_skipped_policy_disabled",
+        )
+        .await?;
+        return Ok(ReviewInviteChoiceResult::new(
+            "skipped_policy_disabled",
+            "Review requests are disabled in store settings.",
+        ));
+    }
+
+    let Some(row) = load_review_delivery_row(pool, transaction_id).await? else {
+        suppress_claimed_review_invite(
+            pool,
+            transaction_id,
+            "skipped_not_ready",
+            "ros_skipped_not_ready",
+        )
+        .await?;
+        return Ok(ReviewInviteChoiceResult::new(
+            "skipped_not_ready",
+            "Transaction is no longer eligible for a review request.",
+        ));
+    };
+    if row.review_requests_opt_out {
+        suppress_claimed_review_invite(
+            pool,
+            transaction_id,
+            "skipped_customer_opt_out",
+            "ros_skipped_customer_opt_out",
+        )
+        .await?;
+        return Ok(ReviewInviteChoiceResult::new(
+            "skipped_customer_opt_out",
+            "Customer opted out of review requests.",
+        ));
+    }
+    if row.customer_id.is_none() || !row.has_reviewable_lines || !row.all_reviewable_lines_fulfilled
+    {
+        suppress_claimed_review_invite(
+            pool,
+            transaction_id,
+            "skipped_not_ready",
+            "ros_skipped_not_ready",
+        )
+        .await?;
+        return Ok(ReviewInviteChoiceResult::new(
+            "skipped_not_ready",
+            "Transaction is not eligible for a review request.",
+        ));
+    }
+    if row.recent_customer_invite {
+        suppress_claimed_review_invite(
+            pool,
+            transaction_id,
+            "skipped_recent_180d",
+            "ros_skipped_recent_180d",
+        )
+        .await?;
+        return Ok(ReviewInviteChoiceResult::new(
+            "skipped_recent_180d",
+            "Customer received a review request in the last 180 days.",
+        ));
+    }
+
+    let has_phone = row
+        .phone
+        .as_deref()
+        .and_then(podium::normalize_phone_e164)
+        .is_some();
+    let has_email = row
+        .email
+        .as_deref()
+        .map(podium::looks_like_email)
+        .unwrap_or(false);
+    if !has_phone && !has_email {
+        suppress_claimed_review_invite(
+            pool,
+            transaction_id,
+            "skipped_no_contact",
+            "ros_skipped_no_contact",
+        )
+        .await?;
+        return Ok(ReviewInviteChoiceResult::new(
+            "skipped_no_contact",
+            "Customer does not have a usable phone number or email address.",
+        ));
+    }
+
+    let invite = if row.podium_review_url.is_some() {
+        podium::PodiumReviewInviteResult {
+            provider_id: row.podium_review_invite_id.clone(),
+            review_url: row.podium_review_url.clone(),
+            raw_response: json!({}),
+        }
+    } else {
+        let created = podium::create_podium_review_invite(
+            pool,
+            http,
+            podium_cache,
+            row.phone.as_deref(),
+            row.email.as_deref(),
+        )
+        .await?;
+        sqlx::query(
+            r#"
+            UPDATE transactions
+            SET podium_review_invite_id = $2,
+                podium_review_url = $3
+            WHERE id = $1 AND podium_review_invite_status = 'sending'
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(created.provider_id.as_deref())
+        .bind(created.review_url.as_deref())
+        .execute(pool)
+        .await?;
+        created
+    };
+
+    let delivery = deliver_review_invite_link(
+        pool,
+        http,
+        podium_cache,
+        row.phone.as_deref(),
+        row.email.as_deref(),
+        row.first_name.as_deref(),
+        &row.display_id,
+        &invite,
+    )
+    .await?;
+    let provider_id = invite
+        .provider_id
+        .clone()
+        .unwrap_or_else(|| "podium_review_invite_sent".to_string());
+    sqlx::query(
+        r#"
+        UPDATE transactions
+        SET review_invite_sent_at = NOW(),
+            review_invite_scheduled_for = NULL,
+            review_invite_claimed_at = NULL,
+            review_invite_last_error = NULL,
+            review_invite_delivery_channel = $2,
+            podium_review_message_id = $3,
+            podium_review_invite_id = COALESCE(podium_review_invite_id, $4),
+            podium_review_invite_status = 'sent'
+        WHERE id = $1 AND podium_review_invite_status = 'sending'
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(delivery.channel)
+    .bind(delivery.provider_message_id.as_deref())
+    .bind(&provider_id)
     .execute(pool)
     .await?;
 
-    if let Ok(nid) = upsert_bundle_item(
-        pool,
-        "review_invite_sent",
-        "Review follow-up",
-        "Review invite ready",
-        &format!(
-            "{display_id} is marked for a customer review follow-up. Open Reviews to check status."
-        ),
-        json!({
-            "type": "home",
-            "subsection": "reviews",
-            "transaction_id": transaction_id.to_string(),
-        }),
-        "podium_reviews",
-        json!({}),
-        "review_invites_daily_bundle",
-    )
-    .await
-    {
-        let admins = admin_staff_ids(pool).await.unwrap_or_default();
-        let reviewers = staff_ids_with_permission(pool, crate::auth::permissions::REVIEWS_VIEW)
-            .await
-            .unwrap_or_default();
-        let mut targets = [admins, reviewers].concat();
-        targets.sort_unstable();
-        targets.dedup();
-        if !targets.is_empty() {
-            let _ =
-                crate::logic::notifications::fan_out_notification_to_staff_ids(pool, nid, &targets)
-                    .await;
-        }
+    if let Some(customer_id) = row.customer_id {
+        let channel = if delivery.channel == "email" {
+            crate::logic::customer_notifications::CustomerNotificationChannel::Email
+        } else {
+            crate::logic::customer_notifications::CustomerNotificationChannel::Sms
+        };
+        let _ = crate::logic::customer_notifications::record_customer_notification_with_status(
+            pool,
+            customer_id,
+            "transaction",
+            row.transaction_id,
+            crate::logic::customer_notifications::CustomerNotificationKind::ReviewInvite,
+            channel,
+            Some("Review request sent."),
+            "pending",
+            None,
+            json!({
+                "provider_id": provider_id,
+                "provider_message_id": delivery.provider_message_id,
+                "review_url": invite.review_url,
+                "delivery_channel": delivery.channel,
+                "scheduled_delay_days": REVIEW_INVITE_DELAY_DAYS,
+            }),
+        )
+        .await;
     }
-
+    tracing::info!(
+        target: "podium_reviews",
+        transaction_id = %transaction_id,
+        display_id = %row.display_id,
+        channel = %delivery.channel,
+        "Delayed Podium review request sent"
+    );
     Ok(ReviewInviteChoiceResult::sent(
-        final_provider_id,
+        provider_id,
         invite.review_url,
     ))
+}
+
+pub async fn process_due_review_invites(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+    limit: usize,
+) -> Result<u32, sqlx::Error> {
+    let mut processed = 0_u32;
+    for _ in 0..limit.clamp(1, 50) {
+        let Some(claimed) = claim_due_review_invite(pool).await? else {
+            break;
+        };
+        match deliver_claimed_review_invite(pool, http, podium_cache, claimed.transaction_id).await
+        {
+            Ok(_) => processed += 1,
+            Err(error) => {
+                fail_claimed_review_invite(pool, claimed.transaction_id, &error.to_string())
+                    .await?;
+                tracing::warn!(
+                    target: "podium_reviews",
+                    transaction_id = %claimed.transaction_id,
+                    error = %error,
+                    "Delayed Podium review request failed"
+                );
+            }
+        }
+    }
+    Ok(processed)
+}
+
+pub async fn reschedule_failed_review_invite(
+    pool: &PgPool,
+    transaction_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let scheduled_for: DateTime<Utc> =
+        sqlx::query_scalar("SELECT review_invite_delivery_time(NOW())")
+            .fetch_one(pool)
+            .await?;
+    let result = sqlx::query(
+        r#"
+        UPDATE transactions
+        SET podium_review_invite_status = 'scheduled',
+            review_invite_scheduled_for = $2,
+            review_invite_claimed_at = NULL,
+            review_invite_last_error = NULL,
+            review_invite_attempts = 0
+        WHERE id = $1
+          AND podium_review_invite_status = 'failed'
+          AND review_invite_suppressed_at IS NULL
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(scheduled_for)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
@@ -416,7 +906,12 @@ pub struct ReviewInviteListRow {
     pub last_name: Option<String>,
     pub review_invite_sent_at: Option<chrono::DateTime<chrono::Utc>>,
     pub review_invite_suppressed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub review_invite_scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
+    pub review_invite_last_attempt_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub review_invite_last_error: Option<String>,
+    pub review_invite_delivery_channel: Option<String>,
     pub podium_review_invite_id: Option<String>,
+    pub podium_review_message_id: Option<String>,
     pub podium_review_url: Option<String>,
     pub podium_review_invite_status: Option<String>,
 }
@@ -436,6 +931,58 @@ fn text_at(value: &Value, paths: &[&str]) -> Option<String> {
             .filter(|s| !s.is_empty())
             .map(ToOwned::to_owned)
     })
+}
+
+pub async fn apply_review_invite_webhook(
+    pool: &PgPool,
+    value: &Value,
+) -> Result<bool, sqlx::Error> {
+    let event_type = text_at(value, &["/metadata/eventType", "/eventType", "/event"])
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !event_type.starts_with("review.invite_link_") {
+        return Ok(false);
+    }
+    let Some(provider_id) = text_at(
+        value,
+        &[
+            "/data/uid",
+            "/data/id",
+            "/uid",
+            "/id",
+            "/data/inviteId",
+            "/inviteId",
+        ],
+    ) else {
+        return Ok(false);
+    };
+    let generated_link_only = text_at(value, &["/data/sender/sentThrough", "/sender/sentThrough"])
+        .map(|sent_through| sent_through.eq_ignore_ascii_case("generated_link_only"))
+        .unwrap_or(false);
+    let status = (!generated_link_only)
+        .then(|| text_at(value, &["/data/deliveryStatus", "/deliveryStatus"]))
+        .flatten();
+    let url = text_at(value, &["/data/shortUrl", "/data/url", "/shortUrl", "/url"]);
+    let message_id = text_at(
+        value,
+        &["/data/conversationItemUid", "/conversationItemUid"],
+    );
+    let result = sqlx::query(
+        r#"
+        UPDATE transactions
+        SET podium_review_invite_status = COALESCE($2, podium_review_invite_status),
+            podium_review_url = COALESCE($3, podium_review_url),
+            podium_review_message_id = COALESCE($4, podium_review_message_id)
+        WHERE podium_review_invite_id = $1
+        "#,
+    )
+    .bind(provider_id)
+    .bind(status.as_deref())
+    .bind(url.as_deref())
+    .bind(message_id.as_deref())
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn sync_review_invites_from_podium(
@@ -460,7 +1007,25 @@ pub async fn sync_review_invites_from_podium(
         ) else {
             continue;
         };
-        let status = text_at(row, &["/status", "/state", "/data/status", "/data/state"]);
+        let generated_link_only =
+            text_at(row, &["/sender/sentThrough", "/data/sender/sentThrough"])
+                .map(|value| value.eq_ignore_ascii_case("generated_link_only"))
+                .unwrap_or(false);
+        let status = (!generated_link_only)
+            .then(|| {
+                text_at(
+                    row,
+                    &[
+                        "/deliveryStatus",
+                        "/data/deliveryStatus",
+                        "/status",
+                        "/state",
+                        "/data/status",
+                        "/data/state",
+                    ],
+                )
+            })
+            .flatten();
         let url = text_at(
             row,
             &[
@@ -510,14 +1075,26 @@ pub async fn list_review_invite_rows(
             c.last_name,
             o.review_invite_sent_at,
             o.review_invite_suppressed_at,
+            o.review_invite_scheduled_for,
+            o.review_invite_last_attempt_at,
+            o.review_invite_last_error,
+            o.review_invite_delivery_channel,
             o.podium_review_invite_id,
+            o.podium_review_message_id,
             o.podium_review_url,
             o.podium_review_invite_status
         FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
-        WHERE o.review_invite_sent_at IS NOT NULL
+        WHERE o.podium_review_invite_status IS NOT NULL
+           OR o.review_invite_sent_at IS NOT NULL
            OR o.review_invite_suppressed_at IS NOT NULL
-        ORDER BY COALESCE(o.review_invite_sent_at, o.review_invite_suppressed_at, o.booked_at) DESC
+        ORDER BY COALESCE(
+            o.review_invite_sent_at,
+            o.review_invite_suppressed_at,
+            o.review_invite_scheduled_for,
+            o.review_invite_last_attempt_at,
+            o.booked_at
+        ) DESC
         LIMIT $1
         "#,
     )
@@ -528,18 +1105,44 @@ pub async fn list_review_invite_rows(
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn unconfigured_podium_is_a_review_choice_outcome_not_a_failed_sale_action() {
-        let source = include_str!("podium_reviews.rs");
-        let invite_flow = source
-            .split_once("let invite = match podium::create_podium_review_invite(")
-            .expect("review invite provider call")
-            .1
-            .split_once("let final_provider_id")
-            .expect("end of provider result handling")
-            .0;
+    use super::*;
 
-        assert!(invite_flow.contains("Err(podium::PodiumError::NotConfigured)"));
-        assert!(invite_flow.contains("\"not_configured\""));
+    #[test]
+    fn review_requests_use_the_evidence_based_five_day_delay() {
+        assert_eq!(REVIEW_INVITE_DELAY_DAYS, 5);
+        let source = include_str!("podium_reviews.rs");
+        assert!(source.contains("review_invite_delivery_time(NOW())"));
+        assert!(source.contains("podium_review_invite_status = 'scheduled'"));
+        assert!(source.contains("provider_message_id"));
+    }
+
+    #[test]
+    fn provider_delivery_status_is_preferred() {
+        let row = json!({
+            "deliveryStatus": "delivered",
+            "status": "generated"
+        });
+        let status = text_at(
+            &row,
+            &[
+                "/deliveryStatus",
+                "/data/deliveryStatus",
+                "/status",
+                "/state",
+            ],
+        );
+        assert_eq!(status.as_deref(), Some("delivered"));
+    }
+
+    #[test]
+    fn generated_link_only_is_not_a_delivery_status() {
+        let row = json!({
+            "deliveryStatus": "generated",
+            "sender": { "sentThrough": "generated_link_only" }
+        });
+        let generated_link_only = text_at(&row, &["/sender/sentThrough"])
+            .map(|value| value.eq_ignore_ascii_case("generated_link_only"))
+            .unwrap_or(false);
+        assert!(generated_link_only);
     }
 }

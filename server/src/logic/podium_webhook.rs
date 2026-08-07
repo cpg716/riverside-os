@@ -5,8 +5,12 @@ use http::HeaderMap;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+use std::sync::Arc;
 use subtle::ConstantTimeEq;
+use tokio::sync::Mutex;
 use uuid::Uuid;
+
+use crate::logic::podium::PodiumTokenCache;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -24,7 +28,7 @@ pub fn podium_inbound_inbox_enabled() -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PodiumWebhookDisposition {
     /// New delivery recorded (may still skip inbox fan-out).
-    Accepted,
+    Accepted(Uuid),
     /// Duplicate delivery id (Podium retry).
     Duplicate,
 }
@@ -173,22 +177,174 @@ pub async fn record_podium_webhook_delivery(
 
     let new_id: Option<Uuid> = sqlx::query_scalar(
         r#"
-        INSERT INTO podium_webhook_delivery (idempotency_key, payload_sha256_hex)
-        VALUES ($1, $2)
+        INSERT INTO podium_webhook_delivery (
+            idempotency_key, payload_sha256_hex, raw_payload, processing_status, next_attempt_at
+        )
+        VALUES ($1, $2, $3, 'pending', NOW())
         ON CONFLICT (idempotency_key) DO NOTHING
         RETURNING id
         "#,
     )
     .bind(&idem)
     .bind(&sha_hex)
+    .bind(value)
     .fetch_optional(pool)
     .await?;
 
-    if new_id.is_none() {
+    let Some(new_id) = new_id else {
         return Ok(PodiumWebhookDisposition::Duplicate);
-    }
+    };
 
-    Ok(PodiumWebhookDisposition::Accepted)
+    Ok(PodiumWebhookDisposition::Accepted(new_id))
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ClaimedPodiumWebhook {
+    id: Uuid,
+    raw_payload: Value,
+    processing_attempts: i32,
+}
+
+async fn claim_podium_webhook(pool: &PgPool) -> Result<Option<ClaimedPodiumWebhook>, sqlx::Error> {
+    sqlx::query_as(
+        r#"
+        WITH candidate AS (
+            SELECT id
+            FROM podium_webhook_delivery
+            WHERE raw_payload IS NOT NULL
+              AND processing_attempts < 8
+              AND (
+                  (processing_status = 'pending' AND next_attempt_at <= NOW())
+                  OR (processing_status = 'processing' AND claimed_at < NOW() - INTERVAL '5 minutes')
+              )
+            ORDER BY next_attempt_at, received_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        )
+        UPDATE podium_webhook_delivery delivery
+        SET processing_status = 'processing',
+            processing_attempts = processing_attempts + 1,
+            claimed_at = NOW(),
+            last_error = NULL
+        FROM candidate
+        WHERE delivery.id = candidate.id
+        RETURNING delivery.id, delivery.raw_payload, delivery.processing_attempts
+        "#,
+    )
+    .fetch_optional(pool)
+    .await
+}
+
+async fn finish_podium_webhook(
+    pool: &PgPool,
+    id: Uuid,
+    outcome: crate::logic::podium_inbound::PodiumInboundIngestOutcome,
+) -> Result<(), sqlx::Error> {
+    let status = match outcome {
+        crate::logic::podium_inbound::PodiumInboundIngestOutcome::Processed => "processed",
+        crate::logic::podium_inbound::PodiumInboundIngestOutcome::Skipped => "skipped",
+    };
+    sqlx::query(
+        r#"
+        UPDATE podium_webhook_delivery
+        SET processing_status = $2,
+            processed_at = NOW(),
+            claimed_at = NULL,
+            last_error = NULL
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .bind(status)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn retry_podium_webhook(
+    pool: &PgPool,
+    delivery: &ClaimedPodiumWebhook,
+    error: &sqlx::Error,
+) -> Result<(), sqlx::Error> {
+    let terminal = delivery.processing_attempts >= 8;
+    let retry_seconds = 2_i64
+        .pow(delivery.processing_attempts.clamp(1, 8) as u32)
+        .min(300);
+    sqlx::query(
+        r#"
+        UPDATE podium_webhook_delivery
+        SET processing_status = CASE WHEN $2 THEN 'failed' ELSE 'pending' END,
+            next_attempt_at = CASE
+                WHEN $2 THEN next_attempt_at
+                ELSE NOW() + ($3 * INTERVAL '1 second')
+            END,
+            claimed_at = NULL,
+            last_error = LEFT($4, 4000)
+        WHERE id = $1
+        "#,
+    )
+    .bind(delivery.id)
+    .bind(terminal)
+    .bind(retry_seconds)
+    .bind(error.to_string())
+    .execute(pool)
+    .await?;
+    if terminal {
+        let message = format!(
+            "Podium webhook {} failed after {} processing attempts and requires review.",
+            delivery.id, delivery.processing_attempts
+        );
+        let _ = crate::logic::notifications::broadcast_system_alert_with_key(
+            pool,
+            &message,
+            &format!("podium_webhook_failed:{}", delivery.id),
+        )
+        .await;
+    }
+    Ok(())
+}
+
+pub async fn process_pending_podium_webhooks(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    limit: usize,
+) -> Result<u32, sqlx::Error> {
+    let mut processed = 0_u32;
+    for _ in 0..limit.clamp(1, 100) {
+        let Some(delivery) = claim_podium_webhook(pool).await? else {
+            break;
+        };
+        let process_result = async {
+            crate::logic::podium_reviews::apply_review_invite_webhook(pool, &delivery.raw_payload)
+                .await?;
+            crate::logic::customer_notifications::apply_podium_failure_webhook(
+                pool,
+                &delivery.raw_payload,
+            )
+            .await?;
+            if podium_inbound_crm_ingest_enabled() {
+                crate::logic::podium_inbound::ingest_from_webhook(
+                    pool,
+                    http,
+                    token_cache,
+                    &delivery.raw_payload,
+                )
+                .await
+            } else {
+                Ok(crate::logic::podium_inbound::PodiumInboundIngestOutcome::Skipped)
+            }
+        }
+        .await;
+        match process_result {
+            Ok(outcome) => {
+                finish_podium_webhook(pool, delivery.id, outcome).await?;
+                processed += 1;
+            }
+            Err(error) => retry_podium_webhook(pool, &delivery, &error).await?,
+        }
+    }
+    Ok(processed)
 }
 
 pub async fn record_podium_webhook_failure(

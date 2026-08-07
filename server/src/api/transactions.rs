@@ -5235,6 +5235,9 @@ async fn post_transaction_review_invite(
         podium_reviews::ReviewInviteError::Podium(err) => {
             TransactionError::BadGateway(format!("Podium review request failed: {err}"))
         }
+        podium_reviews::ReviewInviteError::Delivery(error) => {
+            TransactionError::BadGateway(format!("Review request delivery failed: {error}"))
+        }
     })?;
     Ok(Json(result))
 }
@@ -11774,11 +11777,40 @@ async fn post_transaction_receipt_send_email(
     };
 
     let order_ref = receipt_shared::receipt_display_ref(&receipt_order);
-    let subject = if body.gift {
-        format!("Gift receipt — {order_ref}")
+    let message_templates = podium::load_store_podium_config(&state.db)
+        .await?
+        .receipt_templates
+        .merged_defaults();
+    let customer_name = receipt_order
+        .customer
+        .as_ref()
+        .map(|customer| customer.display_name.trim())
+        .unwrap_or("");
+    let customer_code = receipt_order
+        .customer
+        .as_ref()
+        .and_then(|customer| customer.customer_code.as_deref())
+        .unwrap_or("");
+    let receipt_type = if body.gift {
+        "Gift receipt"
     } else {
-        format!("Receipt — {order_ref}")
+        receipt_order.receipt_kind.title()
     };
+    let subject_template = if body.gift {
+        &message_templates.gift_email_subject
+    } else {
+        &message_templates.email_subject
+    };
+    let subject = podium::apply_template_placeholders(
+        subject_template,
+        &[
+            ("store_name", receipt_cfg.store_name.trim()),
+            ("receipt_ref", order_ref.as_str()),
+            ("receipt_type", receipt_type),
+            ("customer_name", customer_name),
+            ("customer_code", customer_code),
+        ],
+    );
 
     match store_email::send_email(&state.db, &addr, &subject, &html, None, None, "outbound").await {
         Ok(_) => {
@@ -11887,26 +11919,41 @@ async fn post_transaction_receipt_send_sms(
                     "Receipt image is too large to send by text.".to_string(),
                 ));
             }
-            let order_ref: String = transaction_id
-                .simple()
-                .to_string()
-                .chars()
-                .take(8)
-                .collect::<String>()
-                .to_uppercase();
-            let caption = if body.gift {
-                format!(
-                    "{} — Gift receipt {} (image attached).",
-                    receipt_cfg.store_name.trim(),
-                    order_ref
-                )
+            let receipt_ref = receipt_shared::receipt_display_ref(&receipt_order);
+            let message_templates = podium::load_store_podium_config(&state.db)
+                .await?
+                .receipt_templates
+                .merged_defaults();
+            let customer_name = receipt_order
+                .customer
+                .as_ref()
+                .map(|customer| customer.display_name.trim())
+                .unwrap_or("");
+            let customer_code = receipt_order
+                .customer
+                .as_ref()
+                .and_then(|customer| customer.customer_code.as_deref())
+                .unwrap_or("");
+            let receipt_type = if body.gift {
+                "Gift receipt"
             } else {
-                format!(
-                    "{} — Receipt {} (image attached).",
-                    receipt_cfg.store_name.trim(),
-                    order_ref
-                )
+                receipt_order.receipt_kind.title()
             };
+            let caption_template = if body.gift {
+                &message_templates.gift_sms_caption
+            } else {
+                &message_templates.sms_caption
+            };
+            let caption = podium::apply_template_placeholders(
+                caption_template,
+                &[
+                    ("store_name", receipt_cfg.store_name.trim()),
+                    ("receipt_ref", receipt_ref.as_str()),
+                    ("receipt_type", receipt_type),
+                    ("customer_name", customer_name),
+                    ("customer_code", customer_code),
+                ],
+            );
             return match podium::send_podium_phone_message_with_png_attachment(
                 &state.db,
                 &state.http_client,

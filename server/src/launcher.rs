@@ -993,7 +993,7 @@ async fn launch_server_inner(
     let podium_sync_interval_secs = std::env::var("RIVERSIDE_PODIUM_SYNC_INTERVAL_SECS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(30 * 60 * 60)
+        .unwrap_or(30 * 60)
         .max(10 * 60);
     let podium_sync_state = state.clone();
     tokio::spawn(async move {
@@ -1028,6 +1028,84 @@ async fn launch_server_inner(
                         "Podium inbox background pull failed"
                     );
                 }
+            }
+            match crate::logic::podium_reviews::sync_review_invites_from_podium(
+                &podium_sync_state.db,
+                &podium_sync_state.http_client,
+                &podium_sync_state.podium_token_cache,
+                200,
+            )
+            .await
+            {
+                Ok(summary) if summary.rows_updated > 0 => tracing::info!(
+                    provider_rows_seen = summary.provider_rows_seen,
+                    rows_updated = summary.rows_updated,
+                    "Podium review status background pull completed"
+                ),
+                Ok(_) | Err(crate::logic::podium_reviews::ReviewInviteError::Podium(
+                    crate::logic::podium::PodiumError::NotConfigured,
+                )) => {}
+                Err(error) => tracing::warn!(
+                    target: "podium_reviews",
+                    error = %error,
+                    "Podium review status background pull failed"
+                ),
+            }
+        }
+    });
+
+    let podium_webhook_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(2));
+        loop {
+            ticker.tick().await;
+            match crate::logic::podium_webhook::process_pending_podium_webhooks(
+                &podium_webhook_state.db,
+                &podium_webhook_state.http_client,
+                &podium_webhook_state.podium_token_cache,
+                25,
+            )
+            .await
+            {
+                Ok(processed) if processed > 0 => tracing::info!(
+                    target: "podium_webhook",
+                    processed,
+                    "Durable Podium webhook batch processed"
+                ),
+                Ok(_) => {}
+                Err(error) => tracing::error!(
+                    target: "podium_webhook",
+                    error = %error,
+                    "Durable Podium webhook worker failed"
+                ),
+            }
+        }
+    });
+
+    let podium_review_delivery_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            ticker.tick().await;
+            match crate::logic::podium_reviews::process_due_review_invites(
+                &podium_review_delivery_state.db,
+                &podium_review_delivery_state.http_client,
+                &podium_review_delivery_state.podium_token_cache,
+                25,
+            )
+            .await
+            {
+                Ok(processed) if processed > 0 => tracing::info!(
+                    target: "podium_reviews",
+                    processed,
+                    "Delayed Podium review request batch processed"
+                ),
+                Ok(_) => {}
+                Err(error) => tracing::error!(
+                    target: "podium_reviews",
+                    error = %error,
+                    "Delayed Podium review request worker failed"
+                ),
             }
         }
     });

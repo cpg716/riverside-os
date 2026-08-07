@@ -375,12 +375,18 @@ fn truncate_body_preview(body: &str) -> String {
 }
 
 /// After `podium_webhook_delivery` ledger insert: thread rows + notification fan-out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PodiumInboundIngestOutcome {
+    Processed,
+    Skipped,
+}
+
 pub async fn ingest_from_webhook(
     pool: &PgPool,
     http: &reqwest::Client,
     token_cache: &Arc<Mutex<PodiumTokenCache>>,
     value: &Value,
-) {
+) -> Result<PodiumInboundIngestOutcome, sqlx::Error> {
     let body = match extract_text(
         value,
         &[
@@ -395,7 +401,7 @@ pub async fn ingest_from_webhook(
         Some(b) => b,
         None => {
             tracing::debug!(target = "podium_inbound", event = "no_body_skipping_ingest");
-            return;
+            return Ok(PodiumInboundIngestOutcome::Skipped);
         }
     };
 
@@ -457,7 +463,7 @@ pub async fn ingest_from_webhook(
 
     if e164.is_none() && email.is_none() {
         tracing::warn!(target = "podium_inbound", event = "no_contact_skipping");
-        return;
+        return Ok(PodiumInboundIngestOutcome::Skipped);
     }
 
     let msg_uid = extract_message_uid(value);
@@ -465,11 +471,11 @@ pub async fn ingest_from_webhook(
 
     if let Some(ref uid) = msg_uid {
         match message_uid_exists(pool, uid).await {
-            Ok(true) => return,
+            Ok(true) => return Ok(PodiumInboundIngestOutcome::Skipped),
             Ok(false) => {}
             Err(e) => {
                 tracing::error!(error = %e, "podium_inbound msg dedupe");
-                return;
+                return Err(e);
             }
         }
     }
@@ -482,7 +488,7 @@ pub async fn ingest_from_webhook(
             Ok(c) => customer_id = c,
             Err(e) => {
                 tracing::error!(error = %e, "find customer phone");
-                return;
+                return Err(e);
             }
         }
     }
@@ -492,7 +498,7 @@ pub async fn ingest_from_webhook(
                 Ok(c) => customer_id = c,
                 Err(e) => {
                     tracing::error!(error = %e, "find customer email");
-                    return;
+                    return Err(e);
                 }
             }
         }
@@ -506,7 +512,7 @@ pub async fn ingest_from_webhook(
             channel = %channel,
             "Skipping Podium outbound webhook: no matching customer by phone/email."
         );
-        return;
+        return Ok(PodiumInboundIngestOutcome::Skipped);
     }
 
     if customer_id.is_none() {
@@ -553,7 +559,7 @@ pub async fn ingest_from_webhook(
             }
             Err(e) => {
                 tracing::error!(error = %e, "insert podium stub customer");
-                return;
+                return Err(e);
             }
         }
     } else if let Some(cid) = customer_id {
@@ -562,13 +568,15 @@ pub async fn ingest_from_webhook(
         }
     }
 
-    let Some(cid) = customer_id else { return };
+    let Some(cid) = customer_id else {
+        return Ok(PodiumInboundIngestOutcome::Skipped);
+    };
 
     let mut tx = match pool.begin().await {
         Ok(t) => t,
         Err(e) => {
             tracing::error!(error = %e, "podium_inbound tx begin");
-            return;
+            return Err(e);
         }
     };
 
@@ -584,7 +592,7 @@ pub async fn ingest_from_webhook(
             Err(e) => {
                 tracing::error!(error = %e, "podium conversation lookup");
                 let _ = tx.rollback().await;
-                return;
+                return Err(e);
             }
         };
 
@@ -599,7 +607,7 @@ pub async fn ingest_from_webhook(
             {
                 tracing::error!(error = %e, "podium conversation touch");
                 let _ = tx.rollback().await;
-                return;
+                return Err(e);
             }
             id
         } else {
@@ -617,7 +625,7 @@ pub async fn ingest_from_webhook(
                 Err(e) => {
                     tracing::error!(error = %e, "insert podium_conversation");
                     let _ = tx.rollback().await;
-                    return;
+                    return Err(e);
                 }
             }
         }
@@ -639,7 +647,7 @@ pub async fn ingest_from_webhook(
             Err(e) => {
                 tracing::error!(error = %e, "podium conversation by customer");
                 let _ = tx.rollback().await;
-                return;
+                return Err(e);
             }
         };
 
@@ -654,7 +662,7 @@ pub async fn ingest_from_webhook(
                 {
                     tracing::error!(error = %e, "podium conversation touch");
                     let _ = tx.rollback().await;
-                    return;
+                    return Err(e);
                 }
                 id
             }
@@ -672,7 +680,7 @@ pub async fn ingest_from_webhook(
                 Err(e) => {
                     tracing::error!(error = %e, "insert podium_conversation");
                     let _ = tx.rollback().await;
-                    return;
+                    return Err(e);
                 }
             },
         }
@@ -720,12 +728,12 @@ pub async fn ingest_from_webhook(
     {
         tracing::error!(error = %e, "insert podium_message");
         let _ = tx.rollback().await;
-        return;
+        return Err(e);
     }
 
     if let Err(e) = tx.commit().await {
         tracing::error!(error = %e, "podium_inbound commit");
-        return;
+        return Err(e);
     }
 
     if created_stub {
@@ -836,6 +844,7 @@ pub async fn ingest_from_webhook(
             }
         }
     }
+    Ok(PodiumInboundIngestOutcome::Processed)
 }
 
 #[cfg(test)]

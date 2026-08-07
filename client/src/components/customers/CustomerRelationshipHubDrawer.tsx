@@ -1118,12 +1118,18 @@ export function CustomerRelationshipHubDrawer({
       );
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(err.error ?? "Could not send review request.", "error");
+        toast(err.error ?? "Could not schedule review request.", "error");
         return;
       }
-      toast("Review request sent through Podium.", "success");
+      const result = (await res.json().catch(() => ({}))) as {
+        message?: string;
+      };
+      toast(
+        result.message ?? "Review request scheduled for the eligible Transaction.",
+        "success",
+      );
     } catch {
-      toast("Could not send review request.", "error");
+      toast("Could not schedule review request.", "error");
     } finally {
       setReviewInviteBusy(false);
     }
@@ -5139,7 +5145,7 @@ export function CustomerRelationshipHubDrawer({
                         className="inline-flex items-center gap-2 rounded-xl border border-app-success/30 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white disabled:opacity-50"
                         title={profileDraft.review_requests_opt_out ? "Customer has opted out of reviews" : undefined}
                       >
-                        {reviewInviteBusy ? "Sending..." : "Send Review Request"}
+                        {reviewInviteBusy ? "Scheduling..." : "Schedule Review Request"}
                       </button>
                     </div>
                   </section>

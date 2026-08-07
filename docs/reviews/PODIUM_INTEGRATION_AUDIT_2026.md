@@ -1,11 +1,11 @@
 # Audit Report: Podium Integration (2026)
-**Date:** 2026-05-23
-**Status:** Complete — All Planned APIs Wired and Production-Ready
+**Date:** 2026-08-06
+**Status:** Corrective implementation complete locally — production deployment and provider re-enable pending
 
-> **Current delivery boundary:** Podium owns SMS/MMS, inbox sync, contacts, and reviews. Customer email and email receipts use the first-party Store Email mailbox. Older references below to Podium email describe retired compatibility code, not the active production route.
+> **Current delivery boundary:** Podium owns SMS/MMS, inbox sync, contacts, and both SMS/email delivery of review requests. Other customer operational email and email receipts use the first-party Store Email mailbox.
 
 ## 1. Executive Summary
-The Podium integration in Riverside OS is a comprehensive, multi-channel communication engine that powers both automated operational messaging and manual CRM engagement. It features a sophisticated webhook ecosystem for inbound messaging, automatic customer matching/stub-creation logic, native support for sending thermal receipt images via MMS, and full bidirectional staff identity mapping. All major Podium API endpoints are now wired and in active use.
+The August 2026 audit found and corrected API-contract, delivery-truth, pagination, retry, and webhook-durability defects. Current source now follows Podium's documented contact and assignee payloads, creates and then delivers review links, records the channels that actually succeeded, and durably queues verified webhook JSON before returning `200`. These are local/source claims only: the Podium webhook remains provider-disabled, and the deployed Main Hub build must be replaced and publicly tested before inbound messaging is production-ready.
 
 ## 2. Technical Architecture
 
@@ -16,7 +16,7 @@ The Podium integration in Riverside OS is a comprehensive, multi-channel communi
 
 ### 2.2 Inbound Webhook Ecosystem (`podium_webhook.rs`)
 - **Security**: Mandatory HMAC-SHA256 signature verification and timestamp skew checks (<5 minutes).
-- **Idempotency**: A dedicated `podium_webhook_delivery` ledger ensures each Podium UID is processed exactly once.
+- **Durability and idempotency**: `podium_webhook_delivery` stores verified JSON with pending/processing/processed/skipped/failed state. A leased worker retries database failures and reclaims interrupted processing without asking Podium to wait for CRM work.
 
 ## 3. Core Features
 
@@ -30,16 +30,16 @@ The Podium integration in Riverside OS is a comprehensive, multi-channel communi
 - **Customer Matching**: Matches by E.164 phone tail or normalized email.
 - **Stub Creation**: Automatically creates "New Contact" records for unrecognized senders with `podium_name_capture_pending = true`.
 - **Smart Name Capture**: Monitors initial inbound bodies to automatically extract and update names.
-- **Contact Sync**: Riverside customers are automatically pushed to Podium contacts on create and update via `POST /v4/contacts` and `PATCH /v4/contacts/{identifier}`.
-- **Campaign Opt-Out**: When a customer opts out of review requests, Riverside syncs this to Podium via `POST /v4/contacts/{identifier}/campaigns/opt_out`.
+- **Contact Sync**: Riverside uses Podium's documented `name`, `phoneNumber`, `email`, and `locations` fields for `POST /v4/contacts` and `PATCH /v4/contacts/{identifier}`. Automatic failures are logged instead of silently discarded.
+- **Independent Review Suppression**: The Customer Hub review opt-out remains a Riverside review-only preference. It does not change Podium campaign unsubscribe state or the customer's SMS/email consent fields.
 
 ### 3.3 Staff Identity Mapping (`podium.rs` + `staff.rs`)
-- **Podium User Fetching**: `GET /v4/users` with location filtering, merged with historical message senders.
+- **Podium User Fetching**: Cursor-paged `GET /v4/users`, merged with historical message senders. ROS does not send the undocumented `locationUid` users-list parameter.
 - **Staff Dropdown**: `StaffEditDrawer` loads Podium users from `GET /api/staff/admin/podium-users` and saves `podium_user_uid` + `podium_display_name`.
 - **Message Attribution**: Outbound and inbound messages now display staff names instead of raw UUIDs.
 
 ### 3.4 Conversation Management (`podium.rs`)
-- **Assignees**: `GET /v4/conversations/{uid}/assignees` and `PATCH /v4/conversations/{uid}/assignees` for read/update.
+- **Assignees**: `GET /v4/conversations/{uid}/assignees` and documented `PUT /v4/conversations/{uid}/assignees` with `assigneeUids` for read/update.
 - **Thread UI**: Inbox displays assigned users in the conversation header.
 
 ### 3.5 Visual Identity & Storefront (`StorefrontEmbedHost.tsx`)
@@ -47,11 +47,12 @@ The Podium integration in Riverside OS is a comprehensive, multi-channel communi
 - **MMS Receipts**: The POS can send a full thermal receipt as a PNG attachment directly via Podium's multipart attachment endpoint.
 
 ### 3.6 Review Invites (`podium_reviews.rs`)
-- **API**: `POST /v4/reviews/invites` fully wired.
+- **API**: `POST /v4/reviews/invites` creates the provider review link. ROS then delivers that link through Podium SMS when a usable phone exists, or Podium email when email is the only usable destination.
 - **Eligibility**: Fulfilled/picked-up sales, non-internal lines complete, 180-day cooldown per customer, valid contact info.
 - **Customer Opt-Out**: `customers.review_requests_opt_out` boolean suppresses invites at the customer level.
-- **Per-Sale Opt-Out**: Cashier can skip on the Receipt Summary modal.
-- **Status Tracking**: `review_invite_sent_at`, `review_invite_suppressed_at`, `podium_review_invite_id`, `podium_review_invite_status` on `transactions`.
+- **Timing**: A Transaction entering `fulfilled` schedules delivery for 10:00 AM store time five days later (Monday when the fifth day is Sunday). This avoids an immediate checkout request while the experience is still fresh enough to recall.
+- **Unbiased Selection**: Staff do not selectively send or suppress individual eligible sales. The store-wide enable switch and customer-level opt-out remain the explicit controls.
+- **Status Tracking**: `review_invite_sent_at` is written only after the provider accepts delivery. `podium_review_invite_status` uses a leased `sending` claim, records the Podium message UID for exact `message.failed` correlation, exposes `scheduled` and `failed` rows in Operations, and refreshes provider review state in the background.
 
 ## 4. UI/UX Exposure
 - **Operations → Inbox**: A team-wide view of all current Podium threads with auto-scroll, sent badges, and assignee display.
@@ -71,24 +72,25 @@ The Podium integration in Riverside OS is a comprehensive, multi-channel communi
 
 | Endpoint | Method | Feature |
 |---|---|---|
-| `/v4/users` | GET | Staff-to-Podium user matching |
-| `/v4/messages` | POST | Outbound SMS/email |
+| `/v4/users` | GET, cursor-paged | Staff-to-Podium user matching |
+| `/v4/messages` | POST | Outbound SMS and review-link delivery |
 | `/v4/messages/attachment` | POST | Image attachments |
-| `/v4/reviews/invites` | POST | Automated review requests |
+| `/v4/reviews/invites` | POST / GET, cursor-paged | Create review links and synchronize delivery state |
 | `/v4/conversations` | GET | Inbox conversation list |
-| `/v4/conversations/{uid}/messages` | GET | Thread message history |
+| `/v4/conversations/{uid}/messages` | GET, cursor-paged | Thread message history |
 | `/v4/conversations/{uid}/read` | POST | Mark conversation as read |
-| `/v4/conversations/{uid}/assignees` | GET / PATCH | Show and update assignees |
+| `/v4/conversations/{uid}/assignees` | GET / PUT | Show and update assignees |
 | `/v4/contacts` | POST | Create Podium contact |
 | `/v4/contacts/{identifier}` | PATCH | Update Podium contact |
-| `/v4/contacts/{identifier}/campaigns/opt_out` | POST | Campaign opt-out sync |
 
 ## 7. Hardening (v0.70.x)
 
-- **Retry Logic**: Token refresh, outbound message send (`POST /v4/messages`), and review invite dispatch now retry up to **3 times** with exponential backoff (500ms → 1000ms → 2000ms) on network timeouts, connection errors, and HTTP 5xx.
-- **Health Check**: New `GET /api/settings/podium-health` endpoint probes the Podium OAuth token endpoint with a lightweight invalid-refresh-token request. Returns `configured`, `reachable`, `latency_ms`, `message`.
+- **Retry Logic**: Safe reads retry network failures and HTTP 5xx. Reads and mutations honor HTTP 429/`Retry-After`, and a 401 invalidates the cached access token once. Mutating POSTs do not blindly retry ambiguous network/5xx outcomes, avoiding duplicate customer messages.
+- **Health Check**: `GET /api/settings/podium-health` refreshes real OAuth credentials and checks the required `read_locations`, `read_messages`, `read_reviews`, and `read_users` surfaces. Delivery toggles and webhook processing remain separate readiness signals.
+- **Endpoint Safety**: Settings accepts only official HTTPS `podium.com` service hosts; HTTP is restricted to loopback development.
+- **Operational delivery truth**: Scheduled pickup/alteration work records `sms`, `email`, `both`, or `none` from actual successes. A provider failure no longer becomes a false delivered/both result.
 
 ## 8. Conclusion
-The Podium integration is an industrial-grade, fully wired system that bridges the point-of-sale and customer mobile devices. All planned API endpoints are implemented, staff identity is correctly mapped, customer opt-out preferences are respected end-to-end, and the UI reflects a modern iOS/Android messaging experience. No implementation gaps remain.
+The audited source defects are repaired and covered by targeted tests. Production is still gated on migration `183_podium_webhook_processing_queue.sql`, an exact-build deployment, a successful signed Podium test delivery, and provider-side webhook re-enable. The Podium developer app should also be reduced from its currently enabled broad scope set to the seven scopes ROS requests, after the deployed feature smoke test confirms the required grant.
 
-**Last reviewed:** 2026-05-23
+**Last reviewed:** 2026-08-06

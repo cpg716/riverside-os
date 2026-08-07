@@ -12,12 +12,13 @@
 
 ## What this is for
 
-**Podium** is the store’s link between Riverside OS and **customer texting, review invites, and optional web chat**. Store email is handled by the ROS first-party IONOS mailbox. When IT has configured Podium and an admin has enabled it in Settings, Riverside can:
+**Podium** is the store’s link between Riverside OS and **customer texting, review invites, and optional web chat**. Podium delivers review-request email; other Store Email is handled by the ROS first-party IONOS mailbox. When IT has configured Podium and an admin has enabled it in Settings, Riverside can:
 
 - Send **automatic** texts (e.g. pickup ready, alteration ready) using your wording.
 - Let staff **reply** to customers from the **customer profile** without opening Podium’s full Inbox.
 - Send a **manual text** from **Podium Inbox** to an existing customer or a new phone number.
 - Send **text receipts** from the POS using the standard receipt content.
+- Let admins edit operational SMS/email, Podium review SMS/email, and receipt delivery wording without changing the protected receipt body.
 - Show **new customer texts** as **notifications** you can open into the right profile.
 - **Match staff to Podium users** so messages show real names, not UUIDs.
 - **Sync customers to Podium contacts** automatically and on demand from the Customer Hub.
@@ -35,7 +36,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 | **Operations → Podium Inbox** | Conversation list, message thread, reply composer, Send Text composer, unmatched Podium queue, assignee display | Read the thread, reply in context, open the customer record, send a text to a current customer or a new phone number, and **Refresh** if the list looks stale. |
 | **POS → Podium Inbox** | Same shared inbox inside the POS shell | Read/reply without leaving POS; open the customer record when the conversation needs profile or order follow-up. |
 | **Customer hub → Messages** | Thread + compose + contact sync | Read history; send **SMS**; optional Podium conversation **URL** field for deep links; **Sync to Podium Contacts** button. |
-| **POS → Receipt summary** | Text receipt and review controls | Send text receipt if the customer wants it; optional **review invite** checkbox per store defaults. |
+| **POS → Receipt summary** | Text receipt and automatic review status | Send a text receipt if the customer wants it; confirm eligible review follow-up is scheduled for five days after fulfillment. |
 | **Notification Center** | “New customer SMS” rows | Open item → deep link toward **Customers** / **Messages** when configured. |
 
 ---
@@ -67,11 +68,12 @@ If the authorization page says the Client ID and redirect URI do not match, regi
 2. In the **Podium User** section, use the dropdown to select the matching Podium user. The list loads from Podium's `/v4/users` API.
 3. Save. Messages from that staff member will now show their real name instead of a UUID.
 
-### Admin: change pickup or alteration message wording
+### Admin: edit customer message wording
 
 1. **Settings** → **Integrations** → **Podium**.
-2. Edit the text message template you need. Use the template tag buttons for customer/order values such as **First name** or **Transaction**.
-3. Click **Save Podium / messaging settings** and wait for the success toast.
+2. Under **Customer Messages & Web Chat**, edit any operational SMS/Store Email, Podium review SMS/email, or receipt delivery message. Keep `{review_url}` in both review bodies; Receipt Settings still controls protected receipt content and images.
+3. Use the value buttons for customer, store, Transaction, alteration, appointment, review-link, and receipt data. Use **Reset** to restore shipped wording when needed.
+4. Click **Save Podium / messaging settings** and wait for the success toast. New sends use the saved wording; already-sent messages do not change.
 
 ### Staff: reply to a customer by SMS from their profile
 
@@ -120,17 +122,17 @@ If the authorization page says the Client ID and redirect URI do not match, regi
 
 Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 
-### Cashier: post-sale review invite (checkbox)
+### Cashier: post-sale review invite
 
-1. On **Receipt summary**, use your store’s **review invite** control (send vs skip) exactly as trained.
-2. Riverside checks eligibility before sending: fulfilled/picked-up sale, non-internal lines complete, customer has phone/email, no invite in the last **180 days**, and the customer has **not** opted out of review requests on their profile.
-3. The register records your choice; **Operations → Reviews** can list what was sent or skipped.
-4. If Podium is not configured, Riverside reports that review requests are unavailable and leaves the sale eligible to be invited later. Closing the receipt remains safe and does not create an error report.
+1. Eligible fulfilled/picked-up Transactions enter the review schedule automatically. Staff do not choose which individual customers are asked.
+2. Riverside rechecks non-internal line fulfillment, customer contact information, the **180-day** cadence, the store enable switch, and the customer review opt-out before delivery.
+3. The request is sent at **10:00 AM five days after fulfillment** (Monday when the fifth day is Sunday), using Podium text when a usable phone exists or Podium email when email is the only usable destination.
+4. **Operations → Reviews** lists scheduled, sent, failed, and suppressed outcomes. Closing or auto-closing the receipt cannot lose the scheduled request.
 
 ### Manager: check review invite history
 
 1. **Operations** → **Reviews** (subsection).
-2. Scan **sent** vs **suppressed** timestamps; open the Transaction Record in Back Office from the row if needed.
+2. Scan **scheduled**, **sent**, **failed**, and **suppressed** rows; correct the displayed contact/integration problem before using **Retry** on a failed row, or open the Transaction Record in Back Office.
 
 **Permission:** **`reviews.view`**.
 
@@ -184,4 +186,4 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 - [pos-register-cart.md](pos-register-cart.md) — Register and receipt flow.
 - [operations-home.md](operations-home.md) — Operations home and Reviews.
 
-**Last reviewed:** 2026-05-23
+**Last reviewed:** 2026-08-06

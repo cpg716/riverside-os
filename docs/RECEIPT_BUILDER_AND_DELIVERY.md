@@ -75,6 +75,7 @@ External references: [New York sales-tax recordkeeping](https://www.tax.ny.gov/p
 - **`POST /api/transactions/{transaction_id}/receipt/send-email`** — JSON body optional **`to_email`**; if omitted, uses the customer email on the Transaction Record. Optional **`gift`** (bool) and **`transaction_line_ids`** (UUID array; empty = all lines) — same semantics as the HTML route.
 - Builds merged HTML when a saved template exists; otherwise builds the standard receipt HTML fallback. The saved-template fragment is wrapped as one email-safe styled **`<div>`**.
 - Sends through **`email::send_email`** using the configured Store Email SMTP account and records the outbound mailbox/customer notification evidence.
+- The normal and gift-receipt email subjects are editable in **Settings → Integrations → Podium → Receipt Delivery Messages**. Supported subject values are `{store_name}`, `{receipt_ref}`, `{receipt_type}`, `{customer_name}`, and `{customer_code}`. The receipt HTML itself remains controlled by Receipt Settings.
 - Needs Store Email enabled plus saved IONOS SMTP credentials. Failures surface as **502** with a Mailbox settings hint.
 
 ---
@@ -83,6 +84,7 @@ External references: [New York sales-tax recordkeeping](https://www.tax.ny.gov/p
 
 - **`POST /api/transactions/{transaction_id}/receipt/send-sms`** — JSON optional **`to_phone`**, optional **`png_base64`** (raw base64 PNG, no data-URL prefix), optional **`gift`** and **`transaction_line_ids`** (gift uses plain-text **`format_pos_gift_receipt_text_message`** when no PNG; MMS raster uses **`receipt.html`** with the same query params as the client).
 - **With `png_base64`:** decodes PNG (max **6 MiB** decoded), sends **`POST /v4/messages/attachment`** (multipart: JSON **`data`** + **`attachment`** file `receipt.png`) via **`send_podium_phone_message_with_png_attachment`**. Short caption text accompanies the image (MMS behavior depends on carrier / Podium). Response may include **`"mode": "mms_attachment"`**.
+- Normal and gift-receipt MMS captions are editable in **Settings → Integrations → Podium → Receipt Delivery Messages** with `{store_name}`, `{receipt_ref}`, `{receipt_type}`, `{customer_name}`, and `{customer_code}` values.
 - **Without image:** plain transactional body from **`receipt_plain_text`** (clamped length), **`send_podium_sms_message`**. Response **`"mode": "sms_text"`**.
 - **POS:** The Register rasterizes the same ReceiptLine preview used for Epson printing and sends it as an MMS image. If rasterization is unavailable, ROS sends the financially complete plain-text receipt instead. Gift receipts use only the selected gift lines.
 

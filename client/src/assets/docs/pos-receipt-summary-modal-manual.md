@@ -46,11 +46,11 @@ When a receipt is opened from Daily Sales, Transaction History, or Staff Profile
 - **Reports printer** opens the formatted receipt copy for the workstation report-printer path; it does not replace the Epson receipt-station print route.
 - A payer deposit receipt may show **Open Wedding Builder** when staff selected **Collect and Build Orders**. It returns to the original payer's **Wedding Deposit → Orders & Receipts** final review, where **Create All Member Transactions** posts the prepared separate member Transactions against their exact funded sources; it does not collect another tender.
 - **Wedding Deposit → Orders & Receipts** can reopen both the original payer receipt and each posted member receipt. These are historical reprints and do not reopen the cash drawer.
-- **Review Request** lets the cashier send or skip the Podium review request for eligible completed or picked-up sales.
+- **Review Request** confirms that an eligible completed or picked-up sale is automatically scheduled for an unbiased follow-up at 10:00 AM five days later.
 
 ## Review requests
 
-The review request option appears only on eligible just-completed sale screens when Podium review requests are enabled. Historical receipt reprints do not reopen the review-request decision. Riverside only sends after completed or picked-up sales, and only once per customer every 180 days. If the customer was asked recently, has no phone or email, or the cashier chooses **Do not send**, Riverside records that outcome instead of silently failing.
+The review status appears only on eligible just-completed sale screens when Podium review requests are enabled. Historical receipt reprints do not change the schedule. Riverside waits five days after fulfillment, then creates the official review link through Podium and sends it at 10:00 AM by Podium text when the customer has a usable phone or by Podium email when email is the only usable destination. Staff do not selectively send or skip individual eligible sales. Riverside asks at most once per customer every 180 days, honors the customer review opt-out, and keeps scheduled, suppressed, and failed outcomes explicit in Operations → Reviews.
 
 ## Receipt preview
 

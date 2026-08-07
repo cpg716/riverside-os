@@ -1,7 +1,7 @@
 //! Operations: Podium review invite tracking (see `logic/podium_reviews.rs`).
 
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::HeaderMap,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -29,6 +29,38 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/invite-rows", get(list_review_invite_rows))
         .route("/sync", post(post_sync_review_invites))
+        .route(
+            "/invite-rows/{transaction_id}/retry",
+            post(post_retry_review_invite),
+        )
+}
+
+async fn post_retry_review_invite(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(transaction_id): Path<uuid::Uuid>,
+) -> Result<Json<serde_json::Value>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, REVIEWS_VIEW)
+        .await
+        .map_err(|e| e.into_response())?;
+    let rescheduled = podium_reviews::reschedule_failed_review_invite(&state.db, transaction_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, %transaction_id, "reschedule_failed_review_invite");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(json!({ "error": "database" })),
+            )
+                .into_response()
+        })?;
+    if !rescheduled {
+        return Err((
+            axum::http::StatusCode::CONFLICT,
+            axum::Json(json!({ "error": "Review request is not in failed status." })),
+        )
+            .into_response());
+    }
+    Ok(Json(json!({ "ok": true, "status": "scheduled" })))
 }
 
 async fn list_review_invite_rows(

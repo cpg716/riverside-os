@@ -4,7 +4,7 @@
 
 **Quick SOP (step-by-step for staff):** [podium-integration-staff-manual.md](podium-integration-staff-manual.md).
 
-**What this covers:** Full reference for everything Riverside does with **Podium** (operational SMS, web-chat embed, customer text threads, text receipts, and review-invite tracking). Store email now uses the ROS first-party IONOS mailbox. This does **not** replace Podium’s own product documentation or legal terms.
+**What this covers:** Full reference for everything Riverside does with **Podium** (operational SMS, web-chat embed, customer text threads, text receipts, and review-invite tracking). Podium delivers review-request email; other Store Email uses the ROS first-party IONOS mailbox. This does **not** replace Podium’s own product documentation or legal terms.
 
 **Technical deep dives (engineers):** [PLAN_PODIUM_SMS_INTEGRATION.md](../PLAN_PODIUM_SMS_INTEGRATION.md), [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md), [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md), [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md). **Permissions detail:** [STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md), [CUSTOMER_HUB_AND_RBAC.md](../CUSTOMER_HUB_AND_RBAC.md).
 
@@ -25,7 +25,7 @@ When Podium is **configured on the server** and **enabled in Settings**, Riversi
 | **Conversation assignees** | See who is assigned to a Podium conversation in the Inbox thread header. |
 | **Inbound messages** | If Podium is allowed to call Riverside’s **webhook**, new customer texts can appear as threads and **notifications** (see section 7). |
 | **Web chat on your site** | Paste Podium’s widget snippet so the public storefront can load it (optional build flag). |
-| **Review invites** | Send post-sale Podium review requests from sale completion, track skipped/sent outcomes, and update invite status in Operations (see section 8). |
+| **Review invites** | Create a Podium review link, deliver it by Podium text or Podium email, and track skipped/delivered/failed outcomes in Operations (see section 8). |
 
 Riverside does **not** recreate Podium’s full multi-user Inbox. Use Riverside for **CRM-context** messaging next to orders and profiles; power users may still use Podium directly.
 
@@ -86,9 +86,11 @@ SMS still requires **non-empty Podium location UID** and valid credentials.
 
 Paste the **location UID** from your Podium account (API/locations). Without it, sends are skipped even if credentials exist.
 
-### 3.4 Text message templates
+### 3.4 Customer message templates
 
-Editable bodies (defaults apply when a field is left empty at save time):
+The Podium settings card is the shared editor for customer-facing delivery messages. Defaults apply when a saved field is empty, and **Reset** restores the shipped wording.
+
+**Operational SMS:**
 
 - **Ready for pickup** — when an order is marked ready for pickup / pickup messaging runs.
 - **Alteration ready** — alteration workflow notify path.
@@ -96,7 +98,13 @@ Editable bodies (defaults apply when a field is left empty at save time):
 - **Appointment reminder** — customer appointment reminder about 24 hours before the appointment time.
 - **Unknown-sender welcome** — optional auto-reply when Riverside creates a **stub customer** from an inbound SMS (webhook path); helps collect a name.
 
-Use the tag buttons in the Settings panel to insert supported values such as `{first_name}`, `{order_ref}`, `{alteration_ref}`, `{appointment_type}`, and `{starts_at}`.
+**Operational Store Email:** Ready-for-pickup, alteration-ready, appointment-confirmation, and appointment-reminder subjects and HTML bodies are editable separately. These messages are sent through Store Email, not Podium.
+
+**Review requests:** Edit the Podium SMS body plus Podium email subject and body. Both bodies must retain `{review_url}` so the customer receives the official Podium review link.
+
+**Receipt delivery:** Edit the normal and gift-receipt Podium MMS captions and Store Email subjects. The actual receipt image, financial content, and plain-text fallback remain controlled by **Receipt Settings** so a message edit cannot remove required receipt details.
+
+Use the tag buttons to insert supported customer, store, and event values. Available values include `{first_name}`, `{last_name}`, `{full_name}`, `{customer_code}`, `{transaction_ref}`, `{alteration_ref}`, `{appointment_type}`, `{appointment_date}`, `{appointment_time}`, `{starts_at}`, `{store_name}`, `{store_phone}`, `{store_email}`, `{store_address}`, `{review_url}`, `{receipt_ref}`, and `{receipt_type}`. The editor shows only the values supported by each message.
 
 **Save** the Integrations card after edits.
 
@@ -122,7 +130,7 @@ Cashiers still control **per sale** on the receipt summary when invites are enab
 
 Automated operational texts respect the customer record: Riverside sends SMS when **`transactional_sms_opt_in`** **or** **`marketing_sms_opt_in`** is true (and phone is usable). Editors can set **operational SMS** when adding or editing customers where the UI exposes it.
 
-**Review requests opt-out:** Customers can opt out of Podium review requests on their profile (Customer Hub → Communication preferences → **Opt out of review requests**). When enabled, Riverside will never send a review invite for that customer, and the opt-out is also synced to Podium campaign preferences where supported.
+**Review requests opt-out:** Customers can opt out of Podium review requests on their profile (Customer Hub → Communication preferences → **Opt out of review requests**). When enabled, Riverside will never send a review invite for that customer. This review-only preference does not change the customer's SMS/email permissions or Podium campaign unsubscribe state.
 
 Staff **manual** replies from the hub still go through Podium when configured; follow your store's policy and consent practices for manual outreach.
 
@@ -148,7 +156,7 @@ Viewing requires **`customers.hub_view`**. Sending and new-contact creation requ
 
 **Inbox freshness:** Riverside receives new Podium messages by webhook when the public webhook is configured. The Inbox screen refreshes every minute while open, and Riverside runs a background Podium pull every 30 hours by default to catch missed history. Use **Pull from Podium** when staff want an immediate missed-history check.
 
-**Thread UI:** The message thread auto-scrolls to the newest message and displays a **Sent** badge on outbound messages. The conversation header shows assigned Podium users when available.
+**Thread UI:** The message thread auto-scrolls to the newest message and displays a **Sent** badge on outbound messages. The conversation header shows assigned Podium users when available. Assigning or clearing a user updates Podium's assignee list; if Podium rejects the change, Riverside shows the provider error instead of pretending it was saved.
 
 **Important:** A customer can appear in **Podium Inbox** before Riverside has the full message body history for that thread. The inbox row is backed by a matched **conversation**. The customer **Messages** tab is backed by stored **message** rows. If webhooks were disabled, rejected, or the Podium OAuth grant is missing **`read_messages`**, the profile may show a Podium sync error until IT fixes the webhook/scope issue and runs sync again.
 
@@ -182,6 +190,8 @@ When Podium is configured and toggles are on, Riverside may send without a secon
 | Appointment confirmation | SMS/MMS + Store email (IONOS) | SMS/MMS uses the Podium appointment confirmation template and attempts to attach `riverside-appointment.ics`. Email also includes `riverside-appointment.ics`. |
 | Appointment reminder | SMS + Store email (IONOS) | Sends about 24 hours before the appointment time. |
 
+Every row above uses the current saved message template at send time. Operational email subjects/bodies and SMS bodies can be edited under **Settings → Integrations → Podium → Customer Messages & Web Chat**.
+
 If something should have sent but did not, verify: **Settings credentials**, **location UID**, **SMS toggle**, **customer phone**, **SMS opt-in**, **template content**, and server logs (admins).
 
 Loyalty reward redemptions do not send automated SMS/email. Customer notice for loyalty rewards remains the physical loyalty letter workflow.
@@ -194,7 +204,7 @@ After **Complete sale**, the **Receipt summary** step can:
 
 - **Text receipt** — plain SMS receipt text.
 
-Store email receipts use the ROS mailbox/email path backed by IONOS, not Podium.
+Store email receipts use the ROS mailbox/email path backed by IONOS, not Podium. Admins can edit receipt email subjects and Podium MMS captions in the Podium message catalog; Receipt Settings remains authoritative for the receipt itself.
 
 Details, limits, and error behavior: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 
@@ -216,7 +226,7 @@ Admins can check the current public callback origin, Podium webhook URL, signing
 
 **Verification:** When **`RIVERSIDE_PODIUM_WEBHOOK_SECRET`** is set, Riverside verifies Podium’s **timestamp** and **signature** headers. **Never** enable **`RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED`** outside local development.
 
-**CRM ingest:** Unless **`RIVERSIDE_PODIUM_INBOUND_DISABLED`** is set to a truthy value, verified deliveries are processed so messages can appear under **Customers** and fan out **notifications** (e.g. “New customer SMS”) to staff with **`notifications.view`**.
+**CRM ingest:** Unless **`RIVERSIDE_PODIUM_INBOUND_DISABLED`** is set to a truthy value, verified deliveries are processed so messages can appear under **Customers** and fan out **notifications** (e.g. “New customer SMS”) to staff with **`notifications.view`**. Riverside stores a verified event before acknowledging Podium, then processes it from a retryable queue. A temporary database failure therefore appears as pending/retrying work instead of silently losing the event.
 
 **Idempotency:** Duplicate Podium retries use a ledger so the same event is not processed twice.
 
@@ -228,11 +238,11 @@ Admins can check the current public callback origin, Podium webhook URL, signing
 
 ## 8. Post-sale review invites (Operations + POS)
 
-**Receipt (POS):** On the receipt summary, cashiers can **skip** or allow a **review invite** according to store defaults set in **Settings → General**.
+**Receipt (POS):** The receipt summary shows when an eligible fulfilled Transaction has entered the review schedule. Staff do not select individual customers for review requests. Managers can turn the store-wide workflow off in **Settings → General**, and each customer can opt out in Customer Hub.
 
-**When Riverside sends:** Riverside sends through Podium for completed / picked-up sales when the Transaction Record has a customer, at least one non-internal fulfilled line, and a usable phone or email. Riverside only asks each customer once every **180 days**. If the cashier chooses **Do not send**, the customer was asked recently, contact information is missing, or the customer has opted out of review requests on their profile, Riverside records the skipped outcome instead of silently failing.
+**When Riverside sends:** Riverside waits until **10:00 AM five days after fulfillment or pickup** (Monday when that day is Sunday). It then creates the official review link through Podium. If the customer has a usable phone, Riverside texts that link through Podium. If email is the only usable destination, Riverside sends the link through Podium email. The Transaction Record is marked sent only after Podium accepts the message. Podium message failures are correlated back to the exact Transaction when Podium supplies its message UID. Riverside only asks each customer once every **180 days**.
 
-**Operations → Reviews:** Staff with **`reviews.view`** see Transaction Records with invite **sent** or **skipped** timestamps, update status from Podium, and open the record in Back Office from the list.
+**Operations → Reviews:** Staff with **`reviews.view`** see **scheduled**, **sending**, **sent**, **failed**, and **suppressed** Transaction Records, including the scheduled/attempt time and provider error. Use **Retry** on a failed row to return it to the controlled delivery schedule after correcting its phone/email or integration problem. Riverside refreshes Podium review state in the background; **Podium** remains available for an immediate manual refresh.
 
 Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 
@@ -251,6 +261,8 @@ Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 | **Store email fails** | IONOS mailbox settings, customer email, and server logs. See [EMAIL_MAILBOX.md](../EMAIL_MAILBOX.md). |
 | **502 / Podium unavailable** in UI | Server logs; Podium status; token refresh; API base override. |
 | **Inbound never appears** | Public webhook URL reachable; Cloudflare/tunnel running if local; secret/signature; `RIVERSIDE_PODIUM_INBOUND_DISABLED` accidentally on; Podium event types include message activity. |
+| **Podium webhook says Disabled** | Do not simply enable it. Deploy the build containing the current webhook envelope and queue migration, use Podium **Send Test**, confirm `200` and completed processing in Riverside, then enable and save the webhook. |
+| **Scheduled notice says failed** | Open the delivery detail. Riverside now reports the channels that actually succeeded (`sms`, `email`, `both`, or `none`) and keeps the provider/setup error instead of marking every attempt delivered. |
 | **Customer profile has no messages but Podium Inbox has the customer** | The customer likely has a matched Podium conversation shell but no stored `podium_message` rows. Re-enable/fix Podium webhooks, verify OAuth includes `read_messages`, then run Podium sync. |
 | **Staff name shows as a UUID in messages** | The staff member is not linked to a Podium user. A manager with `staff_edit` can open **Staff → Edit** and select the matching Podium user from the dropdown. |
 | **Review invite sent to a customer who opted out** | Check the customer's profile: if **Opt out of review requests** is checked, the invite should have been suppressed. If it still sent, verify the opt-out was saved and the transaction detail refreshed before sale completion. |

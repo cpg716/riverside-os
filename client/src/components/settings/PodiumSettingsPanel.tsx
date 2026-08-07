@@ -23,6 +23,31 @@ interface PodiumSmsConfig {
     appointment_confirmation: string;
     appointment_reminder: string;
   };
+  templates_effective: PodiumSmsConfig["templates"];
+  email_templates: {
+    ready_for_pickup_subject: string;
+    ready_for_pickup_html: string;
+    alteration_ready_subject: string;
+    alteration_ready_html: string;
+    appointment_confirmation_subject: string;
+    appointment_confirmation_html: string;
+    appointment_reminder_subject: string;
+    appointment_reminder_html: string;
+  };
+  email_templates_effective: PodiumSmsConfig["email_templates"];
+  review_templates: {
+    sms_body: string;
+    email_subject: string;
+    email_body: string;
+  };
+  review_templates_effective: PodiumSmsConfig["review_templates"];
+  receipt_templates: {
+    sms_caption: string;
+    gift_sms_caption: string;
+    email_subject: string;
+    gift_email_subject: string;
+  };
+  receipt_templates_effective: PodiumSmsConfig["receipt_templates"];
   widget_embed_enabled: boolean;
   widget_snippet_html: string;
   credentials_configured: boolean;
@@ -59,14 +84,46 @@ interface PodiumSettingsPanelProps {
 }
 
 const PODIUM_TEMPLATE_DEFAULTS = {
-  ready_for_pickup: "Hi {first_name}, your Riverside order {order_ref} is ready for pickup. We look forward to seeing you.",
+  ready_for_pickup: "Hi {first_name}, your Riverside order {transaction_ref} is ready for pickup. We look forward to seeing you.",
   alteration_ready: "Hi {first_name}, your alteration {alteration_ref} is ready for your final fitting or pickup.",
   unknown_sender_welcome: "Hi from Riverside! We've saved your contact info. Reply here for questions about your order.",
   appointment_confirmation: "Hi {first_name}, your Riverside {appointment_type} appointment is set for {starts_at}. Calendar invite attached.",
   appointment_reminder: "Hi {first_name}, reminder: your Riverside {appointment_type} appointment is tomorrow at {starts_at}.",
 };
 
+const OPERATIONAL_EMAIL_TEMPLATE_DEFAULTS: PodiumSmsConfig["email_templates"] = {
+  ready_for_pickup_subject: "Your Riverside order is ready",
+  ready_for_pickup_html:
+    "<p>Hi {first_name},</p><p>Your Riverside order <b>{transaction_ref}</b> is ready for pickup.</p><p>Questions? Call {store_phone}.</p>",
+  alteration_ready_subject: "Your alteration is ready",
+  alteration_ready_html:
+    "<p>Hi {first_name},</p><p>Your alteration <b>{alteration_ref}</b> is ready for your final fitting or pickup.</p><p>Questions? Call {store_phone}.</p>",
+  appointment_confirmation_subject: "Appointment confirmed — Riverside",
+  appointment_confirmation_html:
+    "<p>Hi {first_name},</p><p>Your <b>{appointment_type}</b> appointment is scheduled for <b>{starts_at}</b>.</p>{notes_block}",
+  appointment_reminder_subject: "Reminder: your Riverside appointment is tomorrow",
+  appointment_reminder_html:
+    "<p>Hi {first_name},</p><p>This is a reminder that your <b>{appointment_type}</b> appointment is tomorrow at <b>{starts_at}</b>.</p><p>Questions? Call {store_phone}.</p>",
+};
+
+const REVIEW_TEMPLATE_DEFAULTS: PodiumSmsConfig["review_templates"] = {
+  sms_body:
+    "Hi {first_name}, thank you for choosing {store_name}. We would appreciate your review: {review_url}",
+  email_subject: "How was your Riverside experience?",
+  email_body:
+    "Hi {first_name},\n\nThank you for choosing {store_name}. We would appreciate your feedback. Share your review here: {review_url}\n\nThank you,\n{store_name}",
+};
+
+const RECEIPT_TEMPLATE_DEFAULTS: PodiumSmsConfig["receipt_templates"] = {
+  sms_caption: "{store_name} — Receipt {receipt_ref} (image attached).",
+  gift_sms_caption: "{store_name} — Gift receipt {receipt_ref} (image attached).",
+  email_subject: "Receipt — {receipt_ref}",
+  gift_email_subject: "Gift receipt — {receipt_ref}",
+};
+
 type SmsTemplateKey = keyof PodiumSmsConfig["templates"];
+type ReviewTemplateKey = keyof PodiumSmsConfig["review_templates"];
+type ReceiptTemplateKey = keyof PodiumSmsConfig["receipt_templates"];
 
 const PODIUM_SMS_TEMPLATE_BLOCKS: {
   key: SmsTemplateKey;
@@ -80,7 +137,12 @@ const PODIUM_SMS_TEMPLATE_BLOCKS: {
     description: "Sent when order items are ready for pickup.",
     tags: [
       { token: "{first_name}", label: "First name" },
-      { token: "{order_ref}", label: "Transaction" },
+      { token: "{last_name}", label: "Last name" },
+      { token: "{full_name}", label: "Full name" },
+      { token: "{customer_code}", label: "Customer #" },
+      { token: "{transaction_ref}", label: "Transaction" },
+      { token: "{store_name}", label: "Store name" },
+      { token: "{store_phone}", label: "Store phone" },
     ],
   },
   {
@@ -89,7 +151,12 @@ const PODIUM_SMS_TEMPLATE_BLOCKS: {
     description: "Sent when an alteration is marked ready.",
     tags: [
       { token: "{first_name}", label: "First name" },
+      { token: "{last_name}", label: "Last name" },
+      { token: "{full_name}", label: "Full name" },
       { token: "{alteration_ref}", label: "Alteration" },
+      { token: "{transaction_ref}", label: "Transaction" },
+      { token: "{store_name}", label: "Store name" },
+      { token: "{store_phone}", label: "Store phone" },
     ],
   },
   {
@@ -100,6 +167,10 @@ const PODIUM_SMS_TEMPLATE_BLOCKS: {
       { token: "{first_name}", label: "First name" },
       { token: "{appointment_type}", label: "Purpose" },
       { token: "{starts_at}", label: "Date/time" },
+      { token: "{appointment_date}", label: "Date" },
+      { token: "{appointment_time}", label: "Time" },
+      { token: "{store_name}", label: "Store name" },
+      { token: "{store_phone}", label: "Store phone" },
     ],
   },
   {
@@ -110,6 +181,10 @@ const PODIUM_SMS_TEMPLATE_BLOCKS: {
       { token: "{first_name}", label: "First name" },
       { token: "{appointment_type}", label: "Purpose" },
       { token: "{starts_at}", label: "Date/time" },
+      { token: "{appointment_date}", label: "Date" },
+      { token: "{appointment_time}", label: "Time" },
+      { token: "{store_name}", label: "Store name" },
+      { token: "{store_phone}", label: "Store phone" },
     ],
   },
   {
@@ -119,6 +194,90 @@ const PODIUM_SMS_TEMPLATE_BLOCKS: {
     tags: [],
   },
 ] as const;
+
+type OperationalEmailTemplateKey = keyof PodiumSmsConfig["email_templates"];
+
+const CUSTOMER_TAGS = [
+  { token: "{first_name}", label: "First name" },
+  { token: "{last_name}", label: "Last name" },
+  { token: "{full_name}", label: "Full name" },
+  { token: "{customer_code}", label: "Customer #" },
+] as const;
+
+const STORE_TAGS = [
+  { token: "{store_name}", label: "Store name" },
+  { token: "{store_phone}", label: "Store phone" },
+  { token: "{store_email}", label: "Store email" },
+  { token: "{store_address}", label: "Store address" },
+] as const;
+
+const OPERATIONAL_EMAIL_TEMPLATE_BLOCKS: Array<{
+  label: string;
+  description: string;
+  subjectKey: OperationalEmailTemplateKey;
+  bodyKey: OperationalEmailTemplateKey;
+  tags: ReadonlyArray<{ token: string; label: string }>;
+}> = [
+  {
+    label: "Ready for pickup email",
+    description: "Store Email sent when a customer Transaction is ready for pickup.",
+    subjectKey: "ready_for_pickup_subject",
+    bodyKey: "ready_for_pickup_html",
+    tags: [...CUSTOMER_TAGS, ...STORE_TAGS, { token: "{transaction_ref}", label: "Transaction" }],
+  },
+  {
+    label: "Alteration ready email",
+    description: "Store Email sent when alteration work is marked ready.",
+    subjectKey: "alteration_ready_subject",
+    bodyKey: "alteration_ready_html",
+    tags: [
+      ...CUSTOMER_TAGS,
+      ...STORE_TAGS,
+      { token: "{alteration_ref}", label: "Alteration ticket" },
+      { token: "{transaction_ref}", label: "Transaction" },
+    ],
+  },
+  {
+    label: "Appointment confirmation email",
+    description: "Store Email with the calendar attachment after appointment creation.",
+    subjectKey: "appointment_confirmation_subject",
+    bodyKey: "appointment_confirmation_html",
+    tags: [
+      ...CUSTOMER_TAGS,
+      ...STORE_TAGS,
+      { token: "{appointment_type}", label: "Purpose" },
+      { token: "{starts_at}", label: "Date/time" },
+      { token: "{appointment_date}", label: "Date" },
+      { token: "{appointment_time}", label: "Time" },
+      { token: "{notes_block}", label: "Notes block" },
+      { token: "{calendar_url}", label: "Calendar link" },
+    ],
+  },
+  {
+    label: "Appointment reminder email",
+    description: "Store Email sent by the 24-hour reminder worker.",
+    subjectKey: "appointment_reminder_subject",
+    bodyKey: "appointment_reminder_html",
+    tags: [
+      ...CUSTOMER_TAGS,
+      ...STORE_TAGS,
+      { token: "{appointment_type}", label: "Purpose" },
+      { token: "{starts_at}", label: "Date/time" },
+      { token: "{appointment_date}", label: "Date" },
+      { token: "{appointment_time}", label: "Time" },
+      { token: "{notes}", label: "Notes" },
+    ],
+  },
+];
+
+function hydrateTemplateValues<T extends Record<string, string>>(stored: T, effective: T): T {
+  return Object.fromEntries(
+    Object.keys(effective).map((key) => {
+      const storedValue = stored[key]?.trim();
+      return [key, storedValue ? stored[key] : effective[key]];
+    }),
+  ) as T;
+}
 
 const PODIUM_OAUTH_SCOPE = [
   "read_locations",
@@ -150,7 +309,23 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
         headers: backofficeHeaders() as Record<string, string>,
       });
       if (resp.ok) {
-        setPodiumSms((await resp.json()) as PodiumSmsConfig);
+        const next = (await resp.json()) as PodiumSmsConfig;
+        setPodiumSms({
+          ...next,
+          templates: hydrateTemplateValues(next.templates, next.templates_effective),
+          email_templates: hydrateTemplateValues(
+            next.email_templates,
+            next.email_templates_effective,
+          ),
+          review_templates: hydrateTemplateValues(
+            next.review_templates,
+            next.review_templates_effective,
+          ),
+          receipt_templates: hydrateTemplateValues(
+            next.receipt_templates,
+            next.receipt_templates_effective,
+          ),
+        });
       }
       const readResp = await fetch(`${baseUrl}/api/settings/podium-sms/readiness`, {
         headers: backofficeHeaders() as Record<string, string>,
@@ -275,6 +450,36 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
     });
   };
 
+  const insertEmailTag = (key: OperationalEmailTemplateKey, token: string) => {
+    if (!podiumSms) return;
+    const current = podiumSms.email_templates[key] ?? "";
+    const next = current.trimEnd().length > 0 ? `${current.trimEnd()} ${token}` : token;
+    setPodiumSms({
+      ...podiumSms,
+      email_templates: { ...podiumSms.email_templates, [key]: next },
+    });
+  };
+
+  const insertReviewTag = (key: ReviewTemplateKey, token: string) => {
+    if (!podiumSms) return;
+    const current = podiumSms.review_templates[key] ?? "";
+    const next = current.trimEnd().length > 0 ? `${current.trimEnd()} ${token}` : token;
+    setPodiumSms({
+      ...podiumSms,
+      review_templates: { ...podiumSms.review_templates, [key]: next },
+    });
+  };
+
+  const insertReceiptTag = (key: ReceiptTemplateKey, token: string) => {
+    if (!podiumSms) return;
+    const current = podiumSms.receipt_templates[key] ?? "";
+    const next = current.trimEnd().length > 0 ? `${current.trimEnd()} ${token}` : token;
+    setPodiumSms({
+      ...podiumSms,
+      receipt_templates: { ...podiumSms.receipt_templates, [key]: next },
+    });
+  };
+
   if (!podiumSms) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -294,8 +499,8 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
             imageClassName="h-10 w-auto object-contain"
           />
         </div>
-        <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Text Messaging & Web Chat</h2>
-        <p className="text-sm text-app-text-muted mt-2 font-medium">Coordinate Podium SMS templates, review invites, and web chat widgets. Store email is managed in the Riverside IONOS mailbox.</p>
+        <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Customer Messages & Web Chat</h2>
+        <p className="text-sm text-app-text-muted mt-2 font-medium">Edit operational, review, and receipt messages in one place. Podium delivers review requests; Store Email delivers operational and receipt email.</p>
       </header>
 
       <ReviewInvitesSettingsCard baseUrl={baseUrl} />
@@ -565,6 +770,202 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                       />
                    </div>
                  ))}
+              </div>
+           </div>
+
+           <div className="pt-10 border-t border-app-border/40">
+              <div className="flex items-center justify-between mb-4">
+                 <div>
+                   <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">Operational Email Templates</h4>
+                   <p className="mt-2 text-xs font-medium text-app-text-muted">Delivered through Store Email. Subject and HTML remain editable independently.</p>
+                 </div>
+                 <Info size={14} className="text-app-text-muted" />
+              </div>
+              <div className="grid gap-6 md:grid-cols-2">
+                {OPERATIONAL_EMAIL_TEMPLATE_BLOCKS.map((block) => (
+                  <div key={block.subjectKey} className="ui-card ui-tint-neutral p-5 space-y-3">
+                    <div className="flex justify-between items-start gap-3">
+                      <div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-app-accent">{block.label}</span>
+                        <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">{block.description}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPodiumSms({
+                          ...podiumSms,
+                          email_templates: {
+                            ...podiumSms.email_templates,
+                            [block.subjectKey]: OPERATIONAL_EMAIL_TEMPLATE_DEFAULTS[block.subjectKey],
+                            [block.bodyKey]: OPERATIONAL_EMAIL_TEMPLATE_DEFAULTS[block.bodyKey],
+                          },
+                        })}
+                        className="shrink-0 text-[8px] font-black uppercase tracking-widest text-app-accent hover:text-app-text transition-colors"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {block.tags.map((tag) => (
+                        <button
+                          key={`${block.subjectKey}-${tag.token}`}
+                          type="button"
+                          onClick={() => insertEmailTag(block.bodyKey, tag.token)}
+                          className="rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted transition hover:border-app-accent hover:text-app-accent"
+                        >
+                          {tag.label} <span className="normal-case tracking-normal">{tag.token}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      Subject
+                      <input
+                        className="ui-input mt-2 w-full p-3 text-xs font-medium normal-case tracking-normal"
+                        value={podiumSms.email_templates[block.subjectKey]}
+                        onChange={(event) => setPodiumSms({
+                          ...podiumSms,
+                          email_templates: {
+                            ...podiumSms.email_templates,
+                            [block.subjectKey]: event.target.value,
+                          },
+                        })}
+                      />
+                    </label>
+                    <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      HTML body
+                      <textarea
+                        className="ui-input mt-2 w-full min-h-[140px] p-4 font-mono text-[11px] font-medium leading-relaxed normal-case tracking-normal"
+                        value={podiumSms.email_templates[block.bodyKey]}
+                        onChange={(event) => setPodiumSms({
+                          ...podiumSms,
+                          email_templates: {
+                            ...podiumSms.email_templates,
+                            [block.bodyKey]: event.target.value,
+                          },
+                        })}
+                      />
+                    </label>
+                  </div>
+                ))}
+              </div>
+           </div>
+
+           <div className="pt-10 border-t border-app-border/40">
+              <div className="mb-4">
+                <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">Review Request Messages</h4>
+                <p className="mt-2 text-xs font-medium text-app-text-muted">Podium delivers the text or email five days after fulfillment. Keep <code>{"{review_url}"}</code> in both message bodies.</p>
+              </div>
+              <div className="ui-card ui-tint-neutral p-5 space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { token: "{first_name}", label: "First name" },
+                    { token: "{transaction_ref}", label: "Transaction" },
+                    { token: "{store_name}", label: "Store name" },
+                    { token: "{review_url}", label: "Review link" },
+                  ].map((tag) => (
+                    <button
+                      key={`review-${tag.token}`}
+                      type="button"
+                      onClick={() => insertReviewTag("sms_body", tag.token)}
+                      className="rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted transition hover:border-app-accent hover:text-app-accent"
+                    >
+                      {tag.label} <span className="normal-case tracking-normal">{tag.token}</span>
+                    </button>
+                  ))}
+                </div>
+                <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Podium SMS body
+                  <textarea
+                    className="ui-input mt-2 w-full min-h-[100px] p-4 text-xs font-medium leading-relaxed normal-case tracking-normal"
+                    value={podiumSms.review_templates.sms_body}
+                    onChange={(event) => setPodiumSms({
+                      ...podiumSms,
+                      review_templates: { ...podiumSms.review_templates, sms_body: event.target.value },
+                    })}
+                  />
+                </label>
+                <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Podium email subject
+                  <input
+                    className="ui-input mt-2 w-full p-3 text-xs font-medium normal-case tracking-normal"
+                    value={podiumSms.review_templates.email_subject}
+                    onChange={(event) => setPodiumSms({
+                      ...podiumSms,
+                      review_templates: { ...podiumSms.review_templates, email_subject: event.target.value },
+                    })}
+                  />
+                </label>
+                <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Podium email body
+                  <textarea
+                    className="ui-input mt-2 w-full min-h-[140px] p-4 text-xs font-medium leading-relaxed normal-case tracking-normal"
+                    value={podiumSms.review_templates.email_body}
+                    onChange={(event) => setPodiumSms({
+                      ...podiumSms,
+                      review_templates: { ...podiumSms.review_templates, email_body: event.target.value },
+                    })}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setPodiumSms({ ...podiumSms, review_templates: REVIEW_TEMPLATE_DEFAULTS })}
+                  className="text-[9px] font-black uppercase tracking-widest text-app-accent hover:text-app-text"
+                >
+                  Reset review messages
+                </button>
+              </div>
+           </div>
+
+           <div className="pt-10 border-t border-app-border/40">
+              <div className="mb-4">
+                <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">Receipt Delivery Messages</h4>
+                <p className="mt-2 text-xs font-medium text-app-text-muted">These edit the email subject and Podium MMS caption. The authoritative receipt body and image remain controlled by Receipt Settings.</p>
+              </div>
+              <div className="ui-card ui-tint-neutral p-5 space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { token: "{store_name}", label: "Store name" },
+                    { token: "{receipt_ref}", label: "Receipt #" },
+                    { token: "{receipt_type}", label: "Receipt type" },
+                    { token: "{customer_name}", label: "Customer" },
+                    { token: "{customer_code}", label: "Customer #" },
+                  ].map((tag) => (
+                    <button
+                      key={`receipt-${tag.token}`}
+                      type="button"
+                      onClick={() => insertReceiptTag("sms_caption", tag.token)}
+                      className="rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted transition hover:border-app-accent hover:text-app-accent"
+                    >
+                      {tag.label} <span className="normal-case tracking-normal">{tag.token}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {([
+                    ["sms_caption", "Receipt MMS caption"],
+                    ["gift_sms_caption", "Gift receipt MMS caption"],
+                    ["email_subject", "Receipt email subject"],
+                    ["gift_email_subject", "Gift receipt email subject"],
+                  ] as Array<[ReceiptTemplateKey, string]>).map(([key, label]) => (
+                    <label key={key} className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      {label}
+                      <textarea
+                        className="ui-input mt-2 w-full min-h-[86px] p-3 text-xs font-medium leading-relaxed normal-case tracking-normal"
+                        value={podiumSms.receipt_templates[key]}
+                        onChange={(event) => setPodiumSms({
+                          ...podiumSms,
+                          receipt_templates: { ...podiumSms.receipt_templates, [key]: event.target.value },
+                        })}
+                      />
+                    </label>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPodiumSms({ ...podiumSms, receipt_templates: RECEIPT_TEMPLATE_DEFAULTS })}
+                  className="text-[9px] font-black uppercase tracking-widest text-app-accent hover:text-app-text"
+                >
+                  Reset receipt messages
+                </button>
               </div>
            </div>
 

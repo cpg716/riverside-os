@@ -22,11 +22,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::api::AppState;
 use crate::logic::helcim;
-use crate::logic::podium_inbound;
 use crate::logic::podium_webhook::{
-    podium_inbound_crm_ingest_enabled, record_podium_webhook_delivery,
-    record_podium_webhook_failure, verify_podium_webhook_headers, PodiumWebhookDisposition,
-    PodiumWebhookVerifyError,
+    record_podium_webhook_delivery, record_podium_webhook_failure, verify_podium_webhook_headers,
+    PodiumWebhookDisposition, PodiumWebhookVerifyError,
 };
 
 const HELCIM_WEBHOOK_FALLBACK_MAX_AGE_MINUTES: i64 = 10;
@@ -339,33 +337,12 @@ async fn post_podium_webhook(
             tracing::debug!(target = "podium_webhook", event = "duplicate_delivery");
             StatusCode::OK.into_response()
         }
-        Ok(PodiumWebhookDisposition::Accepted) => {
-            tracing::info!(target = "podium_webhook", event = "delivery_accepted");
-            match crate::logic::customer_notifications::apply_podium_failure_webhook(
-                &state.db, &value,
-            )
-            .await
-            {
-                Ok(true) => tracing::info!(
-                    target = "podium_webhook",
-                    event = "customer_notification_failure_applied"
-                ),
-                Ok(false) => {}
-                Err(error) => tracing::warn!(
-                    target = "podium_webhook",
-                    event = "customer_notification_failure_apply_failed",
-                    error = %error
-                ),
-            }
-            if podium_inbound_crm_ingest_enabled() {
-                let pool = state.db.clone();
-                let http = state.http_client.clone();
-                let cache: Arc<_> = Arc::clone(&state.podium_token_cache);
-                let payload = value.clone();
-                tokio::spawn(async move {
-                    podium_inbound::ingest_from_webhook(&pool, &http, &cache, &payload).await;
-                });
-            }
+        Ok(PodiumWebhookDisposition::Accepted(delivery_id)) => {
+            tracing::info!(
+                target = "podium_webhook",
+                event = "delivery_accepted",
+                delivery_id = %delivery_id
+            );
             Json(serde_json::json!({ "ok": true })).into_response()
         }
         Err(e) => {

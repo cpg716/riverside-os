@@ -62,6 +62,34 @@ pub async fn record_customer_notification(
     } else {
         "delivered"
     };
+    record_customer_notification_with_status(
+        pool,
+        customer_id,
+        entity_type,
+        entity_id,
+        kind,
+        channel,
+        body_preview,
+        delivery_status,
+        delivery_error,
+        metadata,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn record_customer_notification_with_status(
+    pool: &PgPool,
+    customer_id: Uuid,
+    entity_type: &str,
+    entity_id: Uuid,
+    kind: CustomerNotificationKind,
+    channel: CustomerNotificationChannel,
+    body_preview: Option<&str>,
+    delivery_status: &str,
+    delivery_error: Option<&str>,
+    metadata: Value,
+) -> Result<Uuid, sqlx::Error> {
     let metadata = metadata
         .as_object()
         .cloned()
@@ -249,6 +277,22 @@ fn webhook_failure_reason(value: &Value) -> Option<String> {
     )
 }
 
+fn webhook_message_id(value: &Value) -> Option<String> {
+    text_at(
+        value,
+        &[
+            "/data/uid",
+            "/uid",
+            "/data/messageUid",
+            "/messageUid",
+            "/data/conversationItemUid",
+            "/conversationItemUid",
+            "/data/items/0/uid",
+            "/items/0/uid",
+        ],
+    )
+}
+
 async fn find_customer_for_identifier(
     pool: &PgPool,
     identifier: &str,
@@ -307,6 +351,38 @@ pub async fn apply_podium_failure_webhook(
     )
     .unwrap_or_default()
     .to_ascii_lowercase();
+    if matches!(delivery_status.as_str(), "delivered" | "delivery_succeeded") {
+        let Some(message_id) = webhook_message_id(value) else {
+            return Ok(false);
+        };
+        let notification_result = sqlx::query(
+            r#"
+            UPDATE customer_notification_queue
+            SET delivery_status = 'delivered',
+                delivery_error = NULL,
+                updated_at = NOW()
+            WHERE metadata ->> 'provider_message_id' = $1
+            "#,
+        )
+        .bind(&message_id)
+        .execute(pool)
+        .await?;
+        let transaction_result = sqlx::query(
+            r#"
+            UPDATE transactions
+            SET podium_review_invite_status = 'delivered',
+                review_invite_last_error = NULL
+            WHERE podium_review_message_id = $1
+              AND podium_review_invite_status = 'sent'
+            "#,
+        )
+        .bind(&message_id)
+        .execute(pool)
+        .await?;
+        return Ok(
+            notification_result.rows_affected() > 0 || transaction_result.rows_affected() > 0
+        );
+    }
     let failed = event.contains("failed")
         || delivery_status.contains("failed")
         || delivery_status.contains("undeliver");
@@ -317,6 +393,40 @@ pub async fn apply_podium_failure_webhook(
     let reason = webhook_failure_reason(value)
         .unwrap_or_else(|| "Provider reported the message failed.".to_string());
     let channel = webhook_channel(value);
+    if let Some(message_id) = webhook_message_id(value) {
+        let notification_result = sqlx::query(
+            r#"
+            UPDATE customer_notification_queue
+            SET delivery_status = 'failed',
+                delivery_error = $2,
+                updated_at = NOW()
+            WHERE metadata ->> 'provider_message_id' = $1
+              AND delivery_status IS DISTINCT FROM 'failed'
+            "#,
+        )
+        .bind(&message_id)
+        .bind(&reason)
+        .execute(pool)
+        .await?;
+        let transaction_result = sqlx::query(
+            r#"
+            UPDATE transactions
+            SET podium_review_invite_status = 'failed',
+                review_invite_sent_at = NULL,
+                review_invite_last_error = $2,
+                review_invite_last_attempt_at = NOW()
+            WHERE podium_review_message_id = $1
+              AND podium_review_invite_status IN ('sent', 'delivered')
+            "#,
+        )
+        .bind(&message_id)
+        .bind(&reason)
+        .execute(pool)
+        .await?;
+        if notification_result.rows_affected() > 0 || transaction_result.rows_affected() > 0 {
+            return Ok(true);
+        }
+    }
     let Some(identifier) = webhook_identifier(value) else {
         return Ok(false);
     };
@@ -351,5 +461,15 @@ mod tests {
         assert_eq!(webhook_event(&value), "message.failed");
         assert_eq!(webhook_identifier(&value).as_deref(), Some("+18015551212"));
         assert_eq!(webhook_failure_reason(&value).as_deref(), Some("landline"));
+        assert_eq!(webhook_message_id(&value).as_deref(), None);
+    }
+
+    #[test]
+    fn podium_failure_extracts_exact_message_id() {
+        let value = json!({
+            "data": { "uid": "message-123", "failureReason": "landline" },
+            "metadata": { "eventType": "message.failed" }
+        });
+        assert_eq!(webhook_message_id(&value).as_deref(), Some("message-123"));
     }
 }

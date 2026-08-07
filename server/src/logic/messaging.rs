@@ -16,6 +16,8 @@ use crate::models::DbOrderStatus;
 #[derive(Debug, sqlx::FromRow)]
 struct CustomerMessagingRow {
     first_name: Option<String>,
+    last_name: Option<String>,
+    customer_code: String,
     email: Option<String>,
     phone: Option<String>,
     marketing_email_opt_in: bool,
@@ -30,7 +32,7 @@ async fn load_customer_messaging_row(
 ) -> Result<CustomerMessagingRow, sqlx::Error> {
     sqlx::query_as::<_, CustomerMessagingRow>(
         r#"
-        SELECT first_name, email, phone,
+        SELECT first_name, last_name, customer_code, email, phone,
                marketing_email_opt_in, marketing_sms_opt_in, transactional_sms_opt_in,
                transactional_email_opt_in
         FROM customers WHERE id = $1
@@ -39,6 +41,43 @@ async fn load_customer_messaging_row(
     .bind(customer_id)
     .fetch_one(pool)
     .await
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct StoreMessageIdentity {
+    store_name: String,
+    store_phone: String,
+    store_email: String,
+    store_address: String,
+}
+
+async fn load_store_message_identity(pool: &PgPool) -> Result<StoreMessageIdentity, sqlx::Error> {
+    sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE(NULLIF(BTRIM(receipt_config->>'store_name'), ''), 'Riverside Men''s Shop') AS store_name,
+            COALESCE(NULLIF(BTRIM(receipt_config->>'store_phone'), ''), '(716) 833-8401') AS store_phone,
+            COALESCE(NULLIF(BTRIM(receipt_config->>'store_email'), ''), 'info@riversidemens.com') AS store_email,
+            COALESCE(NULLIF(BTRIM(receipt_config->>'store_address'), ''), '6470 Transit Rd, Depew, NY') AS store_address
+        FROM store_settings
+        WHERE id = 1
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+}
+
+fn customer_full_name(customer: &CustomerMessagingRow) -> String {
+    [
+        customer.first_name.as_deref(),
+        customer.last_name.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .collect::<Vec<_>>()
+    .join(" ")
 }
 
 fn email_opt_in_ok(row: &CustomerMessagingRow) -> bool {
@@ -128,6 +167,44 @@ async fn record_outcome(
     .await;
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct MessagingDeliverySummary {
+    successful_channels: Vec<&'static str>,
+    errors: Vec<String>,
+}
+
+impl MessagingDeliverySummary {
+    fn delivered(&mut self, channel: &'static str) {
+        if !self.successful_channels.contains(&channel) {
+            self.successful_channels.push(channel);
+        }
+    }
+
+    fn failed(&mut self, error: impl Into<String>) {
+        self.errors.push(error.into());
+    }
+
+    pub fn is_delivered(&self) -> bool {
+        !self.successful_channels.is_empty()
+    }
+
+    pub fn delivery_method(&self) -> &'static str {
+        match (
+            self.successful_channels.contains(&"sms"),
+            self.successful_channels.contains(&"email"),
+        ) {
+            (true, true) => "both",
+            (true, false) => "sms",
+            (false, true) => "email",
+            (false, false) => "none",
+        }
+    }
+
+    pub fn delivery_error(&self) -> Option<String> {
+        (!self.errors.is_empty()).then(|| self.errors.join("; "))
+    }
+}
+
 /// Core messaging dispatcher for automated notifications.
 /// SMS: Podium when env + `podium_sms_config.sms_send_enabled` + location_uid.
 /// Email: first-party store email (IONOS-compatible IMAP/SMTP) when enabled.
@@ -146,6 +223,7 @@ impl MessagingService {
         };
 
         let customer = load_customer_messaging_row(pool, customer_id).await?;
+        let store = load_store_message_identity(pool).await?;
         let podium_cfg = podium::load_store_podium_config(pool).await.ok();
         let sms_templates = podium_cfg
             .as_ref()
@@ -157,8 +235,13 @@ impl MessagingService {
             .unwrap_or_default();
 
         let first = customer.first_name.as_deref().unwrap_or("there");
+        let last = customer.last_name.as_deref().unwrap_or("");
+        let full_name = customer_full_name(&customer);
         let starts = appt.starts_at.format("%Y-%m-%d %H:%M %Z").to_string();
+        let appointment_date = appt.starts_at.format("%A, %B %-d, %Y").to_string();
+        let appointment_time = appt.starts_at.format("%-I:%M %p %Z").to_string();
         let appt_type = appt.appointment_type.as_str();
+        let notes = appt.notes.as_deref().unwrap_or("");
         let calendar_summary = format!("Riverside {appt_type} Appointment");
         let calendar_url = google_calendar_link(&calendar_summary, appt.starts_at);
         let notes_block = appt
@@ -171,9 +254,20 @@ impl MessagingService {
 
         let vars = [
             ("first_name", first),
+            ("last_name", last),
+            ("full_name", full_name.as_str()),
+            ("customer_code", customer.customer_code.as_str()),
             ("starts_at", starts.as_str()),
+            ("appointment_date", appointment_date.as_str()),
+            ("appointment_time", appointment_time.as_str()),
             ("appointment_type", appt_type),
+            ("notes", notes),
             ("notes_block", notes_block.as_str()),
+            ("calendar_url", calendar_url.as_str()),
+            ("store_name", store.store_name.as_str()),
+            ("store_phone", store.store_phone.as_str()),
+            ("store_email", store.store_email.as_str()),
+            ("store_address", store.store_address.as_str()),
         ];
         let mut attempted = Vec::new();
         let mut errors: Vec<String> = Vec::new();
@@ -181,14 +275,8 @@ impl MessagingService {
         if sms_opt_in_ok(&customer) {
             if let Some(ref phone) = customer.phone {
                 if let Some(e164) = normalize_phone_e164(phone) {
-                    let sms_body = apply_template_placeholders(
-                        &sms_templates.appointment_confirmation,
-                        &[
-                            ("first_name", first),
-                            ("starts_at", starts.as_str()),
-                            ("appointment_type", appt_type),
-                        ],
-                    );
+                    let sms_body =
+                        apply_template_placeholders(&sms_templates.appointment_confirmation, &vars);
                     let sms_ics = appointment_ics(
                         appt.id,
                         &calendar_summary,
@@ -326,26 +414,45 @@ impl MessagingService {
         };
 
         let customer = load_customer_messaging_row(pool, customer_id).await?;
+        let store = load_store_message_identity(pool).await?;
         let podium_cfg = podium::load_store_podium_config(pool).await.ok();
         let sms_templates = podium_cfg
             .as_ref()
             .map(|c| c.templates.merged_defaults())
             .unwrap_or_default();
+        let email_templates = podium_cfg
+            .as_ref()
+            .map(|c| c.email_templates.merged_defaults())
+            .unwrap_or_default();
 
         let first = customer.first_name.as_deref().unwrap_or("there");
+        let last = customer.last_name.as_deref().unwrap_or("");
+        let full_name = customer_full_name(&customer);
         let starts = appt.starts_at.format("%Y-%m-%d %H:%M %Z").to_string();
+        let appointment_date = appt.starts_at.format("%A, %B %-d, %Y").to_string();
+        let appointment_time = appt.starts_at.format("%-I:%M %p %Z").to_string();
         let appt_type = appt.appointment_type.as_str();
+        let notes = appt.notes.as_deref().unwrap_or("");
+        let vars = [
+            ("first_name", first),
+            ("last_name", last),
+            ("full_name", full_name.as_str()),
+            ("customer_code", customer.customer_code.as_str()),
+            ("starts_at", starts.as_str()),
+            ("appointment_date", appointment_date.as_str()),
+            ("appointment_time", appointment_time.as_str()),
+            ("appointment_type", appt_type),
+            ("notes", notes),
+            ("store_name", store.store_name.as_str()),
+            ("store_phone", store.store_phone.as_str()),
+            ("store_email", store.store_email.as_str()),
+            ("store_address", store.store_address.as_str()),
+        ];
 
         if sms_opt_in_ok(&customer) {
             if let Some(ref phone) = customer.phone {
-                let sms_body = apply_template_placeholders(
-                    &sms_templates.appointment_reminder,
-                    &[
-                        ("first_name", first),
-                        ("starts_at", starts.as_str()),
-                        ("appointment_type", appt_type),
-                    ],
-                );
+                let sms_body =
+                    apply_template_placeholders(&sms_templates.appointment_reminder, &vars);
                 let sms_error = if let Some(e164) = normalize_phone_e164(phone) {
                     podium::try_send_operational_sms(
                         pool,
@@ -379,12 +486,13 @@ impl MessagingService {
         if email_opt_in_ok(&customer) {
             if let Some(ref email) = customer.email {
                 if looks_like_email(email) {
-                    let subject = format!("Reminder: Riverside {appt_type} appointment tomorrow");
-                    let html = format!(
-                        "<p>Hi {},</p><p>Reminder: your <b>{}</b> appointment is tomorrow at <b>{}</b>.</p>",
-                        html_escape_minimal(first),
-                        html_escape_minimal(appt_type),
-                        html_escape_minimal(&starts)
+                    let subject = apply_template_placeholders(
+                        &email_templates.appointment_reminder_subject,
+                        &vars,
+                    );
+                    let html = apply_template_placeholders(
+                        &email_templates.appointment_reminder_html,
+                        &vars,
                     );
                     let email_error = store_email::try_send_operational_email(
                         pool,
@@ -422,15 +530,15 @@ impl MessagingService {
         podium_cache: &Arc<Mutex<PodiumTokenCache>>,
         transaction_id: Uuid,
         customer_id: Uuid,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<MessagingDeliverySummary, sqlx::Error> {
         let customer = load_customer_messaging_row(pool, customer_id).await?;
-
-        let order_ref = transaction_id
-            .simple()
-            .to_string()
-            .chars()
-            .take(8)
-            .collect::<String>();
+        let store = load_store_message_identity(pool).await?;
+        let mut delivery = MessagingDeliverySummary::default();
+        let transaction_ref: String =
+            sqlx::query_scalar("SELECT display_id FROM transactions WHERE id = $1")
+                .bind(transaction_id)
+                .fetch_one(pool)
+                .await?;
 
         let podium_cfg = podium::load_store_podium_config(pool).await.ok();
         let sms_templates = podium_cfg
@@ -441,15 +549,26 @@ impl MessagingService {
             .as_ref()
             .map(|c| c.email_templates.merged_defaults())
             .unwrap_or_default();
+        let first = customer.first_name.as_deref().unwrap_or("there");
+        let last = customer.last_name.as_deref().unwrap_or("");
+        let full_name = customer_full_name(&customer);
+        let vars = [
+            ("first_name", first),
+            ("last_name", last),
+            ("full_name", full_name.as_str()),
+            ("customer_code", customer.customer_code.as_str()),
+            ("order_ref", transaction_ref.as_str()),
+            ("transaction_ref", transaction_ref.as_str()),
+            ("store_name", store.store_name.as_str()),
+            ("store_phone", store.store_phone.as_str()),
+            ("store_email", store.store_email.as_str()),
+            ("store_address", store.store_address.as_str()),
+        ];
 
         let sms_ok = customer.transactional_sms_opt_in || customer.marketing_sms_opt_in;
         if sms_ok {
             if let Some(ref phone) = customer.phone {
-                let first = customer.first_name.as_deref().unwrap_or("there");
-                let body = apply_template_placeholders(
-                    &sms_templates.ready_for_pickup,
-                    &[("first_name", first), ("order_ref", order_ref.as_str())],
-                );
+                let body = apply_template_placeholders(&sms_templates.ready_for_pickup, &vars);
 
                 tracing::info!(
                     target: "messaging",
@@ -469,6 +588,10 @@ impl MessagingService {
                         Some(customer_id),
                     )
                     .await;
+                    match &sms_result {
+                        Ok(()) => delivery.delivered("sms"),
+                        Err(error) => delivery.failed(format!("SMS failed: {error}")),
+                    }
                     record_outcome(
                         pool,
                         customer_id,
@@ -478,10 +601,11 @@ impl MessagingService {
                         CustomerNotificationChannel::Sms,
                         &body,
                         sms_result.err().map(|e| e.to_string()),
-                        serde_json::json!({ "order_ref": order_ref }),
+                        serde_json::json!({ "transaction_ref": transaction_ref }),
                     )
                     .await;
                 } else {
+                    delivery.failed("SMS skipped: customer phone is invalid.");
                     tracing::warn!(
                         target: "messaging",
                         event = "sms_skip",
@@ -490,21 +614,22 @@ impl MessagingService {
                         "Skipping SMS: phone could not be normalized to E.164"
                     );
                 }
+            } else {
+                delivery.failed("SMS skipped: customer has no phone number.");
             }
+        } else {
+            delivery.failed("SMS skipped: customer is not opted in.");
         }
 
         if email_opt_in_ok(&customer) {
             if let Some(ref email) = customer.email {
                 if looks_like_email(email) {
-                    let first = customer.first_name.as_deref().unwrap_or("there");
                     let subject = apply_template_placeholders(
                         &email_templates.ready_for_pickup_subject,
-                        &[("first_name", first), ("order_ref", order_ref.as_str())],
+                        &vars,
                     );
-                    let html = apply_template_placeholders(
-                        &email_templates.ready_for_pickup_html,
-                        &[("first_name", first), ("order_ref", order_ref.as_str())],
-                    );
+                    let html =
+                        apply_template_placeholders(&email_templates.ready_for_pickup_html, &vars);
                     tracing::info!(
                         target: "messaging",
                         event = "email_dispatch",
@@ -521,6 +646,10 @@ impl MessagingService {
                         Some(customer_id),
                     )
                     .await;
+                    match &email_result {
+                        Ok(_) => delivery.delivered("email"),
+                        Err(error) => delivery.failed(format!("Email failed: {error}")),
+                    }
                     record_outcome(
                         pool,
                         customer_id,
@@ -530,14 +659,20 @@ impl MessagingService {
                         CustomerNotificationChannel::Email,
                         &format!("{subject}\n{html}"),
                         email_result.err().map(|e| e.to_string()),
-                        serde_json::json!({ "order_ref": order_ref }),
+                        serde_json::json!({ "transaction_ref": transaction_ref }),
                     )
                     .await;
+                } else {
+                    delivery.failed("Email skipped: customer email address is invalid.");
                 }
+            } else {
+                delivery.failed("Email skipped: customer has no email address.");
             }
+        } else {
+            delivery.failed("Email skipped: customer is not opted in.");
         }
 
-        Ok(())
+        Ok(delivery)
     }
 
     /// Alteration work order marked ready — SMS/email (same opt-in rules as pickup).
@@ -547,15 +682,23 @@ impl MessagingService {
         podium_cache: &Arc<Mutex<PodiumTokenCache>>,
         customer_id: Uuid,
         alteration_id: Uuid,
-    ) -> Result<(), sqlx::Error> {
+    ) -> Result<MessagingDeliverySummary, sqlx::Error> {
         let customer = load_customer_messaging_row(pool, customer_id).await?;
-
-        let short = alteration_id
-            .simple()
-            .to_string()
-            .chars()
-            .take(8)
-            .collect::<String>();
+        let store = load_store_message_identity(pool).await?;
+        let mut delivery = MessagingDeliverySummary::default();
+        let (alteration_ref, transaction_ref): (String, Option<String>) = sqlx::query_as(
+            r#"
+            SELECT
+                COALESCE(NULLIF(BTRIM(a.ticket_number), ''), LEFT(a.id::text, 8)) AS alteration_ref,
+                t.display_id AS transaction_ref
+            FROM alteration_orders a
+            LEFT JOIN transactions t ON t.id = a.transaction_id
+            WHERE a.id = $1
+            "#,
+        )
+        .bind(alteration_id)
+        .fetch_one(pool)
+        .await?;
 
         let podium_cfg = podium::load_store_podium_config(pool).await.ok();
         let sms_templates = podium_cfg
@@ -566,15 +709,27 @@ impl MessagingService {
             .as_ref()
             .map(|c| c.email_templates.merged_defaults())
             .unwrap_or_default();
+        let first = customer.first_name.as_deref().unwrap_or("there");
+        let last = customer.last_name.as_deref().unwrap_or("");
+        let full_name = customer_full_name(&customer);
+        let transaction_ref = transaction_ref.unwrap_or_default();
+        let vars = [
+            ("first_name", first),
+            ("last_name", last),
+            ("full_name", full_name.as_str()),
+            ("customer_code", customer.customer_code.as_str()),
+            ("alteration_ref", alteration_ref.as_str()),
+            ("transaction_ref", transaction_ref.as_str()),
+            ("store_name", store.store_name.as_str()),
+            ("store_phone", store.store_phone.as_str()),
+            ("store_email", store.store_email.as_str()),
+            ("store_address", store.store_address.as_str()),
+        ];
 
         let sms_ok = customer.transactional_sms_opt_in || customer.marketing_sms_opt_in;
         if sms_ok {
             if let Some(ref phone) = customer.phone {
-                let first = customer.first_name.as_deref().unwrap_or("there");
-                let body = apply_template_placeholders(
-                    &sms_templates.alteration_ready,
-                    &[("first_name", first), ("alteration_ref", short.as_str())],
-                );
+                let body = apply_template_placeholders(&sms_templates.alteration_ready, &vars);
 
                 tracing::info!(
                     target: "messaging",
@@ -594,6 +749,10 @@ impl MessagingService {
                         Some(customer_id),
                     )
                     .await;
+                    match &sms_result {
+                        Ok(()) => delivery.delivered("sms"),
+                        Err(error) => delivery.failed(format!("SMS failed: {error}")),
+                    }
                     record_outcome(
                         pool,
                         customer_id,
@@ -603,10 +762,11 @@ impl MessagingService {
                         CustomerNotificationChannel::Sms,
                         &body,
                         sms_result.err().map(|e| e.to_string()),
-                        serde_json::json!({ "alteration_ref": short }),
+                        serde_json::json!({ "alteration_ref": alteration_ref, "transaction_ref": transaction_ref }),
                     )
                     .await;
                 } else {
+                    delivery.failed("SMS skipped: customer phone is invalid.");
                     tracing::warn!(
                         target: "messaging",
                         event = "sms_skip",
@@ -615,21 +775,22 @@ impl MessagingService {
                         "Skipping alteration SMS: phone could not be normalized to E.164"
                     );
                 }
+            } else {
+                delivery.failed("SMS skipped: customer has no phone number.");
             }
+        } else {
+            delivery.failed("SMS skipped: customer is not opted in.");
         }
 
         if email_opt_in_ok(&customer) {
             if let Some(ref email) = customer.email {
                 if looks_like_email(email) {
-                    let first = customer.first_name.as_deref().unwrap_or("there");
                     let subject = apply_template_placeholders(
                         &email_templates.alteration_ready_subject,
-                        &[("first_name", first), ("alteration_ref", short.as_str())],
+                        &vars,
                     );
-                    let html = apply_template_placeholders(
-                        &email_templates.alteration_ready_html,
-                        &[("first_name", first), ("alteration_ref", short.as_str())],
-                    );
+                    let html =
+                        apply_template_placeholders(&email_templates.alteration_ready_html, &vars);
                     tracing::info!(
                         target: "messaging",
                         event = "email_dispatch",
@@ -646,6 +807,10 @@ impl MessagingService {
                         Some(customer_id),
                     )
                     .await;
+                    match &email_result {
+                        Ok(_) => delivery.delivered("email"),
+                        Err(error) => delivery.failed(format!("Email failed: {error}")),
+                    }
                     record_outcome(
                         pool,
                         customer_id,
@@ -655,14 +820,20 @@ impl MessagingService {
                         CustomerNotificationChannel::Email,
                         &format!("{subject}\n{html}"),
                         email_result.err().map(|e| e.to_string()),
-                        serde_json::json!({ "alteration_ref": short }),
+                        serde_json::json!({ "alteration_ref": alteration_ref, "transaction_ref": transaction_ref }),
                     )
                     .await;
+                } else {
+                    delivery.failed("Email skipped: customer email address is invalid.");
                 }
+            } else {
+                delivery.failed("Email skipped: customer has no email address.");
             }
+        } else {
+            delivery.failed("Email skipped: customer is not opted in.");
         }
 
-        Ok(())
+        Ok(delivery)
     }
 
     /// Listens for order status changes and triggers relevant automated pings.
@@ -708,4 +879,32 @@ fn html_escape_minimal(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delivery_summary_reports_only_successful_channels() {
+        let mut summary = MessagingDeliverySummary::default();
+        summary.failed("SMS failed");
+        summary.delivered("email");
+        assert!(summary.is_delivered());
+        assert_eq!(summary.delivery_method(), "email");
+        assert_eq!(summary.delivery_error().as_deref(), Some("SMS failed"));
+    }
+
+    #[test]
+    fn delivery_summary_fails_when_no_channel_succeeds() {
+        let mut summary = MessagingDeliverySummary::default();
+        summary.failed("SMS disabled");
+        summary.failed("Email missing");
+        assert!(!summary.is_delivered());
+        assert_eq!(summary.delivery_method(), "none");
+        assert_eq!(
+            summary.delivery_error().as_deref(),
+            Some("SMS disabled; Email missing")
+        );
+    }
 }

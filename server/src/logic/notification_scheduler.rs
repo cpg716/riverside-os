@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::logic::messaging::MessagingService;
+use crate::logic::messaging::{MessagingDeliverySummary, MessagingService};
 use crate::logic::podium::PodiumTokenCache;
 
 #[derive(Debug, Clone)]
@@ -136,7 +136,7 @@ impl NotificationScheduler {
                             kind = %kind,
                             "Unknown notification kind"
                         );
-                        Ok(())
+                        Ok(MessagingDeliverySummary::default())
                     }
                 },
                 _ => {
@@ -145,18 +145,23 @@ impl NotificationScheduler {
                         kind = %kind,
                         "Unknown notification kind"
                     );
-                    Ok(())
+                    Ok(MessagingDeliverySummary::default())
                 }
             };
 
             // Mark as sent or failed
-            let delivery_status = if result.is_ok() {
-                "delivered"
-            } else {
-                "failed"
+            let (delivery_status, delivery_method, delivery_error) = match &result {
+                Ok(summary) => (
+                    if summary.is_delivered() {
+                        "delivered"
+                    } else {
+                        "failed"
+                    },
+                    summary.delivery_method(),
+                    summary.delivery_error(),
+                ),
+                Err(error) => ("failed", "none", Some(error.to_string())),
             };
-            let delivery_error = result.as_ref().err().map(|e| e.to_string());
-            let delivery_method = "both"; // Default to both SMS and email
 
             tracing::info!(
                 target: "notification_scheduler",
@@ -174,7 +179,7 @@ impl NotificationScheduler {
                 .execute(&self.pool)
                 .await;
 
-            if result.is_ok() {
+            if matches!(&result, Ok(summary) if summary.is_delivered()) {
                 sent_count += 1;
             }
         }
@@ -229,19 +234,24 @@ impl NotificationScheduler {
                         )
                         .await
                     }
-                    _ => Ok(()),
+                    _ => Ok(MessagingDeliverySummary::default()),
                 },
-                _ => Ok(()),
+                _ => Ok(MessagingDeliverySummary::default()),
             };
 
             // Mark as sent
-            let delivery_status = if result.is_ok() {
-                "delivered"
-            } else {
-                "failed"
+            let (delivery_status, delivery_method, delivery_error) = match &result {
+                Ok(summary) => (
+                    if summary.is_delivered() {
+                        "delivered"
+                    } else {
+                        "failed"
+                    },
+                    summary.delivery_method(),
+                    summary.delivery_error(),
+                ),
+                Err(error) => ("failed", "none", Some(error.to_string())),
             };
-            let delivery_error = result.as_ref().err().map(|e| e.to_string());
-            let delivery_method = "both";
 
             tracing::info!(
                 target: "notification_scheduler",
@@ -259,7 +269,7 @@ impl NotificationScheduler {
                 .execute(&self.pool)
                 .await;
 
-            Ok(result.is_ok())
+            Ok(matches!(&result, Ok(summary) if summary.is_delivered()))
         } else {
             Ok(false)
         }

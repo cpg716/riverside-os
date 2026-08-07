@@ -107,8 +107,9 @@ export default function ReviewInvitesSettingsCard({
             Post-sale review invites
           </h3>
           <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
-            Store-wide defaults for Podium review flows. The receipt summary
-            still lets cashiers opt out per sale when invites are enabled.
+            Eligible fulfilled Transactions are scheduled automatically for
+            10:00 AM five days later. Customers are contacted at most once per
+            180 days, and customer-level opt-outs are always honored.
           </p>
         </div>
       </div>
@@ -134,31 +135,6 @@ export default function ReviewInvitesSettingsCard({
             />
             <span className="text-sm font-medium text-app-text">
               Enable post-sale review invites when Podium is configured.
-            </span>
-          </label>
-          <label
-            className={`flex cursor-pointer items-start gap-3 ${
-              !reviewPolicy.review_invites_enabled ? "opacity-50" : ""
-            }`}
-          >
-            <input
-              type="checkbox"
-              className="mt-1 h-4 w-4 rounded border-app-border"
-              disabled={!reviewPolicy.review_invites_enabled}
-              checked={reviewPolicy.send_review_invite_by_default}
-              onChange={(event) =>
-                setReviewPolicy((current) =>
-                  current
-                    ? {
-                        ...current,
-                        send_review_invite_by_default: event.target.checked,
-                      }
-                    : current,
-                )
-              }
-            />
-            <span className="text-sm font-medium text-app-text">
-              Default receipt summary to send a review invite.
             </span>
           </label>
           <button

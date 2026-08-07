@@ -39,8 +39,9 @@ use crate::logic::nuorder_sync;
 use crate::logic::podium::{
     build_podium_oauth_authorize_url_for_base, exchange_podium_oauth_authorization_code,
     podium_effective_rest_api_base, podium_oauth_app_credential_status, podium_oauth_client_id,
-    validate_podium_oauth_redirect_uri, validate_podium_oauth_state, PodiumEnvCredentials,
-    PodiumOAuthAppCredentials, PodiumSmsSettingsResponse, StorePodiumSmsConfig,
+    validate_podium_oauth_redirect_uri, validate_podium_oauth_state, validate_podium_service_url,
+    PodiumEnvCredentials, PodiumOAuthAppCredentials, PodiumSmsSettingsResponse,
+    StorePodiumSmsConfig,
 };
 use crate::logic::podium_reviews::{self, StoreReviewPolicy};
 use crate::logic::podium_webhook::{
@@ -1257,6 +1258,11 @@ fn clean_integration_credential_value_for_integration(
     value: String,
 ) -> Result<Option<String>, SettingsError> {
     let cleaned = clean_integration_credential_value(credential_key, value)?;
+    if integration_key == "podium" && matches!(credential_key, "api_base_url" | "oauth_token_url") {
+        return cleaned
+            .map(|value| validate_podium_service_url(&value).map_err(SettingsError::InvalidPayload))
+            .transpose();
+    }
     if integration_key == "helcim" && credential_key == "api_base_url" {
         return cleaned
             .map(|value| {
@@ -2808,6 +2814,9 @@ const MAX_STAFF_SOP_MARKDOWN_BYTES: usize = 131_072;
 
 /// Max UTF-8 bytes for pasted Podium widget snippet in `podium_sms_config`.
 const MAX_PODIUM_WIDGET_SNIPPET_BYTES: usize = 131_072;
+const MAX_SMS_TEMPLATE_CHARS: usize = 1_600;
+const MAX_MESSAGE_SUBJECT_CHARS: usize = 240;
+const MAX_MESSAGE_BODY_CHARS: usize = 20_000;
 
 #[derive(Debug, Serialize)]
 pub struct StaffSopResponse {
@@ -2868,6 +2877,9 @@ async fn podium_sms_settings_response(
     cfg: StorePodiumSmsConfig,
 ) -> PodiumSmsSettingsResponse {
     let templates_effective = cfg.templates.merged_defaults();
+    let email_templates_effective = cfg.email_templates.merged_defaults();
+    let review_templates_effective = cfg.review_templates.merged_defaults();
+    let receipt_templates_effective = cfg.receipt_templates.merged_defaults();
     PodiumSmsSettingsResponse {
         sms_send_enabled: cfg.sms_send_enabled,
         location_uid: cfg.location_uid,
@@ -2875,6 +2887,12 @@ async fn podium_sms_settings_response(
         widget_snippet_html: cfg.widget_snippet_html,
         templates: cfg.templates,
         templates_effective,
+        email_templates: cfg.email_templates,
+        email_templates_effective,
+        review_templates: cfg.review_templates,
+        review_templates_effective,
+        receipt_templates: cfg.receipt_templates,
+        receipt_templates_effective,
         credentials_configured: PodiumEnvCredentials::load(pool).await.is_some(),
         oauth_authorize_url: "https://api.podium.com/oauth/authorize",
         oauth_token_url_hint: "https://api.podium.com/oauth/token — set RIVERSIDE_PODIUM_OAUTH_TOKEN_URL if Podium instructs a different token host (some samples use accounts.podium.com).",
@@ -2904,12 +2922,64 @@ struct PatchPodiumSmsTemplatesBody {
 }
 
 #[derive(Debug, Deserialize, Default)]
+struct PatchPodiumEmailTemplatesBody {
+    ready_for_pickup_subject: Option<String>,
+    ready_for_pickup_html: Option<String>,
+    alteration_ready_subject: Option<String>,
+    alteration_ready_html: Option<String>,
+    appointment_confirmation_subject: Option<String>,
+    appointment_confirmation_html: Option<String>,
+    appointment_reminder_subject: Option<String>,
+    appointment_reminder_html: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PatchReviewMessageTemplatesBody {
+    sms_body: Option<String>,
+    email_subject: Option<String>,
+    email_body: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PatchReceiptMessageTemplatesBody {
+    sms_caption: Option<String>,
+    gift_sms_caption: Option<String>,
+    email_subject: Option<String>,
+    gift_email_subject: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
 struct PatchPodiumSmsBody {
     sms_send_enabled: Option<bool>,
     location_uid: Option<String>,
     widget_embed_enabled: Option<bool>,
     widget_snippet_html: Option<String>,
     templates: Option<PatchPodiumSmsTemplatesBody>,
+    email_templates: Option<PatchPodiumEmailTemplatesBody>,
+    review_templates: Option<PatchReviewMessageTemplatesBody>,
+    receipt_templates: Option<PatchReceiptMessageTemplatesBody>,
+}
+
+fn validate_message_template(
+    value: &str,
+    label: &str,
+    max_chars: usize,
+) -> Result<(), SettingsError> {
+    if value.chars().count() > max_chars {
+        return Err(SettingsError::InvalidPayload(format!(
+            "{label} exceeds {max_chars} characters"
+        )));
+    }
+    Ok(())
+}
+
+fn require_template_token(value: &str, label: &str, token: &str) -> Result<(), SettingsError> {
+    if !value.trim().is_empty() && !value.contains(token) {
+        return Err(SettingsError::InvalidPayload(format!(
+            "{label} must include {token}"
+        )));
+    }
+    Ok(())
 }
 
 async fn patch_podium_sms_settings(
@@ -2945,19 +3015,100 @@ async fn patch_podium_sms_settings(
     }
     if let Some(t) = body.templates {
         if let Some(s) = t.ready_for_pickup {
+            validate_message_template(&s, "ready_for_pickup", MAX_SMS_TEMPLATE_CHARS)?;
             current.templates.ready_for_pickup = s;
         }
         if let Some(s) = t.alteration_ready {
+            validate_message_template(&s, "alteration_ready", MAX_SMS_TEMPLATE_CHARS)?;
             current.templates.alteration_ready = s;
         }
         if let Some(s) = t.unknown_sender_welcome {
+            validate_message_template(&s, "unknown_sender_welcome", MAX_SMS_TEMPLATE_CHARS)?;
             current.templates.unknown_sender_welcome = s;
         }
         if let Some(s) = t.appointment_confirmation {
+            validate_message_template(&s, "appointment_confirmation", MAX_SMS_TEMPLATE_CHARS)?;
             current.templates.appointment_confirmation = s;
         }
         if let Some(s) = t.appointment_reminder {
+            validate_message_template(&s, "appointment_reminder", MAX_SMS_TEMPLATE_CHARS)?;
             current.templates.appointment_reminder = s;
+        }
+    }
+    if let Some(t) = body.email_templates {
+        if let Some(s) = t.ready_for_pickup_subject {
+            validate_message_template(&s, "ready_for_pickup_subject", MAX_MESSAGE_SUBJECT_CHARS)?;
+            current.email_templates.ready_for_pickup_subject = s;
+        }
+        if let Some(s) = t.ready_for_pickup_html {
+            validate_message_template(&s, "ready_for_pickup_html", MAX_MESSAGE_BODY_CHARS)?;
+            current.email_templates.ready_for_pickup_html = s;
+        }
+        if let Some(s) = t.alteration_ready_subject {
+            validate_message_template(&s, "alteration_ready_subject", MAX_MESSAGE_SUBJECT_CHARS)?;
+            current.email_templates.alteration_ready_subject = s;
+        }
+        if let Some(s) = t.alteration_ready_html {
+            validate_message_template(&s, "alteration_ready_html", MAX_MESSAGE_BODY_CHARS)?;
+            current.email_templates.alteration_ready_html = s;
+        }
+        if let Some(s) = t.appointment_confirmation_subject {
+            validate_message_template(
+                &s,
+                "appointment_confirmation_subject",
+                MAX_MESSAGE_SUBJECT_CHARS,
+            )?;
+            current.email_templates.appointment_confirmation_subject = s;
+        }
+        if let Some(s) = t.appointment_confirmation_html {
+            validate_message_template(&s, "appointment_confirmation_html", MAX_MESSAGE_BODY_CHARS)?;
+            current.email_templates.appointment_confirmation_html = s;
+        }
+        if let Some(s) = t.appointment_reminder_subject {
+            validate_message_template(
+                &s,
+                "appointment_reminder_subject",
+                MAX_MESSAGE_SUBJECT_CHARS,
+            )?;
+            current.email_templates.appointment_reminder_subject = s;
+        }
+        if let Some(s) = t.appointment_reminder_html {
+            validate_message_template(&s, "appointment_reminder_html", MAX_MESSAGE_BODY_CHARS)?;
+            current.email_templates.appointment_reminder_html = s;
+        }
+    }
+    if let Some(t) = body.review_templates {
+        if let Some(s) = t.sms_body {
+            validate_message_template(&s, "review_sms_body", MAX_SMS_TEMPLATE_CHARS)?;
+            require_template_token(&s, "review_sms_body", "{review_url}")?;
+            current.review_templates.sms_body = s;
+        }
+        if let Some(s) = t.email_subject {
+            validate_message_template(&s, "review_email_subject", MAX_MESSAGE_SUBJECT_CHARS)?;
+            current.review_templates.email_subject = s;
+        }
+        if let Some(s) = t.email_body {
+            validate_message_template(&s, "review_email_body", MAX_MESSAGE_BODY_CHARS)?;
+            require_template_token(&s, "review_email_body", "{review_url}")?;
+            current.review_templates.email_body = s;
+        }
+    }
+    if let Some(t) = body.receipt_templates {
+        if let Some(s) = t.sms_caption {
+            validate_message_template(&s, "receipt_sms_caption", MAX_SMS_TEMPLATE_CHARS)?;
+            current.receipt_templates.sms_caption = s;
+        }
+        if let Some(s) = t.gift_sms_caption {
+            validate_message_template(&s, "gift_receipt_sms_caption", MAX_SMS_TEMPLATE_CHARS)?;
+            current.receipt_templates.gift_sms_caption = s;
+        }
+        if let Some(s) = t.email_subject {
+            validate_message_template(&s, "receipt_email_subject", MAX_MESSAGE_SUBJECT_CHARS)?;
+            current.receipt_templates.email_subject = s;
+        }
+        if let Some(s) = t.gift_email_subject {
+            validate_message_template(&s, "gift_receipt_email_subject", MAX_MESSAGE_SUBJECT_CHARS)?;
+            current.receipt_templates.gift_email_subject = s;
         }
     }
     let updated = serde_json::to_value(&current).map_err(|e| {
@@ -4080,9 +4231,9 @@ async fn get_fal_usage(
 #[cfg(test)]
 mod tests {
     use super::{
-        clean_integration_credential_value_for_integration, validate_restore_catalog_membership,
-        validate_restore_confirmation, validate_restore_environment,
-        validate_restore_register_blocker, SettingsError,
+        clean_integration_credential_value_for_integration, require_template_token,
+        validate_restore_catalog_membership, validate_restore_confirmation,
+        validate_restore_environment, validate_restore_register_blocker, SettingsError,
     };
 
     fn err_message(err: SettingsError) -> String {
@@ -4094,6 +4245,22 @@ mod tests {
             | SettingsError::Unauthorized(m)
             | SettingsError::Forbidden(m) => m,
         }
+    }
+
+    #[test]
+    fn review_message_bodies_require_the_provider_link() {
+        assert!(require_template_token(
+            "Please review us at {review_url}",
+            "review_sms_body",
+            "{review_url}"
+        )
+        .is_ok());
+        assert!(require_template_token("", "review_sms_body", "{review_url}").is_ok());
+
+        let missing =
+            require_template_token("Please review us.", "review_sms_body", "{review_url}")
+                .expect_err("non-empty review messages need the link");
+        assert!(err_message(missing).contains("must include {review_url}"));
     }
 
     #[test]

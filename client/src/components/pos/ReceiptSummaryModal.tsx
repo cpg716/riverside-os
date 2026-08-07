@@ -171,14 +171,6 @@ type OrderDetail = {
   customer_review_requests_opt_out?: boolean;
 };
 
-type ReviewInviteChoiceResult = {
-  ok?: boolean;
-  status?: string;
-  message?: string;
-  provider_id?: string | null;
-  review_url?: string | null;
-};
-
 const EMPTY_ORDER_PAYMENT_LINES: OrderPaymentCartLine[] = [];
 const EMPTY_RECEIPT_TRANSACTION_LINE_IDS: string[] = [];
 
@@ -258,8 +250,6 @@ export default function ReceiptSummaryModal({
   const [phoneDraft, setPhoneDraft] = useState("");
   const [emailDraft, setEmailDraft] = useState("");
   const [savingContact, setSavingContact] = useState(false);
-  const [skipReviewInvite, setSkipReviewInvite] = useState(false);
-  const [reviewInviteSaving, setReviewInviteSaving] = useState(false);
   const [giftDialogOpen, setGiftDialogOpen] = useState(false);
   const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false);
   const [receiptPreviewHtml, setReceiptPreviewHtml] = useState<string | null>(
@@ -469,117 +459,14 @@ export default function ReceiptSummaryModal({
     toast,
   ]);
 
-  useEffect(() => {
-    if (!transactionDetail) return;
-    const eligible =
-      !!transactionDetail.customer &&
-      transactionDetail.store_review_invites_enabled === true &&
-      !transactionDetail.review_invite_sent_at &&
-      !transactionDetail.review_invite_suppressed_at &&
-      transactionDetail.customer_review_requests_opt_out !== true &&
-      isOrderStatus(transactionDetail.status, "fulfilled") &&
-      (transactionDetail.items ?? []).length > 0 &&
-      (transactionDetail.items ?? [])
-        .filter((it) => !it.is_internal)
-        .every((it) => it.is_fulfilled === true);
-    if (eligible) {
-      setSkipReviewInvite(
-        transactionDetail.store_send_review_invite_by_default === false,
-      );
-    } else {
-      setSkipReviewInvite(false);
-    }
-  }, [transactionDetail]);
-
-  const submitReviewInviteIfNeeded = useCallback(async () => {
-    if (!transactionId || !transactionDetail) return;
-    const eligible =
-      !!transactionDetail.customer &&
-      transactionDetail.store_review_invites_enabled === true &&
-      !transactionDetail.review_invite_sent_at &&
-      !transactionDetail.review_invite_suppressed_at &&
-      transactionDetail.customer_review_requests_opt_out !== true &&
-      isOrderStatus(transactionDetail.status, "fulfilled") &&
-      (transactionDetail.items ?? []).length > 0 &&
-      (transactionDetail.items ?? [])
-        .filter((it) => !it.is_internal)
-        .every((it) => it.is_fulfilled === true);
-    if (!eligible) return;
-    setReviewInviteSaving(true);
-    try {
-      const q = buildReceiptQuery(undefined, false);
-      const res = await fetch(
-        `${baseUrl}/api/transactions/${transactionId}/review-invite${q}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-          body: JSON.stringify({ skip: skipReviewInvite }),
-        },
-      );
-      if (!res.ok) {
-        await res.json().catch(() => ({}));
-        toast("Could not save review invite choice.", "error");
-        return;
-      }
-      const result = (await res
-        .json()
-        .catch(() => ({}))) as ReviewInviteChoiceResult;
-      if (result.status === "sent") {
-        toast("Review request sent through Podium.", "success");
-      } else if (result.status === "suppressed") {
-        toast("Review request skipped for this sale.", "info");
-      } else if (result.status === "skipped_recent_180d") {
-        toast(
-          "Review request skipped. This customer was asked in the last 180 days.",
-          "info",
-        );
-      } else if (result.status === "skipped_no_contact") {
-        toast(
-          "Review request skipped. Add a phone or email to ask later.",
-          "info",
-        );
-      } else if (result.status === "skipped_customer_opt_out") {
-        toast(
-          "Review request skipped. This customer has opted out of review requests.",
-          "info",
-        );
-      } else if (result.status === "not_ready") {
-        toast(
-          "Review request will only send after completed or picked-up sales.",
-          "info",
-        );
-      } else if (result.status === "not_configured") {
-        toast(
-          result.message ??
-            "Review requests are unavailable until Podium is configured.",
-          "info",
-        );
-      }
-    } catch {
-      toast("Could not save review invite choice", "error");
-    } finally {
-      setReviewInviteSaving(false);
-    }
-  }, [
-    transactionId,
-    transactionDetail,
-    buildReceiptQuery,
-    baseUrl,
-    getAuthHeaders,
-    skipReviewInvite,
-    toast,
-  ]);
-
-  const closeWithReviewChoice = useCallback(async () => {
-    await submitReviewInviteIfNeeded();
+  const closeWithReviewChoice = useCallback(() => {
     onClose();
-  }, [submitReviewInviteIfNeeded, onClose]);
+  }, [onClose]);
 
-  const closeWithCompletionNextAction = useCallback(async () => {
-    await submitReviewInviteIfNeeded();
+  const closeWithCompletionNextAction = useCallback(() => {
     onClose();
     onCompletionNextAction?.();
-  }, [onClose, onCompletionNextAction, submitReviewInviteIfNeeded]);
+  }, [onClose, onCompletionNextAction]);
 
   useEffect(() => {
     if (presentation !== "completion" || !transactionId) return;
@@ -952,6 +839,7 @@ export default function ReceiptSummaryModal({
     transactionDetail.customer_review_requests_opt_out !== true &&
     isOrderStatus(transactionDetail.status, "fulfilled") &&
     itemRows.length > 0 &&
+    itemRows.some((it) => !it.is_internal) &&
     itemRows
       .filter((it) => !it.is_internal)
       .every((it) => it.is_fulfilled === true);
@@ -1352,7 +1240,6 @@ export default function ReceiptSummaryModal({
               <button
                 type="button"
                 onClick={() => void closeWithReviewChoice()}
-                disabled={reviewInviteSaving}
                 className="absolute right-3 top-3 flex min-h-10 min-w-10 items-center justify-center rounded-full border border-app-border bg-app-surface-2 text-app-text-muted transition-colors hover:bg-app-surface-3 hover:text-app-text sm:right-4 sm:top-4 touch-manipulation disabled:opacity-50"
                 aria-label="Close"
               >
@@ -1839,36 +1726,13 @@ export default function ReceiptSummaryModal({
                         Review request
                       </p>
                       <p className="mt-0.5 text-[9px] font-semibold text-app-text-muted">
-                        Eligible after this completed handoff; at most once per
-                        180 days.
+                        Automatically scheduled for 10:00 AM five days after
+                        this completed handoff; at most once per 180 days.
                       </p>
                     </div>
-                    <div className="flex shrink-0 gap-1.5">
-                      <button
-                        type="button"
-                        aria-pressed={!skipReviewInvite}
-                        onClick={() => setSkipReviewInvite(false)}
-                        className={`min-h-9 rounded-xl border px-3 text-[9px] font-black uppercase tracking-wider ${
-                          !skipReviewInvite
-                            ? "border-app-success bg-app-success/10 text-app-success"
-                            : "border-app-border bg-app-surface text-app-text-muted"
-                        }`}
-                      >
-                        Send
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={skipReviewInvite}
-                        onClick={() => setSkipReviewInvite(true)}
-                        className={`min-h-9 rounded-xl border px-3 text-[9px] font-black uppercase tracking-wider ${
-                          skipReviewInvite
-                            ? "border-app-warning bg-app-warning/10 text-app-warning"
-                            : "border-app-border bg-app-surface text-app-text-muted"
-                        }`}
-                      >
-                        Skip
-                      </button>
-                    </div>
+                    <span className="rounded-full border border-app-success/20 bg-app-success/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-app-success">
+                      Scheduled automatically
+                    </span>
                   </section>
                 ) : transactionDetail?.customer_review_requests_opt_out ===
                   true ? (
@@ -1901,7 +1765,6 @@ export default function ReceiptSummaryModal({
                 type="button"
                 onClick={() => void (completionNextActionLabel && onCompletionNextAction ? closeWithCompletionNextAction() : closeWithReviewChoice())}
                 data-testid={completionNextActionLabel ? "receipt-completion-next-action" : "receipt-completion-close"}
-                disabled={reviewInviteSaving}
                 className={
                   historicalPresentation
                     ? "ui-btn-secondary flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl text-xs font-black uppercase tracking-widest touch-manipulation disabled:opacity-60"
@@ -1920,9 +1783,7 @@ export default function ReceiptSummaryModal({
                         {completionNextActionEyebrow ?? "Next guest"}
                       </span>
                       <span className="text-base font-black tracking-tight sm:text-lg">
-                        {reviewInviteSaving
-                          ? "Saving review preference…"
-                          : completionNextActionLabel ?? "Begin new sale"}
+                        {completionNextActionLabel ?? "Begin new sale"}
                       </span>
                     </div>
                     <div className="flex h-11 w-11 items-center justify-center rounded-full bg-app-surface text-app-accent shadow-lg transition-transform group-hover:translate-x-0.5">
@@ -1932,7 +1793,7 @@ export default function ReceiptSummaryModal({
                 )}
               </button>
               {!historicalPresentation && completionNextActionLabel && onCompletionNextAction ? (
-                <button type="button" onClick={() => void closeWithReviewChoice()} disabled={reviewInviteSaving} className="mt-2 min-h-10 w-full rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface-3 hover:text-app-text disabled:opacity-60">
+                <button type="button" onClick={() => void closeWithReviewChoice()} className="mt-2 min-h-10 w-full rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface-3 hover:text-app-text disabled:opacity-60">
                   Finish without building orders now
                 </button>
               ) : null}

@@ -5523,7 +5523,14 @@ async fn create_customer(
     let http = state.http_client.clone();
     let token_cache = state.podium_token_cache.clone();
     tokio::spawn(async move {
-        let _ = podium::upsert_podium_contact(&pool, &http, &token_cache, id).await;
+        if let Err(error) = podium::upsert_podium_contact(&pool, &http, &token_cache, id).await {
+            tracing::warn!(
+                target: "podium",
+                customer_id = %id,
+                error = %error,
+                "Automatic Podium contact create sync failed"
+            );
+        }
     });
     Ok(Json(row))
 }
@@ -6018,32 +6025,17 @@ async fn update_customer(
     let http = state.http_client.clone();
     let token_cache = state.podium_token_cache.clone();
     tokio::spawn(async move {
-        let _ = podium::upsert_podium_contact(&pool, &http, &token_cache, customer_id).await;
+        if let Err(error) =
+            podium::upsert_podium_contact(&pool, &http, &token_cache, customer_id).await
+        {
+            tracing::warn!(
+                target: "podium",
+                customer_id = %customer_id,
+                error = %error,
+                "Automatic Podium contact update sync failed"
+            );
+        }
     });
-    // If review opt-out changed, also sync Podium contact campaign opt-out
-    if body.review_requests_opt_out == Some(true) {
-        let pool2 = state.db.clone();
-        let http2 = state.http_client.clone();
-        let token_cache2 = state.podium_token_cache.clone();
-        tokio::spawn(async move {
-            let phone_email: Option<(Option<String>, Option<String>)> =
-                sqlx::query_as("SELECT phone, email FROM customers WHERE id = $1")
-                    .bind(customer_id)
-                    .fetch_optional(&pool2)
-                    .await
-                    .unwrap_or(None);
-            if let Some((phone, email)) = phone_email {
-                let _ = podium::opt_out_podium_contact(
-                    &pool2,
-                    &http2,
-                    &token_cache2,
-                    phone.as_deref(),
-                    email.as_deref(),
-                )
-                .await;
-            }
-        });
-    }
     Ok(Json(row))
 }
 
@@ -6653,102 +6645,24 @@ async fn post_customer_podium_review_invite(
     Path(customer_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, CustomerError> {
     require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
-
-    let row: Option<(Option<String>, Option<String>)> =
-        sqlx::query_as("SELECT phone, email FROM customers WHERE id = $1")
-            .bind(customer_id)
-            .fetch_optional(&state.db)
-            .await?;
-
-    let Some((phone, email)) = row else {
-        return Err(CustomerError::NotFound);
-    };
-
-    let has_review_opt_out: bool = sqlx::query_scalar(
-        r#"
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = 'customers'
-              AND column_name = 'review_requests_opt_out'
-        )
-        "#,
-    )
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(false);
-
-    let opt_out: bool = if has_review_opt_out {
-        sqlx::query_scalar::<_, Option<bool>>(
-            "SELECT review_requests_opt_out FROM customers WHERE id = $1",
-        )
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
         .bind(customer_id)
-        .fetch_optional(&state.db)
-        .await?
-        .flatten()
-        .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if opt_out {
-        return Err(CustomerError::BadRequest(
-            "Customer has opted out of review requests.".to_string(),
-        ));
+        .fetch_one(&state.db)
+        .await?;
+    if !exists {
+        return Err(CustomerError::NotFound);
     }
-
-    let phone_opt = phone.as_deref().and_then(podium::normalize_phone_e164);
-    let email_opt = email.as_deref().filter(|e| podium::looks_like_email(e));
-    if phone_opt.is_none() && email_opt.is_none() {
-        return Err(CustomerError::BadRequest(
-            "Customer needs a valid phone number or email address to send a review request."
-                .to_string(),
-        ));
-    }
-
-    let invite = podium::create_podium_review_invite(
+    let result = crate::logic::podium_reviews::schedule_latest_customer_review_invite(
         &state.db,
         &state.http_client,
         &state.podium_token_cache,
-        phone.as_deref(),
-        email.as_deref(),
+        customer_id,
     )
     .await
-    .map_err(|e| {
-        CustomerError::PodiumUnavailable(format!(
-            "Could not send Podium review invite ({e}). Check Integration credentials."
-        ))
-    })?;
-
-    let _ = crate::logic::customer_notifications::record_customer_notification(
-        &state.db,
-        customer_id,
-        "customer",
-        customer_id,
-        crate::logic::customer_notifications::CustomerNotificationKind::ReviewInvite,
-        if phone_opt.is_some() && email_opt.is_some() {
-            crate::logic::customer_notifications::CustomerNotificationChannel::Both
-        } else if email_opt.is_some() {
-            crate::logic::customer_notifications::CustomerNotificationChannel::Email
-        } else {
-            crate::logic::customer_notifications::CustomerNotificationChannel::Sms
-        },
-        Some("Podium review request sent."),
-        None,
-        json!({
-            "provider_id": invite.provider_id.clone(),
-            "review_url": invite.review_url.clone(),
-            "to_phone": phone_opt,
-            "to_email": email_opt,
-        }),
-    )
-    .await;
-
-    Ok(Json(json!({
-        "ok": true,
-        "provider_id": invite.provider_id,
-        "review_url": invite.review_url,
-    })))
+    .map_err(|e| CustomerError::BadRequest(format!("Could not schedule review request ({e}).")))?;
+    Ok(Json(
+        serde_json::to_value(result).unwrap_or_else(|_| json!({ "ok": true })),
+    ))
 }
 
 async fn get_podium_conversation_assignees(

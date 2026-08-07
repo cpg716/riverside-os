@@ -1,6 +1,7 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  AlertCircle,
   Ban,
   CheckCircle2,
   Clock,
@@ -21,6 +22,14 @@ function reviewStatusLabel(status: string | null | undefined, sent: boolean, sup
   switch (status) {
     case "sent":
       return "Sent";
+    case "delivered":
+      return "Delivered";
+    case "scheduled":
+      return "Scheduled";
+    case "sending":
+      return "Sending";
+    case "failed":
+      return "Failed";
     case "suppressed":
       return "Skipped by staff";
     case "skipped_recent_180d":
@@ -46,12 +55,17 @@ export interface ReviewInviteRow {
   last_name: string | null;
   review_invite_sent_at: string | null;
   review_invite_suppressed_at: string | null;
+  review_invite_scheduled_for: string | null;
+  review_invite_last_attempt_at: string | null;
+  review_invite_last_error: string | null;
+  review_invite_delivery_channel: string | null;
   podium_review_invite_id: string | null;
+  podium_review_message_id: string | null;
   podium_review_url: string | null;
   podium_review_invite_status: string | null;
 }
 
-type StatusFilter = "all" | "sent" | "suppressed";
+type StatusFilter = "all" | "sent" | "scheduled" | "failed" | "suppressed";
 
 export interface ReviewsOperationsSectionProps {
   onOpenTransactionInBackoffice: (transactionId: string) => void;
@@ -75,6 +89,7 @@ export default function ReviewsOperationsSection({
   const [rows, setRows] = useState<ReviewInviteRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncBusy, setSyncBusy] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   const [txDetailFullId, setTxDetailFullId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -124,6 +139,28 @@ export default function ReviewsOperationsSection({
     }
   }, [auth, load, toast]);
 
+  const retryFailedInvite = useCallback(
+    async (transactionId: string) => {
+      setRetryingId(transactionId);
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/reviews/invite-rows/${transactionId}/retry`,
+          { method: "POST", headers: auth() },
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          toast(body.error ?? "Could not reschedule review request.", "error");
+          return;
+        }
+        toast("Review request rescheduled for the five-day delivery window.", "success");
+        await load();
+      } finally {
+        setRetryingId(null);
+      }
+    },
+    [auth, load, toast],
+  );
+
   useEffect(() => {
     void load();
   }, [load, refreshSignal]);
@@ -145,16 +182,29 @@ export default function ReviewsOperationsSection({
 
   const stats = useMemo(() => {
     const total = rows.length;
-    const sent = rows.filter((r) => r.review_invite_sent_at != null).length;
+    const sent = rows.filter((r) =>
+      ["sent", "delivered"].includes(r.podium_review_invite_status ?? ""),
+    ).length;
     const suppressed = rows.filter((r) => r.review_invite_suppressed_at != null).length;
-    const pending = total - sent - suppressed;
-    return { total, sent, suppressed, pending };
+    const failed = rows.filter((r) => r.podium_review_invite_status === "failed").length;
+    const scheduled = rows.filter((r) =>
+      ["scheduled", "sending"].includes(r.podium_review_invite_status ?? ""),
+    ).length;
+    return { total, sent, suppressed, failed, scheduled };
   }, [rows]);
 
   const filteredRows = useMemo(() => {
     let filtered = rows;
     if (statusFilter === "sent") {
-      filtered = filtered.filter((r) => r.review_invite_sent_at != null);
+      filtered = filtered.filter((r) =>
+        ["sent", "delivered"].includes(r.podium_review_invite_status ?? ""),
+      );
+    } else if (statusFilter === "scheduled") {
+      filtered = filtered.filter((r) =>
+        ["scheduled", "sending"].includes(r.podium_review_invite_status ?? ""),
+      );
+    } else if (statusFilter === "failed") {
+      filtered = filtered.filter((r) => r.podium_review_invite_status === "failed");
     } else if (statusFilter === "suppressed") {
       filtered = filtered.filter((r) => r.review_invite_suppressed_at != null);
     }
@@ -204,19 +254,30 @@ export default function ReviewsOperationsSection({
       color: "text-app-warning",
     },
     {
-      label: "Pending",
-      value: stats.pending,
+      label: "Scheduled",
+      value: stats.scheduled,
       icon: Clock,
       tint: "ui-tint-default",
       border: "border-app-border",
       bg: "bg-app-surface-2",
       color: "text-app-text-muted",
     },
+    {
+      label: "Failed",
+      value: stats.failed,
+      icon: AlertCircle,
+      tint: "ui-tint-danger",
+      border: "border-app-danger/20",
+      bg: "bg-app-danger/10",
+      color: "text-app-danger",
+    },
   ];
 
   const filterTabs: { id: StatusFilter; label: string }[] = [
     { id: "all", label: "All" },
     { id: "sent", label: "Sent" },
+    { id: "scheduled", label: "Scheduled" },
+    { id: "failed", label: "Failed" },
     { id: "suppressed", label: "Suppressed" },
   ];
 
@@ -224,7 +285,7 @@ export default function ReviewsOperationsSection({
     <div className="ui-page flex flex-1 flex-col bg-transparent p-0">
       <div className="flex flex-1 flex-col bg-transparent">
         {/* Stats cards */}
-        <div className="grid shrink-0 grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-6 sm:pb-2 xl:grid-cols-4">
+        <div className="grid shrink-0 grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-6 sm:pb-2 xl:grid-cols-5">
           {statCards.map((stat) => (
             <div
               key={stat.label}
@@ -363,8 +424,11 @@ export default function ReviewsOperationsSection({
                   </thead>
                   <tbody className="divide-y divide-app-border bg-app-surface">
                     {filteredRows.map((r) => {
-                      const sent = r.review_invite_sent_at != null;
+                      const sent = ["sent", "delivered"].includes(
+                        r.podium_review_invite_status ?? "",
+                      );
                       const suppressed = r.review_invite_suppressed_at != null;
+                      const failed = r.podium_review_invite_status === "failed";
                       const customer =
                         [r.first_name, r.last_name]
                           .filter(Boolean)
@@ -376,7 +440,8 @@ export default function ReviewsOperationsSection({
                         ? r.review_invite_sent_at
                         : suppressed
                           ? r.review_invite_suppressed_at
-                          : null;
+                          : r.review_invite_scheduled_for ??
+                            r.review_invite_last_attempt_at;
 
                       return (
                         <tr
@@ -388,7 +453,15 @@ export default function ReviewsOperationsSection({
                           </td>
                           <td className="px-4 py-3 text-app-text">{customer}</td>
                           <td className="px-4 py-3">
-                            {sent ? (
+                            {failed ? (
+                              <span
+                                className="inline-flex items-center gap-1.5 rounded-full border border-app-danger/20 bg-app-danger/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-app-danger"
+                                title={r.review_invite_last_error ?? undefined}
+                              >
+                                <AlertCircle size={12} />
+                                Failed
+                              </span>
+                            ) : sent ? (
                               <span className="inline-flex items-center gap-1.5 rounded-full border border-app-success/20 bg-app-success/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-app-success">
                                 <CheckCircle2 size={12} />
                                 {reviewStatusLabel(r.podium_review_invite_status, sent, suppressed)}
@@ -401,7 +474,11 @@ export default function ReviewsOperationsSection({
                             ) : (
                               <span className="ui-pill bg-app-surface-2 text-app-text-muted">
                                 <Clock size={12} className="inline mr-1" />
-                                Pending
+                                {reviewStatusLabel(
+                                  r.podium_review_invite_status,
+                                  sent,
+                                  suppressed,
+                                )}
                               </span>
                             )}
                           </td>
@@ -417,9 +494,14 @@ export default function ReviewsOperationsSection({
                                 Review link
                               </a>
                             ) : (
-                              <span className="text-xs text-app-text-muted">
-                                {r.podium_review_invite_id ?? "—"}
-                              </span>
+                              <div className="max-w-xs text-xs text-app-text-muted">
+                                <span>{r.podium_review_invite_id ?? "—"}</span>
+                                {r.review_invite_last_error ? (
+                                  <p className="mt-1 line-clamp-2 text-app-danger">
+                                    {r.review_invite_last_error}
+                                  </p>
+                                ) : null}
+                              </div>
                             )}
                           </td>
                           <td className="px-4 py-3 text-xs text-app-text-muted">
@@ -427,6 +509,18 @@ export default function ReviewsOperationsSection({
                           </td>
                           <td className="px-4 py-3 text-right">
                             <div className="flex justify-end gap-2">
+                              {failed ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void retryFailedInvite(r.transaction_id)}
+                                  disabled={retryingId === r.transaction_id}
+                                  className="ui-btn-secondary px-3 py-1.5 text-[10px] font-bold disabled:opacity-50"
+                                >
+                                  {retryingId === r.transaction_id
+                                    ? "Scheduling…"
+                                    : "Retry"}
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 onClick={() => setTxDetailFullId(r.transaction_id)}

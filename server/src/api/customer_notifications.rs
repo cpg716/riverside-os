@@ -15,7 +15,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::api::AppState;
-use crate::logic::messaging::MessagingService;
+use crate::logic::messaging::{MessagingDeliverySummary, MessagingService};
 use crate::middleware;
 
 #[derive(Debug, Error)]
@@ -260,24 +260,37 @@ async fn send_notification_now(
                 )
                 .await
             }
-            _ => Ok(()),
+            _ => Ok(MessagingDeliverySummary::default()),
         };
-        let delivery_status = if result.is_ok() {
-            "delivered"
-        } else {
-            "failed"
+        let (delivery_status, delivery_method, delivery_error) = match &result {
+            Ok(summary) => (
+                if summary.is_delivered() {
+                    "delivered"
+                } else {
+                    "failed"
+                },
+                summary.delivery_method(),
+                summary.delivery_error(),
+            ),
+            Err(error) => ("failed", "none", Some(error.to_string())),
         };
-        let delivery_error = result.as_ref().err().map(ToString::to_string);
         sqlx::query("SELECT mark_notification_sent($1, $2, $3, $4)")
             .bind(id)
-            .bind("both")
+            .bind(delivery_method)
             .bind(delivery_status)
             .bind(delivery_error.as_deref())
             .execute(&state.db)
             .await?;
     }
 
-    Ok(Json(SendNowResponse { success: true }))
+    let delivered: bool = sqlx::query_scalar(
+        "SELECT COALESCE(delivery_status = 'delivered', false) FROM customer_notification_queue WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(&state.db)
+    .await?
+    .unwrap_or(false);
+    Ok(Json(SendNowResponse { success: delivered }))
 }
 
 /// Schedule all pending notifications for next batch
