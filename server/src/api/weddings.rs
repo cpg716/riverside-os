@@ -2355,6 +2355,21 @@ async fn add_member(
                 }
                 WeddingError::Database(e)
             })?;
+                if let Err(error) = crate::logic::podium_contacts::enqueue_customer_sync(
+                    &state.db,
+                    cid,
+                    "wedding_customer_created",
+                    false,
+                )
+                .await
+                {
+                    tracing::error!(
+                        target: "podium",
+                        customer_id = %cid,
+                        error = %error,
+                        "Could not enqueue Podium contact sync for Wedding customer"
+                    );
+                }
                 // QuickCreateCustomer - assume verified when creating full profile
                 (cid, role, notes, actor_name, None, None, true)
             }

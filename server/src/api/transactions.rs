@@ -11958,7 +11958,7 @@ async fn post_transaction_receipt_send_sms(
                     ("customer_code", customer_code),
                 ],
             );
-            return match podium::send_podium_phone_message_with_png_attachment(
+            return match podium::send_podium_phone_message_with_png_attachment_tracked(
                 &state.db,
                 &state.http_client,
                 &state.podium_token_cache,
@@ -11968,7 +11968,7 @@ async fn post_transaction_receipt_send_sms(
             )
             .await
             {
-                Ok(()) => {
+                Ok(send_result) => {
                     if let Some(customer) = detail.customer.as_ref() {
                         let e164 = podium::normalize_phone_e164(&phone_raw);
                         let _ = podium_messaging::record_outbound_message(
@@ -11980,6 +11980,8 @@ async fn post_transaction_receipt_send_sms(
                             e164.as_deref(),
                             None,
                             "automated",
+                            send_result.provider_message_id.as_deref(),
+                            Some(&send_result.raw_response),
                         )
                         .await;
                         let _ = record_customer_notification(
@@ -12009,7 +12011,7 @@ async fn post_transaction_receipt_send_sms(
     };
     let sms_body = receipt_plain_text::clamp_sms_text(&sms_body, 1500);
 
-    match podium::send_podium_sms_message(
+    match podium::send_podium_sms_message_tracked(
         &state.db,
         &state.http_client,
         &state.podium_token_cache,
@@ -12018,7 +12020,7 @@ async fn post_transaction_receipt_send_sms(
     )
     .await
     {
-        Ok(()) => {
+        Ok(send_result) => {
             if let Some(customer) = detail.customer.as_ref() {
                 let e164 = podium::normalize_phone_e164(&phone_raw);
                 let _ = podium_messaging::record_outbound_message(
@@ -12030,6 +12032,8 @@ async fn post_transaction_receipt_send_sms(
                     e164.as_deref(),
                     None,
                     "automated",
+                    send_result.provider_message_id.as_deref(),
+                    Some(&send_result.raw_response),
                 )
                 .await;
                 let _ = record_customer_notification(

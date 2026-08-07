@@ -2,51 +2,28 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::PgPool;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreInsightsConfig {
-    /// Native Insights is deliberately restricted to governed `reporting.*` models.
+    /// Cube is deliberately restricted to governed `reporting.*` models.
     #[serde(default = "default_data_access_mode")]
     pub data_access_mode: String,
     /// Optional staff-facing reporting guidance.
     #[serde(default)]
     pub staff_note_markdown: String,
     /// Maximum rows returned by one native Insights query (hard-capped at 500).
-    #[serde(default = "default_max_rows", alias = "cube_max_rows")]
-    pub max_rows: i64,
+    #[serde(default = "default_cube_max_rows")]
+    pub cube_max_rows: i64,
     /// Automatically archive unpinned history after this many unused days.
     #[serde(default = "default_history_archive_days")]
     pub history_archive_days: i32,
-}
-
-pub async fn reporting_engine_ready(pool: &PgPool) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"
-        SELECT COALESCE(BOOL_AND(TO_REGCLASS(view_name) IS NOT NULL), FALSE)
-        FROM UNNEST(ARRAY[
-            'reporting.transactions_core',
-            'reporting.order_lines',
-            'reporting.fulfillment_orders_core',
-            'reporting.wedding_party_economics',
-            'reporting.payment_ledger',
-            'reporting.inventory_snapshot',
-            'reporting.loyalty_customer_snapshot',
-            'reporting.alterations_active',
-            'reporting.shipments_active',
-            'reporting.daily_sales_weather'
-        ]) AS required_views(view_name)
-        "#,
-    )
-    .fetch_one(pool)
-    .await
 }
 
 fn default_data_access_mode() -> String {
     "reporting_views_only".to_string()
 }
 
-fn default_max_rows() -> i64 {
+fn default_cube_max_rows() -> i64 {
     500
 }
 
@@ -59,7 +36,7 @@ impl Default for StoreInsightsConfig {
         Self {
             data_access_mode: default_data_access_mode(),
             staff_note_markdown: String::new(),
-            max_rows: default_max_rows(),
+            cube_max_rows: default_cube_max_rows(),
             history_archive_days: default_history_archive_days(),
         }
     }
@@ -71,7 +48,7 @@ impl StoreInsightsConfig {
         // Retired Metabase configurations could delegate the full database. The
         // native replacement always fails back to the governed reporting schema.
         config.data_access_mode = default_data_access_mode();
-        config.max_rows = config.max_rows.clamp(25, 500);
+        config.cube_max_rows = config.cube_max_rows.clamp(25, 500);
         config.history_archive_days = config.history_archive_days.clamp(30, 730);
         config
     }
@@ -94,15 +71,11 @@ impl StoreInsightsConfig {
             }
             self.staff_note_markdown = note.to_string();
         }
-        if let Some(max_rows) = body
-            .get("max_rows")
-            .or_else(|| body.get("cube_max_rows"))
-            .and_then(Value::as_i64)
-        {
+        if let Some(max_rows) = body.get("cube_max_rows").and_then(Value::as_i64) {
             if !(25..=500).contains(&max_rows) {
-                return Err("max_rows must be between 25 and 500".to_string());
+                return Err("cube_max_rows must be between 25 and 500".to_string());
             }
-            self.max_rows = max_rows;
+            self.cube_max_rows = max_rows;
         }
         if let Some(days) = body.get("history_archive_days").and_then(Value::as_i64) {
             if !(30..=730).contains(&days) {
@@ -129,14 +102,16 @@ mod tests {
     #[test]
     fn validates_native_limits() {
         let mut config = StoreInsightsConfig::default();
-        assert!(config.apply_patch(&json!({ "max_rows": 501 })).is_err());
+        assert!(config
+            .apply_patch(&json!({ "cube_max_rows": 501 }))
+            .is_err());
         config
             .apply_patch(&json!({
-                "max_rows": 250,
+                "cube_max_rows": 250,
                 "history_archive_days": 180
             }))
             .expect("valid policy");
-        assert_eq!(config.max_rows, 250);
+        assert_eq!(config.cube_max_rows, 250);
         assert_eq!(config.history_archive_days, 180);
     }
 }

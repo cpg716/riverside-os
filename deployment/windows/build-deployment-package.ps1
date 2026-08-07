@@ -304,6 +304,57 @@ function Add-MeilisearchBinary([string]$PackageRoot) {
   Write-Host "Packaged meilisearch/meilisearch.exe"
 }
 
+function Add-CubeRuntime([string]$PackageRoot, [string]$RepoRoot) {
+  $cubeVersion = "1.7.16"
+  $cubeSource = Join-Path $RepoRoot "cube"
+  $cubeDest = Join-Path $PackageRoot "cube"
+  $nodeModules = Join-Path $cubeSource "node_modules"
+  $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+
+  foreach ($required in @(
+    (Join-Path $cubeSource "package.json"),
+    (Join-Path $cubeSource "package-lock.json"),
+    (Join-Path $cubeSource "cube.js"),
+    (Join-Path $cubeSource "model"),
+    $nodeModules,
+    (Join-Path $PSScriptRoot "start-riverside-cube.ps1")
+  )) {
+    if (-not (Test-Path $required)) {
+      throw "Cube Core package input is missing: $required. Run 'npm ci --prefix cube' on Windows before packaging."
+    }
+  }
+  if (-not $nodeCommand) {
+    throw "node.exe is required to package the non-Docker Cube Core runtime."
+  }
+
+  $nativeBinding = Get-ChildItem $nodeModules -Recurse -Filter "*.node" -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -like "*@cubejs-backend*native*" } |
+    Select-Object -First 1
+  if (-not $nativeBinding) {
+    throw "Cube Core Windows native binding is missing. Re-run npm ci in the cube folder on Windows."
+  }
+
+  New-Item -ItemType Directory -Force -Path $cubeDest | Out-Null
+  Copy-Item (Join-Path $cubeSource "package.json") $cubeDest -Force
+  Copy-Item (Join-Path $cubeSource "package-lock.json") $cubeDest -Force
+  Copy-Item (Join-Path $cubeSource "cube.js") $cubeDest -Force
+  Copy-Item (Join-Path $cubeSource "model") (Join-Path $cubeDest "model") -Recurse -Force
+  Copy-Item $nodeModules (Join-Path $cubeDest "node_modules") -Recurse -Force
+  $cubeServerJs = Join-Path $cubeDest "node_modules\@cubejs-backend\server\dist\src\server.js"
+  $cubeServerSource = [IO.File]::ReadAllText($cubeServerJs)
+  $listenAnchor = "await this.server.listen(PORT);"
+  if (($cubeServerSource.Split($listenAnchor).Count - 1) -ne 1) {
+    throw "Pinned Cube Core server listen contract changed; cannot enforce loopback-only binding."
+  }
+  $cubeServerSource = $cubeServerSource.Replace($listenAnchor, "await this.server.listen(PORT, '127.0.0.1');")
+  [IO.File]::WriteAllText($cubeServerJs, $cubeServerSource)
+  Copy-Item $nodeCommand.Source (Join-Path $cubeDest "node.exe") -Force
+  Copy-Item (Join-Path $PSScriptRoot "start-riverside-cube.ps1") $cubeDest -Force
+  Set-Content -Path (Join-Path $cubeDest "VERSION") -Value $cubeVersion -Encoding ASCII
+  Set-Content -Path (Join-Path $cubeDest "NODE_VERSION") -Value (& $nodeCommand.Source --version).Trim() -Encoding ASCII
+  Write-Host "Packaged Cube Core $cubeVersion with a portable Windows Node runtime"
+}
+
 function Convert-FileLineEndings([string]$Path, [ValidateSet("LF", "CRLF")][string]$Mode) {
   $bytes = [System.IO.File]::ReadAllBytes($Path)
   $lfBytes = New-Object System.Collections.Generic.List[byte]
@@ -390,6 +441,7 @@ New-Item -ItemType Directory -Force -Path "$packageRoot\docs" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\deployment-app" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\server-manager-app" | Out-Null
 New-Item -ItemType Directory -Force -Path "$packageRoot\meilisearch" | Out-Null
+New-Item -ItemType Directory -Force -Path "$packageRoot\cube" | Out-Null
 
 Copy-Item "$PSScriptRoot\install-server.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\install-register.ps1" $packageRoot -Force
@@ -478,6 +530,7 @@ if ($SkipRosieVoiceModels) {
   Add-RosieVoiceModels $packageRoot
 }
 Add-MeilisearchBinary $packageRoot
+Add-CubeRuntime $packageRoot $repoRoot
 
 Copy-Item "$PSScriptRoot\start-riverside-llama.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideLlama.cmd" $packageRoot -Force
@@ -494,6 +547,8 @@ $manifest = @{
   serverBinaryPath = (Resolve-FullPath $ServerBinaryPath)
   counterpointBridgeGuiPath = "counterpoint-bridge-gui"
   meilisearchPath = "meilisearch\meilisearch.exe"
+  cubePath = "cube"
+  cubeVersion = "1.7.16"
 } | ConvertTo-Json -Depth 4
 Set-Content -Path "$packageRoot\deployment-package.manifest.json" -Value $manifest -Encoding UTF8
 
@@ -505,6 +560,7 @@ foreach ($doc in @(
   "docs\WINDOWS_INSTALLER_PACKAGE.md",
   "docs\DEPLOYMENT_MANAGER.md",
   "docs\ROS_SERVER_MANAGER.md"
+  "docs\CUBE_INSIGHTS_REPORTING.md"
 )) {
   $source = Join-Path $repoRoot $doc
   if (Test-Path $source) {
@@ -539,6 +595,7 @@ $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "`nMain Hub installs both:`n" +
   "`n- The Riverside OS server, database setup, firewall rule, and startup task.`n" +
   "- The local Meilisearch search runtime and startup task on http://127.0.0.1:7700.`n" +
+  "- The local non-Docker Cube Core reporting runtime and startup task on http://127.0.0.1:4000.`n" +
   "- The Riverside Windows desktop app configured to use the local server.`n" +
   "`nPassword handling:`n" +
   "`n- If PostgreSQL is missing, the manager can offer to install PostgreSQL 16 through Windows Package Manager.`n" +

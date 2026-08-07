@@ -54,7 +54,7 @@ if (-not $Force) {
 
 # 1. Stop server process and scheduled tasks
 Write-Host "[1/6] Stopping Riverside OS services..." -ForegroundColor Cyan
-$tasks = @("Riverside OS Server", "Riverside OS LLM Host", "Riverside OS Meilisearch")
+$tasks = @("Riverside OS Server", "Riverside OS LLM Host", "Riverside OS Meilisearch", "Riverside OS Cube Core")
 foreach ($taskName in $tasks) {
   $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
   if ($task) {
@@ -81,6 +81,15 @@ Get-Process -Name "llama-server" -ErrorAction SilentlyContinue | ForEach-Object 
 Get-Process -Name "meilisearch" -ErrorAction SilentlyContinue | ForEach-Object {
   Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
   Write-Host "  Stopped process: meilisearch (PID $($_.Id))" -ForegroundColor Green
+}
+
+$cubeRoot = [IO.Path]::GetFullPath((Join-Path $installRoot "cube")).TrimEnd('\')
+Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
+  $executable = "$($_.ExecutablePath)"
+  if ($executable -and [IO.Path]::GetFullPath($executable).StartsWith($cubeRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    Write-Host "  Stopped process: Riverside Cube Core (PID $($_.ProcessId))" -ForegroundColor Green
+  }
 }
 
 # 2. Uninstall desktop app MSI

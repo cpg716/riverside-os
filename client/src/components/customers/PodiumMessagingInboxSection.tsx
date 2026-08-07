@@ -61,6 +61,9 @@ type UnmatchedConversation = {
   provider_conversation_uid: string;
   channel: string;
   identifier: string | null;
+  match_status: "unmatched" | "ambiguous";
+  candidate_customer_ids: string[];
+  resolution_note: string | null;
   last_message_at: string | null;
   snippet: string | null;
   first_seen_at: string;
@@ -168,6 +171,11 @@ export default function PodiumMessagingInboxSection({
   const [replyBusy, setReplyBusy] = useState(false);
   const [unmatchedRows, setUnmatchedRows] = useState<UnmatchedConversation[]>([]);
   const [showUnmatched, setShowUnmatched] = useState(false);
+  const [selectedUnmatched, setSelectedUnmatched] = useState<UnmatchedConversation | null>(null);
+  const [unmatchedCustomerSearch, setUnmatchedCustomerSearch] = useState("");
+  const [unmatchedCustomerResults, setUnmatchedCustomerResults] = useState<DirectSmsCustomerResult[]>([]);
+  const [unmatchedSearchBusy, setUnmatchedSearchBusy] = useState(false);
+  const [unmatchedResolveBusy, setUnmatchedResolveBusy] = useState(false);
   const [directCustomerSearch, setDirectCustomerSearch] = useState("");
   const [directCustomerResults, setDirectCustomerResults] = useState<DirectSmsCustomerResult[]>([]);
   const [directCustomer, setDirectCustomer] = useState<DirectSmsCustomerResult | null>(null);
@@ -496,6 +504,64 @@ export default function PodiumMessagingInboxSection({
       setDirectCustomerResults(Array.isArray(data) ? data : []);
     } finally {
       setDirectSearchBusy(false);
+    }
+  };
+
+  const searchUnmatchedCustomers = async () => {
+    const q = unmatchedCustomerSearch.trim();
+    if (q.length < 2) {
+      toast("Enter at least two characters to search customers.", "error");
+      return;
+    }
+    setUnmatchedSearchBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/search?q=${encodeURIComponent(q)}&limit=8`,
+        { headers: apiAuth(), cache: "no-store" },
+      );
+      if (!res.ok) {
+        toast("Could not search customers.", "error");
+        return;
+      }
+      const data = (await res.json()) as DirectSmsCustomerResult[];
+      setUnmatchedCustomerResults(Array.isArray(data) ? data : []);
+    } finally {
+      setUnmatchedSearchBusy(false);
+    }
+  };
+
+  const resolveUnmatchedConversation = async (customer: DirectSmsCustomerResult) => {
+    if (!selectedUnmatched || unmatchedResolveBusy) return;
+    setUnmatchedResolveBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/podium/messaging-unmatched/${encodeURIComponent(selectedUnmatched.id)}/resolve`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...apiAuth() },
+          body: JSON.stringify({ customer_id: customer.id }),
+        },
+      );
+      const payload = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        sync_completed?: boolean;
+      };
+      if (!res.ok) {
+        toast(payload.error ?? "Could not resolve the Podium conversation.", "error");
+        return;
+      }
+      toast(
+        payload.sync_completed === false
+          ? "Match saved. Podium will retry importing the conversation."
+          : "Podium conversation matched and imported.",
+        "success",
+      );
+      setSelectedUnmatched(null);
+      setUnmatchedCustomerSearch("");
+      setUnmatchedCustomerResults([]);
+      await refresh();
+    } finally {
+      setUnmatchedResolveBusy(false);
     }
   };
 
@@ -1172,11 +1238,89 @@ export default function PodiumMessagingInboxSection({
                       <p className="mt-1 line-clamp-1 text-app-text-muted">{row.snippet}</p>
                     ) : null}
                     <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                      Find or create the customer, then sync again.
+                      {row.match_status === "ambiguous"
+                        ? `${row.candidate_customer_ids.length} customers share this identifier. Select the correct customer; ROS will never choose silently.`
+                        : "Select the correct existing customer after confirming their identity."}
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedUnmatched(row);
+                        setUnmatchedCustomerSearch(row.identifier ?? "");
+                        setUnmatchedCustomerResults([]);
+                      }}
+                      className="ui-btn-secondary mt-2 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Match customer
+                    </button>
                   </li>
                 ))}
               </ul>
+              {selectedUnmatched ? (
+                <div className="mt-3 rounded-xl border border-app-border bg-app-surface p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-black text-app-text">Resolve customer identity</p>
+                      <p className="mt-1 text-[11px] text-app-text-muted">
+                        Confirm the intended customer for {selectedUnmatched.identifier ?? "this Podium thread"}.
+                        This decision is audited and reused for the provider conversation ID.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedUnmatched(null);
+                        setUnmatchedCustomerResults([]);
+                      }}
+                      className="ui-btn-ghost px-2 py-1 text-[10px] font-black uppercase tracking-widest"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <input
+                      value={unmatchedCustomerSearch}
+                      onChange={(event) => setUnmatchedCustomerSearch(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void searchUnmatchedCustomers();
+                      }}
+                      className="ui-input h-10 min-w-0 flex-1 rounded-xl px-3 text-sm"
+                      placeholder="Search by name, code, phone, or email"
+                      aria-label="Search customer for unmatched Podium conversation"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void searchUnmatchedCustomers()}
+                      disabled={unmatchedSearchBusy}
+                      className="ui-btn-secondary inline-flex items-center gap-2 px-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                    >
+                      <Search size={13} aria-hidden />
+                      {unmatchedSearchBusy ? "Searching..." : "Search"}
+                    </button>
+                  </div>
+                  {unmatchedCustomerResults.length > 0 ? (
+                    <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                      {unmatchedCustomerResults.map((customer) => (
+                        <li key={customer.id}>
+                          <button
+                            type="button"
+                            onClick={() => void resolveUnmatchedConversation(customer)}
+                            disabled={unmatchedResolveBusy}
+                            className="w-full rounded-lg border border-app-border px-3 py-2 text-left text-xs hover:bg-app-surface-muted disabled:opacity-50"
+                          >
+                            <span className="block font-black text-app-text">
+                              {customer.first_name} {customer.last_name}
+                            </span>
+                            <span className="block text-app-text-muted">
+                              {customer.customer_code} · {customer.phone ?? customer.email ?? "No identifier"}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>

@@ -574,6 +574,92 @@ function Invoke-PsqlAdminScalar($PsqlPath, $Db, $DatabaseName, $Sql) {
   }
 }
 
+function Ensure-OptionalReportingRole($PsqlPath, $Db, [switch]$Required) {
+  try {
+    Invoke-PsqlAdmin $PsqlPath $Db "DO `$`$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cube_ro') THEN CREATE ROLE cube_ro LOGIN NOINHERIT; ELSE ALTER ROLE cube_ro LOGIN NOINHERIT; END IF; END `$`$;"
+  } catch {
+    if ($Required) {
+      throw "Could not provision the required Cube reporting role cube_ro: $($_.Exception.Message)"
+    }
+    Write-Warning "Could not create optional reporting role cube_ro. Reporting grants will be skipped where supported."
+  }
+}
+
+function Invoke-CubeRoleMigrationFile($PsqlPath, $Db, [string]$FilePath) {
+  Ensure-OptionalReportingRole $PsqlPath $Db -Required
+
+  $appUser = "$($Db.appUser)".Trim()
+  if ([string]::IsNullOrWhiteSpace($appUser)) {
+    throw "PostgreSQL app role is required for Cube reporting migration compatibility."
+  }
+
+  $appUserLiteral = Escape-SqlLiteral $appUser
+  $appUserIdentifier = Quote-SqlIdentifier $appUser
+  $hadCreateRole = Invoke-PsqlAdminScalar $PsqlPath $Db $Db.databaseName "SELECT rolcreaterole FROM pg_roles WHERE rolname = '$appUserLiteral';"
+  if ($hadCreateRole -notin @("t", "f")) {
+    throw "Could not determine PostgreSQL role-management state for the app role."
+  }
+
+  $membershipState = Invoke-PsqlAdminScalar $PsqlPath $Db $Db.databaseName @"
+SELECT COALESCE(
+  (
+    SELECT CASE WHEN membership.admin_option THEN 'admin' ELSE 'member' END
+    FROM pg_auth_members membership
+    JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+    JOIN pg_roles member_role ON member_role.oid = membership.member
+    WHERE granted_role.rolname = 'cube_ro'
+      AND member_role.rolname = '$appUserLiteral'
+    LIMIT 1
+  ),
+  'none'
+);
+"@
+  if ($membershipState -notin @("none", "member", "admin")) {
+    throw "Could not determine Cube reporting-role membership for the app role."
+  }
+
+  $enableSql = @()
+  $restoreSql = @()
+  if ($hadCreateRole -eq "f") {
+    $enableSql += "ALTER ROLE $appUserIdentifier CREATEROLE;"
+    $restoreSql += "ALTER ROLE $appUserIdentifier NOCREATEROLE;"
+  }
+  if ($membershipState -ne "admin") {
+    $enableSql += "GRANT cube_ro TO $appUserIdentifier WITH ADMIN OPTION;"
+    if ($membershipState -eq "none") {
+      $restoreSql = @("REVOKE cube_ro FROM $appUserIdentifier;") + $restoreSql
+    } else {
+      $restoreSql = @("REVOKE ADMIN OPTION FOR cube_ro FROM $appUserIdentifier;") + $restoreSql
+    }
+  }
+
+  $env:PGPASSWORD = $Db.adminPassword
+  try {
+    $adminUrl = "postgresql://$($Db.adminUser)@$($Db.host):$($Db.port)/$($Db.databaseName)"
+    $arguments = @($adminUrl, "-v", "ON_ERROR_STOP=1", "-1", "-w")
+    if ($enableSql.Count -gt 0) {
+      $arguments += @("-c", ($enableSql -join " "))
+    }
+    $arguments += @(
+      "-c", "SET ROLE $appUserIdentifier;",
+      "-f", $FilePath,
+      "-c", "RESET ROLE;"
+    )
+    if ($restoreSql.Count -gt 0) {
+      $arguments += @("-c", ($restoreSql -join " "))
+    }
+
+    $exitCode = Invoke-NativeCommand $PsqlPath $arguments
+    if ($exitCode -ne 0) {
+      throw "psql failed with exit code $exitCode. $script:lastNativeCommandOutput"
+    }
+  } finally {
+    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+  }
+
+  Write-Host "Applied Cube reporting migration with transaction-scoped role administration; app role privileges restored."
+}
+
 function Ensure-DatabaseExtension($PsqlPath, $Db, [string]$DatabaseName, [string]$ExtensionName) {
   try {
     Invoke-PsqlAdminDatabase $PsqlPath $Db $DatabaseName "CREATE EXTENSION IF NOT EXISTS ""$ExtensionName"";"
@@ -1319,6 +1405,149 @@ function Ensure-RiversideMeilisearchHost(
   }
 }
 
+function Get-DotEnvValue([string]$Path, [string]$Name) {
+  if (-not (Test-Path $Path)) { return "" }
+  foreach ($line in Get-Content $Path) {
+    if ($line -match "^$([regex]::Escape($Name))=(.*)$") {
+      return "$($Matches[1])".Trim()
+    }
+  }
+  return ""
+}
+
+function Ensure-CubeServerEnvironment($Config, [string]$InstallRoot) {
+  $envObj = Ensure-ServerEnvironmentObject $Config
+  $existingEnvPath = Join-Path $InstallRoot "server\.env"
+  $apiSecret = Get-ServerEnvironmentValue $Config @("RIVERSIDE_CUBE_API_SECRET")
+  $reportingPassword = Get-ServerEnvironmentValue $Config @("RIVERSIDE_CUBE_REPORTING_DB_PASSWORD")
+
+  if ([string]::IsNullOrWhiteSpace($apiSecret)) {
+    $apiSecret = Get-DotEnvValue $existingEnvPath "RIVERSIDE_CUBE_API_SECRET"
+  }
+  if ([string]::IsNullOrWhiteSpace($reportingPassword)) {
+    $reportingPassword = Get-DotEnvValue $existingEnvPath "RIVERSIDE_CUBE_REPORTING_DB_PASSWORD"
+  }
+  if ([string]::IsNullOrWhiteSpace($apiSecret) -or $apiSecret.Length -lt 32 -or $apiSecret -match "change_me|generate_a_long") {
+    $apiSecret = New-RiversideSecret 48
+    Write-Host "Auto-generated a private Cube Core API secret for this Main Hub." -ForegroundColor Green
+  }
+  if ([string]::IsNullOrWhiteSpace($reportingPassword) -or $reportingPassword.Length -lt 24 -or $reportingPassword -match "change_me|generate_a_long") {
+    $reportingPassword = New-RiversideSecret 40
+    Write-Host "Auto-generated the private cube_ro database password for this Main Hub." -ForegroundColor Green
+  }
+
+  foreach ($entry in @(
+    @{ Name = "RIVERSIDE_CUBE_UPSTREAM"; Value = "http://127.0.0.1:4000" },
+    @{ Name = "RIVERSIDE_CUBE_API_SECRET"; Value = $apiSecret },
+    @{ Name = "RIVERSIDE_CUBE_REPORTING_DB_USER"; Value = "cube_ro" },
+    @{ Name = "RIVERSIDE_CUBE_REPORTING_DB_PASSWORD"; Value = $reportingPassword }
+  )) {
+    $current = Get-ServerEnvironmentValue $Config @($entry.Name)
+    if ($current -ne $entry.Value) {
+      Set-SafeProperty $envObj $entry.Name $entry.Value
+      $script:cubeConfigModified = $true
+    }
+  }
+
+  return @{
+    ApiSecret = $apiSecret
+    ReportingPassword = $reportingPassword
+  }
+}
+
+function Set-CubeRolePassword($PsqlPath, $Db, [string]$Password) {
+  if ([string]::IsNullOrWhiteSpace($Password)) {
+    throw "Cube reporting-role password is missing."
+  }
+  $escapedPassword = Escape-SqlLiteral $Password
+  Invoke-PsqlAdminDatabase $PsqlPath $Db $Db.databaseName "ALTER ROLE cube_ro LOGIN NOINHERIT PASSWORD '$escapedPassword';"
+  Write-Host "Cube reporting role credentials synchronized."
+}
+
+function Stop-RiversideCubeHost([string]$InstallRoot) {
+  $taskName = "Riverside OS Cube Core"
+  Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+  $cubeRoot = [IO.Path]::GetFullPath((Join-Path $InstallRoot "cube")).TrimEnd('\')
+  Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
+    $executable = "$($_.ExecutablePath)"
+    if ($executable -and [IO.Path]::GetFullPath($executable).StartsWith($cubeRoot, [StringComparison]::OrdinalIgnoreCase)) {
+      Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function Wait-CubeReady([string]$BaseUrl) {
+  $readyUrl = "$($BaseUrl.TrimEnd('/'))/readyz"
+  Write-Host "Waiting for Cube Core at $readyUrl..."
+  $deadline = (Get-Date).AddSeconds(120)
+  do {
+    try {
+      $response = Invoke-WebRequest -Uri $readyUrl -UseBasicParsing -TimeoutSec 5
+      if ($response.StatusCode -eq 200) {
+        Write-Host "Cube Core readiness check passed at $readyUrl" -ForegroundColor Green
+        return
+      }
+    } catch {}
+    Start-Sleep -Seconds 2
+  } while ((Get-Date) -lt $deadline)
+  throw "Cube Core did not pass the readiness check at $readyUrl. Check the 'Riverside OS Cube Core' scheduled task and $BaseUrl."
+}
+
+function Ensure-RiversideCubeHost(
+  [string]$PackageRoot,
+  [string]$InstallRoot,
+  $Config,
+  $Db,
+  [bool]$StartNow = $true
+) {
+  $packageCube = Join-Path $PackageRoot "cube"
+  $cubeDir = Join-Path $InstallRoot "cube"
+  foreach ($required in @(
+    (Join-Path $packageCube "node.exe"),
+    (Join-Path $packageCube "node_modules\@cubejs-backend\server\bin\server"),
+    (Join-Path $packageCube "cube.js"),
+    (Join-Path $packageCube "model"),
+    (Join-Path $packageCube "start-riverside-cube.ps1")
+  )) {
+    if (-not (Test-Path $required)) {
+      throw "Cube Core runtime is missing from the deployment package: $required"
+    }
+  }
+
+  Stop-RiversideCubeHost $InstallRoot
+  if (Test-Path $cubeDir) {
+    Remove-Item $cubeDir -Recurse -Force
+  }
+  Copy-Item $packageCube $cubeDir -Recurse -Force
+
+  $envObj = Ensure-ServerEnvironmentObject $Config
+  $cubeEnv = @(
+    "CUBEJS_DB_HOST=$($Db.host)",
+    "CUBEJS_DB_PORT=$($Db.port)",
+    "CUBEJS_DB_NAME=$($Db.databaseName)",
+    "CUBEJS_DB_USER=cube_ro",
+    "CUBEJS_DB_PASS=$($envObj.RIVERSIDE_CUBE_REPORTING_DB_PASSWORD)",
+    "CUBEJS_API_SECRET=$($envObj.RIVERSIDE_CUBE_API_SECRET)"
+  )
+  Set-Content -Path (Join-Path $cubeDir ".env") -Value $cubeEnv -Encoding UTF8
+
+  $taskName = "Riverside OS Cube Core"
+  $startScript = Join-Path $cubeDir "start-riverside-cube.ps1"
+  $argument = "-NoProfile -ExecutionPolicy Bypass -File `"$startScript`" -InstallRoot `"$InstallRoot`""
+  $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $argument -WorkingDirectory $cubeDir
+  $trigger = New-ScheduledTaskTrigger -AtStartup
+  $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+  $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Days 0)
+  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings | Out-Null
+  Write-Host "Registered scheduled task '$taskName' at http://127.0.0.1:4000"
+
+  if ($StartNow) {
+    Start-ScheduledTask -TaskName $taskName
+    Wait-CubeReady "http://127.0.0.1:4000"
+  }
+}
+
 function Escape-SqlLiteral([string]$Value) {
   return $Value.Replace("'", "''")
 }
@@ -1780,7 +2009,11 @@ function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir, $DbConfig) {
     Write-Host "Apply migration $($file.Name)"
     try {
       Repair-PublicSerialSequences $PsqlPath $DatabaseUrl
-      Invoke-PsqlFile $PsqlPath $DatabaseUrl $file.FullName
+      if ($file.Name -eq "185_cube_insights_and_saved_reports.sql") {
+        Invoke-CubeRoleMigrationFile $PsqlPath $DbConfig $file.FullName
+      } else {
+        Invoke-PsqlFile $PsqlPath $DatabaseUrl $file.FullName
+      }
     } catch {
       throw "Migration failed: $($file.Name). $($_.Exception.Message)"
     }
@@ -2063,6 +2296,12 @@ $packageSeeds = Join-Path $ScriptRoot "seeds"
 $packageReleaseDocs = Join-Path $ScriptRoot "docs"
 
 $serverEnvironment = Ensure-ServerEnvironmentObject $config
+$previousCubeRolePassword = Get-DotEnvValue (Join-Path $serverDir ".env") "RIVERSIDE_CUBE_REPORTING_DB_PASSWORD"
+$script:cubeConfigModified = $false
+$cubeRuntimeConfig = Ensure-CubeServerEnvironment $config $installRoot
+if ($script:cubeConfigModified) {
+  $configModified = $true
+}
 $configuredRuntimeBackupDir = "$($serverEnvironment.RIVERSIDE_BACKUP_DIR)".Trim()
 if ([string]::IsNullOrWhiteSpace($configuredRuntimeBackupDir)) {
   Set-SafeProperty $serverEnvironment "RIVERSIDE_BACKUP_DIR" $backupDir
@@ -2118,23 +2357,32 @@ if (-not (Test-Path $packageMigrations)) {
 if (-not (Test-Path $packageSeeds)) {
   throw "Missing seeds folder in package: $packageSeeds"
 }
+if (-not (Test-Path (Join-Path $ScriptRoot "cube\node.exe"))) {
+  throw "Missing non-Docker Cube Core runtime in package: $(Join-Path $ScriptRoot 'cube\node.exe')"
+}
 
 $taskName = "Riverside OS Server"
+$cubeTaskName = "Riverside OS Cube Core"
 $httpBind = $server.httpBind
 if ([string]::IsNullOrWhiteSpace($httpBind)) { $httpBind = "0.0.0.0:3000" }
 $serverPort = [int](($httpBind -split ":")[-1])
 $rollbackDir = Join-Path $installRoot ".install-rollback"
 $hadExistingTask = $null -ne (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)
+$hadExistingCubeTask = $null -ne (Get-ScheduledTask -TaskName $cubeTaskName -ErrorAction SilentlyContinue)
 $hadExistingServerInstall = $hadExistingTask -or (Test-Path (Join-Path $serverDir "riverside-server.exe"))
 Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $rollbackDir | Out-Null
 if ($hadExistingTask) {
   Export-ScheduledTask -TaskName $taskName | Set-Content (Join-Path $rollbackDir "server-task.xml") -Encoding Unicode
 }
+if ($hadExistingCubeTask) {
+  Export-ScheduledTask -TaskName $cubeTaskName | Set-Content (Join-Path $rollbackDir "cube-task.xml") -Encoding Unicode
+}
 foreach ($entry in @(
   @{ Source = $serverDir; Name = "server" },
   @{ Source = (Join-Path $installRoot "client"); Name = "client" },
-  @{ Source = $releaseDir; Name = "release" }
+  @{ Source = $releaseDir; Name = "release" },
+  @{ Source = (Join-Path $installRoot "cube"); Name = "cube" }
 )) {
   if (Test-Path $entry.Source) {
     Copy-Item $entry.Source (Join-Path $rollbackDir $entry.Name) -Recurse -Force
@@ -2143,6 +2391,7 @@ foreach ($entry in @(
 
 $preMigrationBackupCreated = $false
 $databaseRoleCredentialsUpdated = $false
+$cubeRolePasswordUpdated = $false
 $databaseUrlUser = [System.Uri]::EscapeDataString("$($db.appUser)")
 $databaseUrlPassword = [System.Uri]::EscapeDataString("$($db.appPassword)")
 $backupDatabaseUrlUser = [System.Uri]::EscapeDataString("$($db.adminUser)")
@@ -2286,6 +2535,13 @@ if ($script:postgresReachable) {
   } catch {
     throw "Bootstrap admin setup failed: $($_.Exception.Message)"
   }
+
+  try {
+    Set-CubeRolePassword $psql $db $cubeRuntimeConfig.ReportingPassword
+    $cubeRolePasswordUpdated = $true
+  } catch {
+    throw "Cube reporting-role setup failed: $($_.Exception.Message)"
+  }
 } else {
   throw "PostgreSQL is not reachable. No server files will be reported ready; fix PostgreSQL and rerun install-server.ps1."
 }
@@ -2339,6 +2595,8 @@ if ($script:meilisearchConfigModified) {
   Set-Content -Path $ConfigPath -Value $configJson -Encoding UTF8
   Write-Host "Saved Meilisearch runtime settings to $ConfigPath." -ForegroundColor Green
 }
+
+Ensure-RiversideCubeHost $ScriptRoot $installRoot $config $db (-not $NoStart)
 
 Write-ServerEnv $envPath $config $databaseUrl $backupDatabaseUrl $clientDist $rosieModelPath $preservedRosieEnvironment
 Set-MachineEnvironmentFromServerConfig $config
@@ -2449,6 +2707,7 @@ if (-not $NoStart) {
 $summary = "Riverside OS Server install complete.`n" +
   "Install root: $installRoot`n" +
   "Server task: $taskName`n" +
+  "Cube task: $cubeTaskName (http://127.0.0.1:4000)`n" +
   "Frontend: $clientDist`n" +
   "Database: $($db.databaseName) on $($db.host):$($db.port)`n" +
   "Config: $envPath"
@@ -2471,15 +2730,19 @@ Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
   Write-DeploymentStatus "FAILED" $installFailure.Exception.Message
   try {
     Stop-RiversideServer
+    Stop-RiversideCubeHost $installRoot
     foreach ($entry in @(
       @{ Target = $serverDir; Name = "server" },
       @{ Target = (Join-Path $installRoot "client"); Name = "client" },
-      @{ Target = $releaseDir; Name = "release" }
+      @{ Target = $releaseDir; Name = "release" },
+      @{ Target = (Join-Path $installRoot "cube"); Name = "cube" }
     )) {
       $saved = Join-Path $rollbackDir $entry.Name
       if (Test-Path $saved) {
         Remove-Item $entry.Target -Recurse -Force -ErrorAction SilentlyContinue
         Copy-Item $saved $entry.Target -Recurse -Force
+      } elseif ($entry.Name -eq "cube") {
+        Remove-Item $entry.Target -Recurse -Force -ErrorAction SilentlyContinue
       }
     }
     if ($databaseRoleCredentialsUpdated) {
@@ -2512,6 +2775,15 @@ Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
     }
   }
 
+  if ($cubeRolePasswordUpdated -and -not [string]::IsNullOrWhiteSpace($previousCubeRolePassword)) {
+    try {
+      Set-CubeRolePassword $psql $db $previousCubeRolePassword
+      Write-Host "Restored the previous Cube reporting-role password after the failed update." -ForegroundColor Yellow
+    } catch {
+      Write-Warning "Could not restore the previous Cube reporting-role password: $($_.Exception.Message)"
+    }
+  }
+
   if ($script:legacyMeilisearchKeyRotated -and -not [string]::IsNullOrWhiteSpace($script:previousMeilisearchApiKey)) {
     try {
       $restoredEnvironment = Ensure-ServerEnvironmentObject $config
@@ -2533,12 +2805,30 @@ Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
     Write-Warning "Rollback scheduled-task restoration failed: $($_.Exception.Message)"
   }
 
+  try {
+    Unregister-ScheduledTask -TaskName $cubeTaskName -Confirm:$false -ErrorAction SilentlyContinue
+    if ($hadExistingCubeTask) {
+      $savedCubeTaskXml = Get-Content (Join-Path $rollbackDir "cube-task.xml") -Raw
+      Register-ScheduledTask -TaskName $cubeTaskName -Xml $savedCubeTaskXml | Out-Null
+    }
+  } catch {
+    Write-Warning "Rollback Cube scheduled-task restoration failed: $($_.Exception.Message)"
+  }
+
   if ($hadExistingTask) {
     try {
       Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
       Write-Host "Previous Riverside OS Server task restarted after the failed update." -ForegroundColor Yellow
     } catch {
       Write-Warning "Could not restart the previous Riverside OS Server task after rollback: $($_.Exception.Message)"
+    }
+  }
+  if ($hadExistingCubeTask) {
+    try {
+      Start-ScheduledTask -TaskName $cubeTaskName -ErrorAction Stop
+      Write-Host "Previous Cube Core task restarted after the failed update." -ForegroundColor Yellow
+    } catch {
+      Write-Warning "Could not restart the previous Cube Core task after rollback: $($_.Exception.Message)"
     }
   }
   throw $installFailure

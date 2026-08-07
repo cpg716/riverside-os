@@ -44,14 +44,14 @@ That report is an audited paged response, ordered by activity time and stable ro
 
 Lane-scoped Register Day requests require the query's `register_session_id` to match a valid POS session secret. A staff caller without that matching secret must hold `register.reports`; an open session UUID by itself grants no report access.
 
-**Native Insights:** the Riverside server builds queries only from its static semantic catalog, runs them in read-only transactions against **`reporting.*`**, and applies a 20-second statement timeout. No model- or browser-supplied SQL is accepted.
+**`cube_ro`:** reporting-schema-only login used by Cube Core. Migration 185 revokes **`public.*`** access, grants **`SELECT`** on **`reporting.*`**, and sets a 20-second statement timeout.
 
 ## Roadmap / gaps
 
 - Storefront “picked up” vs “shipped” customer-facing states and a dedicated **`transactions.shipped_at`** (or carrier webhook event) would simplify fulfillment recognition; today rely on **Shipments** hub events.
 - **`/api/insights/best-sellers`** and **`/dead-stock`** use the same **`basis`** query parameter as **`/api/insights/sales-pivot`** (**`booked`** → **`transactions.booked_at`**; **`fulfilled`** → fulfillment instant per **`transaction_date_filter_sql`** / **`reporting.order_recognition_at`**).
 - **`/api/insights/margin-pivot`** (**Admin only**) uses the same **`basis`** and **`group_by`** as **`sales-pivot`**; margin is pre-tax line revenue minus **`SUM(transaction_lines.unit_cost × quantity)`** (cost frozen at checkout).
-- **Native Insights** models separate **`booked_items`** and **`recognized_items`** datasets over **`reporting.order_lines`**. Their cost and margin measures are enforced as Riverside Admin-only by the Rust semantic catalog.
+- **Native Insights** models separate **`booked_items`** and **`recognized_items`** Cube datasets over **`reporting.order_lines`**. Their cost and margin measures are enforced as Riverside Admin-only by the Rust semantic catalog.
 - Operational Reports catalog tiles for appointment no-shows, wedding readiness, schedule coverage, customer follow-up, and exception risk use dedicated read-only endpoints. They must not be used as a substitute for the booked vs fulfilled API contracts above.
 
 ## Related docs

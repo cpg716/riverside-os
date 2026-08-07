@@ -1233,20 +1233,22 @@ pub async fn runtime_diagnostics_snapshot(
             .fetch_one(pool)
             .await?;
     let insights = StoreInsightsConfig::from_json_value(insights_raw);
-    let insights_ready = crate::logic::insights_config::reporting_engine_ready(pool).await?;
-    let (insights_value, insights_detail, insights_severity) = if insights_ready {
+    let cube_secret_ready = nonempty_env("RIVERSIDE_CUBE_API_SECRET")
+        .or_else(|| nonempty_env("CUBEJS_API_SECRET"))
+        .is_some_and(|secret| secret.len() >= 32);
+    let (cube_value, cube_detail, cube_severity) = if cube_secret_ready {
         (
-            "Ready".to_string(),
+            "Configured".to_string(),
             format!(
-                "Native Insights reads approved reporting views through the Riverside server. Row limit: {}; history archive: {} days.",
-                insights.max_rows, insights.history_archive_days
+                "Native Insights signs governed Cube Core queries. Row limit: {}; history archive: {} days.",
+                insights.cube_max_rows, insights.history_archive_days
             ),
             "info".to_string(),
         )
     } else {
         (
-            "Needs update".to_string(),
-            "One or more approved reporting views are missing. Run the normal Main Hub update or repair process; no separate reporting password is required.".to_string(),
+            "Needs secret".to_string(),
+            "RIVERSIDE_CUBE_API_SECRET must match CUBEJS_API_SECRET and contain at least 32 characters.".to_string(),
             "warning".to_string(),
         )
     };
@@ -1352,11 +1354,11 @@ pub async fn runtime_diagnostics_snapshot(
                 severity: shippo_severity,
             },
             RuntimeDiagnosticItem {
-                key: "native_insights".to_string(),
-                label: "Native Insights".to_string(),
-                value: insights_value,
-                detail: insights_detail,
-                severity: insights_severity,
+                key: "cube_core".to_string(),
+                label: "Cube Core".to_string(),
+                value: cube_value,
+                detail: cube_detail,
+                severity: cube_severity,
             },
             RuntimeDiagnosticItem {
                 key: "search_mode".to_string(),

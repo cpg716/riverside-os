@@ -181,6 +181,7 @@ The script:
 - Copies `riverside-server.exe`.
 - Copies `client-dist`.
 - Copies migrations.
+- Installs the pinned non-Docker Cube Core runtime and governed semantic model under `C:\RiversideOS\cube`.
 - Copies bundled docs into `C:\RiversideOS\release\docs` for help/reindex workflows when enabled.
 - Creates/updates the PostgreSQL app role and database.
 - Applies pending migrations using `psql`.
@@ -189,6 +190,7 @@ The script:
 - Verifies or repairs the local `cloudflared` ingress so the configured tunnel hostname points to the Riverside server port. A running service-managed or Cloudflare-dashboard-managed tunnel is preserved even when it has no local `config.yml`; if the service is stopped or no local tunnel route exists, the installer reports that specific condition. If a local config is missing and credentials are supplied, the installer can create one from `RIVERSIDE_CLOUDFLARE_TUNNEL_ID` and `RIVERSIDE_CLOUDFLARE_CREDENTIALS_FILE`.
 - Adds the inbound firewall rule for the configured server port.
 - Creates a startup scheduled task named `Riverside OS Server`.
+- Creates and verifies the loopback-only `Riverside OS Cube Core` startup task on `127.0.0.1:4000`; Cube connects as `cube_ro`, never as the application owner.
 - Starts the server and checks the local app URL.
 
 If Riverside starts but a screen reports a missing database table, use **Apply-RiversideMigrations.cmd** from the release package. It only applies pending migrations; it does not replace the server, web bundle, or desktop app.

@@ -2343,7 +2343,6 @@ function AppMainColumn({
                           setActiveTab("online-store");
                           setActiveSubSection("dashboard");
                         }}
-                        onOpenInsights={onOpenInsights}
                         onNavigateOperationsTarget={(target) => {
                           setActiveTab(target.tab);
                           if (target.section) {

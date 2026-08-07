@@ -43,7 +43,7 @@ This checklist is for the final human go/no-go review after the code RC gate has
 ### Runtime services and access
 
 - Confirm PostgreSQL, API, frontend, and any required sidecars are running at the intended production endpoints.
-- Confirm native Insights reports ready, standard staff cannot request cost/margin, Admin can run approved cost/margin measures, and favorite/history/archive/export/print workflows operate for the roles that use them.
+- Confirm native Insights can reach Cube Core, standard staff cannot request cost/margin, Admin can run approved cost/margin measures, and favorite/history/archive/export/print workflows operate for the roles that use them.
 - Confirm Tailscale / remote access is verified if the store depends on it.
 - Confirm Meilisearch is available and indexed if search-backed workflows are expected.
 

@@ -84,6 +84,26 @@ interface PodiumHealth {
   message: string;
 }
 
+interface PodiumContactReconciliationResult {
+  contacts_seen: number;
+  contacts_matched: number;
+  customers_created: number;
+  customers_updated: number;
+  conflicts: number;
+  outbound_queued: number;
+}
+
+interface PodiumContactIssue {
+  id: string;
+  provider_contact_uid: string;
+  provider_name: string | null;
+  phone_e164: string | null;
+  email: string | null;
+  reason: string;
+  candidate_customer_ids: string[];
+  last_seen_at: string;
+}
+
 interface PodiumAuthorizeUrlResponse {
   authorize_url: string;
 }
@@ -302,6 +322,7 @@ const PODIUM_OAUTH_SCOPE = [
   "read_reviews",
   "write_reviews",
   "read_users",
+  "read_contacts",
   "write_contacts",
 ].join(" ");
 
@@ -312,6 +333,10 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
   const [podiumReadiness, setPodiumReadiness] = useState<PodiumReadiness | null>(null);
   const [podiumHealth, setPodiumHealth] = useState<PodiumHealth | null>(null);
   const [healthBusy, setHealthBusy] = useState(false);
+  const [contactReconcileBusy, setContactReconcileBusy] = useState(false);
+  const [contactReconcileResult, setContactReconcileResult] =
+    useState<PodiumContactReconciliationResult | null>(null);
+  const [contactIssues, setContactIssues] = useState<PodiumContactIssue[]>([]);
   const [busy, setBusy] = useState(false);
   const podiumRedirectUri = getPodiumOAuthRedirectUri();
   const appCredentialsReady = Boolean(
@@ -348,6 +373,14 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
       });
       if (readResp.ok) {
         setPodiumReadiness((await readResp.json()) as PodiumReadiness);
+      }
+      const issueResp = await fetch(
+        `${baseUrl}/api/customers/podium/contact-reconciliation-issues?limit=50`,
+        { headers: backofficeHeaders() as Record<string, string>, cache: "no-store" },
+      );
+      if (issueResp.ok) {
+        const issues = (await issueResp.json()) as PodiumContactIssue[];
+        setContactIssues(Array.isArray(issues) ? issues : []);
       }
     } catch (err) {
       console.error("Failed to fetch podium settings", err);
@@ -397,6 +430,40 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
       toast("Podium health check could not run.", "error");
     } finally {
       setHealthBusy(false);
+    }
+  };
+
+  const reconcilePodiumContacts = async () => {
+    if (contactReconcileBusy) return;
+    setContactReconcileBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/podium/contact-reconcile`, {
+        method: "POST",
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      const payload = (await res.json().catch(() => ({}))) as
+        | PodiumContactReconciliationResult
+        | { error?: string };
+      if (!res.ok) {
+        toast(
+          "error" in payload && payload.error
+            ? payload.error
+            : "Podium contact reconciliation could not run.",
+          "error",
+        );
+        return;
+      }
+      const result = payload as PodiumContactReconciliationResult;
+      setContactReconcileResult(result);
+      toast(
+        `Compared ${result.contacts_seen} Podium contacts; ${result.conflicts} require review.`,
+        result.conflicts > 0 ? "info" : "success",
+      );
+      await fetchPodiumSmsSettings();
+    } catch {
+      toast("Podium contact reconciliation could not run.", "error");
+    } finally {
+      setContactReconcileBusy(false);
     }
   };
 
@@ -677,15 +744,29 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
         )}
 
         <div className="mb-8">
-          <button
-            type="button"
-            onClick={() => void checkPodiumHealth()}
-            disabled={healthBusy || !podiumSms.credentials_configured}
-            className="ui-btn-secondary inline-flex h-11 items-center gap-2 px-5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${healthBusy ? "animate-spin" : ""}`} aria-hidden />
-            {healthBusy ? "Checking..." : "Check Podium Health"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void checkPodiumHealth()}
+              disabled={healthBusy || !podiumSms.credentials_configured}
+              className="ui-btn-secondary inline-flex h-11 items-center gap-2 px-5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${healthBusy ? "animate-spin" : ""}`} aria-hidden />
+              {healthBusy ? "Checking..." : "Check Podium Health"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void reconcilePodiumContacts()}
+              disabled={contactReconcileBusy || !podiumSms.credentials_configured}
+              className="ui-btn-secondary inline-flex h-11 items-center gap-2 px-5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${contactReconcileBusy ? "animate-spin" : ""}`}
+                aria-hidden
+              />
+              {contactReconcileBusy ? "Reconciling..." : "Reconcile Contacts"}
+            </button>
+          </div>
           {podiumHealth ? (
             <div
               className={`mt-4 rounded-2xl border p-4 text-xs font-semibold ${
@@ -703,6 +784,45 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                 {podiumHealth.reachable ? "Authenticated" : "Needs attention"} · {podiumHealth.latency_ms} ms
               </div>
               <p className="mt-2 normal-case text-app-text-muted">{podiumHealth.message}</p>
+            </div>
+          ) : null}
+          {contactReconcileResult ? (
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              {[
+                ["Podium contacts", contactReconcileResult.contacts_seen],
+                ["ROS updates", contactReconcileResult.customers_updated + contactReconcileResult.customers_created],
+                ["Needs review", contactReconcileResult.conflicts],
+              ].map(([label, value]) => (
+                <div key={label} className="ui-metric-cell ui-tint-neutral p-3">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{label}</p>
+                  <p className="mt-1 text-lg font-black text-app-text">{value}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {contactIssues.length > 0 ? (
+            <div className="mt-4 rounded-2xl border border-app-warning/30 bg-app-warning/10 p-4">
+              <p className="text-xs font-black uppercase tracking-widest text-app-warning">
+                {contactIssues.length} contact {contactIssues.length === 1 ? "conflict" : "conflicts"} need review
+              </p>
+              <ul className="mt-3 grid gap-2 lg:grid-cols-2">
+                {contactIssues.map((issue) => (
+                  <li key={issue.id} className="rounded-xl border border-app-warning/20 bg-app-surface p-3 text-xs">
+                    <p className="font-black text-app-text">
+                      {issue.provider_name ?? issue.phone_e164 ?? issue.email ?? "Unnamed Podium contact"}
+                    </p>
+                    <p className="mt-1 text-app-text-muted">
+                      {issue.reason.replaceAll("_", " ")} · {issue.candidate_customer_ids.length} candidate customers
+                    </p>
+                    <p className="mt-1 font-mono text-[10px] text-app-text-muted">
+                      {issue.provider_contact_uid}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
+                Verify the matching Podium contact and correct duplicate phone or email values in Podium or Customer Hub, then run reconciliation again. ROS will not choose between conflicting records.
+              </p>
             </div>
           ) : null}
         </div>

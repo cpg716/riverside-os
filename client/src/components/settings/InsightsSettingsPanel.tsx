@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Archive, ArrowRight, CheckCircle2, Database, RefreshCw, Sparkles } from "lucide-react";
+import { Archive, Database, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -9,26 +9,24 @@ const baseUrl = getBaseUrl();
 type InsightsConfig = {
   data_access_mode: "reporting_views_only";
   staff_note_markdown: string;
-  max_rows: number;
+  cube_max_rows: number;
   history_archive_days: number;
 };
 
 type InsightsSettingsResponse = {
   config: InsightsConfig;
-  engine_ready: boolean;
+  cube_secret_configured: boolean;
+  cube_upstream: string;
 };
 
-type InsightsSettingsPanelProps = {
-  onOpenInsights?: () => void;
-};
-
-const InsightsSettingsPanel: React.FC<InsightsSettingsPanelProps> = ({ onOpenInsights }) => {
+const InsightsSettingsPanel: React.FC = () => {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cfg, setCfg] = useState<InsightsConfig | null>(null);
-  const [engineReady, setEngineReady] = useState(false);
+  const [cubeSecretConfigured, setCubeSecretConfigured] = useState(false);
+  const [cubeUpstream, setCubeUpstream] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -42,7 +40,8 @@ const InsightsSettingsPanel: React.FC<InsightsSettingsPanelProps> = ({ onOpenIns
       }
       const data = (await response.json()) as InsightsSettingsResponse;
       setCfg(data.config);
-      setEngineReady(data.engine_ready);
+      setCubeSecretConfigured(data.cube_secret_configured);
+      setCubeUpstream(data.cube_upstream);
     } catch {
       toast("Could not load Insights settings", "error");
     } finally {
@@ -77,7 +76,8 @@ const InsightsSettingsPanel: React.FC<InsightsSettingsPanelProps> = ({ onOpenIns
       }
       const data = payload as InsightsSettingsResponse;
       setCfg(data.config);
-      setEngineReady(data.engine_ready);
+      setCubeSecretConfigured(data.cube_secret_configured);
+      setCubeUpstream(data.cube_upstream);
       toast("Native Insights policy saved", "success");
     } catch {
       toast("Save failed", "error");
@@ -100,14 +100,14 @@ const InsightsSettingsPanel: React.FC<InsightsSettingsPanelProps> = ({ onOpenIns
     <div className="animate-in space-y-8 fade-in slide-in-from-bottom-4 duration-500">
       <header>
         <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-violet-600">
-          <Sparkles className="h-4 w-4" /> Riverside Insights
+          <Sparkles className="h-4 w-4" /> ROSIE + Cube Core
         </div>
         <h2 className="text-3xl font-black uppercase italic tracking-tighter text-app-text">
           Native Data Insights
         </h2>
         <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
-          Choose sensible report limits, history retention, and guidance for staff. Riverside
-          handles reporting access automatically—there is no separate account, password, or server secret.
+          Configure the governed semantic reporting layer, automatic report history, and output limits.
+          Staff use their existing Riverside access—there is no separate reporting login.
         </p>
       </header>
 
@@ -119,73 +119,64 @@ const InsightsSettingsPanel: React.FC<InsightsSettingsPanelProps> = ({ onOpenIns
             </div>
             <div>
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Reporting status
+                Governed reporting engine
               </h3>
               <p className="mt-1 max-w-xl text-xs font-medium leading-relaxed text-app-text-muted">
-                Gemma prepares a checked report plan, and Riverside reads only approved report data.
+                Cube can query only approved <code className="font-mono">reporting.*</code> models.
+                Gemma produces a validated ReportSpec and never SQL.
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void load()}
-              className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest"
-            >
-              <RefreshCw className="h-3.5 w-3.5" /> Check status
-            </button>
-            {onOpenInsights ? (
-              <button
-                type="button"
-                onClick={onOpenInsights}
-                className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest"
-              >
-                Open Insights <ArrowRight className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-          </div>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Reload
+          </button>
         </div>
 
-        <div
-          className={`mt-6 rounded-2xl border p-4 ${
-            engineReady
-              ? "border-emerald-500/25 bg-emerald-500/[0.06]"
-              : "border-amber-500/30 bg-amber-500/[0.07]"
-          }`}
-        >
-          <div className="flex items-start gap-3">
-            {engineReady ? (
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
-            ) : (
-              <Database className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-            )}
-            <div>
-              <p className={`text-sm font-black ${engineReady ? "text-emerald-700" : "text-amber-700"}`}>
-                {engineReady ? "Reporting is ready" : "Main Hub update or repair required"}
-              </p>
-              <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
-                {engineReady
-                  ? "Staff can open Insights now using their existing Riverside access."
-                  : "One or more approved reporting views are missing. Use the normal Riverside Main Hub update or repair process; do not enter a password here."}
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-emerald-600" />
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Database access
               </p>
             </div>
+            <p className="mt-3 text-sm font-black text-app-text">Reporting views only</p>
+            <p className="mt-1 text-[10px] font-medium leading-relaxed text-app-text-muted">
+              Full-database delegation is retired and cannot be enabled from Riverside.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
+            <div className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-violet-600" />
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Cube Core connection
+              </p>
+            </div>
+            <p className={`mt-3 text-sm font-black ${cubeSecretConfigured ? "text-emerald-600" : "text-amber-600"}`}>
+              {cubeSecretConfigured ? "Server secret configured" : "Server secret needs setup"}
+            </p>
+            <p className="mt-1 break-all font-mono text-[10px] text-app-text-muted">{cubeUpstream}</p>
           </div>
         </div>
 
         <div className="mt-6 grid gap-5 sm:grid-cols-2">
           <label className="block">
             <span className="ml-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Maximum rows in each report
+              Maximum rows per report
             </span>
             <input
               type="number"
               min={25}
               max={500}
-              value={cfg.max_rows}
+              value={cfg.cube_max_rows}
               onChange={(event) =>
                 setCfg((current) =>
                   current
-                    ? { ...current, max_rows: Number(event.target.value) }
+                    ? { ...current, cube_max_rows: Number(event.target.value) }
                     : current,
                 )
               }
@@ -222,7 +213,7 @@ const InsightsSettingsPanel: React.FC<InsightsSettingsPanelProps> = ({ onOpenIns
 
         <label className="mt-6 block">
           <span className="ml-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Instructions shown in Insights
+            Staff reporting guidance
           </span>
           <textarea
             value={cfg.staff_note_markdown}
@@ -232,7 +223,7 @@ const InsightsSettingsPanel: React.FC<InsightsSettingsPanelProps> = ({ onOpenIns
               )
             }
             className="ui-input mt-2 min-h-28 w-full p-4 text-xs font-medium leading-relaxed"
-            placeholder="Example: Use Booked Sales for new orders and Recognized Sales for fulfilled or picked-up merchandise."
+            placeholder="Optional guidance about booked vs recognized reporting, report ownership, or review expectations."
           />
         </label>
 
@@ -243,7 +234,7 @@ const InsightsSettingsPanel: React.FC<InsightsSettingsPanelProps> = ({ onOpenIns
             disabled={saving}
             className="ui-btn-primary h-12 px-8 text-[11px] font-black uppercase tracking-[0.18em]"
           >
-            {saving ? "Saving..." : "Save Insights settings"}
+            {saving ? "Saving..." : "Save Insights policy"}
           </button>
         </div>
       </section>

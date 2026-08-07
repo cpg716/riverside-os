@@ -21,7 +21,7 @@ When Podium is **configured on the server** and **enabled in Settings**, Riversi
 | **Customer CRM threads** | Show **SMS** history on the customer profile, **reply** from Riverside, and optionally store a **Podium conversation URL** for reference. |
 | **Direct staff texts** | From **Podium Inbox**, send a text to an existing customer or enter a new phone number; new numbers require first and last name and create a Podium-sourced customer contact. |
 | **Staff-to-Podium user matching** | Link each staff member to their Podium user identity so messages show the sender’s real name instead of a raw UUID. |
-| **Podium contacts sync** | Riverside customers are automatically pushed to Podium contacts on create and update; staff can also manually sync from the Customer Hub. |
+| **Podium contacts sync** | Riverside customers are queued for durable Podium contact upsert on create and update; staff can see provider ID, retry, failure, and last-success evidence or manually sync from the Customer Hub. |
 | **Conversation assignees** | See who is assigned to a Podium conversation in the Inbox thread header. |
 | **Inbound messages** | If Podium is allowed to call Riverside’s **webhook**, new customer texts can appear as threads and **notifications** (see section 7). |
 | **Web chat on your site** | Paste Podium’s widget snippet so the public storefront can load it (optional build flag). |
@@ -72,9 +72,13 @@ The screen now separates the required connection steps from advanced settings. F
 
 The refresh token, API host, and OAuth token URL are under **Advanced and incoming-message setup** because they are not normally entered by staff. The webhook signing secret is only needed when configuring verified incoming Podium messages.
 
-Riverside requests these Podium OAuth scopes today: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, and `write_contacts`. If Podium shows an empty consent card or a generic authorization error, confirm the app has those products/scopes enabled in Podium and that the redirect URI belongs to the same Client ID.
+Riverside requests these Podium OAuth scopes today: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `read_contacts`, and `write_contacts`. Existing connections must be reconnected once after enabling `read_contacts`. If Podium shows an empty consent card or a generic authorization error, confirm the app has those products/scopes enabled in Podium and that the redirect URI belongs to the same Client ID.
 
-If anything fails, use the **readiness** strip (credentials, webhook secret, API base, toggles), then click **Check Podium Health**. The live check refreshes the saved OAuth token and verifies authenticated `read_locations` access; a green result is stronger than basic network reachability but still does not send a message.
+If anything fails, use the **readiness** strip (credentials, webhook secret, API base, toggles), then click **Check Podium Health**. The live check refreshes the saved OAuth token and verifies authenticated access for locations, messages, contacts, reviews, and users; a green result is stronger than basic network reachability but still does not send a message.
+
+Use **Reconcile Contacts** after reconnecting. This bulk action requires **`settings.admin`**, a saved Podium location UID, and an active OAuth grant with `read_contacts`. Riverside permits only one reconciliation at a time, reads every cursor-paged Podium contact, compares normalized phone/email identifiers without choosing between duplicates, applies safe Podium edits and SMS opt-outs to ROS, creates a Podium-sourced ROS customer when no match exists, and queues eligible ROS customers for outbound parity. If a page or contact identity cannot be parsed completely, the run fails before treating any mapped contact as absent. Contact deletes preserve the ROS customer for ledger/history safety and suppress silent recreation; merges, deletes, conflicts, and successful changes are audit events.
+
+Riverside remains the appointment calendar and booking source of truth. Podium delivers enabled appointment confirmations, reminders, and the calendar attachment; staff should not maintain a second appointment schedule in Podium.
 
 ### 3.2 Choose which texts are enabled
 
@@ -150,11 +154,11 @@ The inbox is a conversation workspace:
 - Search and select a current customer, then send SMS to the phone on their profile.
 - Enter any phone number. If it is not already matched to a customer phone, Riverside requires **first name** and **last name**, creates a new customer with **Podium** as the source, sends the SMS, and records the outbound message on the new contact.
 
-Unmatched provider threads are grouped under **Unknown Podium senders** so the main inbox stays focused on usable conversations. Match or create the customer, then sync again before treating the thread as customer history.
+Unmatched provider threads are grouped under **Unknown Podium senders** so the main inbox stays focused on usable conversations. Choose **Match customer**, search/select the verified customer, and let Riverside import the exact provider conversation. When duplicate phone/email values produce multiple candidates, Riverside quarantines the thread instead of silently selecting the newest customer.
 
 Viewing requires **`customers.hub_view`**. Sending and new-contact creation require **`customers.hub_edit`**.
 
-**Inbox freshness:** Riverside receives new Podium messages by webhook when the public webhook is configured. The Inbox screen refreshes every minute while open, and Riverside runs a background Podium pull every 30 hours by default to catch missed history. Use **Pull from Podium** when staff want an immediate missed-history check.
+**Inbox freshness:** Riverside receives new Podium messages by webhook when the public webhook is configured. The Inbox screen refreshes every minute while open, and Riverside runs a background Podium pull every 30 minutes by default to catch missed history. Use **Pull from Podium** when staff want an immediate missed-history check.
 
 **Thread UI:** The message thread auto-scrolls to the newest message and displays a **Sent** badge on outbound messages. The conversation header shows assigned Podium users when available. Assigning or clearing a user updates Podium's assignee list; if Podium rejects the change, Riverside shows the provider error instead of pretending it was saved.
 
@@ -230,7 +234,7 @@ Admins can check the current public callback origin, Podium webhook URL, signing
 
 **Idempotency:** Duplicate Podium retries use a ledger so the same event is not processed twice.
 
-**What the webhook is used for:** Riverside uses Podium webhooks to receive message activity, persist `podium_message` rows, update the **Podium Inbox** / customer **Messages** thread, create notifications for new inbound customer texts, and preserve a delivery ledger. Outbound sends from Riverside still use the Podium API; the webhook is the return path that lets Riverside see Podium-side activity.
+**What the webhook is used for:** Riverside uses Podium webhooks to receive message activity, persist `podium_message` rows, update the **Podium Inbox** / customer **Messages** thread, create notifications for new inbound customer texts, apply contact lifecycle events, and preserve a delivery ledger. Enable `message.received`, relevant message sent/failed events, `contact.created`, `contact.updated`, `contact.deleted`, `contact.merged`, and `contact.unchanged`. Outbound sends from Riverside still use the Podium API; the webhook is the return path that lets Riverside see Podium-side activity.
 
 **Webhook setup:** IT can register the webhook through Podium’s API using the saved OAuth credentials. If a webhook already exists, keep its URL pointed at the public Riverside endpoint above and save the signing secret in the Podium credentials card. If the secret is missing or wrong, Riverside rejects signed deliveries before they enter the inbox.
 
@@ -254,7 +258,7 @@ Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 |---------|----------------|
 | **Connect Podium** fails | Redirect URI mismatch; HTTPS vs HTTP; client override `VITE_PODIUM_OAUTH_REDIRECT_URI`; Podium app Client ID / Client Secret. |
 | **Podium says Client ID and redirect URI do not match** | The redirect URI used by Riverside is not registered on the same Podium app as the saved Client ID. Register the exact callback URL shown by Riverside, then restart the authorization from Settings. |
-| **Podium consent page says something went wrong** | Missing/disabled Podium app scopes or product access; verify `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, and `write_contacts` on the Podium app. |
+| **Podium consent page says something went wrong** | Missing/disabled Podium app scopes or product access; verify `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `read_contacts`, and `write_contacts` on the Podium app. |
 | **Podium page says "Client ID is required"** | The authorization URL did not include a Client ID. Return to Settings, confirm Client ID is saved, and start authorization again from the Podium card. |
 | **No SMS** | The specific message-type toggle, location UID, credentials, customer phone, SMS opt-in, and a non-empty template when required. |
 | **Send Text cannot send to a new number** | Enter phone, first name, last name, and message body; confirm the staff member has `customers.hub_edit`. |
@@ -293,7 +297,8 @@ Manage routine Podium credentials in **Settings → Integrations → Podium** (n
 | **`RIVERSIDE_PODIUM_WEBHOOK_SECRET`** | Verify inbound webhooks |
 | **`RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED`** | Dev only |
 | **`RIVERSIDE_PODIUM_INBOUND_DISABLED`** | Skip CRM ingest; verified deliveries may still be recorded in the webhook ledger |
-| **`RIVERSIDE_PODIUM_SYNC_INTERVAL_SECS`** | Optional fallback inbox pull interval; default 30 hours, minimum 10 minutes |
+| **`RIVERSIDE_PODIUM_SYNC_INTERVAL_SECS`** | Optional fallback inbox pull interval; default 30 minutes, minimum 10 minutes |
+| **`RIVERSIDE_PODIUM_CONTACT_SYNC_INTERVAL_SECS`** | Durable ROS-to-Podium contact outbox interval; default 30 seconds, minimum 10 seconds |
 
 **Client (optional):** **`VITE_PODIUM_OAUTH_REDIRECT_URI`**, **`VITE_STOREFRONT_EMBEDS`**.
 

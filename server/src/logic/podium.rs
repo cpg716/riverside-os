@@ -839,6 +839,18 @@ fn podium_conversations_url(base_url: &str) -> String {
     format!("{}/v4/conversations", base_url.trim_end_matches('/'))
 }
 
+fn podium_contacts_url(base_url: &str) -> String {
+    format!("{}/v4/contacts", base_url.trim_end_matches('/'))
+}
+
+fn podium_contact_url(base_url: &str, identifier: &str) -> String {
+    format!(
+        "{}/v4/contacts/{}",
+        base_url.trim_end_matches('/'),
+        urlencoding::encode(identifier)
+    )
+}
+
 fn podium_conversation_messages_url(base_url: &str, conversation_uid: &str) -> String {
     format!(
         "{}/v4/conversations/{}/messages",
@@ -975,7 +987,7 @@ pub async fn try_send_operational_sms(
     )
     .await
     {
-        Ok(_) => {
+        Ok(raw_response) => {
             tracing::info!(
                 target = "podium",
                 event = "podium_send_ok",
@@ -992,6 +1004,10 @@ pub async fn try_send_operational_sms(
                     e164.as_deref(),
                     None,
                     "automated",
+                    podium_message_send_result(raw_response.clone())
+                        .provider_message_id
+                        .as_deref(),
+                    Some(&raw_response),
                 )
                 .await
                 {
@@ -1084,6 +1100,28 @@ pub struct PodiumReviewInviteResult {
 pub struct PodiumMessageSendResult {
     pub provider_message_id: Option<String>,
     pub raw_response: Value,
+}
+
+fn podium_message_send_result(raw_response: Value) -> PodiumMessageSendResult {
+    let provider_message_id = first_string_at(
+        &raw_response,
+        &[
+            "/uid",
+            "/id",
+            "/messageUid",
+            "/conversationItemUid",
+            "/data/uid",
+            "/data/id",
+            "/data/messageUid",
+            "/data/conversationItemUid",
+            "/data/items/0/uid",
+            "/items/0/uid",
+        ],
+    );
+    PodiumMessageSendResult {
+        provider_message_id,
+        raw_response,
+    }
 }
 
 fn first_string_at(value: &Value, pointers: &[&str]) -> Option<String> {
@@ -1221,6 +1259,14 @@ fn values_from_collection(value: Value) -> Vec<Value> {
         return items.clone();
     }
     Vec::new()
+}
+
+fn is_collection_response(value: &Value) -> bool {
+    value.as_array().is_some()
+        || value.get("data").is_some_and(Value::is_array)
+        || value.pointer("/data/items").is_some_and(Value::is_array)
+        || value.get("results").is_some_and(Value::is_array)
+        || value.get("items").is_some_and(Value::is_array)
 }
 
 fn next_cursor_from_collection(value: &Value) -> Option<String> {
@@ -1400,6 +1446,65 @@ pub async fn fetch_podium_review_invites(
     Ok(invites)
 }
 
+/// Read the complete Podium contact list for reconciliation. The provider caps
+/// each page at 100. A hard ceiling fails explicitly instead of silently
+/// certifying a partial list as complete.
+pub async fn fetch_all_podium_contacts(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+) -> Result<Vec<Value>, PodiumError> {
+    const MAX_RECONCILIATION_CONTACTS: usize = 50_000;
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let url = podium_contacts_url(&creds.api_base_url);
+    let mut cursor: Option<String> = None;
+    let mut contacts = Vec::new();
+    loop {
+        let page_cursor = cursor.clone();
+        let response = send_authenticated_podium_request(
+            http,
+            token_cache,
+            &creds,
+            PodiumRequestSafety::SafeRead,
+            PodiumHttpErrorKind::General,
+            &[],
+            |token| {
+                let mut request =
+                    add_podium_headers(http.get(&url), Some(token)).query(&[("limit", 100_u8)]);
+                if let Some(cursor) = page_cursor.as_deref() {
+                    request = request.query(&[("cursor", cursor)]);
+                }
+                request
+            },
+        )
+        .await?;
+        let value = response.json::<Value>().await.unwrap_or_else(|_| json!({}));
+        if !is_collection_response(&value) {
+            tracing::error!("Podium contacts response was not a recognized collection");
+            return Err(PodiumError::SendHttp(502));
+        }
+        contacts.extend(values_from_collection(value.clone()));
+        if contacts.len() > MAX_RECONCILIATION_CONTACTS {
+            tracing::error!(
+                contact_count = contacts.len(),
+                "Podium contact reconciliation exceeded its explicit safety ceiling"
+            );
+            return Err(PodiumError::SendHttp(413));
+        }
+        let Some(next_cursor) = next_cursor_from_collection(&value) else {
+            break;
+        };
+        if cursor.as_deref() == Some(next_cursor.as_str()) {
+            tracing::error!(cursor = %next_cursor, "Podium contact cursor repeated");
+            return Err(PodiumError::SendHttp(502));
+        }
+        cursor = Some(next_cursor);
+    }
+    Ok(contacts)
+}
+
 /// Send one SMS via Podium (`channel.type`: `phone`); returns error for API callers (e.g. POS receipt).
 pub async fn send_podium_sms_message(
     pool: &PgPool,
@@ -1443,25 +1548,7 @@ pub async fn send_podium_sms_message_tracked(
         None,
     )
     .await?;
-    let provider_message_id = first_string_at(
-        &raw_response,
-        &[
-            "/uid",
-            "/id",
-            "/messageUid",
-            "/conversationItemUid",
-            "/data/uid",
-            "/data/id",
-            "/data/messageUid",
-            "/data/conversationItemUid",
-            "/data/items/0/uid",
-            "/items/0/uid",
-        ],
-    );
-    Ok(PodiumMessageSendResult {
-        provider_message_id,
-        raw_response,
-    })
+    Ok(podium_message_send_result(raw_response))
 }
 
 /// Send a review-related email through Podium so its message and review-invite
@@ -1502,25 +1589,7 @@ pub async fn send_podium_email_message_tracked(
         None,
     )
     .await?;
-    let provider_message_id = first_string_at(
-        &raw_response,
-        &[
-            "/uid",
-            "/id",
-            "/messageUid",
-            "/conversationItemUid",
-            "/data/uid",
-            "/data/id",
-            "/data/messageUid",
-            "/data/conversationItemUid",
-            "/data/items/0/uid",
-            "/items/0/uid",
-        ],
-    );
-    Ok(PodiumMessageSendResult {
-        provider_message_id,
-        raw_response,
-    })
+    Ok(podium_message_send_result(raw_response))
 }
 
 pub async fn send_podium_sms_message_with_sender(
@@ -1531,6 +1600,26 @@ pub async fn send_podium_sms_message_with_sender(
     body: &str,
     sender_name: Option<&str>,
 ) -> Result<(), PodiumError> {
+    send_podium_sms_message_with_sender_tracked(
+        pool,
+        http,
+        token_cache,
+        to_phone_raw,
+        body,
+        sender_name,
+    )
+    .await
+    .map(|_| ())
+}
+
+pub async fn send_podium_sms_message_with_sender_tracked(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    to_phone_raw: &str,
+    body: &str,
+    sender_name: Option<&str>,
+) -> Result<PodiumMessageSendResult, PodiumError> {
     let creds = PodiumEnvCredentials::load(pool)
         .await
         .ok_or(PodiumError::NotConfigured)?;
@@ -1552,7 +1641,7 @@ pub async fn send_podium_sms_message_with_sender(
     let Some(e164) = normalize_phone_e164(to_phone_raw) else {
         return Err(PodiumError::NotConfigured);
     };
-    send_v4_message(
+    let raw_response = send_v4_message(
         http,
         token_cache,
         &creds,
@@ -1563,8 +1652,8 @@ pub async fn send_podium_sms_message_with_sender(
         None,
         sender_name,
     )
-    .await
-    .map(|_| ())
+    .await?;
+    Ok(podium_message_send_result(raw_response))
 }
 
 /// SMS/MMS with a file via `POST /v4/messages/attachment` (multipart). Carrier must support MMS.
@@ -1578,6 +1667,30 @@ pub async fn send_podium_phone_message_with_attachment(
     attachment_filename: &str,
     attachment_content_type: &str,
 ) -> Result<(), PodiumError> {
+    send_podium_phone_message_with_attachment_tracked(
+        pool,
+        http,
+        token_cache,
+        to_phone_raw,
+        body,
+        attachment_bytes,
+        attachment_filename,
+        attachment_content_type,
+    )
+    .await
+    .map(|_| ())
+}
+
+pub async fn send_podium_phone_message_with_attachment_tracked(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    to_phone_raw: &str,
+    body: &str,
+    attachment_bytes: Vec<u8>,
+    attachment_filename: &str,
+    attachment_content_type: &str,
+) -> Result<PodiumMessageSendResult, PodiumError> {
     let creds = PodiumEnvCredentials::load(pool)
         .await
         .ok_or(PodiumError::NotConfigured)?;
@@ -1618,7 +1731,7 @@ pub async fn send_podium_phone_message_with_attachment(
     let attachment_filename = attachment_filename.trim().to_string();
     let attachment_content_type = attachment_content_type.trim().to_string();
     let url = podium_messages_attachment_url(&creds.api_base_url);
-    send_authenticated_podium_request(
+    let response = send_authenticated_podium_request(
         http,
         token_cache,
         &creds,
@@ -1637,12 +1750,13 @@ pub async fn send_podium_phone_message_with_attachment(
         },
     )
     .await?;
+    let raw_response = response.json::<Value>().await.unwrap_or_else(|_| json!({}));
     tracing::info!(
         target = "podium",
         event = "podium_send_ok",
         channel = "phone_attachment",
     );
-    Ok(())
+    Ok(podium_message_send_result(raw_response))
 }
 
 /// SMS/MMS with image via `POST /v4/messages/attachment` (multipart). Carrier must support MMS.
@@ -1655,6 +1769,27 @@ pub async fn send_podium_phone_message_with_png_attachment(
     attachment_png: Vec<u8>,
 ) -> Result<(), PodiumError> {
     send_podium_phone_message_with_attachment(
+        pool,
+        http,
+        token_cache,
+        to_phone_raw,
+        body,
+        attachment_png,
+        "receipt.png",
+        "image/png",
+    )
+    .await
+}
+
+pub async fn send_podium_phone_message_with_png_attachment_tracked(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    to_phone_raw: &str,
+    body: &str,
+    attachment_png: Vec<u8>,
+) -> Result<PodiumMessageSendResult, PodiumError> {
+    send_podium_phone_message_with_attachment_tracked(
         pool,
         http,
         token_cache,
@@ -1743,6 +1878,8 @@ pub async fn try_send_operational_email(
                     None,
                     Some(em_t),
                     "automated",
+                    None,
+                    None,
                 )
                 .await
                 {
@@ -1943,6 +2080,65 @@ fn podium_contact_payload(
     payload
 }
 
+pub(crate) fn podium_contact_identifier_from_payload(value: &Value) -> Option<String> {
+    first_string_at(
+        value,
+        &["/conversations/0/uid", "/data/conversations/0/uid"],
+    )
+    .or_else(|| {
+        first_string_at(
+            value,
+            &[
+                "/phoneNumber",
+                "/phoneNumbers/0",
+                "/phoneNumbers/0/identifier",
+                "/data/phoneNumber",
+                "/data/phoneNumbers/0",
+                "/data/phoneNumbers/0/identifier",
+            ],
+        )
+        .and_then(|phone| normalize_phone_e164(&phone))
+    })
+    .or_else(|| {
+        first_string_at(
+            value,
+            &[
+                "/email",
+                "/emails/0",
+                "/emails/0/identifier",
+                "/data/email",
+                "/data/emails/0",
+                "/data/emails/0/identifier",
+            ],
+        )
+        .filter(|email| looks_like_email(email))
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct PodiumContactUpsertResult {
+    pub provider_contact_uid: String,
+    pub provider_match_identifier: String,
+    pub provider_response: Value,
+}
+
+fn podium_contact_upsert_result(
+    provider_response: Value,
+    current_identifier: &str,
+) -> Option<PodiumContactUpsertResult> {
+    let provider_contact_uid = first_string_at(
+        &provider_response,
+        &["/uid", "/id", "/data/uid", "/data/id"],
+    )?;
+    let provider_match_identifier = podium_contact_identifier_from_payload(&provider_response)
+        .unwrap_or_else(|| current_identifier.to_string());
+    Some(PodiumContactUpsertResult {
+        provider_contact_uid,
+        provider_match_identifier,
+        provider_response,
+    })
+}
+
 fn podium_assignee_payload(user_uid: Option<&str>) -> Value {
     let assignee_uids = user_uid
         .map(str::trim)
@@ -1959,7 +2155,7 @@ pub async fn upsert_podium_contact(
     http: &reqwest::Client,
     token_cache: &Arc<Mutex<PodiumTokenCache>>,
     customer_id: Uuid,
-) -> Result<Value, PodiumError> {
+) -> Result<PodiumContactUpsertResult, PodiumError> {
     let creds = PodiumEnvCredentials::load(pool)
         .await
         .ok_or(PodiumError::NotConfigured)?;
@@ -1974,8 +2170,16 @@ pub async fn upsert_podium_contact(
         Option<String>,
         Option<String>,
         Option<String>,
+        Option<String>,
+        Option<Value>,
     )> = sqlx::query_as(
-        "SELECT first_name, last_name, phone, email, company_name FROM customers WHERE id = $1",
+        r#"
+        SELECT c.first_name, c.last_name, c.phone, c.email, c.company_name,
+            state.provider_match_identifier, state.last_provider_payload
+        FROM customers c
+        LEFT JOIN podium_contact_sync_state state ON state.customer_id = c.id
+        WHERE c.id = $1
+        "#,
     )
     .bind(customer_id)
     .fetch_optional(pool)
@@ -1985,12 +2189,21 @@ pub async fn upsert_podium_contact(
         PodiumError::NotConfigured
     })?;
 
-    let Some((first_name, last_name, phone, email, _company_name)) = row else {
+    let Some((
+        first_name,
+        last_name,
+        phone,
+        email,
+        _company_name,
+        provider_match_identifier,
+        last_provider_payload,
+    )) = row
+    else {
         return Err(PodiumError::NotConfigured);
     };
 
     // Build identifier: prefer phone, fallback email
-    let identifier = phone
+    let current_identifier = phone
         .as_deref()
         .and_then(normalize_phone_e164)
         .or_else(|| {
@@ -2001,9 +2214,19 @@ pub async fn upsert_podium_contact(
                 .map(ToOwned::to_owned)
         })
         .ok_or(PodiumError::NotConfigured)?;
+    let patch_identifier = provider_match_identifier
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            last_provider_payload
+                .as_ref()
+                .and_then(podium_contact_identifier_from_payload)
+        })
+        .unwrap_or_else(|| current_identifier.clone());
 
     let base = creds.api_base_url.trim_end_matches('/');
-    let url = format!("{}/v4/contacts/{}", base, urlencoding::encode(&identifier));
+    let patch_url = podium_contact_url(base, &patch_identifier);
+    let current_url = podium_contact_url(base, &current_identifier);
 
     let loc = cfg.location_uid.trim();
     if loc.is_empty() {
@@ -2024,13 +2247,13 @@ pub async fn upsert_podium_contact(
         PodiumRequestSafety::Mutation,
         PodiumHttpErrorKind::General,
         &[StatusCode::NOT_FOUND],
-        |token| add_podium_headers(http.patch(&url), Some(token)).json(&body),
+        |token| add_podium_headers(http.patch(&patch_url), Some(token)).json(&body),
     )
     .await?;
     let status = res.status();
     if status == StatusCode::NOT_FOUND {
         // Contact doesn't exist, create it
-        let create_url = format!("{}/v4/contacts", base);
+        let create_url = podium_contacts_url(base);
         let create_res = send_authenticated_podium_request(
             http,
             token_cache,
@@ -2041,12 +2264,56 @@ pub async fn upsert_podium_contact(
             |token| add_podium_headers(http.post(&create_url), Some(token)).json(&body),
         )
         .await?;
-        return Ok(create_res
+        let created = create_res
             .json::<Value>()
             .await
-            .unwrap_or_else(|_| json!({})));
+            .unwrap_or_else(|_| json!({}));
+        if let Some(result) = podium_contact_upsert_result(created, &current_identifier) {
+            return Ok(result);
+        }
+        let read_res = send_authenticated_podium_request(
+            http,
+            token_cache,
+            &creds,
+            PodiumRequestSafety::SafeRead,
+            PodiumHttpErrorKind::General,
+            &[],
+            |token| add_podium_headers(http.get(&current_url), Some(token)),
+        )
+        .await?;
+        let read_value = read_res.json::<Value>().await.unwrap_or_else(|_| json!({}));
+        let Some(result) = podium_contact_upsert_result(read_value, &current_identifier) else {
+            tracing::error!(
+                customer_id = %customer_id,
+                "Podium contact create succeeded without a retrievable provider contact UID"
+            );
+            return Err(PodiumError::SendHttp(502));
+        };
+        return Ok(result);
     }
-    Ok(res.json::<Value>().await.unwrap_or_else(|_| json!({})))
+    let updated = res.json::<Value>().await.unwrap_or_else(|_| json!({}));
+    if let Some(result) = podium_contact_upsert_result(updated, &current_identifier) {
+        return Ok(result);
+    }
+    let read_res = send_authenticated_podium_request(
+        http,
+        token_cache,
+        &creds,
+        PodiumRequestSafety::SafeRead,
+        PodiumHttpErrorKind::General,
+        &[],
+        |token| add_podium_headers(http.get(&current_url), Some(token)),
+    )
+    .await?;
+    let read_value = read_res.json::<Value>().await.unwrap_or_else(|_| json!({}));
+    let Some(result) = podium_contact_upsert_result(read_value, &current_identifier) else {
+        tracing::error!(
+            customer_id = %customer_id,
+            "Podium contact update succeeded without a retrievable provider contact UID"
+        );
+        return Err(PodiumError::SendHttp(502));
+    };
+    Ok(result)
 }
 
 /// Get conversation assignees from Podium.
@@ -2140,6 +2407,7 @@ pub async fn health_check(pool: &PgPool, http: &reqwest::Client) -> PodiumHealth
     let checks = [
         ("read_locations", format!("{base}/v4/locations")),
         ("read_messages", format!("{base}/v4/conversations")),
+        ("read_contacts", format!("{base}/v4/contacts")),
         ("read_reviews", format!("{base}/v4/reviews/invites")),
         ("read_users", format!("{base}/v4/users")),
     ];
@@ -2324,6 +2592,30 @@ mod tests {
         assert_eq!(payload["locations"], json!(["location-1"]));
         assert!(payload.get("phone").is_none());
         assert!(payload.get("locationUid").is_none());
+    }
+
+    #[test]
+    fn stored_contact_identifier_prefers_stable_conversation_identity() {
+        let payload = json!({
+            "conversations": [{ "uid": "conversation-1" }],
+            "phoneNumbers": ["+15551234567"],
+            "emails": ["old@example.com"]
+        });
+
+        assert_eq!(
+            podium_contact_identifier_from_payload(&payload).as_deref(),
+            Some("conversation-1")
+        );
+    }
+
+    #[test]
+    fn stored_contact_identifier_reads_documented_phone_array() {
+        let payload = json!({ "phoneNumbers": ["(555) 123-4567"] });
+
+        assert_eq!(
+            podium_contact_identifier_from_payload(&payload).as_deref(),
+            Some("+15551234567")
+        );
     }
 
     #[test]

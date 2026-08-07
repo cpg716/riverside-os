@@ -1,12 +1,10 @@
-//! Native, governed conversational reporting backed by Riverside reporting views.
+//! Native, governed conversational reporting backed by Cube Core.
 //!
 //! Gemma produces a constrained semantic report specification. ROS validates
-//! every member, filter, limit, and visualization before the server builds a
-//! bounded read-only query from static member mappings. Neither the model nor
-//! the browser can submit SQL.
+//! every member, filter, limit, and visualization before Cube sees a query.
+//! Neither the model nor the browser can submit SQL.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write as _;
 
 use axum::{
     extract::{Path, Query, State},
@@ -16,10 +14,10 @@ use axum::{
     Json, Router,
 };
 use chrono::{NaiveDate, Utc};
-use rust_decimal::Decimal;
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use sqlx::{FromRow, Postgres, Row};
+use sqlx::FromRow;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -31,6 +29,7 @@ use crate::logic::rosie_provider_selection::{select_llm_provider, QueryType, Ros
 use crate::middleware::require_staff_with_permission;
 use crate::models::DbStaffRole;
 
+const DEFAULT_CUBE_UPSTREAM: &str = "http://127.0.0.1:4000";
 const DEFAULT_MAX_ROWS: i64 = 500;
 const MAX_QUESTION_BYTES: usize = 2_000;
 
@@ -202,12 +201,11 @@ struct ReportHistoryQuery {
 }
 
 #[derive(Debug, Serialize)]
-struct ReportingHealthResponse {
+struct CubeHealthResponse {
     status: &'static str,
     message: String,
     latency_ms: u64,
     configured: bool,
-    staff_guidance: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -677,308 +675,6 @@ const DATASETS: &[SemanticDataset] = &[
     },
 ];
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum QueryValueKind {
-    Text,
-    Number,
-    Boolean,
-    Date,
-}
-
-#[derive(Clone, Copy)]
-enum QueryAggregate {
-    Count,
-    Sum,
-    Average,
-}
-
-#[derive(Clone, Copy)]
-struct QueryMember {
-    column: &'static str,
-    kind: QueryValueKind,
-    aggregate: Option<QueryAggregate>,
-    round_scale: Option<u32>,
-}
-
-const fn query_dimension(column: &'static str, kind: QueryValueKind) -> QueryMember {
-    QueryMember {
-        column,
-        kind,
-        aggregate: None,
-        round_scale: None,
-    }
-}
-
-const fn query_count() -> QueryMember {
-    QueryMember {
-        column: "*",
-        kind: QueryValueKind::Number,
-        aggregate: Some(QueryAggregate::Count),
-        round_scale: None,
-    }
-}
-
-const fn query_sum(column: &'static str, round_scale: Option<u32>) -> QueryMember {
-    QueryMember {
-        column,
-        kind: QueryValueKind::Number,
-        aggregate: Some(QueryAggregate::Sum),
-        round_scale,
-    }
-}
-
-const fn query_average(column: &'static str, round_scale: Option<u32>) -> QueryMember {
-    QueryMember {
-        column,
-        kind: QueryValueKind::Number,
-        aggregate: Some(QueryAggregate::Average),
-        round_scale,
-    }
-}
-
-fn query_member(name: &str) -> Option<QueryMember> {
-    let (dataset, member) = name.split_once('.')?;
-    match (dataset, member) {
-        ("booked_transactions" | "recognized_transactions", "transaction_count") => {
-            Some(query_count())
-        }
-        ("booked_transactions", "gross_sales")
-        | ("recognized_transactions", "recognized_sales") => {
-            Some(query_sum("total_price", Some(2)))
-        }
-        ("booked_transactions" | "recognized_transactions", "amount_paid") => {
-            Some(query_sum("amount_paid", Some(2)))
-        }
-        ("booked_transactions" | "recognized_transactions", "balance_due") => {
-            Some(query_sum("balance_due", Some(2)))
-        }
-        ("booked_transactions", "business_date") => Some(query_dimension(
-            "booked_business_date",
-            QueryValueKind::Date,
-        )),
-        ("recognized_transactions", "business_date") => Some(query_dimension(
-            "recognition_business_date",
-            QueryValueKind::Date,
-        )),
-        ("booked_transactions" | "recognized_transactions", "status") => {
-            Some(query_dimension("status", QueryValueKind::Text))
-        }
-        ("booked_transactions" | "recognized_transactions", "sale_channel") => {
-            Some(query_dimension("sale_channel", QueryValueKind::Text))
-        }
-        ("booked_transactions" | "recognized_transactions", "fulfillment_method") => {
-            Some(query_dimension("fulfillment_method", QueryValueKind::Text))
-        }
-        ("booked_transactions" | "recognized_transactions", "customer_name") => Some(
-            query_dimension("customer_display_name", QueryValueKind::Text),
-        ),
-        ("booked_transactions" | "recognized_transactions", "salesperson") => Some(
-            query_dimension("primary_salesperson_display_name", QueryValueKind::Text),
-        ),
-        ("booked_transactions" | "recognized_transactions", "operator") => Some(query_dimension(
-            "operator_display_name",
-            QueryValueKind::Text,
-        )),
-        ("booked_items" | "recognized_items", "line_count") => Some(query_count()),
-        ("booked_items" | "recognized_items", "units") => Some(query_sum("quantity", None)),
-        ("booked_items", "gross_sales") | ("recognized_items", "recognized_sales") => {
-            Some(query_sum("line_extended_price", Some(2)))
-        }
-        ("booked_items" | "recognized_items", "cost") => {
-            Some(query_sum("line_extended_cost", Some(2)))
-        }
-        ("booked_items" | "recognized_items", "gross_margin") => {
-            Some(query_sum("line_gross_margin_pre_tax", Some(2)))
-        }
-        ("booked_items", "business_date") => {
-            Some(query_dimension("order_business_date", QueryValueKind::Date))
-        }
-        ("recognized_items", "business_date") => Some(query_dimension(
-            "order_recognition_business_date",
-            QueryValueKind::Date,
-        )),
-        ("booked_items" | "recognized_items", "item") => {
-            Some(query_dimension("item_display_name", QueryValueKind::Text))
-        }
-        ("booked_items" | "recognized_items", "product") => Some(query_dimension(
-            "product_display_name",
-            QueryValueKind::Text,
-        )),
-        ("booked_items" | "recognized_items", "variation") => Some(query_dimension(
-            "variant_display_name",
-            QueryValueKind::Text,
-        )),
-        ("booked_items" | "recognized_items", "sku") => {
-            Some(query_dimension("sku", QueryValueKind::Text))
-        }
-        ("booked_items" | "recognized_items", "category") => {
-            Some(query_dimension("category_name", QueryValueKind::Text))
-        }
-        ("booked_items" | "recognized_items", "vendor") => {
-            Some(query_dimension("vendor_display_name", QueryValueKind::Text))
-        }
-        ("booked_items" | "recognized_items", "salesperson") => Some(query_dimension(
-            "line_salesperson_display_name",
-            QueryValueKind::Text,
-        )),
-        ("booked_items" | "recognized_items", "fulfillment_type") => {
-            Some(query_dimension("fulfillment", QueryValueKind::Text))
-        }
-        ("fulfillment_orders", "fulfillment_order_count") => Some(query_count()),
-        ("fulfillment_orders", "created_date") => {
-            Some(query_dimension("created_at", QueryValueKind::Date))
-        }
-        ("fulfillment_orders", "fulfilled_date") => {
-            Some(query_dimension("fulfilled_at", QueryValueKind::Date))
-        }
-        ("fulfillment_orders", "status") => {
-            Some(query_dimension("fulfillment_status", QueryValueKind::Text))
-        }
-        ("fulfillment_orders", "customer_name") => Some(query_dimension(
-            "customer_display_name",
-            QueryValueKind::Text,
-        )),
-        ("fulfillment_orders", "wedding_party") => {
-            Some(query_dimension("wedding_party_name", QueryValueKind::Text))
-        }
-        ("weddings", "wedding_count") => Some(query_count()),
-        ("weddings", "member_count") => Some(query_sum("member_count", None)),
-        ("weddings", "transaction_count") => Some(query_sum("order_count", None)),
-        ("weddings", "booked_sales") => Some(query_sum("total_revenue", Some(2))),
-        ("weddings", "cost") => Some(query_sum("total_cost", Some(2))),
-        ("weddings", "profit") => Some(query_sum("total_profit", Some(2))),
-        ("weddings", "event_date") => Some(query_dimension("event_date", QueryValueKind::Date)),
-        ("weddings", "wedding_party") => {
-            Some(query_dimension("wedding_party_name", QueryValueKind::Text))
-        }
-        ("weddings", "groom") => Some(query_dimension("groom_name", QueryValueKind::Text)),
-        ("weddings", "bride") => Some(query_dimension("bride_name", QueryValueKind::Text)),
-        ("weddings", "salesperson") => Some(query_dimension(
-            "wedding_salesperson_name",
-            QueryValueKind::Text,
-        )),
-        ("payments", "payment_count") => Some(query_count()),
-        ("payments", "gross_amount") => Some(query_sum("gross_amount", Some(2))),
-        ("payments", "merchant_fees") => Some(query_sum("merchant_fee", Some(2))),
-        ("payments", "net_amount") => Some(query_sum("net_amount", Some(2))),
-        ("payments", "business_date") => {
-            Some(query_dimension("business_date", QueryValueKind::Date))
-        }
-        ("payments", "category") => Some(query_dimension("category", QueryValueKind::Text)),
-        ("payments", "status") => Some(query_dimension("status", QueryValueKind::Text)),
-        ("payments", "payment_method") => {
-            Some(query_dimension("payment_method", QueryValueKind::Text))
-        }
-        ("payments", "provider") => Some(query_dimension("payment_provider", QueryValueKind::Text)),
-        ("payments", "card_brand") => Some(query_dimension("card_brand", QueryValueKind::Text)),
-        ("payments", "payer_name") => Some(query_dimension("payer_name", QueryValueKind::Text)),
-        ("inventory", "variation_count") => Some(query_count()),
-        ("inventory", "stock_on_hand") => Some(query_sum("stock_on_hand", None)),
-        ("inventory", "reserved_stock") => Some(query_sum("reserved_stock", None)),
-        ("inventory", "on_layaway") => Some(query_sum("on_layaway", None)),
-        ("inventory", "available_stock") => Some(query_sum("available_stock", None)),
-        ("inventory", "inventory_cost_value") => Some(query_sum("inventory_cost_value", Some(2))),
-        ("inventory", "created_date") => Some(query_dimension("created_at", QueryValueKind::Date)),
-        ("inventory", "item") => Some(query_dimension("item_display_name", QueryValueKind::Text)),
-        ("inventory", "product") => Some(query_dimension("product_name", QueryValueKind::Text)),
-        ("inventory", "brand") => Some(query_dimension("brand", QueryValueKind::Text)),
-        ("inventory", "sku") => Some(query_dimension("sku", QueryValueKind::Text)),
-        ("inventory", "category") => Some(query_dimension("category_name", QueryValueKind::Text)),
-        ("inventory", "vendor") => Some(query_dimension("vendor_name", QueryValueKind::Text)),
-        ("inventory", "active") => Some(query_dimension("is_active", QueryValueKind::Boolean)),
-        ("inventory", "low_stock_threshold") => {
-            Some(query_dimension("reorder_point", QueryValueKind::Number))
-        }
-        ("inventory", "retail_price") => {
-            Some(query_dimension("retail_price", QueryValueKind::Number))
-        }
-        ("inventory", "unit_cost") => Some(query_dimension("unit_cost", QueryValueKind::Number)),
-        ("loyalty_customers", "customer_count") => Some(query_count()),
-        ("loyalty_customers", "current_points") => Some(query_sum("current_balance", None)),
-        ("loyalty_customers", "lifetime_points_earned") => {
-            Some(query_sum("lifetime_earned_from_orders", None))
-        }
-        ("loyalty_customers", "lifetime_points_redeemed") => {
-            Some(query_sum("lifetime_points_redeemed", None))
-        }
-        ("loyalty_customers", "reward_dollars_issued") => {
-            Some(query_sum("total_reward_dollars_issued", Some(2)))
-        }
-        ("loyalty_customers", "customer_name") => Some(query_dimension(
-            "customer_display_name",
-            QueryValueKind::Text,
-        )),
-        ("loyalty_customers", "customer_code") => {
-            Some(query_dimension("customer_code", QueryValueKind::Text))
-        }
-        ("alterations", "alteration_count") => Some(query_count()),
-        ("alterations", "due_date") => Some(query_dimension("due_at", QueryValueKind::Date)),
-        ("alterations", "created_date") => {
-            Some(query_dimension("created_at", QueryValueKind::Date))
-        }
-        ("alterations", "status") => Some(query_dimension("status", QueryValueKind::Text)),
-        ("alterations", "overdue") => Some(query_dimension("is_overdue", QueryValueKind::Boolean)),
-        ("alterations", "customer_name") => {
-            Some(query_dimension("customer_name", QueryValueKind::Text))
-        }
-        ("shipments", "shipment_count") => Some(query_count()),
-        ("shipments", "shipping_charged") => Some(query_sum("shipping_charged_usd", Some(2))),
-        ("shipments", "quoted_amount") => Some(query_sum("quoted_amount_usd", Some(2))),
-        ("shipments", "label_cost") => Some(query_sum("label_cost_usd", Some(2))),
-        ("shipments", "created_date") => Some(query_dimension("created_at", QueryValueKind::Date)),
-        ("shipments", "status") => Some(query_dimension("status", QueryValueKind::Text)),
-        ("shipments", "source") => Some(query_dimension("source", QueryValueKind::Text)),
-        ("shipments", "carrier") => Some(query_dimension("carrier", QueryValueKind::Text)),
-        ("shipments", "service") => Some(query_dimension("service_name", QueryValueKind::Text)),
-        ("shipments", "customer_name") => {
-            Some(query_dimension("customer_name", QueryValueKind::Text))
-        }
-        ("daily_sales_weather", "sales") => Some(query_sum("sales", Some(2))),
-        ("daily_sales_weather", "tax_collected") => Some(query_sum("tax_collected", Some(2))),
-        ("daily_sales_weather", "transaction_count") => Some(query_sum("transaction_count", None)),
-        ("daily_sales_weather", "units") => Some(query_sum("line_units", None)),
-        ("daily_sales_weather", "precipitation_inches") => {
-            Some(query_average("precipitation_inches", Some(4)))
-        }
-        ("daily_sales_weather", "business_date") => {
-            Some(query_dimension("business_date", QueryValueKind::Date))
-        }
-        ("daily_sales_weather", "condition") => {
-            Some(query_dimension("weather_condition", QueryValueKind::Text))
-        }
-        ("daily_sales_weather", "weather_source") => {
-            Some(query_dimension("weather_source", QueryValueKind::Text))
-        }
-        _ => None,
-    }
-}
-
-fn dataset_source(dataset: &str) -> Option<&'static str> {
-    match dataset {
-        "booked_transactions" => Some(
-            "(SELECT * FROM reporting.transactions_core WHERE status <> 'cancelled') AS report_source",
-        ),
-        "recognized_transactions" => Some(
-            "(SELECT * FROM reporting.transactions_core WHERE status <> 'cancelled' AND recognition_at IS NOT NULL) AS report_source",
-        ),
-        "booked_items" => Some(
-            "(SELECT * FROM reporting.order_lines WHERE order_status <> 'cancelled') AS report_source",
-        ),
-        "recognized_items" => Some(
-            "(SELECT * FROM reporting.order_lines WHERE order_status <> 'cancelled' AND order_recognition_at IS NOT NULL) AS report_source",
-        ),
-        "fulfillment_orders" => Some("reporting.fulfillment_orders_core AS report_source"),
-        "weddings" => Some("reporting.wedding_party_economics AS report_source"),
-        "payments" => Some("reporting.payment_ledger AS report_source"),
-        "inventory" => Some("reporting.inventory_snapshot AS report_source"),
-        "loyalty_customers" => Some("reporting.loyalty_customer_snapshot AS report_source"),
-        "alterations" => Some("reporting.alterations_active AS report_source"),
-        "shipments" => Some("reporting.shipments_active AS report_source"),
-        "daily_sales_weather" => Some("reporting.daily_sales_weather AS report_source"),
-        _ => None,
-    }
-}
-
 fn is_admin(staff: &AuthenticatedStaff) -> bool {
     matches!(staff.role, DbStaffRole::Admin)
 }
@@ -1125,13 +821,6 @@ fn validate_report_spec(
             "a report must contain 1-5 approved measures".to_string(),
         ));
     }
-    if spec.measures.iter().collect::<HashSet<_>>().len() != spec.measures.len()
-        || spec.dimensions.iter().collect::<HashSet<_>>().len() != spec.dimensions.len()
-    {
-        return Err(CubeInsightsError::BadRequest(
-            "report members must not be duplicated".to_string(),
-        ));
-    }
     if spec
         .measures
         .iter()
@@ -1170,11 +859,6 @@ fn validate_report_spec(
         if let Some(date_range) = &time.date_range {
             validate_date_range(date_range)?;
         }
-        if spec.dimensions.contains(&time.member) {
-            return Err(CubeInsightsError::BadRequest(
-                "the report date field must not also be a grouping field".to_string(),
-            ));
-        }
     }
     if spec.filters.len() > 6 {
         return Err(CubeInsightsError::BadRequest(
@@ -1211,7 +895,6 @@ fn validate_report_spec(
         }
         let no_values = matches!(filter.operator.as_str(), "set" | "notSet");
         if (!no_values && filter.values.is_empty())
-            || (no_values && !filter.values.is_empty())
             || filter.values.len() > 20
             || filter.values.iter().any(|value| value.len() > 200)
         {
@@ -1470,286 +1153,95 @@ async fn plan_report(
     Ok(spec)
 }
 
-enum ReportBind {
-    Text(String),
-    Number(Decimal),
-    Date(NaiveDate),
-    Boolean(bool),
-    Integer(i64),
+fn cube_upstream() -> String {
+    std::env::var("RIVERSIDE_CUBE_UPSTREAM")
+        .unwrap_or_else(|_| DEFAULT_CUBE_UPSTREAM.to_string())
+        .trim_end_matches('/')
+        .to_string()
 }
 
-fn push_bind_marker(sql: &mut String, binds: &mut Vec<ReportBind>, value: ReportBind) {
-    binds.push(value);
-    write!(sql, "${}", binds.len()).expect("writing to a String cannot fail");
-}
-
-fn parse_filter_value(kind: QueryValueKind, value: &str) -> Result<ReportBind, CubeInsightsError> {
-    match kind {
-        QueryValueKind::Text => Ok(ReportBind::Text(value.trim().to_ascii_lowercase())),
-        QueryValueKind::Number => value
-            .trim()
-            .parse::<Decimal>()
-            .map(ReportBind::Number)
-            .map_err(|_| {
-                CubeInsightsError::BadRequest(
-                    "a numeric report filter contains an invalid value".to_string(),
-                )
-            }),
-        QueryValueKind::Boolean => match value.trim().to_ascii_lowercase().as_str() {
-            "true" | "yes" | "1" => Ok(ReportBind::Boolean(true)),
-            "false" | "no" | "0" => Ok(ReportBind::Boolean(false)),
-            _ => Err(CubeInsightsError::BadRequest(
-                "a yes/no report filter contains an invalid value".to_string(),
-            )),
-        },
-        QueryValueKind::Date => NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
-            .map(ReportBind::Date)
-            .map_err(|_| {
-                CubeInsightsError::BadRequest(
-                    "a date report filter must use YYYY-MM-DD".to_string(),
-                )
-            }),
-    }
-}
-
-fn grouped_member_expression(
-    name: &str,
-    member: QueryMember,
-    time_dimension: Option<&ReportTimeDimension>,
-) -> Result<String, CubeInsightsError> {
-    if member.aggregate.is_some() {
-        return Err(CubeInsightsError::BadRequest(
-            "a report grouping member cannot be an aggregate".to_string(),
+fn cube_secret() -> Result<String, CubeInsightsError> {
+    let secret = std::env::var("RIVERSIDE_CUBE_API_SECRET")
+        .or_else(|_| std::env::var("CUBEJS_API_SECRET"))
+        .unwrap_or_default();
+    if secret.trim().len() < 32 {
+        return Err(CubeInsightsError::Unavailable(
+            "Cube Core API secret is not configured on this Main Hub".to_string(),
         ));
     }
-    let column = format!("report_source.{}", member.column);
-    if time_dimension.is_some_and(|time| time.member == name) {
-        if let Some(granularity) = time_dimension.and_then(|time| time.granularity.as_deref()) {
-            return Ok(format!("date_trunc('{granularity}', {column})"));
-        }
-    }
-    Ok(column)
+    Ok(secret)
 }
 
-fn measure_expression(member: QueryMember) -> Result<String, CubeInsightsError> {
-    let expression = match member.aggregate {
-        Some(QueryAggregate::Count) => "COUNT(*)::bigint".to_string(),
-        Some(QueryAggregate::Sum) => {
-            format!("COALESCE(SUM(report_source.{}), 0)::numeric", member.column)
-        }
-        Some(QueryAggregate::Average) => {
-            format!("COALESCE(AVG(report_source.{}), 0)::numeric", member.column)
-        }
-        None => {
-            return Err(CubeInsightsError::BadRequest(
-                "a report measure must be an approved aggregate".to_string(),
-            ));
-        }
-    };
-    Ok(match member.round_scale {
-        Some(scale) => format!("ROUND({expression}, {scale})"),
-        None => expression,
+#[derive(Serialize)]
+struct CubeJwtClaims {
+    sub: String,
+    role: String,
+    groups: Vec<String>,
+    iat: i64,
+    exp: i64,
+}
+
+fn cube_token(staff: &AuthenticatedStaff, secret: &str) -> Result<String, CubeInsightsError> {
+    let now = Utc::now().timestamp();
+    let role = format!("{:?}", staff.role).to_ascii_lowercase();
+    encode(
+        &Header::new(Algorithm::HS256),
+        &CubeJwtClaims {
+            sub: staff.id.to_string(),
+            role: role.clone(),
+            groups: vec![role],
+            iat: now,
+            exp: now + 300,
+        },
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .map_err(|error| {
+        tracing::error!(error = %error, "could not sign Cube Core request");
+        CubeInsightsError::Unavailable("Could not authorize the reporting engine".to_string())
     })
 }
 
-fn append_filter_sql(
-    sql: &mut String,
-    binds: &mut Vec<ReportBind>,
-    filter: &ReportFilter,
-) -> Result<(), CubeInsightsError> {
-    let member = query_member(&filter.member).ok_or_else(|| {
-        CubeInsightsError::BadRequest("report filter member is not approved".to_string())
-    })?;
-    if member.aggregate.is_some() {
-        return Err(CubeInsightsError::BadRequest(
-            "aggregate measures cannot be used as report filters".to_string(),
-        ));
-    }
-    let column = format!("report_source.{}", member.column);
-    match filter.operator.as_str() {
-        "set" => write!(sql, "{column} IS NOT NULL").expect("writing to a String cannot fail"),
-        "notSet" => write!(sql, "{column} IS NULL").expect("writing to a String cannot fail"),
-        "contains" | "notContains" => {
-            if member.kind != QueryValueKind::Text {
-                return Err(CubeInsightsError::BadRequest(
-                    "contains filters require a text field".to_string(),
-                ));
-            }
-            let joiner = if filter.operator == "contains" {
-                " OR "
-            } else {
-                " AND "
-            };
-            sql.push('(');
-            for (index, value) in filter.values.iter().enumerate() {
-                if index > 0 {
-                    sql.push_str(joiner);
-                }
-                write!(
-                    sql,
-                    "COALESCE({column}::text, '') {} ",
-                    if filter.operator == "contains" {
-                        "ILIKE"
-                    } else {
-                        "NOT ILIKE"
-                    }
-                )
-                .expect("writing to a String cannot fail");
-                push_bind_marker(sql, binds, ReportBind::Text(format!("%{}%", value.trim())));
-            }
-            sql.push(')');
-        }
-        "equals" | "notEquals" => {
-            let comparable = if member.kind == QueryValueKind::Text {
-                format!("LOWER(COALESCE({column}::text, ''))")
-            } else {
-                column
-            };
-            write!(
-                sql,
-                "{comparable} {} (",
-                if filter.operator == "equals" {
-                    "IN"
-                } else {
-                    "NOT IN"
-                }
-            )
-            .expect("writing to a String cannot fail");
-            for (index, value) in filter.values.iter().enumerate() {
-                if index > 0 {
-                    sql.push_str(", ");
-                }
-                let bind = parse_filter_value(member.kind, value)?;
-                push_bind_marker(sql, binds, bind);
-            }
-            sql.push(')');
-        }
-        "gt" | "gte" | "lt" | "lte" => {
-            if matches!(member.kind, QueryValueKind::Text | QueryValueKind::Boolean) {
-                return Err(CubeInsightsError::BadRequest(
-                    "comparison filters require a date or number field".to_string(),
-                ));
-            }
-            if filter.values.len() != 1 {
-                return Err(CubeInsightsError::BadRequest(
-                    "comparison filters require exactly one value".to_string(),
-                ));
-            }
-            let operator = match filter.operator.as_str() {
-                "gt" => ">",
-                "gte" => ">=",
-                "lt" => "<",
-                "lte" => "<=",
-                _ => unreachable!(),
-            };
-            write!(sql, "{column} {operator} ").expect("writing to a String cannot fail");
-            push_bind_marker(
-                sql,
-                binds,
-                parse_filter_value(member.kind, &filter.values[0])?,
-            );
-        }
-        _ => {
-            return Err(CubeInsightsError::BadRequest(
-                "report filter operator is not approved".to_string(),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn build_report_query(
-    spec: &CubeReportSpec,
-) -> Result<(String, Vec<ReportBind>, Vec<String>), CubeInsightsError> {
-    let source = dataset_source(&spec.dataset).ok_or_else(|| {
-        CubeInsightsError::BadRequest("report dataset is not approved".to_string())
-    })?;
-    let mut grouped = spec.dimensions.clone();
-    if let Some(time) = &spec.time_dimension {
-        grouped.push(time.member.clone());
-    }
-    let output_members = grouped
+fn cube_query(spec: &CubeReportSpec) -> Value {
+    let time_dimensions = spec
+        .time_dimension
+        .as_ref()
+        .map(|time| {
+            vec![json!({
+                "dimension": time.member,
+                "granularity": time.granularity,
+                "dateRange": time.date_range,
+            })]
+        })
+        .unwrap_or_default();
+    let filters = spec
+        .filters
         .iter()
-        .chain(spec.measures.iter())
-        .cloned()
-        .collect::<Vec<_>>();
-    let mut group_expressions = Vec::with_capacity(grouped.len());
-    let mut sql = String::from("SELECT ");
-    for (index, name) in grouped.iter().enumerate() {
-        if index > 0 {
-            sql.push_str(", ");
-        }
-        let member = query_member(name).ok_or_else(|| {
-            CubeInsightsError::BadRequest("report grouping member is not approved".to_string())
-        })?;
-        let expression = grouped_member_expression(name, member, spec.time_dimension.as_ref())?;
-        group_expressions.push(expression.clone());
-        write!(sql, "({expression})::text AS \"{name}\"").expect("writing to a String cannot fail");
-    }
-    for (index, name) in spec.measures.iter().enumerate() {
-        if !grouped.is_empty() || index > 0 {
-            sql.push_str(", ");
-        }
-        let member = query_member(name).ok_or_else(|| {
-            CubeInsightsError::BadRequest("report measure is not approved".to_string())
-        })?;
-        let expression = measure_expression(member)?;
-        write!(sql, "({expression})::text AS \"{name}\"").expect("writing to a String cannot fail");
-    }
-    write!(sql, " FROM {source} WHERE TRUE").expect("writing to a String cannot fail");
-    let mut binds = Vec::new();
-    if let Some(time) = &spec.time_dimension {
-        if let Some(date_range) = &time.date_range {
-            let member = query_member(&time.member).ok_or_else(|| {
-                CubeInsightsError::BadRequest("report date member is not approved".to_string())
-            })?;
-            sql.push_str(" AND report_source.");
-            sql.push_str(member.column);
-            sql.push_str("::date >= ");
-            push_bind_marker(
-                &mut sql,
-                &mut binds,
-                ReportBind::Date(
-                    NaiveDate::parse_from_str(&date_range[0], "%Y-%m-%d").map_err(|_| {
-                        CubeInsightsError::BadRequest("from date must use YYYY-MM-DD".to_string())
-                    })?,
-                ),
-            );
-            sql.push_str(" AND report_source.");
-            sql.push_str(member.column);
-            sql.push_str("::date <= ");
-            push_bind_marker(
-                &mut sql,
-                &mut binds,
-                ReportBind::Date(
-                    NaiveDate::parse_from_str(&date_range[1], "%Y-%m-%d").map_err(|_| {
-                        CubeInsightsError::BadRequest("to date must use YYYY-MM-DD".to_string())
-                    })?,
-                ),
-            );
-        }
-    }
-    for filter in &spec.filters {
-        sql.push_str(" AND ");
-        append_filter_sql(&mut sql, &mut binds, filter)?;
-    }
-    if !group_expressions.is_empty() {
-        sql.push_str(" GROUP BY ");
-        sql.push_str(&group_expressions.join(", "));
-    }
-    if !spec.order.is_empty() {
-        sql.push_str(" ORDER BY ");
-        for (index, order) in spec.order.iter().enumerate() {
-            if index > 0 {
-                sql.push_str(", ");
+        .map(|filter| {
+            if matches!(filter.operator.as_str(), "set" | "notSet") {
+                json!({ "member": filter.member, "operator": filter.operator })
+            } else {
+                json!({
+                    "member": filter.member,
+                    "operator": filter.operator,
+                    "values": filter.values,
+                })
             }
-            write!(sql, "\"{}\" {} NULLS LAST", order.member, order.direction)
-                .expect("writing to a String cannot fail");
-        }
-    }
-    sql.push_str(" LIMIT ");
-    push_bind_marker(&mut sql, &mut binds, ReportBind::Integer(spec.limit));
-    Ok((sql, binds, output_members))
+        })
+        .collect::<Vec<_>>();
+    let order = spec
+        .order
+        .iter()
+        .map(|order| json!([order.member, order.direction]))
+        .collect::<Vec<_>>();
+    json!({
+        "measures": spec.measures,
+        "dimensions": spec.dimensions,
+        "timeDimensions": time_dimensions,
+        "filters": filters,
+        "order": order,
+        "limit": spec.limit,
+        "timezone": "America/New_York",
+    })
 }
 
 async fn execute_report(
@@ -1759,38 +1251,42 @@ async fn execute_report(
     spec: CubeReportSpec,
     history_id: Option<Uuid>,
 ) -> Result<ReportRunResponse, CubeInsightsError> {
-    let (sql, binds, output_members) = build_report_query(&spec)?;
-    let mut tx = state.db.begin().await?;
-    sqlx::query("SET TRANSACTION READ ONLY")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("SET LOCAL statement_timeout = '20s'")
-        .execute(&mut *tx)
-        .await?;
-    let mut query = sqlx::query::<Postgres>(&sql);
-    for bind in binds {
-        query = match bind {
-            ReportBind::Text(value) => query.bind(value),
-            ReportBind::Number(value) => query.bind(value),
-            ReportBind::Date(value) => query.bind(value),
-            ReportBind::Boolean(value) => query.bind(value),
-            ReportBind::Integer(value) => query.bind(value),
-        };
+    let secret = cube_secret()?;
+    let token = cube_token(staff, &secret)?;
+    let response = state
+        .http_client
+        .post(format!("{}/cubejs-api/v1/load", cube_upstream()))
+        .header(reqwest::header::AUTHORIZATION, token)
+        .json(&json!({ "query": cube_query(&spec) }))
+        .send()
+        .await
+        .map_err(|error| {
+            tracing::warn!(error = %error, "Cube Core query request failed");
+            CubeInsightsError::Unavailable(
+                "The reporting engine is not reachable on this Main Hub".to_string(),
+            )
+        })?;
+    let status = response.status();
+    let payload: Value = response.json().await.map_err(|error| {
+        tracing::warn!(error = %error, "Cube Core returned invalid JSON");
+        CubeInsightsError::Unavailable(
+            "The reporting engine returned an invalid response".to_string(),
+        )
+    })?;
+    if !status.is_success() {
+        tracing::warn!(status = %status, response = %payload, "Cube Core rejected governed query");
+        return Err(CubeInsightsError::Unavailable(
+            "The reporting engine could not run this governed report".to_string(),
+        ));
     }
-    let db_rows = query.fetch_all(&mut *tx).await?;
-    tx.commit().await?;
-    let mut rows = Vec::with_capacity(db_rows.len());
-    for db_row in db_rows {
-        let mut row = Map::new();
-        for member in &output_members {
-            let value = db_row.try_get::<Option<String>, _>(member.as_str())?;
-            row.insert(
-                member.clone(),
-                value.map(Value::String).unwrap_or(Value::Null),
-            );
-        }
-        rows.push(row);
-    }
+    let rows = payload
+        .get("data")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|row| row.as_object().cloned())
+        .collect::<Vec<_>>();
     let lookup = member_lookup(is_admin(staff));
     let selected = spec
         .dimensions
@@ -1821,7 +1317,7 @@ async fn execute_report(
         member_labels,
         member_formats,
         generated_at: Utc::now().to_rfc3339(),
-        engine: "Riverside Insights",
+        engine: "Cube Core",
     })
 }
 
@@ -1838,7 +1334,7 @@ async fn ask_report(
         ));
     }
     let config = load_insights_config(&state).await;
-    let max_rows = config.max_rows.clamp(1, DEFAULT_MAX_ROWS);
+    let max_rows = config.cube_max_rows.clamp(1, DEFAULT_MAX_ROWS);
     let spec = plan_report(
         question,
         body.previous_spec.as_ref(),
@@ -1867,7 +1363,7 @@ async fn run_report(
         time.date_range = Some(date_range);
     }
     let config = load_insights_config(&state).await;
-    let max_rows = config.max_rows.clamp(1, DEFAULT_MAX_ROWS);
+    let max_rows = config.cube_max_rows.clamp(1, DEFAULT_MAX_ROWS);
     validate_report_spec(&mut body.spec, is_admin(&staff), max_rows)?;
     execute_report(&state, &staff, body.question, body.spec, body.history_id)
         .await
@@ -2042,30 +1538,51 @@ async fn get_semantic_catalog(
     let config = load_insights_config(&state).await;
     Ok(Json(semantic_catalog(
         is_admin(&staff),
-        config.max_rows.clamp(1, DEFAULT_MAX_ROWS),
+        config.cube_max_rows.clamp(1, DEFAULT_MAX_ROWS),
     )))
 }
 
-async fn reporting_health(
+async fn cube_health(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<ReportingHealthResponse>, CubeInsightsError> {
+) -> Result<Json<CubeHealthResponse>, CubeInsightsError> {
     require_insights_staff(&state, &headers).await?;
+    let configured = cube_secret().is_ok();
     let start = std::time::Instant::now();
-    let config = load_insights_config(&state).await;
-    let ready = crate::logic::insights_config::reporting_engine_ready(&state.db).await?;
-    Ok(Json(ReportingHealthResponse {
-        status: if ready { "connected" } else { "needs_update" },
-        message: if ready {
-            "Riverside reporting is ready.".to_string()
-        } else {
-            "The approved reporting data is not installed on this Main Hub. Run the normal Riverside update or repair process."
-                .to_string()
-        },
-        latency_ms: start.elapsed().as_millis() as u64,
-        configured: ready,
-        staff_guidance: config.staff_note_markdown,
-    }))
+    match state
+        .http_client
+        .get(format!("{}/readyz", cube_upstream()))
+        .send()
+        .await
+    {
+        Ok(response) if response.status().is_success() => Ok(Json(CubeHealthResponse {
+            status: if configured {
+                "connected"
+            } else {
+                "needs_configuration"
+            },
+            message: if configured {
+                "Cube Core is ready and ROS can sign governed queries.".to_string()
+            } else {
+                "Cube Core is ready, but the shared API secret is not configured in ROS."
+                    .to_string()
+            },
+            latency_ms: start.elapsed().as_millis() as u64,
+            configured,
+        })),
+        Ok(response) => Ok(Json(CubeHealthResponse {
+            status: "degraded",
+            message: format!("Cube Core readiness returned HTTP {}.", response.status()),
+            latency_ms: start.elapsed().as_millis() as u64,
+            configured,
+        })),
+        Err(_) => Ok(Json(CubeHealthResponse {
+            status: "unreachable",
+            message: "Cube Core is not reachable on this Main Hub.".to_string(),
+            latency_ms: start.elapsed().as_millis() as u64,
+            configured,
+        })),
+    }
 }
 
 async fn list_favorites(
@@ -2109,7 +1626,7 @@ async fn save_favorite(
     validate_report_spec(
         &mut body.spec,
         is_admin(&staff),
-        config.max_rows.clamp(1, DEFAULT_MAX_ROWS),
+        config.cube_max_rows.clamp(1, DEFAULT_MAX_ROWS),
     )?;
     let spec_json = serde_json::to_value(&body.spec).map_err(|error| {
         CubeInsightsError::BadRequest(format!("could not save report specification: {error}"))
@@ -2170,8 +1687,7 @@ pub fn router() -> Router<AppState> {
         .route("/reports/history/{id}/archive", post(archive_history))
         .route("/reports/history/{id}/restore", post(restore_history))
         .route("/semantic-catalog", get(get_semantic_catalog))
-        .route("/health", get(reporting_health))
-        .route("/cube-health", get(reporting_health))
+        .route("/cube-health", get(cube_health))
 }
 
 #[cfg(test)]
@@ -2245,53 +1761,5 @@ mod tests {
         spec.limit = 10_000;
         validate_report_spec(&mut spec, false, 250).expect("valid report spec");
         assert_eq!(spec.limit, 250);
-    }
-
-    #[test]
-    fn every_catalog_member_has_a_static_query_mapping() {
-        for dataset in DATASETS {
-            assert!(
-                dataset_source(dataset.name).is_some(),
-                "missing source for {}",
-                dataset.name
-            );
-            for member in dataset
-                .measures
-                .iter()
-                .chain(dataset.dimensions)
-                .chain(dataset.time_dimensions)
-            {
-                assert!(
-                    query_member(member.name).is_some(),
-                    "missing query mapping for {}",
-                    member.name
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn report_query_uses_static_sql_and_bound_values() {
-        let mut spec = valid_spec();
-        spec.filters.push(ReportFilter {
-            member: "booked_transactions.customer_name".to_string(),
-            operator: "contains".to_string(),
-            values: vec!["Riverside' OR TRUE --".to_string()],
-        });
-        validate_report_spec(&mut spec, false, 500).expect("valid report spec");
-        let (sql, binds, output) = build_report_query(&spec).expect("governed query");
-        assert!(sql.contains("reporting.transactions_core"));
-        assert!(sql.contains("SET") == false);
-        assert!(sql.contains("$1"));
-        assert!(!sql.contains("Riverside' OR TRUE"));
-        assert_eq!(binds.len(), 4);
-        assert_eq!(
-            output,
-            vec![
-                "booked_transactions.salesperson",
-                "booked_transactions.business_date",
-                "booked_transactions.gross_sales"
-            ]
-        );
     }
 }

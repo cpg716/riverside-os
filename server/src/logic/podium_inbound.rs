@@ -10,8 +10,10 @@ use crate::auth::permissions::NOTIFICATIONS_VIEW;
 use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
 use crate::logic::notifications::staff_ids_with_permission;
 use crate::logic::podium::{
-    load_store_podium_config, normalize_phone_e164, send_podium_sms_message, PodiumTokenCache,
+    load_store_podium_config, normalize_phone_e164, send_podium_sms_message_tracked,
+    PodiumTokenCache,
 };
+use crate::logic::podium_contacts::{self, CustomerIdentityMatch};
 use crate::logic::podium_messaging;
 
 fn extract_text(value: &Value, paths: &[&str]) -> Option<String> {
@@ -243,50 +245,11 @@ fn extract_podium_sender_uid(value: &Value) -> Option<String> {
     )
 }
 
-async fn find_customer_by_phone(pool: &PgPool, e164: &str) -> Result<Option<Uuid>, sqlx::Error> {
-    let digits: String = e164.chars().filter(|c| c.is_ascii_digit()).collect();
-    let tail_rev: String = digits
-        .chars()
-        .rev()
-        .take(10)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    if tail_rev.len() < 10 {
-        return Ok(None);
-    }
-    sqlx::query_scalar(
-        r#"
-        SELECT id FROM customers
-        WHERE phone IS NOT NULL
-          AND length(trim(phone)) > 0
-          AND regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $1
-        ORDER BY created_at DESC
-        LIMIT 1
-        "#,
+pub(crate) fn is_sms_opt_out_command(body: &str) -> bool {
+    matches!(
+        body.trim().to_ascii_uppercase().as_str(),
+        "STOP" | "STOPALL" | "UNSUBSCRIBE" | "CANCEL" | "END" | "QUIT" | "OPT OUT"
     )
-    .bind(&tail_rev)
-    .fetch_optional(pool)
-    .await
-}
-
-async fn find_customer_by_email(pool: &PgPool, email: &str) -> Result<Option<Uuid>, sqlx::Error> {
-    let e = email.trim().to_lowercase();
-    if e.is_empty() {
-        return Ok(None);
-    }
-    sqlx::query_scalar(
-        r#"
-        SELECT id FROM customers
-        WHERE lower(trim(email)) = $1
-        ORDER BY created_at DESC
-        LIMIT 1
-        "#,
-    )
-    .bind(&e)
-    .fetch_optional(pool)
-    .await
 }
 
 async fn message_uid_exists(pool: &PgPool, uid: &str) -> Result<bool, sqlx::Error> {
@@ -425,41 +388,8 @@ pub async fn ingest_from_webhook(
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty());
 
-    // Check for unsubscribe/opt-out keywords in message body
-    let body_upper = body.to_uppercase();
-    if body_upper.contains("STOP")
-        || body_upper.contains("UNSUBSCRIBE")
-        || body_upper.contains("OPT OUT")
-    {
-        // Turn off promotional SMS opt-in for the customer
-        let customer_id: Option<Uuid> = if let Some(ref phone) = e164 {
-            sqlx::query_scalar("SELECT id FROM customers WHERE phone = $1 LIMIT 1")
-                .bind(phone)
-                .fetch_optional(pool)
-                .await
-                .ok()
-                .flatten()
-        } else if let Some(ref e) = email {
-            sqlx::query_scalar("SELECT id FROM customers WHERE LOWER(email) = LOWER($1) LIMIT 1")
-                .bind(e)
-                .fetch_optional(pool)
-                .await
-                .ok()
-                .flatten()
-        } else {
-            None
-        };
-
-        if let Some(cid) = customer_id {
-            let _ = sqlx::query("UPDATE customers SET marketing_sms_opt_in = false WHERE id = $1")
-                .bind(cid)
-                .execute(pool)
-                .await;
-            tracing::info!(target = "podium_inbound", customer_id = %cid, "Customer opted out of promotional SMS via STOP/UNSUBSCRIBE");
-        }
-    }
-
     let channel = detect_channel(value, e164.is_some(), email.is_some());
+    let is_opt_out = !is_outbound && channel == "sms" && is_sms_opt_out_command(&body);
 
     if e164.is_none() && email.is_none() {
         tracing::warn!(target = "podium_inbound", event = "no_contact_skipping");
@@ -480,28 +410,43 @@ pub async fn ingest_from_webhook(
         }
     }
 
-    let mut customer_id: Option<Uuid> = None;
+    let identity_match = podium_contacts::match_customer_identity(
+        pool,
+        e164.as_deref().or(phone_raw.as_deref()),
+        email.as_deref(),
+    )
+    .await?;
+    let mut customer_id: Option<Uuid> = match &identity_match {
+        CustomerIdentityMatch::Unique(customer_id) => Some(*customer_id),
+        CustomerIdentityMatch::None | CustomerIdentityMatch::Ambiguous(_) => None,
+    };
     let mut created_stub = false;
 
-    if let Some(ref ph) = e164 {
-        match find_customer_by_phone(pool, ph).await {
-            Ok(c) => customer_id = c,
-            Err(e) => {
-                tracing::error!(error = %e, "find customer phone");
-                return Err(e);
-            }
+    if matches!(identity_match, CustomerIdentityMatch::Ambiguous(_)) {
+        if let Some(ref uid) = conv_uid {
+            let identifier = if channel == "email" {
+                email.as_deref()
+            } else {
+                e164.as_deref().or(phone_raw.as_deref())
+            };
+            podium_messaging::record_unmatched_webhook_identity(
+                pool,
+                value,
+                uid,
+                channel,
+                identifier,
+                &identity_match,
+            )
+            .await?;
         }
-    }
-    if customer_id.is_none() {
-        if let Some(ref em) = email {
-            match find_customer_by_email(pool, em).await {
-                Ok(c) => customer_id = c,
-                Err(e) => {
-                    tracing::error!(error = %e, "find customer email");
-                    return Err(e);
-                }
-            }
-        }
+        tracing::warn!(
+            target = "podium_inbound",
+            event = "ambiguous_customer_identity",
+            uid = ?msg_uid,
+            channel,
+            "Skipping Podium message because multiple active Riverside customers share its identifier"
+        );
+        return Ok(PodiumInboundIngestOutcome::Skipped);
     }
 
     if customer_id.is_none() && is_outbound {
@@ -540,7 +485,7 @@ pub async fn ingest_from_webhook(
                 custom_field_4: None,
                 marketing_email_opt_in: false,
                 marketing_sms_opt_in: false,
-                transactional_sms_opt_in: true,
+                transactional_sms_opt_in: !is_opt_out,
                 transactional_email_opt_in: email_store.is_some(),
                 customer_created_source: CustomerCreatedSource::Podium,
             },
@@ -572,6 +517,15 @@ pub async fn ingest_from_webhook(
         return Ok(PodiumInboundIngestOutcome::Skipped);
     };
 
+    if is_opt_out {
+        podium_contacts::apply_sms_opt_out(pool, cid, msg_uid.as_deref(), value).await?;
+        tracing::info!(
+            target = "podium_inbound",
+            customer_id = %cid,
+            "Customer opted out of SMS using an exact recognized command"
+        );
+    }
+
     let mut tx = match pool.begin().await {
         Ok(t) => t,
         Err(e) => {
@@ -598,7 +552,7 @@ pub async fn ingest_from_webhook(
 
         if let Some(id) = existing {
             if let Err(e) = sqlx::query(
-                r#"UPDATE podium_conversation SET last_message_at = NOW(), customer_id = COALESCE(customer_id, $2) WHERE id = $1"#,
+                r#"UPDATE podium_conversation SET last_message_at = NOW(), customer_id = $2 WHERE id = $1"#,
             )
             .bind(id)
             .bind(cid)
@@ -752,8 +706,10 @@ pub async fn ingest_from_webhook(
                     .unwrap_or_default();
                 let tpl_t = tpl.trim();
                 if !tpl_t.is_empty() {
-                    match send_podium_sms_message(&pool_c, &http_c, &cache_c, ph, tpl_t).await {
-                        Ok(()) => {
+                    match send_podium_sms_message_tracked(&pool_c, &http_c, &cache_c, ph, tpl_t)
+                        .await
+                    {
+                        Ok(send_result) => {
                             let ph_e164 = normalize_phone_e164(ph);
                             if let Err(e) = podium_messaging::record_outbound_message(
                                 &pool_c,
@@ -764,6 +720,8 @@ pub async fn ingest_from_webhook(
                                 ph_e164.as_deref(),
                                 None,
                                 "automated",
+                                send_result.provider_message_id.as_deref(),
+                                Some(&send_result.raw_response),
                             )
                             .await
                             {
@@ -905,5 +863,13 @@ mod tests {
         });
 
         assert!(podium_webhook_is_outbound(&value));
+    }
+
+    #[test]
+    fn sms_opt_out_requires_an_exact_recognized_command() {
+        assert!(is_sms_opt_out_command(" STOP "));
+        assert!(is_sms_opt_out_command("opt out"));
+        assert!(!is_sms_opt_out_command("Please stop by tomorrow"));
+        assert!(!is_sms_opt_out_command("Do not stop my order"));
     }
 }

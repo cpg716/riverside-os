@@ -76,6 +76,7 @@ This script also opens the **Bridge Command Center** at `http://localhost:3002`.
 | --- | --- | --- |
 | Riverside API | `3000` | Main Axum server |
 | Riverside UI | `5173` | Vite dev server |
+| Cube Core | `4000` | Loopback semantic service for native Insights |
 | **Bridge Engine** | **`3002`** | Counterpoint Bridge |
 | PostgreSQL | `5433` | Database (Mapped from 5432) |
 | Meilisearch | `7700` | Search engine |

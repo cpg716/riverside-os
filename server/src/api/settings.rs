@@ -3769,7 +3769,18 @@ async fn post_meilisearch_reindex(
 #[derive(Debug, Serialize)]
 struct InsightsSettingsResponse {
     config: StoreInsightsConfig,
-    engine_ready: bool,
+    cube_secret_configured: bool,
+    cube_upstream: String,
+}
+
+fn cube_secret_configured() -> bool {
+    std::env::var("RIVERSIDE_CUBE_API_SECRET")
+        .or_else(|_| std::env::var("CUBEJS_API_SECRET"))
+        .is_ok_and(|secret| secret.trim().len() >= 32)
+}
+
+fn cube_upstream() -> String {
+    std::env::var("RIVERSIDE_CUBE_UPSTREAM").unwrap_or_else(|_| "http://127.0.0.1:4000".to_string())
 }
 
 async fn get_insights_settings(
@@ -3781,10 +3792,10 @@ async fn get_insights_settings(
         .fetch_one(&state.db)
         .await?;
     let config = StoreInsightsConfig::from_json_value(raw);
-    let engine_ready = crate::logic::insights_config::reporting_engine_ready(&state.db).await?;
     Ok(Json(InsightsSettingsResponse {
         config,
-        engine_ready,
+        cube_secret_configured: cube_secret_configured(),
+        cube_upstream: cube_upstream(),
     }))
 }
 
@@ -3806,10 +3817,10 @@ async fn patch_insights_settings(
         .bind(&updated)
         .execute(&state.db)
         .await?;
-    let engine_ready = crate::logic::insights_config::reporting_engine_ready(&state.db).await?;
     Ok(Json(InsightsSettingsResponse {
         config,
-        engine_ready,
+        cube_secret_configured: cube_secret_configured(),
+        cube_upstream: cube_upstream(),
     }))
 }
 

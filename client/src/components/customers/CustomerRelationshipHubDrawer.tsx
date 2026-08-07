@@ -107,6 +107,19 @@ export interface CustomerSnapshotItem {
   severity: CustomerSnapshotSeverity;
 }
 
+interface PodiumContactSyncStatus {
+  customer_id: string;
+  provider_contact_uid: string | null;
+  status: string;
+  pending_reason: string | null;
+  attempts: number;
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  last_error: string | null;
+  sync_suppressed: boolean;
+  updated_at: string;
+}
+
 export interface CustomerHubData extends CustomerProfile {
   is_vip: boolean;
   stats: CustomerHubStats;
@@ -942,6 +955,8 @@ export function CustomerRelationshipHubDrawer({
     string | null
   >(null);
   const [contactSyncBusy, setContactSyncBusy] = useState(false);
+  const [contactSyncStatus, setContactSyncStatus] =
+    useState<PodiumContactSyncStatus | null>(null);
   const [reviewInviteBusy, setReviewInviteBusy] = useState(false);
   const [communicationTimeline, setCommunicationTimeline] = useState<
     CommunicationTimelineRow[]
@@ -1083,6 +1098,25 @@ export function CustomerRelationshipHubDrawer({
     }
   }, [apiAuth, baseUrl, canRmsChargeView, customer.id]);
 
+  const loadPodiumContactSyncStatus = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/${customer.id}/podium/contact-sync`,
+        { headers: apiAuth(), cache: "no-store" },
+      );
+      if (!res.ok) return;
+      setContactSyncStatus((await res.json()) as PodiumContactSyncStatus | null);
+    } catch {
+      setContactSyncStatus(null);
+    }
+  }, [apiAuth, baseUrl, customer.id]);
+
+  useEffect(() => {
+    if (open && tab === "profile" && canHubView) {
+      void loadPodiumContactSyncStatus();
+    }
+  }, [canHubView, loadPodiumContactSyncStatus, open, tab]);
+
   const syncPodiumContact = useCallback(async () => {
     setContactSyncBusy(true);
     try {
@@ -1099,12 +1133,13 @@ export function CustomerRelationshipHubDrawer({
         return;
       }
       toast("Customer synced to Podium contacts.", "success");
+      await loadPodiumContactSyncStatus();
     } catch {
       toast("Could not sync customer to Podium.", "error");
     } finally {
       setContactSyncBusy(false);
     }
-  }, [baseUrl, customer.id, apiAuth, toast]);
+  }, [baseUrl, customer.id, apiAuth, loadPodiumContactSyncStatus, toast]);
 
   const sendPodiumReviewInvite = useCallback(async () => {
     setReviewInviteBusy(true);
@@ -5147,6 +5182,33 @@ export function CustomerRelationshipHubDrawer({
                       >
                         {reviewInviteBusy ? "Scheduling..." : "Schedule Review Request"}
                       </button>
+                    </div>
+                    <div className="mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[11px] text-app-text-muted">
+                      {contactSyncStatus ? (
+                        <>
+                          <span className="font-black text-app-text">
+                            Podium contact: {humanizeToken(contactSyncStatus.status)}
+                          </span>
+                          {contactSyncStatus.last_success_at ? (
+                            <span> · Last success {readableDateTime(contactSyncStatus.last_success_at)}</span>
+                          ) : null}
+                          {contactSyncStatus.attempts > 0 && contactSyncStatus.status !== "succeeded" ? (
+                            <span> · Attempt {contactSyncStatus.attempts} of 8</span>
+                          ) : null}
+                          {contactSyncStatus.provider_contact_uid ? (
+                            <span className="mt-1 block font-mono text-[10px]">
+                              Provider ID: {contactSyncStatus.provider_contact_uid}
+                            </span>
+                          ) : null}
+                          {contactSyncStatus.last_error ? (
+                            <span className="mt-1 block text-app-warning">
+                              {contactSyncStatus.last_error}
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        "No Podium contact synchronization has been recorded yet."
+                      )}
                     </div>
                   </section>
 

@@ -10,6 +10,7 @@ use crate::logic::email as store_email;
 use crate::logic::podium::{
     self, apply_template_placeholders, looks_like_email, normalize_phone_e164, PodiumTokenCache,
 };
+use crate::logic::podium_messaging;
 use crate::logic::wedding_api_types::AppointmentRow;
 use crate::models::DbOrderStatus;
 
@@ -287,7 +288,7 @@ impl MessagingService {
                         appt.starts_at,
                         appt.notes.as_deref(),
                     );
-                    let sms_result = podium::send_podium_phone_message_with_attachment(
+                    let sms_result = podium::send_podium_phone_message_with_attachment_tracked(
                         pool,
                         _http,
                         _podium_cache,
@@ -298,8 +299,28 @@ impl MessagingService {
                         "text/calendar; charset=utf-8",
                     )
                     .await;
-                    if sms_result.is_ok() {
+                    if let Ok(send_result) = sms_result.as_ref() {
                         attempted.push("sms");
+                        if let Err(error) = podium_messaging::record_outbound_message(
+                            pool,
+                            customer_id,
+                            "sms",
+                            &sms_body,
+                            None,
+                            Some(&e164),
+                            None,
+                            "automated",
+                            send_result.provider_message_id.as_deref(),
+                            Some(&send_result.raw_response),
+                        )
+                        .await
+                        {
+                            tracing::error!(
+                                customer_id = %customer_id,
+                                error = %error,
+                                "Could not record Podium appointment confirmation identity"
+                            );
+                        }
                     }
                     let sms_error = sms_result.err().map(|e| e.to_string());
                     if let Some(error) = sms_error.as_ref() {

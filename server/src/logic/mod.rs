@@ -60,6 +60,7 @@ pub mod order_lifecycle;
 pub mod order_line_cancellation;
 pub mod physical_inventory;
 pub mod podium;
+pub mod podium_contacts;
 pub mod podium_inbound;
 pub mod podium_messaging;
 pub mod podium_reviews;

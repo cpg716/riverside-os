@@ -24,7 +24,7 @@ use crate::auth::permissions::{
     CUSTOMERS_RMS_CHARGE_RESOLVE_EXCEPTIONS, CUSTOMERS_RMS_CHARGE_REVERSE,
     CUSTOMERS_RMS_CHARGE_VIEW, CUSTOMERS_TIMELINE, CUSTOMER_GROUPS_MANAGE, ORDERS_VIEW,
     POS_RMS_CHARGE_HISTORY_BASIC, POS_RMS_CHARGE_LOOKUP, POS_RMS_CHARGE_PAYMENT_COLLECT,
-    POS_RMS_CHARGE_USE, STORE_CREDIT_MANAGE,
+    POS_RMS_CHARGE_USE, SETTINGS_ADMIN, STORE_CREDIT_MANAGE,
 };
 use crate::logic::customer_duplicate_candidates::{
     find_duplicate_candidates, DuplicateCandidateParams,
@@ -50,6 +50,7 @@ use crate::logic::lightspeed_customers::{
     LightspeedCustomerImportSummary,
 };
 use crate::logic::podium;
+use crate::logic::podium_contacts::{self, CustomerIdentityMatch};
 use crate::logic::podium_messaging;
 use crate::logic::receipt_shared;
 use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
@@ -81,6 +82,58 @@ use rust_decimal::Decimal;
 use std::collections::HashSet;
 
 const CUSTOMER_MESSAGE_ATTACHMENT_MAX_BYTES: usize = 5 * 1024 * 1024;
+
+async fn queue_podium_contact_sync(state: &AppState, customer_id: Uuid, reason: &'static str) {
+    match podium_contacts::enqueue_customer_sync(&state.db, customer_id, reason, false).await {
+        Ok(true) => {
+            let pool = state.db.clone();
+            let http = state.http_client.clone();
+            let token_cache = state.podium_token_cache.clone();
+            tokio::spawn(async move {
+                if let Err(error) =
+                    podium_contacts::process_pending_contact_syncs(&pool, &http, &token_cache, 1)
+                        .await
+                {
+                    tracing::error!(
+                        target: "podium",
+                        customer_id = %customer_id,
+                        error = %error,
+                        "Durable Podium contact sync worker failed"
+                    );
+                }
+            });
+        }
+        Ok(false) => tracing::info!(
+            target: "podium",
+            customer_id = %customer_id,
+            "Automatic Podium contact sync remains blocked by provider deletion or identity conflict"
+        ),
+        Err(error) => tracing::error!(
+            target: "podium",
+            customer_id = %customer_id,
+            error = %error,
+            "Could not enqueue durable Podium contact synchronization"
+        ),
+    }
+}
+
+async fn require_podium_settings_admin(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), CustomerError> {
+    middleware::require_staff_with_permission(state, headers, SETTINGS_ADMIN)
+        .await
+        .map(|_| ())
+        .map_err(|(_code, axum::Json(value))| {
+            CustomerError::Unauthorized(
+                value
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("not authorized")
+                    .to_string(),
+            )
+        })
+}
 
 const RMS_CHARGE_REPORT_TO_R2S: &str = "rms_charge.report_to_r2s";
 const RMS_ACCOUNT_LIST_PREVIEW_MAX_BYTES: usize = 10 * 1024 * 1024;
@@ -3931,6 +3984,18 @@ pub fn router() -> Router<AppState> {
             "/podium/messaging-unmatched",
             get(list_podium_unmatched_conversations),
         )
+        .route(
+            "/podium/messaging-unmatched/{unmatched_id}/resolve",
+            post(post_resolve_podium_unmatched_conversation),
+        )
+        .route(
+            "/podium/contact-reconciliation-issues",
+            get(list_podium_contact_reconciliation_issues),
+        )
+        .route(
+            "/podium/contact-reconcile",
+            post(post_podium_contact_reconciliation),
+        )
         .route("/podium/direct-sms", post(post_podium_direct_sms))
         .route("/podium/messaging-sync", post(post_podium_messaging_sync))
         .route(
@@ -4029,7 +4094,7 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/{customer_id}/podium/contact-sync",
-            post(post_customer_podium_contact_sync),
+            get(get_customer_podium_contact_sync_status).post(post_customer_podium_contact_sync),
         )
         .route(
             "/{customer_id}/podium/review-invite",
@@ -4116,6 +4181,8 @@ async fn post_merge_customers(
             }
         });
     }
+
+    queue_podium_contact_sync(&state, master_id, "customer_merged").await;
 
     Ok(Json(json!({ "status": "merged" })))
 }
@@ -5518,20 +5585,7 @@ async fn create_customer(
 
     let row = load_customer_profile_row(&state.db, id).await?;
     spawn_meilisearch_customer_hooks(&state, id);
-    // Background sync to Podium contacts (best-effort)
-    let pool = state.db.clone();
-    let http = state.http_client.clone();
-    let token_cache = state.podium_token_cache.clone();
-    tokio::spawn(async move {
-        if let Err(error) = podium::upsert_podium_contact(&pool, &http, &token_cache, id).await {
-            tracing::warn!(
-                target: "podium",
-                customer_id = %id,
-                error = %error,
-                "Automatic Podium contact create sync failed"
-            );
-        }
-    });
+    queue_podium_contact_sync(&state, id, "customer_created").await;
     Ok(Json(row))
 }
 
@@ -5669,13 +5723,7 @@ async fn post_customer_email_collection(
             tx.commit().await?;
 
             spawn_meilisearch_customer_hooks(&state, customer_id);
-            let pool = state.db.clone();
-            let http = state.http_client.clone();
-            let token_cache = state.podium_token_cache.clone();
-            tokio::spawn(async move {
-                let _ =
-                    podium::upsert_podium_contact(&pool, &http, &token_cache, customer_id).await;
-            });
+            queue_podium_contact_sync(&state, customer_id, "customer_email_collected").await;
 
             Ok(Json(CustomerEmailCollectionStatus {
                 email: Some(email),
@@ -6020,22 +6068,7 @@ async fn update_customer(
 
     let row = load_customer_profile_row(&state.db, customer_id).await?;
     spawn_meilisearch_customer_hooks(&state, customer_id);
-    // Background sync to Podium contacts (best-effort)
-    let pool = state.db.clone();
-    let http = state.http_client.clone();
-    let token_cache = state.podium_token_cache.clone();
-    tokio::spawn(async move {
-        if let Err(error) =
-            podium::upsert_podium_contact(&pool, &http, &token_cache, customer_id).await
-        {
-            tracing::warn!(
-                target: "podium",
-                customer_id = %customer_id,
-                error = %error,
-                "Automatic Podium contact update sync failed"
-            );
-        }
-    });
+    queue_podium_contact_sync(&state, customer_id, "customer_updated").await;
     Ok(Json(row))
 }
 
@@ -6191,6 +6224,77 @@ async fn list_podium_unmatched_conversations(
 }
 
 #[derive(Debug, Deserialize)]
+struct ResolvePodiumUnmatchedBody {
+    customer_id: Uuid,
+}
+
+async fn post_resolve_podium_unmatched_conversation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(unmatched_id): Path<Uuid>,
+    Json(body): Json<ResolvePodiumUnmatchedBody>,
+) -> Result<Json<Value>, CustomerError> {
+    let actor =
+        customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let resolved = podium_messaging::resolve_unmatched_conversation(
+        &state.db,
+        unmatched_id,
+        body.customer_id,
+        actor.staff_id,
+    )
+    .await?;
+    if !resolved {
+        return Err(CustomerError::BadRequest(
+            "The unmatched conversation or selected active customer was not found.".to_string(),
+        ));
+    }
+    let sync = podium_messaging::sync_recent_from_podium(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        200,
+    )
+    .await;
+    Ok(Json(json!({
+        "resolved": true,
+        "customer_id": body.customer_id,
+        "sync_completed": sync.is_ok(),
+        "sync_error": sync.err().map(|error| error.to_string()),
+    })))
+}
+
+async fn list_podium_contact_reconciliation_issues(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ListPodiumInboxQuery>,
+) -> Result<Json<Vec<podium_contacts::PodiumContactIssueRow>>, CustomerError> {
+    require_podium_settings_admin(&state, &headers).await?;
+    Ok(Json(
+        podium_contacts::list_contact_issues(&state.db, q.limit.unwrap_or(50)).await?,
+    ))
+}
+
+async fn post_podium_contact_reconciliation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<podium_contacts::PodiumContactReconciliationResult>, CustomerError> {
+    require_podium_settings_admin(&state, &headers).await?;
+    let result = podium_contacts::reconcile_all_contacts(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        state.meilisearch.as_ref(),
+    )
+    .await
+    .map_err(|error| {
+        CustomerError::PodiumUnavailable(format!(
+            "Could not reconcile Podium contacts ({error}). Confirm read_contacts authorization and Integration credentials."
+        ))
+    })?;
+    Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize)]
 struct PostPodiumDirectSmsBody {
     #[serde(default)]
     customer_id: Option<Uuid>,
@@ -6208,37 +6312,6 @@ struct PostPodiumDirectSmsResponse {
     ok: bool,
     customer_id: Uuid,
     customer_created: bool,
-}
-
-async fn find_customer_id_by_phone_tail(
-    pool: &sqlx::PgPool,
-    phone: &str,
-) -> Result<Option<Uuid>, sqlx::Error> {
-    let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
-    let tail = digits
-        .chars()
-        .rev()
-        .take(10)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<String>();
-    if tail.len() < 10 {
-        return Ok(None);
-    }
-    sqlx::query_scalar(
-        r#"
-        SELECT id
-        FROM customers
-        WHERE phone IS NOT NULL
-          AND regexp_replace(phone, '[^0-9]', '', 'g') LIKE '%' || $1
-        ORDER BY created_at DESC
-        LIMIT 1
-        "#,
-    )
-    .bind(tail)
-    .fetch_optional(pool)
-    .await
 }
 
 async fn require_podium_staff_messages_enabled(state: &AppState) -> Result<(), CustomerError> {
@@ -6289,49 +6362,58 @@ async fn post_podium_direct_sms(
                 "Enter a valid phone number before sending.".to_string(),
             ));
         };
-        if let Some(existing_id) =
-            find_customer_id_by_phone_tail(&state.db, &normalized_phone).await?
+        match podium_contacts::match_customer_identity(&state.db, Some(&normalized_phone), None)
+            .await?
         {
-            existing_id
-        } else {
-            let first = body.first_name.as_deref().unwrap_or("").trim();
-            let last = body.last_name.as_deref().unwrap_or("").trim();
-            if first.is_empty() || last.is_empty() {
+            CustomerIdentityMatch::Unique(existing_id) => existing_id,
+            CustomerIdentityMatch::Ambiguous(_) => {
                 return Err(CustomerError::BadRequest(
-                    "First and last name are required for a new Podium contact.".to_string(),
+                    "Multiple active Riverside customers share this phone number. Select the intended customer from search before sending."
+                        .to_string(),
                 ));
             }
-            let id = insert_customer(
-                &state.db,
-                InsertCustomerParams {
-                    customer_code: None,
-                    first_name: first.to_string(),
-                    last_name: last.to_string(),
-                    company_name: None,
-                    email: None,
-                    phone: Some(normalized_phone),
-                    address_line1: None,
-                    address_line2: None,
-                    city: None,
-                    state: None,
-                    postal_code: None,
-                    date_of_birth: None,
-                    anniversary_date: None,
-                    custom_field_1: None,
-                    custom_field_2: None,
-                    custom_field_3: None,
-                    custom_field_4: None,
-                    marketing_email_opt_in: false,
-                    marketing_sms_opt_in: false,
-                    transactional_sms_opt_in: true,
-                    transactional_email_opt_in: false,
-                    customer_created_source: crate::logic::customers::CustomerCreatedSource::Podium,
-                },
-            )
-            .await?;
-            customer_created = true;
-            spawn_meilisearch_customer_hooks(&state, id);
-            id
+            CustomerIdentityMatch::None => {
+                let first = body.first_name.as_deref().unwrap_or("").trim();
+                let last = body.last_name.as_deref().unwrap_or("").trim();
+                if first.is_empty() || last.is_empty() {
+                    return Err(CustomerError::BadRequest(
+                        "First and last name are required for a new Podium contact.".to_string(),
+                    ));
+                }
+                let id = insert_customer(
+                    &state.db,
+                    InsertCustomerParams {
+                        customer_code: None,
+                        first_name: first.to_string(),
+                        last_name: last.to_string(),
+                        company_name: None,
+                        email: None,
+                        phone: Some(normalized_phone),
+                        address_line1: None,
+                        address_line2: None,
+                        city: None,
+                        state: None,
+                        postal_code: None,
+                        date_of_birth: None,
+                        anniversary_date: None,
+                        custom_field_1: None,
+                        custom_field_2: None,
+                        custom_field_3: None,
+                        custom_field_4: None,
+                        marketing_email_opt_in: false,
+                        marketing_sms_opt_in: false,
+                        transactional_sms_opt_in: true,
+                        transactional_email_opt_in: false,
+                        customer_created_source:
+                            crate::logic::customers::CustomerCreatedSource::Podium,
+                    },
+                )
+                .await?;
+                customer_created = true;
+                spawn_meilisearch_customer_hooks(&state, id);
+                queue_podium_contact_sync(&state, id, "podium_direct_sms_customer_created").await;
+                id
+            }
         }
     };
 
@@ -6341,7 +6423,7 @@ async fn post_podium_direct_sms(
             "Customer has no phone on file".to_string(),
         ));
     };
-    podium::send_podium_sms_message_with_sender(
+    let send_result = podium::send_podium_sms_message_with_sender_tracked(
         &state.db,
         &state.http_client,
         &state.podium_token_cache,
@@ -6365,6 +6447,8 @@ async fn post_podium_direct_sms(
         e164.as_deref(),
         None,
         "outbound",
+        send_result.provider_message_id.as_deref(),
+        Some(&send_result.raw_response),
     )
     .await
     .map_err(CustomerError::Database)?;
@@ -6518,7 +6602,7 @@ async fn post_customer_podium_reply(
                     "Customer has no phone on file".to_string(),
                 ));
             };
-            if let Some(b64_raw) = body.attachment_png_base64.as_deref() {
+            let send_result = if let Some(b64_raw) = body.attachment_png_base64.as_deref() {
                 let b64 = b64_raw.trim();
                 if b64.is_empty() {
                     return Err(CustomerError::BadRequest(
@@ -6538,7 +6622,7 @@ async fn post_customer_podium_reply(
                         "attachment image is too large".to_string(),
                     ));
                 }
-                podium::send_podium_phone_message_with_png_attachment(
+                podium::send_podium_phone_message_with_png_attachment_tracked(
                     &state.db,
                     &state.http_client,
                     &state.podium_token_cache,
@@ -6551,9 +6635,9 @@ async fn post_customer_podium_reply(
                     CustomerError::PodiumUnavailable(format!(
                         "Could not send SMS attachment via Podium ({e}). Check Integrations and env credentials."
                     ))
-                })?;
+                })?
             } else {
-                podium::send_podium_sms_message_with_sender(
+                podium::send_podium_sms_message_with_sender_tracked(
                     &state.db,
                     &state.http_client,
                     &state.podium_token_cache,
@@ -6566,8 +6650,8 @@ async fn post_customer_podium_reply(
                     CustomerError::PodiumUnavailable(format!(
                         "Could not send SMS via Podium ({e}). Check Integrations and env credentials."
                     ))
-                })?;
-            }
+                })?
+            };
             let e164 = podium::normalize_phone_e164(ph.as_str());
             podium_messaging::record_outbound_message(
                 &state.db,
@@ -6578,6 +6662,8 @@ async fn post_customer_podium_reply(
                 e164.as_deref(),
                 None,
                 "outbound",
+                send_result.provider_message_id.as_deref(),
+                Some(&send_result.raw_response),
             )
             .await
             .map_err(CustomerError::Database)?;
@@ -6638,7 +6724,7 @@ async fn post_customer_podium_contact_sync(
     if !exists {
         return Err(CustomerError::NotFound);
     }
-    let result = podium::upsert_podium_contact(
+    let result = podium_contacts::sync_customer_now(
         &state.db,
         &state.http_client,
         &state.podium_token_cache,
@@ -6651,6 +6737,17 @@ async fn post_customer_podium_contact_sync(
         ))
     })?;
     Ok(Json(result))
+}
+
+async fn get_customer_podium_contact_sync_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+) -> Result<Json<Option<podium_contacts::PodiumCustomerContactSyncStatus>>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    Ok(Json(
+        podium_contacts::customer_sync_status(&state.db, customer_id).await?,
+    ))
 }
 
 async fn post_customer_podium_review_invite(
@@ -6956,6 +7053,9 @@ async fn post_couple_create(
     crate::logic::customer_couple::link_couple(&state.db, customer_id, partner_id)
         .await
         .map_err(|e| CustomerError::Logic(e.to_string()))?;
+
+    spawn_meilisearch_customer_hooks(&state, partner_id);
+    queue_podium_contact_sync(&state, partner_id, "couple_customer_created").await;
 
     get_customer_hub(State(state), headers, Path(customer_id)).await
 }

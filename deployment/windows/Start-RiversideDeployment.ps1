@@ -1040,7 +1040,7 @@ $checkButton.Add_Click({
       Add-Log "Config file will be created from the package template during install."
     }
     if ($serverRadio.Checked) {
-      foreach ($required in @("install-server.ps1", "install-register.ps1", "repair-bootstrap-admin.ps1", "server\riverside-server.exe", "client-dist", "migrations", "register")) {
+      foreach ($required in @("install-server.ps1", "install-register.ps1", "repair-bootstrap-admin.ps1", "server\riverside-server.exe", "client-dist", "migrations", "cube", "register")) {
         if (-not (Test-PackageFile $required)) {
           throw "Missing $required"
         }

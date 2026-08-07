@@ -1052,6 +1052,86 @@ async fn launch_server_inner(
         }
     });
 
+    let podium_contact_sync_interval_secs =
+        std::env::var("RIVERSIDE_PODIUM_CONTACT_SYNC_INTERVAL_SECS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(30)
+            .max(10);
+    let podium_contact_sync_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
+            podium_contact_sync_interval_secs,
+        ));
+        loop {
+            ticker.tick().await;
+            match crate::logic::podium_contacts::process_pending_contact_syncs(
+                &podium_contact_sync_state.db,
+                &podium_contact_sync_state.http_client,
+                &podium_contact_sync_state.podium_token_cache,
+                25,
+            )
+            .await
+            {
+                Ok(processed) if processed > 0 => tracing::info!(
+                    target: "podium",
+                    processed,
+                    "Durable Podium contact sync batch processed"
+                ),
+                Ok(_) => {}
+                Err(error) => tracing::error!(
+                    target: "podium",
+                    error = %error,
+                    "Durable Podium contact sync worker failed"
+                ),
+            }
+        }
+    });
+
+    let podium_contact_reconciliation_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(6 * 60 * 60));
+        loop {
+            ticker.tick().await;
+            match crate::logic::podium_contacts::contact_reconciliation_due(
+                &podium_contact_reconciliation_state.db,
+            )
+            .await
+            {
+                Ok(true) => match crate::logic::podium_contacts::reconcile_all_contacts(
+                    &podium_contact_reconciliation_state.db,
+                    &podium_contact_reconciliation_state.http_client,
+                    &podium_contact_reconciliation_state.podium_token_cache,
+                    podium_contact_reconciliation_state.meilisearch.as_ref(),
+                )
+                .await
+                {
+                    Ok(summary) => tracing::info!(
+                        target: "podium",
+                        contacts_seen = summary.contacts_seen,
+                        contacts_matched = summary.contacts_matched,
+                        customers_created = summary.customers_created,
+                        customers_updated = summary.customers_updated,
+                        conflicts = summary.conflicts,
+                        outbound_queued = summary.outbound_queued,
+                        "Daily Podium contact reconciliation completed"
+                    ),
+                    Err(error) => tracing::warn!(
+                        target: "podium",
+                        error = %error,
+                        "Daily Podium contact reconciliation failed"
+                    ),
+                },
+                Ok(false) => {}
+                Err(error) => tracing::error!(
+                    target: "podium",
+                    error = %error,
+                    "Could not evaluate Podium contact reconciliation schedule"
+                ),
+            }
+        }
+    });
+
     let podium_webhook_state = state.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(2));
@@ -1061,6 +1141,7 @@ async fn launch_server_inner(
                 &podium_webhook_state.db,
                 &podium_webhook_state.http_client,
                 &podium_webhook_state.podium_token_cache,
+                podium_webhook_state.meilisearch.as_ref(),
                 25,
             )
             .await

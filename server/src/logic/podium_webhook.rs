@@ -2,6 +2,7 @@
 
 use hmac::{Hmac, Mac};
 use http::HeaderMap;
+use meilisearch_sdk::client::Client as MeilisearchClient;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -308,6 +309,7 @@ pub async fn process_pending_podium_webhooks(
     pool: &PgPool,
     http: &reqwest::Client,
     token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    meilisearch: Option<&MeilisearchClient>,
     limit: usize,
 ) -> Result<u32, sqlx::Error> {
     let mut processed = 0_u32;
@@ -323,6 +325,17 @@ pub async fn process_pending_podium_webhooks(
                 &delivery.raw_payload,
             )
             .await?;
+            if matches!(
+                crate::logic::podium_contacts::apply_contact_webhook(
+                    pool,
+                    meilisearch,
+                    &delivery.raw_payload,
+                )
+                .await?,
+                crate::logic::podium_contacts::PodiumContactWebhookOutcome::Processed(_)
+            ) {
+                return Ok(crate::logic::podium_inbound::PodiumInboundIngestOutcome::Processed);
+            }
             if podium_inbound_crm_ingest_enabled() {
                 crate::logic::podium_inbound::ingest_from_webhook(
                     pool,

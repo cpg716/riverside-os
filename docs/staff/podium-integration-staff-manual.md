@@ -49,7 +49,8 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 2. Open **Podium (SMS + web chat)**.
 3. Check the **readiness** strip: credentials, webhook (IT), **location UID** filled in, and the individual text-message toggles required by your SOP.
 4. If the card says **credentials missing**, an admin can save or update the Podium credentials in this Settings screen. Use **Authorize via Podium Portal** / **Connect Podium** only after both **Client ID** and **Client Secret** are saved and the redirect URI is registered in Podium.
-5. Ensure the Podium app has all required scopes enabled: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, and `write_contacts`.
+5. Ensure the Podium app has all required scopes enabled: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `read_contacts`, and `write_contacts`. Existing connections must use **Reconnect Podium Account** once after `read_contacts` is enabled.
+6. Use **Check Podium Health**, then **Reconcile Contacts**. This bulk action requires **`settings.admin`** and a saved location UID. A healthy result proves the required read scopes work; reconciliation compares the complete Podium contact list and shows collisions that require staff review. Riverside allows one reconciliation at a time and stops safely if Podium returns an incomplete or unrecognized contact page.
 
 ### Admin / IT: know which Podium values to enter
 
@@ -89,7 +90,10 @@ If the authorization page says the Client ID and redirect URI do not match, regi
 
 1. Open a customer → **Relationship Hub**.
 2. In the **Communication preferences** section, click **Sync to Podium Contacts**.
-3. Riverside pushes the customer's name, phone, and email to Podium (create or update).
+3. Riverside pushes the customer's name, phone, and email to Podium (create or update). The status below the button shows the provider contact ID, last success, retry attempt, or terminal error.
+4. Automatic sync uses the same durable queue and retries up to eight times. Do not repeatedly click the button while a retry is already pending.
+
+ROS is still the appointment system of record. Podium sends enabled appointment confirmations, reminders, and calendar attachments; staff book and update the appointment only in **Back Office → Appointments** or the linked Wedding workflow.
 
 ### Staff: use the SMS inbox list
 
@@ -102,7 +106,8 @@ If the authorization page says the Client ID and redirect URI do not match, regi
 7. The thread auto-scrolls to the newest message; outbound messages show a **Sent** badge and the sender's name.
 8. The conversation header shows **assigned Podium users** when available.
 9. Use **Refresh** after you know a new message arrived if the row does not update. Refresh asks Podium for the current conversation list and brings back multiple pages when needed, so recent provider conversations should not be hidden behind old synced rows.
-10. Use **Unknown Podium senders** only when matching provider threads to customers. The list is collapsed by default because it is cleanup work, not the normal conversation queue.
+10. Use **Unknown Podium senders** only when matching provider threads to customers. Choose **Match customer**, search for the intended customer, verify identity, and select that record. The decision is audited against the exact provider conversation ID.
+11. When the card says multiple customers share the identifier, correct the duplicate phone/email data or deliberately choose the intended record. Riverside never silently chooses the newest customer.
 
 **Permission:** Viewing requires **`customers.hub_view`**. Sending or creating the new contact requires **`customers.hub_edit`**.
 
@@ -144,6 +149,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 - **“Customer says they never got the text.”** Check **profile**: phone number, **operational** / **marketing** SMS flags per store policy; confirm the fulfillment work actually hit **pickup ready** (or the right trigger). Escalate if templates or Podium toggles are wrong—do not spam resends without manager approval.
 - **“This person is not in ROS yet.”** Use **Podium Inbox → Send Text**, enter the phone number plus first and last name, and send once. Riverside creates the contact with Podium as the source so staff can complete or merge it later.
 - **“Notification won’t open the right person.”** Ask them to use **Podium Inbox** or search the customer by name/code, then open **Messages** manually; IT verifies **webhook** configuration if links are consistently wrong.
+- **“The customer texted STOP.”** Riverside disables marketing and operational SMS only for an exact recognized opt-out command such as `STOP`, `UNSUBSCRIBE`, or `OPT OUT`. A sentence that merely contains the word “stop” does not change consent.
 - **Never** paste Podium **secrets**, **refresh tokens**, or **webhook signing keys** into chat or bug reports—only managers/IT handle those on the server.
 
 ---
@@ -155,7 +161,8 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 | **403 / no Podium card** | Sign in as admin or ask for **settings.admin** | Manager adjusts role |
 | **Podium page says "Client ID is required"** | Return to Settings, confirm **Client ID** is saved, and start authorization again from the Podium card | Manager / IT checks the saved credentials and redirect URI |
 | **Podium page says Client ID and redirect URI do not match** | Stop and check the callback URL registered in Podium | IT updates the Podium developer app to match Riverside exactly |
-| **Podium consent page says something went wrong** | Do not retry repeatedly; check whether the Podium app has all scopes enabled (`read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `write_contacts`) | IT / Podium support |
+| **Podium consent page says something went wrong** | Do not retry repeatedly; check whether the Podium app has all scopes enabled (`read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `read_contacts`, `write_contacts`) | IT / Podium support |
+| **Contact reconciliation reports conflicts** | Review the named contact and candidate count; correct duplicate phone/email data in Podium or Customer Hub, then reconcile again | Manager / IT; never guess between customers |
 | **No Messages tab** | Confirm **Relationship Hub** access | [CUSTOMER_HUB_AND_RBAC.md](../CUSTOMER_HUB_AND_RBAC.md) |
 | **Send Text button stays disabled** | Add message text; for new numbers add phone, first name, and last name | Manager checks **customers.hub_edit** |
 | **Send failed / Podium unavailable** | Readiness + toggles + location UID, then **Check Podium Health** | Manager / IT |
@@ -187,4 +194,4 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 - [pos-register-cart.md](pos-register-cart.md) — Register and receipt flow.
 - [operations-home.md](operations-home.md) — Operations home and Reviews.
 
-**Last reviewed:** 2026-08-06
+**Last reviewed:** 2026-08-07

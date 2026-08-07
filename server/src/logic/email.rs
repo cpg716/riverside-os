@@ -433,6 +433,8 @@ async fn record_customer_email_message(
         } else {
             "outbound"
         },
+        None,
+        None,
     )
     .await
 }

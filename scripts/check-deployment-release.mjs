@@ -435,6 +435,31 @@ for (const copy of [
     "Windows deployment package must include the local Meilisearch runtime used by Main Hub search",
   );
 }
+for (const copy of [
+  "function Add-CubeRuntime",
+  'cubeVersion = "1.7.16"',
+  'Join-Path $cubeSource "package-lock.json"',
+  "start-riverside-cube.ps1",
+  "node.exe",
+  "Cube Core $cubeVersion with a portable Windows Node runtime",
+  "await this.server.listen(PORT, '127.0.0.1');",
+]) {
+  assertIncludes(
+    deploymentPackageBuilder,
+    copy,
+    "Windows deployment packages must include the pinned non-Docker Cube Core runtime",
+  );
+}
+assertIncludes(
+  ".github/workflows/windows-deployment-package.yml",
+  "npm ci --prefix cube",
+  "Windows package assembly must install Cube dependencies on Windows so the native binding matches production",
+);
+assertIncludes(
+  "cube/package.json",
+  '"@cubejs-backend/server": "1.7.16"',
+  "Cube runtime dependency must remain pinned to the packaged release",
+);
 const meilisearchVersionMatch = read(deploymentPackageBuilder).match(
   /\$meiliVersion = "([^"]+)"/,
 );
@@ -629,6 +654,25 @@ for (const copy of [
     "Main Hub installer must install and start local Meilisearch before the API relies on it",
   );
 }
+for (const copy of [
+  "function Ensure-CubeServerEnvironment",
+  "function Set-CubeRolePassword",
+  "function Ensure-RiversideCubeHost",
+  "function Wait-CubeReady",
+  'Riverside OS Cube Core',
+  'RIVERSIDE_CUBE_UPSTREAM',
+  'RIVERSIDE_CUBE_API_SECRET',
+  'RIVERSIDE_CUBE_REPORTING_DB_PASSWORD',
+  'http://127.0.0.1:4000',
+  'Restored the previous Cube reporting-role password after the failed update.',
+  'Previous Cube Core task restarted after the failed update.',
+]) {
+  assertIncludes(
+    mainHubInstaller,
+    copy,
+    "Main Hub installer must configure, supervise, verify, and roll back local non-Docker Cube Core",
+  );
+}
 assertNotIncludes(
   mainHubInstaller,
   "This existing Main Hub still uses the legacy development Meilisearch key.",
@@ -663,6 +707,13 @@ for (const copy of [
   "Retained the failed initial install config because PostgreSQL app credentials were already applied.",
   "Restored the previous installed deployment config after the failed update.",
   "Removed the incomplete installed deployment config after the failed initial install.",
+  "function Ensure-OptionalReportingRole",
+  "Ensure-OptionalReportingRole $PsqlPath $Db -Required",
+  "function Invoke-CubeRoleMigrationFile",
+  'if ($file.Name -eq "185_cube_insights_and_saved_reports.sql")',
+  '"-c", "SET ROLE $appUserIdentifier;"',
+  "REVOKE ADMIN OPTION FOR cube_ro",
+  "Applied Cube reporting migration with transaction-scoped role administration; app role privileges restored.",
   "[switch]$PreserveExistingRosie",
   "Get-PreservedRosieEnvironment $envPath",
   "Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment",
@@ -679,6 +730,11 @@ for (const copy of [
     "Main Hub updates must verify an admin-readable backup before downtime and recover the prior task after failure",
   );
 }
+assertIncludes(
+  mainHubInstaller,
+  "\n      Ensure-OptionalReportingRole $psql $db\n",
+  "Main Hub database setup must provision the Cube reporting role before migrations",
+);
 for (const copy of [
   'temperature = 0',
   'seed = 42',

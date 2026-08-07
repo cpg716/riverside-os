@@ -77,5 +77,11 @@ test.describe("Settings Podium integration", () => {
     await expect(
       page.getByText(/sms, inbox & reviews/i).first(),
     ).toBeVisible({ timeout: 25_000 });
+    await expect(
+      page.getByRole("button", { name: /check podium health/i }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /reconcile contacts/i }),
+    ).toBeVisible();
   });
 });

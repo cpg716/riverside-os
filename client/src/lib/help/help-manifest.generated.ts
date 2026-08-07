@@ -102,7 +102,7 @@ export const HELP_MANUALS: HelpManual[] = [
     title: "Insights — conversational reporting",
     summary: "Ask ROSIE for governed reports, refine them in plain language, export or print every result, and reuse favorites and report history.",
     markdown: manual_3_raw,
-    tags: ["insights","rosie","reports","analytics","favorites","history","export","print"],
+    tags: ["insights","rosie","cube","reports","analytics","favorites","history","export","print"],
   },
   {
     id: "wedding-manager",

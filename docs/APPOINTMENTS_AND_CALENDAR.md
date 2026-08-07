@@ -4,6 +4,8 @@
 
 All scheduled slots live in PostgreSQL table **`wedding_appointments`**, exposed under **`/api/weddings/appointments`**. Day/week grids in different UIs read and write the same rows.
 
+Podium is a notification transport for enabled appointment confirmations, reminders, and `.ics` calendar attachments. ROS does not mirror booking state into a separate Podium appointment calendar; appointment creation, rescheduling, status, staff assignment, and wedding linkage remain authoritative in ROS.
+
 ## Two entry points in the client
 
 | Surface | Component(s) | Primary intent |
