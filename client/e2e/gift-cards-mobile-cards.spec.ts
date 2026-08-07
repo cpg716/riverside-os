@@ -46,7 +46,7 @@ for (const viewport of GIFT_CARDS_VIEWPORTS) {
             current_balance: "100.00",
             original_value: "100.00",
             is_liability: true,
-            expires_at: "2027-01-01",
+            expires_at: "2025-01-01",
             customer_id: "cust-1",
             customer_name: "Alex Rivera",
             notes: "Primary card",
@@ -94,10 +94,16 @@ for (const viewport of GIFT_CARDS_VIEWPORTS) {
     });
 
     if (viewport.width <= 1023) {
-      await expect(page.getByTestId("gift-cards-card-list")).toBeVisible({ timeout: 15_000 });
+      const cardList = page.getByTestId("gift-cards-card-list");
+      await expect(cardList).toBeVisible({ timeout: 15_000 });
+      await expect(cardList.getByText("Sold / Purchased", { exact: true })).toBeVisible();
+      await expect(cardList.getByText("Expired", { exact: true })).toBeVisible();
       await expect(page.getByTestId("gift-cards-table")).toHaveCount(0);
     } else {
-      await expect(page.getByTestId("gift-cards-table")).toBeVisible({ timeout: 15_000 });
+      const cardTable = page.getByTestId("gift-cards-table");
+      await expect(cardTable).toBeVisible({ timeout: 15_000 });
+      await expect(cardTable.getByText("Sold / Purchased", { exact: true })).toBeVisible();
+      await expect(cardTable.getByText("Expired", { exact: true })).toBeVisible();
       await expect(page.getByTestId("gift-cards-card-list")).toHaveCount(0);
     }
   });

@@ -2,7 +2,7 @@
 id: gift-cards-workspace
 title: "Gift Cards Workspace"
 order: 1010
-summary: "Look up Regular, Loyalty, Donated, or Promo cards and review liability-safe activity."
+summary: "Look up Sold / Purchased, Loyalty, Donated, or Promo cards and review liability-safe activity."
 source: client/src/components/gift-cards/GiftCardsWorkspace.tsx
 last_scanned: 2026-06-02
 tags: gift-cards, back-office, staff-manual, promo
@@ -35,10 +35,12 @@ Gift Cards Workspace is the Back Office surface for looking up cards, reviewing 
 
 Riverside OS tracks gift card subtype because accounting treatment differs.
 
-- **Regular gift cards** are purchased by customers and represent customer-paid liability.
+- **Sold / Purchased gift cards** are purchased by customers and represent customer-paid liability.
 - **Loyalty gift cards** are issued from loyalty or reward workflows.
 - **Donated gift cards** are issued for approved donation use.
 - **Promo gift cards** are promotional and should remain distinguishable from purchased cards.
+
+Loyalty, Donated, and Promo cards expire one calendar year after issue. The inventory list shows **Expired** when that date has passed, even though the retained audit status remains active until the card is reused, depleted, or voided.
 
 ## Issue a card
 
@@ -54,7 +56,7 @@ Gift card redemption happens in checkout. After staff scan or enter the card, Ri
 
 ## QBO evidence
 
-QBO proposals keep gift card subtype evidence clear. Regular, Loyalty, Donated, and Promo gift cards follow their intended accounting path.
+QBO proposals keep gift card subtype evidence clear. Sold / Purchased, Loyalty, Donated, and Promo gift cards follow their intended accounting path.
 
 ## Operational detail
 

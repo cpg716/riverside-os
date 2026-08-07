@@ -16,6 +16,7 @@ import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import sql from "mssql";
 import http from 'node:http';
+import { mapCounterpointGiftCardRow } from "./gift-card-mapping.mjs";
 
 // --- Global State for Dashboard ---
 const LOG_BACKLOG = [];
@@ -1821,7 +1822,11 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
   const giftBal = pickColumn(gift, ["CURR_AMT", "BAL", "BAL_AMT"]);
   if (giftTable && giftNo && giftBal) {
     const reason = pickColumn(gift, ["REAS_COD", "REASON_COD"]);
-    sqlMap.gift_cards = `SELECT ${sqlText("g", gift, [giftNo], "gift_cert_no")}, CAST(ISNULL(g.[${giftBal}], 0) AS DECIMAL(18,2)) AS balance${reason ? `, ${sqlText("g", gift, [reason], "reason_cod")}` : ""} FROM ${giftTable} g WHERE ISNULL(g.[${giftBal}], 0) > 0`;
+    const program = pickColumn(gift, ["GFC_COD"]);
+    const description = pickColumn(gift, ["DESCR"]);
+    const original = pickColumn(gift, ["ORIG_AMT"]);
+    const issued = pickColumn(gift, ["ORIG_DAT", "ISSUE_DAT"]);
+    sqlMap.gift_cards = `SELECT ${sqlText("g", gift, [giftNo], "gift_cert_no")}, CAST(ISNULL(g.[${giftBal}], 0) AS DECIMAL(18,2)) AS balance${original ? `, CAST(g.[${original}] AS DECIMAL(18,2)) AS orig_amt` : ""}${reason ? `, ${sqlText("g", gift, [reason], "reason_cod")}` : ""}${program ? `, ${sqlText("g", gift, [program], "gfc_cod")}` : ""}${description ? `, ${sqlText("g", gift, [description], "description", 255)}` : ""}${issued ? `, CONVERT(varchar, g.[${issued}], 126) AS issue_dat` : ""} FROM ${giftTable} g WHERE ISNULL(g.[${giftBal}], 0) > 0`;
     changes.push(`${giftTable} gift cards enabled`);
   }
 
@@ -2271,21 +2276,54 @@ async function rebuildEffectiveSql(pool) {
       fixBits.push("PS_TKT_HIST_*_CELL: replaced DIM_3_VAL → NULL");
     }
 
-    // Gift cards: REAS_COD or REASON_COD injection if missing
+    // Gift cards: recover current SY_GFC classification and issue-date fields
+    // when an older custom query only selected card number and balance.
     const syGfc = columnSet(schemaEntries, "SY_GFC");
-    if (syGfc && effectiveSql.gift_cards && !effectiveSql.gift_cards.includes("reason_cod")) {
+    if (syGfc && effectiveSql.gift_cards) {
+      const injectGiftCardField = (expression, alias, label, aliasPattern = alias) => {
+        const currentSql = String(effectiveSql.gift_cards);
+        if (new RegExp(`\\bAS\\s+(?:${aliasPattern})\\b`, "i").test(currentSql)) return;
+        const updatedSql = currentSql.replace(
+          /\bFROM\s+((?:dbo\.)?SY_GFC)\b/gi,
+          `, ${expression} AS ${alias} FROM $1`,
+        );
+        if (updatedSql !== currentSql) {
+          effectiveSql.gift_cards = updatedSql;
+          fixBits.push(`SY_GFC: injected ${label} AS ${alias}`);
+        }
+      };
+
       if (syGfc.has("REAS_COD")) {
-        effectiveSql.gift_cards = String(effectiveSql.gift_cards).replace(
-          /\bFROM\s+SY_GFC\b/gi,
-          ", RTRIM(LTRIM(REAS_COD)) AS reason_cod FROM SY_GFC"
-        );
-        fixBits.push("SY_GFC: injected REAS_COD AS reason_cod");
+        injectGiftCardField("RTRIM(LTRIM(REAS_COD))", "reason_cod", "REAS_COD");
       } else if (syGfc.has("REASON_COD")) {
-        effectiveSql.gift_cards = String(effectiveSql.gift_cards).replace(
-          /\bFROM\s+SY_GFC\b/gi,
-          ", RTRIM(LTRIM(REASON_COD)) AS reason_cod FROM SY_GFC"
+        injectGiftCardField("RTRIM(LTRIM(REASON_COD))", "reason_cod", "REASON_COD");
+      }
+      if (syGfc.has("GFC_COD")) {
+        injectGiftCardField("RTRIM(LTRIM(GFC_COD))", "gfc_cod", "GFC_COD");
+      }
+      if (syGfc.has("DESCR")) {
+        injectGiftCardField(
+          "RTRIM(LTRIM(DESCR))",
+          "description",
+          "DESCR",
+          "description|descr",
         );
-        fixBits.push("SY_GFC: injected REASON_COD AS reason_cod");
+      }
+      if (syGfc.has("ORIG_AMT")) {
+        injectGiftCardField(
+          "CAST(ORIG_AMT AS DECIMAL(18,2))",
+          "orig_amt",
+          "ORIG_AMT",
+          "orig_amt|original_value",
+        );
+      }
+      if (syGfc.has("ORIG_DAT")) {
+        injectGiftCardField(
+          "CONVERT(varchar, ORIG_DAT, 126)",
+          "issue_dat",
+          "ORIG_DAT",
+          "issue_dat|issued_at",
+        );
       }
     }
 
@@ -4347,25 +4385,6 @@ function catalogBarcodeSourceCount(row) {
   return String(row.barcode ?? "").trim() !== "" ? 1 : 0;
 }
 
-function mapGiftCardRow(r, histRows) {
-  const issueDat = r.issue_dat ?? r.issued_at;
-  return {
-    cert_no: String(r.cert_no ?? r.gft_cert_no ?? r.gift_cert_no ?? "").trim(),
-    balance: String(r.balance ?? r.bal ?? r.bal_amt ?? "0"),
-    original_value: r.original_value ?? (r.orig_amt != null ? String(r.orig_amt) : undefined),
-    reason_cod: r.reason_cod ?? undefined,
-    expires_at: r.expires_at ?? undefined,
-    issued_at: issueDat ? new Date(issueDat).toISOString() : undefined,
-    events: (histRows ?? []).map((h) => ({
-      event_kind: String(h.action ?? h.event_kind ?? "adjustment").toLowerCase(),
-      amount: String(h.amt ?? h.amount ?? "0"),
-      balance_after: h.balance_after != null ? String(h.balance_after) : undefined,
-      notes: h.tkt_no ? `Ticket ${h.tkt_no}` : undefined,
-      created_at: h.trx_dat ?? h.created_at ?? undefined,
-    })),
-  };
-}
-
 function mapTicketRow(r) {
   return {
     ticket_ref: String(r.ticket_ref ?? r.tkt_no ?? "").trim(),
@@ -5001,7 +5020,7 @@ async function syncGiftCards(pool) {
   const mapped = rows
     .map((r) => {
       const certNo = String(r.cert_no ?? r.gft_cert_no ?? r.gift_cert_no ?? "").trim();
-      return mapGiftCardRow(r, histLookup[certNo] ?? []);
+      return mapCounterpointGiftCardRow(r, histLookup[certNo] ?? []);
     })
     .filter((r) => r.cert_no);
   const giftBalanceSum = mapped.reduce(

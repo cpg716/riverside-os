@@ -205,7 +205,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "gift-cards-workspace",
     title: "Gift Cards Workspace",
-    summary: "Look up Regular, Loyalty, Donated, or Promo cards and review liability-safe activity.",
+    summary: "Look up Sold / Purchased, Loyalty, Donated, or Promo cards and review liability-safe activity.",
     markdown: manual_18_raw,
     tags: ["gift-cards","back-office","staff-manual","promo"],
   },

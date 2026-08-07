@@ -396,30 +396,32 @@ Default runtime inventory mapping pulls `IM_INV` rows and `IM_INV_CELL` rows for
 
 ### 4e. Gift cards
 
-**Source:** `dbo.SY_GFT_CERT` / `dbo.SY_GFC` current issued-card rows.
+**Source:** `dbo.SY_GFC` current issued-card rows (with `dbo.SY_GFT_CERT` compatibility on older schemas).
 **Target:** `gift_cards`
-**Key:** `GFT_CERT_NO` → `gift_cards.code`
+**Key:** `GFC_NO` / `GFT_CERT_NO` → `gift_cards.code`
 
 Gift-card cutover imports only cards with a current open balance. For the Riverside bridge payload, alias the card number as `cert_no` (the bridge and ROS also accept `gft_cert_no` / `gift_cert_no` as compatibility aliases).
 
 | Counterpoint | ROS |
 |--------------|-----|
-| `SY_GFT_CERT.GFT_CERT_NO` | `gift_cards.code` |
-| `SY_GFT_CERT.BAL_AMT` | `gift_cards.current_balance` |
-| `SY_GFT_CERT.ORIG_AMT` | `gift_cards.original_value` |
-| `SY_GFT_CERT.ISSUE_DAT` | `gift_cards.created_at` + drives `expires_at` computation |
-| `SY_GFT_CERT.REASON_COD` | `gift_cards.card_kind` (via `counterpoint_gift_reason_map`) |
+| `SY_GFC.GFC_NO` | `gift_cards.code` |
+| `SY_GFC.CURR_AMT` | `gift_cards.current_balance` |
+| `SY_GFC.ORIG_AMT` | `gift_cards.original_value` |
+| `SY_GFC.ORIG_DAT` | `gift_cards.created_at` + drives `expires_at` computation |
+| `SY_GFC.GFC_COD` + `DESCR` | `gift_cards.card_kind` (via `counterpoint_gift_reason_map`) |
 
-**Reason code mapping:** `REASON_COD` values are resolved through `counterpoint_gift_reason_map`. If no mapping exists, the card defaults to `purchased`. Admins can review and update these mappings in **Settings → Counterpoint → Gift reasons** before the accepted cutover run.
+**Program mapping:** The Riverside schema uses `GC` for Sold / Purchased cards and `GC DONATE` for Donated cards. A `PROMO GC` row whose description contains `LOYALTY` is sent as Loyalty; other `PROMO GC` rows remain Promo. The resulting code is resolved through `counterpoint_gift_reason_map`. Missing or unmapped classifications block import instead of silently treating the value as customer-paid liability. Admins can review and update mappings in **Settings → Counterpoint → Gift reasons**.
 
-**Expiration rules:** When no explicit `expires_at` is provided, expiration is computed from `ISSUE_DAT` + card kind:
+**Expiration rules:** Expiration is computed from the Counterpoint issue date and card kind:
 
 | Card kind | Expiry from issue date |
 |-----------|----------------------|
 | `purchased` (liability) | **9 years** |
 | `loyalty_reward`, `donated_giveaway`, `promo_gift_card` | **1 year** |
 
-If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
+Loyalty, Donated, and Promo cards always use one calendar year from `ORIG_DAT`; a longer Counterpoint `EXP_DAT` does not override that rule. The guarded metadata repair requires `ORIG_DAT` for every source card. A normal new-card import can use the import time only when the source issue date is unavailable.
+
+**Imported-card metadata repair:** The repair endpoint has separate `preview` and `apply` modes. Each request declares the complete ROS-matched Counterpoint repair-scope count and balance; zero-balance source rows that were never imported stay outside that scope. Apply runs in one database transaction and aborts if a scoped code is duplicated or missing, a balance changed, or the verified totals differ. It updates only `card_kind`, liability classification, issue date, and expiration; it never changes `current_balance`, `original_value`, status, or `gift_card_events`.
 
 **Gift card history:** Historical gift card activity is not imported for cutover. If ticket gift rows are separately enabled later for tender visibility through an expert override, ROS still treats gift cards as current balance snapshots and does not decrement `gift_cards.current_balance`.
 

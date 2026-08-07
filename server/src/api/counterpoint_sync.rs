@@ -697,15 +697,31 @@ async fn cp_gift_cards(
     let res = execute_counterpoint_gift_card_batch(&state.db, payload).await;
     match res {
         Ok(summary) => {
-            tracing::info!(
-                entity = "gift_cards",
-                batch_size = n,
-                created = summary.created,
-                updated = summary.updated,
-                events = summary.events_created,
-                skipped = summary.skipped,
-                "counterpoint gift card batch applied"
-            );
+            if let Some(repair) = summary.metadata_repair.as_ref() {
+                tracing::info!(
+                    entity = "gift_cards",
+                    batch_size = n,
+                    repair_mode = repair.mode,
+                    source_cards = repair.source_cards,
+                    source_balance = %repair.source_balance,
+                    matched = repair.matched,
+                    balance_mismatches = repair.balance_mismatches,
+                    verified_balance = %repair.verified_balance,
+                    would_expire_cards = repair.would_expire_cards,
+                    would_expire_balance = %repair.would_expire_balance,
+                    "counterpoint gift card metadata repair completed"
+                );
+            } else {
+                tracing::info!(
+                    entity = "gift_cards",
+                    batch_size = n,
+                    created = summary.created,
+                    updated = summary.updated,
+                    events = summary.events_created,
+                    skipped = summary.skipped,
+                    "counterpoint gift card batch applied"
+                );
+            }
             Ok(Json(serde_json::to_value(summary).unwrap_or_default()))
         }
         Err(e) => {

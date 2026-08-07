@@ -1,6 +1,6 @@
 //! In-transaction gift card balance changes shared by checkout and refunds.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Months, Utc};
 use rust_decimal::Decimal;
 use serde_json::json;
 use sqlx::{PgPool, Postgres, Transaction};
@@ -10,6 +10,7 @@ pub const GIFT_CARD_SUB_TYPE_PAID_LIABILITY: &str = "paid_liability";
 pub const GIFT_CARD_SUB_TYPE_LOYALTY_GIVEAWAY: &str = "loyalty_giveaway";
 pub const GIFT_CARD_SUB_TYPE_DONATED_GIVEAWAY: &str = "donated_giveaway";
 pub const GIFT_CARD_SUB_TYPE_PROMO_GIFT_CARD: &str = "promo_gift_card";
+pub const GIFT_CARD_KIND_PURCHASED: &str = "purchased";
 pub const GIFT_CARD_KIND_LOYALTY_REWARD: &str = "loyalty_reward";
 pub const GIFT_CARD_KIND_DONATED_GIVEAWAY: &str = "donated_giveaway";
 pub const GIFT_CARD_KIND_PROMO_GIFT_CARD: &str = "promo_gift_card";
@@ -42,6 +43,27 @@ pub struct GiftCardCreditPlan {
 
 pub fn normalize_gift_card_code(code: &str) -> String {
     code.trim().to_ascii_uppercase()
+}
+
+pub fn gift_card_expiration_from_issue(
+    card_kind: &str,
+    issued_at: DateTime<Utc>,
+) -> Result<DateTime<Utc>, GiftCardOpError> {
+    let months = match card_kind.trim().to_ascii_lowercase().as_str() {
+        GIFT_CARD_KIND_PURCHASED => 108,
+        GIFT_CARD_KIND_LOYALTY_REWARD
+        | GIFT_CARD_KIND_DONATED_GIVEAWAY
+        | GIFT_CARD_KIND_PROMO_GIFT_CARD => 12,
+        _ => {
+            return Err(GiftCardOpError::BadRequest(
+                "This gift card type does not have a supported expiration rule.".to_string(),
+            ));
+        }
+    };
+
+    issued_at
+        .checked_add_months(Months::new(months))
+        .ok_or_else(|| GiftCardOpError::BadRequest("Gift card expiration is out of range.".into()))
 }
 
 fn validate_supported_non_liability_kind(card_kind: &str) -> Result<(), GiftCardOpError> {
@@ -233,7 +255,7 @@ pub async fn pos_load_purchased_in_tx(
         ));
     }
 
-    let expires_at = Utc::now() + Duration::days(365 * 9);
+    let expires_at = gift_card_expiration_from_issue(GIFT_CARD_KIND_PURCHASED, Utc::now())?;
 
     let row: Option<(Uuid, String, String, Decimal, DateTime<Utc>)> = sqlx::query_as(
         r#"
@@ -405,7 +427,7 @@ pub async fn load_non_liability_gift_card_in_tx(
         ));
     }
 
-    let expires_at = Utc::now() + Duration::days(365);
+    let expires_at = gift_card_expiration_from_issue(input.card_kind, Utc::now())?;
     let existing: Option<(Uuid, String, String, Decimal, DateTime<Utc>)> = sqlx::query_as(
         r#"
         SELECT id, card_kind::text, card_status::text, current_balance, expires_at
@@ -667,7 +689,7 @@ pub async fn notify_sales_support_direct_pos_load(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use chrono::{TimeZone, Utc};
     use rust_decimal::Decimal;
     use sqlx::Connection;
 
@@ -689,6 +711,27 @@ mod tests {
             canonical_gift_card_sub_type_for_kind("promo_gift_card").unwrap(),
             GIFT_CARD_SUB_TYPE_PROMO_GIFT_CARD
         );
+    }
+
+    #[test]
+    fn non_liability_expiration_is_one_calendar_year_from_issue() {
+        let issued_at = Utc
+            .with_ymd_and_hms(2024, 3, 1, 12, 0, 0)
+            .single()
+            .expect("valid issue timestamp");
+
+        for kind in [
+            GIFT_CARD_KIND_LOYALTY_REWARD,
+            GIFT_CARD_KIND_DONATED_GIVEAWAY,
+            GIFT_CARD_KIND_PROMO_GIFT_CARD,
+        ] {
+            assert_eq!(
+                gift_card_expiration_from_issue(kind, issued_at).unwrap(),
+                Utc.with_ymd_and_hms(2025, 3, 1, 12, 0, 0)
+                    .single()
+                    .expect("valid expiration timestamp")
+            );
+        }
     }
 
     #[tokio::test]

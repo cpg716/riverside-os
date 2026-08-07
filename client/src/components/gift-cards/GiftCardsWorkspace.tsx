@@ -51,10 +51,17 @@ interface GiftCardEventRow {
 }
 
 const KIND_LABELS: Record<string, string> = {
-  purchased: "Regular",
+  purchased: "Sold / Purchased",
   loyalty_reward: "Loyalty",
   donated_giveaway: "Donated",
   promo_gift_card: "Promo",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  active: "Active",
+  depleted: "Depleted",
+  expired: "Expired",
+  void: "Void",
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -81,6 +88,14 @@ function fmtDateTime(s: string): string {
 
 function giftCardEventLabel(eventKind: string): string {
   return EVENT_LABELS[eventKind] ?? eventKind.replaceAll("_", " ");
+}
+
+function giftCardDisplayStatus(card: GiftCardRow): string {
+  const expiresAt = card.expires_at ? Date.parse(card.expires_at) : Number.NaN;
+  if (card.card_status === "active" && Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+    return "expired";
+  }
+  return card.card_status;
 }
 
 interface SelectedCardPanelProps {
@@ -132,7 +147,9 @@ function SelectedCardPanel({
       <div className="grid gap-2 text-xs text-app-text">
         <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
           <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Status</span>
-          <span className="font-bold">{selectedCard.card_status}</span>
+          <span className="font-bold">
+            {STATUS_LABELS[giftCardDisplayStatus(selectedCard)] ?? giftCardDisplayStatus(selectedCard)}
+          </span>
         </div>
         <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
           <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Expires</span>
@@ -572,15 +589,24 @@ export default function GiftCardsWorkspace({
             <div className="mt-4 flex flex-wrap gap-2">
               <select value={filterKind} onChange={e => setFilterKind(e.target.value)} className="ui-input text-xs px-2 py-1.5">
                 <option value="">All kinds</option>
-                <option value="purchased">Regular</option>
+                <option value="purchased">Sold / Purchased</option>
                 <option value="loyalty_reward">Loyalty</option>
                 <option value="donated_giveaway">Donated</option>
                 <option value="promo_gift_card">Promo</option>
               </select>
-              <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="ui-input text-xs px-2 py-1.5">
+              <select
+                value={filterStatus}
+                onChange={(event) => {
+                  const status = event.target.value;
+                  setFilterStatus(status);
+                  if (status !== "active") setOpenOnly(false);
+                }}
+                className="ui-input text-xs px-2 py-1.5"
+              >
                 <option value="">All statuses</option>
                 <option value="active">Active</option>
                 <option value="depleted">Depleted</option>
+                <option value="expired">Expired</option>
                 <option value="void">Void</option>
               </select>
               <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-app-text touch-manipulation rounded-xl border border-app-border bg-app-surface px-3 py-2">
@@ -588,7 +614,11 @@ export default function GiftCardsWorkspace({
                   type="checkbox"
                   className="h-4 w-4 rounded border-app-border"
                   checked={openOnly}
-                  onChange={(e) => setOpenOnly(e.target.checked)}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setOpenOnly(checked);
+                    if (checked) setFilterStatus("active");
+                  }}
                 />
                 Open cards only
               </label>
@@ -638,13 +668,14 @@ export default function GiftCardsWorkspace({
           <div className="flex flex-col items-center py-16 gap-4">
             <CreditCard className="h-10 w-10 text-app-text-muted" />
             <p className="text-sm text-app-text-muted">No gift cards found.</p>
-            <p className="text-xs text-app-text-muted">Regular gift cards are purchased in Register. Use Issue Donated or Issue Promo for approved giveaway cards.</p>
+            <p className="text-xs text-app-text-muted">Sold / Purchased gift cards are loaded in Register. Use Issue Donated or Issue Promo for approved giveaway cards.</p>
           </div>
         ) : (
           <div className={isSmallScreen ? "space-y-3" : "overflow-x-auto"}>
           {isSmallScreen ? (
             <div data-testid="gift-cards-card-list" className="space-y-3">
               {cards.map((c) => {
+                const displayStatus = giftCardDisplayStatus(c);
                 return (
                   <article
                     key={c.id}
@@ -688,7 +719,9 @@ export default function GiftCardsWorkspace({
                     <div className="mt-2 grid gap-1.5 text-[11px] text-app-text">
                       <p className="flex justify-between gap-2">
                         <span className="font-semibold text-app-text-muted">Status</span>
-                        <span className="font-black">{c.card_status}</span>
+                        <span className="font-black">
+                          {STATUS_LABELS[displayStatus] ?? displayStatus}
+                        </span>
                       </p>
                       <p className="flex justify-between gap-2">
                         <span className="font-semibold text-app-text-muted">Expires</span>
@@ -725,11 +758,13 @@ export default function GiftCardsWorkspace({
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border/30">
-              {cards.map(c => (
+              {cards.map(c => {
+                const displayStatus = giftCardDisplayStatus(c);
+                return (
                 <tr
                   key={c.id}
                   tabIndex={0}
-                  aria-label={`Open gift card ${c.code}`}
+                  aria-label={`View gift card ${c.code}`}
                   className="group cursor-pointer transition-colors hover:bg-app-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30"
                   onClick={() => setSelectedCardId(c.id)}
                   onKeyDown={(event) => {
@@ -755,11 +790,11 @@ export default function GiftCardsWorkspace({
                   </td>
                   <td className="py-4 pr-4">
                     <span className={`ui-pill text-[9px] font-black uppercase tracking-widest ${
-                      c.card_status === 'active' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
-                      c.card_status === 'void' ? 'bg-app-danger/10 text-app-danger border border-app-danger/20' :
+                      displayStatus === 'active' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' :
+                      displayStatus === 'expired' || displayStatus === 'void' ? 'bg-app-danger/10 text-app-danger border border-app-danger/20' :
                       'bg-app-surface-2 text-app-text-muted border border-app-border'
                     }`}>
-                      {c.card_status}
+                      {STATUS_LABELS[displayStatus] ?? displayStatus}
                     </span>
                   </td>
                   <td className="py-4 pr-4 font-black tabular-nums text-app-text">{fmt(c.current_balance)}</td>
@@ -782,7 +817,8 @@ export default function GiftCardsWorkspace({
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           )}

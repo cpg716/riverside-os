@@ -179,8 +179,12 @@ async fn list_gift_cards(
     }
 
     if let Some(status) = status {
-        qb.push(" AND gc.card_status::text = ");
-        qb.push_bind(status);
+        if status.eq_ignore_ascii_case("expired") {
+            qb.push(" AND gc.card_status = 'active'::gift_card_status AND gc.expires_at <= now() ");
+        } else {
+            qb.push(" AND gc.card_status::text = ");
+            qb.push_bind(status);
+        }
     }
 
     if open_only {

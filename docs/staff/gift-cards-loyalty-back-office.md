@@ -10,7 +10,7 @@
 
 ## How to use these tabs
 
-Use **Gift Cards** for card lookup, donated/giveaway issuance, promo gift card issuance, and voids. Use **Loyalty** for points economics. Cashiers redeem gift cards in POS, where Riverside verifies the card, shows the pre-sale balance, and records the real Regular, Loyalty, Donated, or Promo classification for accounting.
+Use **Gift Cards** for card lookup, donated/giveaway issuance, promo gift card issuance, and voids. Use **Loyalty** for points economics. Cashiers redeem gift cards in POS, where Riverside verifies the card, shows the pre-sale balance, and records the real Sold / Purchased, Loyalty, Donated, or Promo classification for accounting.
 
 Purchased gift cards are sold or reloaded from **Register** only. Do not issue customer-paid gift card value from Back Office.
 
@@ -22,7 +22,7 @@ Gift card codes are normalized to uppercase for scanner workflows. Reusing a dep
 
 ### Card Inventory
 
-**Purpose:** Find cards, confirm **balance** and **status** (active vs void), and review recent card activity.
+**Purpose:** Find cards, confirm **balance** and **status** (Active, Depleted, Expired, or Void), and review recent card activity.
 
 1. **Gift Cards** → **Card Inventory**.
 2. Search by **full code**, **last four**, or customer link if the UI exposes it.
@@ -92,7 +92,7 @@ Gift card codes are normalized to uppercase for scanner workflows. Reusing a dep
 
 ## POS coordination
 
-If POS cannot verify a gift card, check the card record in Back Office first. Regular cards are purchased/reloaded from **Register**. Loyalty, Donated, and Promo cards keep their own classification, expiration, reporting, and accounting evidence when redeemed.
+If POS cannot verify a gift card, check the card record in Back Office first. Sold / Purchased cards are purchased or reloaded from **Register**. Loyalty, Donated, and Promo cards keep their own classification, expiration, reporting, and accounting evidence when redeemed.
 
 Expired purchased-card balances post to gift card breakage during QBO proposal generation. Loyalty, donated, and promo cards expire after one year but do not create purchased-card breakage because they are not customer-paid liabilities.
 
