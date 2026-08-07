@@ -209,7 +209,7 @@ echo "Transcribing the generated voice prompt with SenseVoice..."
   --tokens "$SENSEVOICE_TOKENS_PATH" \
   --input "$TMP_DIR/question.wav" \
   --provider "$SHERPA_PROVIDER" \
-  --language auto \
+  --language en \
   --use-itn >"$TMP_DIR/question.txt"
 
 TRANSCRIPT="$(tr -d '\r' < "$TMP_DIR/question.txt" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"

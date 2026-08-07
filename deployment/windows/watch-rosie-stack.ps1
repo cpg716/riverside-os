@@ -2,7 +2,8 @@
 param(
   [string]$InstallRoot = "",
   [switch]$StatusOnly,
-  [switch]$FullCertification
+  [switch]$FullCertification,
+  [switch]$SkipSpeechCertification
 )
 
 $ErrorActionPreference = "Stop"
@@ -208,9 +209,9 @@ function Invoke-BoundedProcess([string]$FilePath, [string[]]$Arguments, [int]$Ti
 function Test-RosieHealthTranscript([string]$Transcript) {
   if ([string]::IsNullOrWhiteSpace($Transcript)) { return $false }
 
-  # Keep the Riverside/health-check anchors exact while accepting the bounded
-  # phonetic variants produced by the pinned Kokoro and SenseVoice models.
-  return $Transcript -match '(?is)\briverside\s+(rosie|rosy|rose|roy)\s+health\s+check\b'
+  # Use common English words so this measures speech recognition instead of
+  # Kokoro's pronunciation of a Riverside or ROSIE brand name.
+  return $Transcript -match '(?is)\bvoice\s+recognition\s+is\s+working\s+correctly\b'
 }
 
 function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$SttModelDir, [string]$TtsModelDir) {
@@ -227,7 +228,7 @@ function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$Stt
       "--output-filename=`"$probeWav`"",
       "--sid=0",
       "--speed=1.0",
-      "`"Riverside Rosie health check`""
+      "`"Voice recognition is working correctly`""
     )
     $ttsProbe = Invoke-BoundedProcess $TtsExe $ttsArgs 60
     $wavExists = Test-Path $probeWav
@@ -264,6 +265,9 @@ function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$Stt
       "--tokens=`"$(Join-Path $SttModelDir 'tokens.txt')`"",
       "--num-threads=2",
       "--decoding-method=greedy_search",
+      "--sense-voice-language=en",
+      "--sense-voice-use-itn=1",
+      "--debug=0",
       "`"$probeWav`""
     )
     $sttProbe = Invoke-BoundedProcess $AsrExe $sttArgs 60
@@ -281,7 +285,7 @@ function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$Stt
     } elseif ($recognized -and -not $sttProbe.success -and $null -ne $sttProbe.exit_code) {
       "SenseVoice recognized the fixture but exited with code $($sttProbe.exit_code)."
     } else { "" }
-    $sttError = if ($recognized) { "" } else { "SenseVoice functional probe did not recognize the health-check fixture: exit_code=$($sttProbe.exit_code); timed_out=$($sttProbe.timed_out); stderr=$($sttProbe.stderr); stdout=$($sttProbe.stdout)" }
+    $sttError = if ($recognized) { "" } else { "SenseVoice did not recognize the English speech fixture: transcript=$transcript; exit_code=$($sttProbe.exit_code); timed_out=$($sttProbe.timed_out)" }
     return [pscustomobject]@{
       ready = [bool]($wavReady -and $recognized)
       tts_tested = $true
@@ -293,7 +297,7 @@ function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$Stt
       stt_exit_code = $sttProbe.exit_code
       tts_elapsed_ms = $ttsProbe.elapsed_ms
       stt_elapsed_ms = $sttProbe.elapsed_ms
-      transcript = if ($recognized) { $transcript } else { "" }
+      transcript = $transcript
       tts_warning = $ttsWarning
       stt_warning = $sttWarning
       tts_error = ""
@@ -388,6 +392,11 @@ $speechProbe = [pscustomobject]@{
   stt_error = "Speech assets are incomplete"
   error = "Speech assets are incomplete"
 }
+if ($SkipSpeechCertification) {
+  $speechProbe.tts_error = "Speech certification is queued for the background watchdog"
+  $speechProbe.stt_error = "Speech certification is queued for the background watchdog"
+  $speechProbe.error = "Speech certification is queued for the background watchdog"
+}
 
 if ($binariesReady -and $llmReady) {
   $llmHealthy = Test-RosieHttpHealth $baseUrl
@@ -462,11 +471,12 @@ if ($llmHealthy -and $llmReady) {
   }
 }
 
-if ($binariesReady -and $sttReady -and $ttsReady) {
+if (-not $SkipSpeechCertification -and $binariesReady -and $sttReady -and $ttsReady) {
   $speechProbe = Test-RosieSpeechFunction $asrExe $ttsExe $sttModelDir $ttsModelDir
 }
 
-$stackReady = $binariesReady -and $llmReady -and $llmHealthy -and $llmProbe.ready -and $speechProbe.ready
+$coreReady = $binariesReady -and $llmReady -and $llmHealthy -and $llmProbe.ready
+$stackReady = $coreReady -and $speechProbe.ready
 $status = [pscustomobject]@{
   ready = $stackReady
   generated_at = (Get-Date).ToString("o")
@@ -476,6 +486,7 @@ $status = [pscustomobject]@{
     llm_http_healthy = $llmHealthy
     llm_functionally_certified = $llmProbe.ready
     speech_functional = $speechProbe.ready
+    speech_certification_pending = [bool]($SkipSpeechCertification -and $coreReady)
   }
   components = [pscustomobject]@{
     binaries = [pscustomobject]@{
@@ -530,6 +541,9 @@ Write-RosieStatus $statusPath $status
 if ($stackReady) {
   "READY" | Out-File -FilePath $readyFlag -Encoding utf8
   Write-Host "ROSIE stack is healthy at $baseUrl."
+} elseif ($SkipSpeechCertification -and $coreReady) {
+  if (Test-Path $readyFlag) { Remove-Item $readyFlag -Force -ErrorAction SilentlyContinue }
+  Write-Host "ROSIE model service verified. Speech certification is queued for the background watchdog."
 } else {
   if (Test-Path $readyFlag) { Remove-Item $readyFlag -Force -ErrorAction SilentlyContinue }
   $ttsResult = if (-not $speechProbe.tts_tested) { "SKIPPED" } elseif ($speechProbe.tts_ready) { "PASS" } else { "FAIL" }

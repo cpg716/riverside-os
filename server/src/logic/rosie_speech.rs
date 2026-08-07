@@ -1012,6 +1012,9 @@ async fn transcribe_with_active_engine(wav_path: &Path) -> Result<String, String
                 &format!("--tokens={}", tokens.to_string_lossy()),
                 "--num-threads=2",
                 "--decoding-method=greedy_search",
+                "--sense-voice-language=en",
+                "--sense-voice-use-itn=1",
+                "--debug=0",
                 wav_path
                     .to_str()
                     .ok_or_else(|| "invalid wav path".to_string())?,
@@ -1049,7 +1052,7 @@ async fn transcribe_with_active_engine(wav_path: &Path) -> Result<String, String
             .arg("--provider")
             .arg(resolve_sherpa_provider())
             .arg("--language")
-            .arg("auto")
+            .arg("en")
             .arg("--use-itn")
             .output()
             .await

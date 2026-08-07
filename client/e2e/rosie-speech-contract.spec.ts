@@ -18,7 +18,7 @@ const windowsSpeechProbeSource = readFileSync(
   "utf8",
 );
 
-test("multilingual Kokoro starts as US English on every Riverside speech path", () => {
+test("ROSIE uses the English speech profile on every Riverside speech path", () => {
   for (const source of [
     serverSpeechSource,
     tauriSpeechSource,
@@ -30,8 +30,19 @@ test("multilingual Kokoro starts as US English on every Riverside speech path", 
     expect(source).toContain("if valid_wav_artifact(temp_wav)");
     expect(source).toContain("let transcript = parse_sherpa_onnx_offline_output");
   }
+  for (const source of [
+    serverSpeechSource,
+    tauriSpeechSource,
+    windowsSpeechProbeSource,
+  ]) {
+    expect(source).toContain("--sense-voice-language=en");
+    expect(source).toContain("--sense-voice-use-itn=1");
+  }
   expect(windowsSpeechProbeSource).toContain(
-    '"`"Riverside Rosie health check`""',
+    '"`"Voice recognition is working correctly`""',
+  );
+  expect(windowsSpeechProbeSource).not.toContain(
+    "Riverside Rosie health check",
   );
   expect(windowsSpeechProbeSource).toContain("$process.WaitForExit()");
   expect(windowsSpeechProbeSource).toContain(

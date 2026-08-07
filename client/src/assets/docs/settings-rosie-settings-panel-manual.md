@@ -101,6 +101,8 @@ Voice controls only appear when the workstation supports the approved SenseVoice
 
 The current Kokoro voice choices are **ROSIE Maple (US English)**, **ROSIE Sol (US English)**, and **ROSIE Vale (British English)**. Older saved voice selections are moved to the current US-English default automatically so the upgraded Kokoro model cannot select one of its Chinese speaker IDs by mistake.
 
+SenseVoice transcription is fixed to English and returns normalized English text. A normal Main Hub update verifies ROSIE's pinned files and Gemma service without printing a speech loopback transcript in the updater window. After Riverside reports server readiness, the hidden ROSIE watchdog certifies speech in the background and records any problem in ROSIE status for support.
+
 Production installations use the approved Help, staff, and ROSIE policy sources embedded in the installed release. The intelligence-pack **Refresh** and **Refresh + Reindex** controls are disabled when the deployment build tools or optional Meilisearch service are not installed; this does not disable ROSIE's bundled local knowledge search.
 
 The selected chat provider is configured on the Riverside server. The panel shows Local Gemma or an approved private Remote LM Studio host. SenseVoice speech-to-text and Kokoro speech output remain local on the Main Hub.

@@ -672,6 +672,8 @@ for (const copy of [
   "Get-PreservedRosieEnvironment $envPath",
   "Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment",
   "ROSIE scheduled task preserved without restart or re-registration.",
+  "-FullCertification -SkipSpeechCertification",
+  "ROSIE speech certification started in the background.",
   "The Riverside OS update will continue while ROSIE reports degraded status and the watchdog retries.",
   "Deferring cleanup of superseded certified ROSIE asset until the Main Hub update is fully ready",
   "Removing superseded certified ROSIE asset after successful Main Hub update",
@@ -690,10 +692,13 @@ for (const copy of [
   'ROSIE certification details: HTTP healthy=$llmHealthy; LLM functional=$($llmProbe.ready); TTS=$ttsResult; STT=$sttResult.',
   'ROSIE LLM detail: $($llmProbe.error)',
   'ROSIE speech detail: $($speechProbe.error)',
-  '"`"Riverside Rosie health check`""',
+  '"`"Voice recognition is working correctly`""',
   '"--sid=0"',
   "function Test-RosieHealthTranscript",
-  "(rosie|rosy|rose|roy)",
+  "voice\\s+recognition\\s+is\\s+working\\s+correctly",
+  '"--sense-voice-language=en"',
+  '"--sense-voice-use-itn=1"',
+  "speech_certification_pending",
   '$process.WaitForExit()',
   'function Test-WavFixture([string]$Path)',
   '$wavReady = Test-WavFixture $probeWav',
@@ -725,6 +730,11 @@ assertNotIncludes(
 );
 assertNotIncludes(
   "deployment/windows/watch-rosie-stack.ps1",
+  "Riverside Rosie health check",
+  "speech certification must measure English recognition without depending on brand-name pronunciation",
+);
+assertNotIncludes(
+  "deployment/windows/watch-rosie-stack.ps1",
   "$wavReady = $ttsProbe.success -and",
   "a structurally valid generated WAV is the authoritative TTS functional result",
 );
@@ -741,6 +751,26 @@ for (const [path, copy] of [
     "ROSIE must restrict Kokoro v1.1-zh to its English speaker IDs",
   );
 }
+for (const path of [
+  "client/src-tauri/src/rosie_voice.rs",
+  "server/src/logic/rosie_speech.rs",
+]) {
+  assertIncludes(
+    path,
+    '"--sense-voice-language=en"',
+    "production SenseVoice transcription must use the store's English language profile",
+  );
+  assertIncludes(
+    path,
+    '"--sense-voice-use-itn=1"',
+    "production SenseVoice transcription must return normalized English text",
+  );
+}
+assertIncludes(
+  "scripts/verify_rosie_local_stack.sh",
+  "--language en",
+  "manual ROSIE verification must use the same English transcription profile as production",
+);
 assertNotIncludes(
   "deployment/windows/watch-rosie-stack.ps1",
   "$recognized = $sttProbe.success -and",

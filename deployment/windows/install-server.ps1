@@ -2387,6 +2387,7 @@ $envPath = Join-Path $serverDir ".env"
 $rosieModelPath = $null
 $preservedRosieEnvironment = $null
 $supersededRosieAssets = @()
+$rosieWatchdogTask = ""
 $previousRosieEnvironment = Get-PreservedRosieEnvironment $envPath
 if ($PreserveExistingRosie) {
   $preservedRosieEnvironment = $previousRosieEnvironment
@@ -2488,7 +2489,7 @@ if ($PreserveExistingRosie) {
     Register-ScheduledTask -TaskName $rosieWatchdogTask -Action $rosieWatchdogAction -Trigger @($rosieWatchdogStartup, $rosieWatchdogRepeat) -Principal $rosieWatchdogPrincipal -Settings $rosieWatchdogSettings | Out-Null
     if (-not $NoStart) {
       $rosieCandidateCertified = $true
-      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $rosieWatchdogDest -InstallRoot $installRoot -FullCertification
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $rosieWatchdogDest -InstallRoot $installRoot -FullCertification -SkipSpeechCertification
       if ($LASTEXITCODE -ne 0) {
         $rosieCandidateCertified = $false
         if ($previousRosieEnvironment.Count -gt 0) {
@@ -2529,6 +2530,10 @@ if (-not $NoStart) {
   $localUrl = "http://127.0.0.1:$serverPort"
   Wait-RiversideApiReady $localUrl $serverPort
   Write-Host "Riverside OS server API responded at $localUrl"
+  if (-not [string]::IsNullOrWhiteSpace($rosieWatchdogTask)) {
+    Start-ScheduledTask -TaskName $rosieWatchdogTask
+    Write-Host "ROSIE speech certification started in the background."
+  }
 }
 
 $summary = "Riverside OS Server install complete.`n" +
