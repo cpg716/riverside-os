@@ -19,6 +19,7 @@ import { requestRosieSearchIntent, type RosieSearchShortcutId } from "../../lib/
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBodyScrollLock } from "../../hooks/useBodyScrollLock";
 import type { SidebarTabId } from "./sidebarSections";
+import { compareVariationText } from "../../lib/variantSort";
 
 function cn(...inputs: Array<string | false | null | undefined>) {
   return twMerge(clsx(inputs));
@@ -423,6 +424,10 @@ function groupProductRows(
     if (!group.matchedSkus.includes(r.sku)) {
       group.matchedSkus.push(r.sku);
     }
+  }
+  for (const group of out) {
+    group.variationLabels.sort(compareVariationText);
+    group.matchedSkus.sort(compareVariationText);
   }
   return out.slice(0, maxProducts);
 }

@@ -7,7 +7,10 @@ import {
   variantSelectionChoiceLabel,
 } from "../src/components/pos/variantSelectionLogic";
 import type { VariantOption } from "../src/components/pos/VariantSelectionModal";
-import { sortVariantsByVariation } from "../src/lib/variantSort";
+import {
+  compareVariationText,
+  sortVariantsByVariation,
+} from "../src/lib/variantSort";
 
 function repoFile(relativePath: string): string {
   return readFileSync(
@@ -89,6 +92,51 @@ test("combined variation labels sort numeric sizes numerically within each style
   ]);
 });
 
+test("apparel size aliases and display ranges follow merchandise order", () => {
+  const labels = [
+    "2XL (52-54)",
+    "X-LARGE (48-50)",
+    "LG (44-46)",
+    "MED (40-42)",
+    "SMALL (36-38)",
+  ];
+
+  expect([...labels].sort(compareVariationText)).toEqual([
+    "SMALL (36-38)",
+    "MED (40-42)",
+    "LG (44-46)",
+    "X-LARGE (48-50)",
+    "2XL (52-54)",
+  ]);
+});
+
+test("slash and hyphen variation number separators share one natural order", () => {
+  const labels = [
+    "M20001/10",
+    "M20001-2",
+    "M20001/1",
+    "M20001-1",
+    "M20001/2",
+  ];
+
+  expect(compareVariationText("M20001/1", "M20001-1")).toBe(0);
+  expect([...labels].sort(compareVariationText)).toEqual([
+    "M20001/1",
+    "M20001-1",
+    "M20001-2",
+    "M20001/2",
+    "M20001/10",
+  ]);
+});
+
+test("ordinary variation text remains alphabetical", () => {
+  expect(["NAVY", "Black", "ATLANTIC BLUE"].sort(compareVariationText)).toEqual([
+    "ATLANTIC BLUE",
+    "Black",
+    "NAVY",
+  ]);
+});
+
 test("shorter variation paths expose an explicit Standard choice", () => {
   const model = buildVariantSelectionModel([
     variant("v1", "MODEL-STD", "MODEL"),
@@ -160,8 +208,30 @@ test("shared variation drawer keeps item progress visible and supports back/edit
   expect(pinpadMarkup).toContain('className="shrink-0');
   expect(pinpadMarkup).not.toContain("overflow-y-auto");
   expect(picker).toContain("!isCurrentVariant || hasPriceChange");
+  expect(picker).toContain("result.sort(compareVariationText)");
+  expect(picker).not.toContain("SIZE_ORDER");
   expect(cart).toContain("<VariantSelectionModal");
   expect(orderModal).toContain("<VariantSelectionModal");
+});
+
+test("variation presentation surfaces use the shared natural ordering", () => {
+  const surfaces = new Map([
+    ["client/src/hooks/usePosSearch.ts", "sortVariantsByVariation"],
+    ["client/src/components/pos/variantSelectionLogic.ts", "sortVariantsByVariation"],
+    ["client/src/components/pos/ProcurementHub.tsx", "sortVariantsByVariation"],
+    ["client/src/components/inventory/ProductHubDrawer.tsx", "sortVariantsByVariation"],
+    ["client/src/components/inventory/VariationsWorkspace.tsx", "compareVariationText"],
+    ["client/src/components/inventory/VariationsList.tsx", "sortVariantsByVariation"],
+    ["client/src/components/inventory/InventoryControlBoard.tsx", "sortVariantsByVariation"],
+    ["client/src/components/inventory/ProductMasterForm.tsx", "sortVariantsByVariation"],
+    ["client/src/components/layout/GlobalCommandSearch.tsx", "compareVariationText"],
+    ["client/src/components/online-store/OnlineStoreProductsPanel.tsx", "compareVariationText"],
+    ["client/src/components/storefront/PublicStorefront.tsx", "compareVariationText"],
+  ]);
+
+  for (const [surface, helper] of surfaces) {
+    expect(repoFile(surface), `${surface} should use ${helper}`).toContain(helper);
+  }
 });
 
 test("Update Item changes only the variant and verifies retained customer price", () => {

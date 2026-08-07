@@ -8,6 +8,7 @@ import {
   finishPosJourneyTimingAfterPaint,
   startPosJourneyTiming,
 } from "../lib/posJourneyTelemetry";
+import { sortVariantsByVariation } from "../lib/variantSort";
 
 const POS_SEARCH_TIMEOUT_MS = 5_000;
 const POS_SEARCH_DEBOUNCE_MS = 250;
@@ -412,7 +413,9 @@ export function usePosSearch({
       if (!groups[r.product_id]) groups[r.product_id] = [];
       groups[r.product_id].push(r);
     });
-    return Object.values(groups).sort((a, b) => {
+    return Object.values(groups).map((group) =>
+      sortVariantsByVariation(group),
+    ).sort((a, b) => {
       const q = search.trim().toLowerCase();
       const aExact = a.some((v) => String(v.sku ?? "").toLowerCase() === q);
       const bExact = b.some((v) => String(v.sku ?? "").toLowerCase() === q);

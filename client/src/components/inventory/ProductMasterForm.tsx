@@ -9,6 +9,10 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import {
+  compareVariationText,
+  sortVariantsByVariation,
+} from "../../lib/variantSort";
 import ProductImageGenerator from "./ProductImageGenerator";
 import {
   Plus,
@@ -561,7 +565,10 @@ export default function ProductMasterForm({
           if (typeof raw === "string" && raw.trim()) options.add(raw.trim());
           if (typeof raw === "number") options.add(String(raw));
         }
-        return { name: axis, optionsRaw: [...options].join(", ") };
+        return {
+          name: axis,
+          optionsRaw: [...options].sort(compareVariationText).join(", "),
+        };
       });
       setVariationTemplate(template.length ? template : [{ name: "", optionsRaw: "" }]);
       setVariationTemplateVersion((v) => v + 1);
@@ -943,7 +950,7 @@ export default function ProductMasterForm({
             skuStart={rosSkuStart}
             onBeforeGenerate={fetchNextRosSkuStart}
             onGenerated={(generated, axisNames) => {
-              setRows(generated);
+              setRows(sortVariantsByVariation(generated, axisNames));
               setAxes(axisNames);
               if (generated.length > 0) {
                 setStep(publishVariantsToWeb ? "web" : "review");

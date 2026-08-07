@@ -12,6 +12,7 @@ import {
 import { parseMoney, formatMoney } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { sortVariantsByVariation } from "../../lib/variantSort";
 
 interface BoardRow {
   variant_id: string;
@@ -29,7 +30,7 @@ interface Variant {
   id: string;
   sku: string;
   vendor_sku?: string;
-  name: string;
+  variation_label: string;
   qty_on_hand: number;
   qty_on_order: number;
   retail_price: string;
@@ -49,41 +50,8 @@ interface ProcurementHubProps {
 
 const PAGE_SIZE = 120;
 
-/** Match register variant modal ordering — sizes before colors / other labels. */
-const SIZE_ORDER: Record<string, number> = {
-  OS: 0,
-  ONESIZE: 0,
-  "ONE SIZE": 0,
-  XXS: 5,
-  XS: 10,
-  S: 20,
-  SMALL: 20,
-  M: 30,
-  MEDIUM: 30,
-  L: 40,
-  LARGE: 40,
-  XL: 50,
-  XXL: 60,
-  "2XL": 60,
-  "3XL": 70,
-  "4XL": 80,
-  "5XL": 90,
-};
-
-function variantSortScore(label: string): number {
-  const upper = label.toUpperCase().trim();
-  if (SIZE_ORDER[upper] !== undefined) return SIZE_ORDER[upper]!;
-  const numericMatch = label.match(/^(\d+(\.\d+)?)/);
-  if (numericMatch) return 1000 + parseFloat(numericMatch[1]!);
-  return 5000;
-}
-
 function sortVariantsForPicker(variants: Variant[]): Variant[] {
-  return [...variants].sort((a, b) => {
-    const d = variantSortScore(a.name) - variantSortScore(b.name);
-    if (d !== 0) return d;
-    return a.name.localeCompare(b.name);
-  });
+  return sortVariantsByVariation(variants);
 }
 
 function summarizeProduct(p: Product): {
@@ -121,7 +89,7 @@ function boardRowsToProducts(rows: BoardRow[]): Product[] {
       variants: variants.map((r) => ({
         id: r.variant_id,
         sku: r.sku,
-        name: r.variation_label?.trim()
+        variation_label: r.variation_label?.trim()
           ? r.variation_label
           : r.product_name,
         qty_on_hand: r.stock_on_hand,
@@ -422,7 +390,7 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                     <div className="min-w-0 flex-1">
                       <p className="text-base font-black text-app-text">
-                        {v.name}
+                        {v.variation_label}
                       </p>
                       <p className="mt-1 font-mono text-xs text-app-text-muted">
                         {v.sku}

@@ -6,6 +6,7 @@ import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useToast } from "../ui/ToastProviderLogic";
 import { openExternalUrl } from "../../lib/desktopFileBridge";
+import { compareVariationText } from "../../lib/variantSort";
 
 type MerchFilter = "all" | "on-web" | "draft" | "needs-setup" | "zero-stock";
 
@@ -83,7 +84,12 @@ function groupProducts(rows: BoardRow[]): MerchProduct[] {
       variants: [...variants].sort((a, b) => {
         const ao = a.web_gallery_order ?? 0;
         const bo = b.web_gallery_order ?? 0;
-        return ao === bo ? a.sku.localeCompare(b.sku) : ao - bo;
+        if (ao !== bo) return ao - bo;
+        const labelComparison = compareVariationText(
+          a.variation_label ?? a.sku,
+          b.variation_label ?? b.sku,
+        );
+        return labelComparison || compareVariationText(a.sku, b.sku);
       }),
       web_published_count: variants.filter((row) => row.web_published).length,
       available_stock_total: available,

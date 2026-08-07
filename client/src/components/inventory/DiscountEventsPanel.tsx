@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { printPlainTextReport } from "../../lib/reportPrint";
+import { compareVariationText } from "../../lib/variantSort";
 import VariantSearchInput, {
   VariantSearchResult,
 } from "../ui/VariantSearchInput";
@@ -240,6 +241,17 @@ export default function DiscountEventsPanel() {
   const [performanceBusy, setPerformanceBusy] = useState(false);
 
   const selected = useMemo(() => rows.find((row) => row.id === sel) ?? null, [rows, sel]);
+  const orderedVars = useMemo(
+    () => [...vars].sort((a, b) => {
+      const productComparison = a.product_name.localeCompare(
+        b.product_name,
+        undefined,
+        { numeric: true, sensitivity: "base" },
+      );
+      return productComparison || compareVariationText(a.sku, b.sku);
+    }),
+    [vars],
+  );
   const performanceEvent = useMemo(
     () => rows.find((row) => row.id === performanceEventId) ?? null,
     [rows, performanceEventId],
@@ -1043,7 +1055,7 @@ export default function DiscountEventsPanel() {
                         placeholder="Search item name or SKU..."
                       />
                       <div className="max-h-56 space-y-2 overflow-y-auto no-scrollbar">
-                        {vars.map((v) => (
+                        {orderedVars.map((v) => (
                           <div key={v.variant_id} className="flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface px-3 py-2">
                             <div>
                               <div className="text-xs font-black text-app-text">{v.product_name}</div>

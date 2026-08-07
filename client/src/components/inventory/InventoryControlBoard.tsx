@@ -41,6 +41,7 @@ import {
   parseMoneyToCents,
 } from "../../lib/money";
 import { isCustomOrderSku } from "../../lib/customOrders";
+import { sortVariantsByVariation } from "../../lib/variantSort";
 
 const HIGH_VALUE_MIN_USD = 500;
 
@@ -757,6 +758,7 @@ export default function InventoryControlBoard({
     }
     return [...byProduct.values()].map((variants) => {
       const first = variants[0]!;
+      const orderedVariants = sortVariantsByVariation(variants);
       let stock = 0;
       let rMinC = Number.POSITIVE_INFINITY;
       let rMaxC = Number.NEGATIVE_INFINITY;
@@ -806,7 +808,7 @@ export default function InventoryControlBoard({
         variant_count: Math.max(first.total_variant_count ?? variants.length, variants.length),
         loaded_variant_count: variants.length,
         unlabeled_count: unlabeled,
-        variant_rows: variants,
+        variant_rows: orderedVariants,
         available_stock_total: availSum,
         web_published_count: webPub,
         hidden_variant_count: hiddenCount,

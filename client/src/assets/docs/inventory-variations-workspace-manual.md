@@ -42,7 +42,7 @@ Use this workspace when you need to:
 
 1. Open the **Variations** tab inside Product Hub.
 2. Switch between grid and list view depending on whether matrix layout or row-level detail is easier for the task.
-   - Riverside groups like variation axes and sorts common apparel sizes in working order (for example XS, S, M, L, XL), with numeric values sorted naturally.
+   - Riverside groups like variation axes and sorts common apparel sizes in working order (for example XS, SMALL/S, MED/M, LG/L, XL, 2XL), with numeric values sorted naturally and ordinary text alphabetically. Slash and hyphen suffix separators share one natural ordering pattern without merging distinct SKUs.
 3. If you only need some variations, select those rows first.
 4. Use `Print selected tags` when you have an active selection, or `Print all tags` when you want the full variation set.
 5. Use `Product UPC` for the manufacturer barcode that should scan at POS or receiving.

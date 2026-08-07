@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { List, RowComponentProps } from "react-window";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
+import { sortVariantsByVariation } from "../../lib/variantSort";
 import type { HubVariant } from "./VariationsWorkspace";
 
 type VariantPatch =
@@ -218,21 +219,27 @@ export const VariationsList: React.FC<VariationsListProps> = ({
         v.sku.toLowerCase().includes(needle) ||
         (v.variation_label || "").toLowerCase().includes(needle),
     );
+    const naturallyOrdered = sortVariantsByVariation(result);
 
+    if (sortField === "sku") {
+      return sortDir === "asc" ? naturallyOrdered : naturallyOrdered.reverse();
+    }
+
+    const naturalIndex = new Map(
+      naturallyOrdered.map((variant, index) => [variant.id, index]),
+    );
     result.sort((a, b) => {
       const mod = sortDir === "asc" ? 1 : -1;
-
-      if (sortField === "sku") {
-        return a.sku.localeCompare(b.sku) * mod;
-      }
-
       if (sortField === "stock_on_hand") {
-        return (a.stock_on_hand - b.stock_on_hand) * mod;
+        const comparison = (a.stock_on_hand - b.stock_on_hand) * mod;
+        if (comparison !== 0) return comparison;
+      } else {
+        const priceA = parseMoneyToCents(a.effective_retail);
+        const priceB = parseMoneyToCents(b.effective_retail);
+        const comparison = (priceA - priceB) * mod;
+        if (comparison !== 0) return comparison;
       }
-
-      const priceA = parseMoneyToCents(a.effective_retail);
-      const priceB = parseMoneyToCents(b.effective_retail);
-      return (priceA - priceB) * mod;
+      return (naturalIndex.get(a.id) ?? 0) - (naturalIndex.get(b.id) ?? 0);
     });
 
     return result;

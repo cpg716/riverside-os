@@ -192,6 +192,8 @@ Open **Product Hub** from **Find Item**. The **SKUs & Stock** tab supports three
 
 All views should represent the same filtered SKUs. Used Counterpoint SKUs, new ROS SKUs, Product UPCs, and supplier catalog/style identifiers must remain searchable, editable, sellable, and usable in receiving and order workflows.
 
+Variation rows use the same order as Register: ordinary text alphabetically, numbers numerically, and apparel aliases from smaller to larger sizes. Suffix separators such as `/2` and `-2` are treated as equivalent for ordering so both appear before suffix `10`; the SKU records remain separate.
+
 ## Inventory Reports
 
 Use **Reports** for store-wide inventory proof that is larger than one Product Hub record:

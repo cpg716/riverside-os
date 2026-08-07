@@ -1,31 +1,63 @@
 interface VariationSortable {
   sku: string;
   variation_label?: string | null;
-  variation_values: Record<string, unknown>;
+  variation_values?: Record<string, unknown>;
 }
 
 const APPAREL_SIZE_ORDER = new Map<string, number>([
-  ["XXXS", 0],
-  ["3XS", 0],
-  ["XXS", 1],
-  ["2XS", 1],
-  ["XS", 2],
-  ["S", 3],
-  ["SM", 3],
-  ["M", 4],
-  ["MD", 4],
-  ["L", 5],
-  ["LG", 5],
-  ["XL", 6],
-  ["1XL", 6],
-  ["XXL", 7],
-  ["2XL", 7],
-  ["XXXL", 8],
-  ["3XL", 8],
-  ["4XL", 9],
-  ["5XL", 10],
-  ["6XL", 11],
+  ["OS", 0],
+  ["ONESIZE", 0],
+  ["XXXS", 1],
+  ["3XS", 1],
+  ["XXS", 2],
+  ["2XS", 2],
+  ["XS", 3],
+  ["XSMALL", 3],
+  ["EXTRASMALL", 3],
+  ["S", 4],
+  ["SM", 4],
+  ["SML", 4],
+  ["SMALL", 4],
+  ["M", 5],
+  ["MD", 5],
+  ["MED", 5],
+  ["MEDIUM", 5],
+  ["L", 6],
+  ["LG", 6],
+  ["LRG", 6],
+  ["LARGE", 6],
+  ["XL", 7],
+  ["1XL", 7],
+  ["XLARGE", 7],
+  ["EXTRALARGE", 7],
+  ["XXL", 8],
+  ["2XL", 8],
+  ["2XLARGE", 8],
+  ["XXXL", 9],
+  ["3XL", 9],
+  ["3XLARGE", 9],
+  ["4XL", 10],
+  ["4XLARGE", 10],
+  ["5XL", 11],
+  ["5XLARGE", 11],
+  ["6XL", 12],
+  ["6XLARGE", 12],
 ]);
+
+function apparelSizeRank(value: string): number | undefined {
+  const key = value
+    .trim()
+    .toUpperCase()
+    .replace(/\s*\([^)]*\)\s*$/, "")
+    .replace(/[\s._/-]+/g, "");
+  return APPAREL_SIZE_ORDER.get(key);
+}
+
+function normalizedNaturalText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/([\p{L}\p{N}])\s*[/-]\s*(?=[\p{L}\p{N}])/gu, "$1-");
+}
 
 function textValue(value: unknown): string {
   return typeof value === "string" || typeof value === "number"
@@ -36,17 +68,21 @@ function textValue(value: unknown): string {
 function compareVariationSegment(a: string, b: string): number {
   const aText = a.trim();
   const bText = b.trim();
-  const aRank = APPAREL_SIZE_ORDER.get(aText.toUpperCase());
-  const bRank = APPAREL_SIZE_ORDER.get(bText.toUpperCase());
+  const aRank = apparelSizeRank(aText);
+  const bRank = apparelSizeRank(bText);
   if (aRank !== undefined || bRank !== undefined) {
     if (aRank === undefined) return 1;
     if (bRank === undefined) return -1;
     if (aRank !== bRank) return aRank - bRank;
   }
-  return aText.localeCompare(bText, undefined, {
+  return normalizedNaturalText(aText).localeCompare(
+    normalizedNaturalText(bText),
+    undefined,
+    {
     numeric: true,
     sensitivity: "base",
-  });
+    },
+  );
 }
 
 export function compareVariationText(a: string, b: string): number {
@@ -74,7 +110,7 @@ export function sortVariantsByVariation<T extends VariationSortable>(
     if (normalized && !axes.includes(normalized)) axes.push(normalized);
   }
   for (const variant of variants) {
-    for (const axis of Object.keys(variant.variation_values).sort()) {
+    for (const axis of Object.keys(variant.variation_values ?? {}).sort()) {
       if (!axes.includes(axis)) axes.push(axis);
     }
   }
@@ -82,8 +118,8 @@ export function sortVariantsByVariation<T extends VariationSortable>(
   return [...variants].sort((a, b) => {
     for (const axis of axes) {
       const comparison = compareVariationText(
-        textValue(a.variation_values[axis]),
-        textValue(b.variation_values[axis]),
+        textValue(a.variation_values?.[axis]),
+        textValue(b.variation_values?.[axis]),
       );
       if (comparison !== 0) return comparison;
     }

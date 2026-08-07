@@ -15,7 +15,7 @@ POS **Inventory** is a **fast lookup**: **price**, **availability**, **SKU**, an
 The same tab implements **browse-and-add** to the cart:
 
 1. Type **at least two characters** in search; results debounce briefly.
-2. Tap a product: **one variant** adds to the cart immediately; **multiple variants** open a picker (sizes/options sorted for apparel).
+2. Tap a product: **one variant** adds to the cart immediately; **multiple variants** open a picker. Text options are alphabetical, number-based sizes are numeric, and apparel aliases follow merchandise order such as **SMALL**, **MED**, **LG**, **XL**, and **2XL**.
 3. Tap **Add to sale** (emerald) on the correct variant.
 4. ROS returns you to Register and adds the SKU to the active sale.
 5. Use **Load more products** for the next page — the list is paged, not all-at-once.

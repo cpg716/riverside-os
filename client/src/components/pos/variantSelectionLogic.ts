@@ -1,4 +1,5 @@
 import type { VariantOption } from "./VariantSelectionModal";
+import { sortVariantsByVariation } from "../../lib/variantSort";
 
 const STANDARD_OPTION = "\u0000standard";
 
@@ -13,7 +14,8 @@ export function buildVariantSelectionModel(variants: VariantOption[]): {
   steps: string[];
   entries: Array<{ variant: VariantOption; path: string[] }>;
 } {
-  const rawPaths = variants.map((variant) =>
+  const orderedVariants = sortVariantsByVariation(variants);
+  const rawPaths = orderedVariants.map((variant) =>
     parseVariantAttributes(variant.variation_label),
   );
   const maxDepth = Math.max(1, ...rawPaths.map((path) => path.length));
@@ -33,7 +35,7 @@ export function buildVariantSelectionModel(variants: VariantOption[]): {
       ...Array.from({ length: maxDepth }, (_, index) => `Option ${index + 1}`),
       ...(needsSkuChoice ? ["SKU"] : []),
     ],
-    entries: variants.map((variant, index) => ({
+    entries: orderedVariants.map((variant, index) => ({
       variant,
       path: needsSkuChoice
         ? [...normalizedPaths[index], `SKU ${variant.sku}`]

@@ -14,6 +14,7 @@ import {
   initialVariantSelectionPath,
   variantSelectionChoiceLabel,
 } from "./variantSelectionLogic";
+import { compareVariationText } from "../../lib/variantSort";
 
 export interface VariantOption {
   variant_id: string;
@@ -39,24 +40,6 @@ export interface VariantSelectionModalProps {
   initialVariantId?: string;
   preservedUnitPrice?: string;
   layerClassName?: string;
-}
-
-// --- Logical Size Sorting Utility ---
-const SIZE_ORDER: Record<string, number> = {
-  "OS": 0, "ONESIZE": 0, "ONE SIZE": 0,
-  "XXS": 5, "XS": 10, "S": 20, "SMALL": 20, "M": 30, "MEDIUM": 30, "L": 40, "LARGE": 40,
-  "XL": 50, "XXL": 60, "2XL": 60, "3XL": 70, "4XL": 80, "5XL": 90
-};
-
-function getSortScore(val: string): number {
-  const upper = val.toUpperCase().trim();
-  if (SIZE_ORDER[upper] !== undefined) return SIZE_ORDER[upper];
-
-  // Try to parse numeric size (e.g. "34", "36R", "10.5")
-  const numericMatch = val.match(/^(\d+(\.\d+)?)/);
-  if (numericMatch) return 1000 + parseFloat(numericMatch[1]);
-
-  return 5000; // Fallback for colors/other attributes
 }
 
 export default function VariantSelectionModal({
@@ -123,13 +106,7 @@ export default function VariantSelectionModal({
       }
     });
 
-    // Proper Size Ordering
-    return result.sort((a, b) => {
-      const scoreA = getSortScore(a);
-      const scoreB = getSortScore(b);
-      if (scoreA !== scoreB) return scoreA - scoreB;
-      return a.localeCompare(b);
-    });
+    return result.sort(compareVariationText);
   }, [product, matchingEntries, currentStepIndex, isSelectionComplete]);
 
   const finalVariant =

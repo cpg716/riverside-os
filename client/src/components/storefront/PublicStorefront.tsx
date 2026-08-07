@@ -25,6 +25,7 @@ import { Input } from "@/components/ui-shadcn/input";
 import { Label } from "@/components/ui-shadcn/label";
 import { Separator } from "@/components/ui-shadcn/separator";
 import { Skeleton } from "@/components/ui-shadcn/skeleton";
+import { compareVariationText } from "../../lib/variantSort";
 
 const API_BASE = getBaseUrl();
 
@@ -97,6 +98,7 @@ interface StoreVariant {
   sku: string;
   variation_label: string | null;
   variation_values?: Record<string, unknown>;
+  web_gallery_order?: number;
   available_stock: number;
   unit_price: string;
 }
@@ -307,7 +309,20 @@ function optionsForAxis(
     const val = vv[axis];
     if (val) s.add(val);
   }
-  return [...s].sort();
+  return [...s].sort(compareVariationText);
+}
+
+function sortStoreVariantsForDisplay(variants: StoreVariant[]): StoreVariant[] {
+  return [...variants].sort((a, b) => {
+    const galleryComparison =
+      (a.web_gallery_order ?? 0) - (b.web_gallery_order ?? 0);
+    if (galleryComparison !== 0) return galleryComparison;
+    const labelComparison = compareVariationText(
+      a.variation_label ?? a.sku,
+      b.variation_label ?? b.sku,
+    );
+    return labelComparison || compareVariationText(a.sku, b.sku);
+  });
 }
 
 function axisValueInStock(
@@ -2113,6 +2128,10 @@ function ProductDetail({
       ),
     ).sort();
   }, [data]);
+  const orderedVariants = useMemo(
+    () => sortStoreVariantsForDisplay(data?.variants ?? []),
+    [data],
+  );
 
   useEffect(() => {
     if (!data) return;
@@ -2245,7 +2264,7 @@ function ProductDetail({
           </div>
         ) : (
           <div className="mt-2 flex flex-wrap gap-2">
-            {data.variants.map((v) => (
+            {orderedVariants.map((v) => (
               <button
                 key={v.variant_id}
                 type="button"
