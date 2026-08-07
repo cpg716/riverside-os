@@ -19,7 +19,6 @@ The `integration_credentials` table stores **all** third-party integration secre
 - **NuORDER** — consumer key, consumer secret, user token, user secret
 - **Constant Contact** — client ID, client secret, access/refresh tokens
 - **Backups (S3 / Cloud)** — access key, secret key, access/refresh tokens
-- **Insights / Metabase** — admin & staff email/password, JWT secret
 - **Online Store** — customer JWT signing secret, GrapesJS Studio license key
 - **Remote Access / Cloudflare** — public callback host, tunnel ID/token, credentials JSON, API token, account/zone IDs
 - **ROS Dev Center / GitHub** — repository identifier and GitHub Actions/API token

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-07T01:43:39.387Z",
+  "generated_at": "2026-08-07T04:19:15.701Z",
   "standard_version": "help-manual-standard-v3",
   "published_manual_count": 73,
   "draft_manual_count": 0,
@@ -8,7 +8,17 @@
     "approved_dedicated_unique_target": 3,
     "major_workflow_unique_target": 4
   },
-  "screenshot_backlog": [],
+  "screenshot_backlog": [
+    {
+      "id": "insights",
+      "title": "Insights — conversational reporting",
+      "source_path": "client/src/assets/docs/insights-manual.md",
+      "dedicated_unique_local": 2,
+      "unique_local": 2,
+      "priority": "low",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    }
+  ],
   "manuals": [
     {
       "id": "getting-started",
@@ -212,26 +222,24 @@
     },
     {
       "id": "insights",
-      "title": "Insights (Metabase)",
+      "title": "Insights — conversational reporting",
       "status": "approved",
       "source_path": "client/src/assets/docs/insights-manual.md",
       "screenshots": {
-        "local_refs": 3,
-        "unique_local": 3,
-        "content_unique_local": 3,
-        "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 3,
+        "local_refs": 2,
+        "unique_local": 2,
+        "content_unique_local": 2,
+        "dedicated_unique_local": 2,
+        "manual_folder_unique_local": 2,
         "reused_unique_local": 0,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/insights/workflow-1.png",
           "client/src/assets/images/help/insights/workflow-2.png",
           "client/src/assets/images/help/insights/workflow-3.png"
         ],
         "manual_folder_paths": [
-          "client/src/assets/images/help/insights/workflow-1.png",
           "client/src/assets/images/help/insights/workflow-2.png",
           "client/src/assets/images/help/insights/workflow-3.png"
         ],
@@ -271,10 +279,12 @@
           "present": true
         }
       ],
-      "numbered_steps": 20,
+      "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/insights/; target 3-4."
+      ]
     },
     {
       "id": "wedding-manager",

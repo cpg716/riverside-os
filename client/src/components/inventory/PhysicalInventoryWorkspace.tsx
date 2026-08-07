@@ -1135,7 +1135,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
 
         {reportSessionId && workspaceReport ? (
           <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 text-[11px] font-semibold text-app-text-muted">
-            These report rows are supplied by the Physical Inventory API and can be used as a Metabase source without adding them to the global Reports workspace.
+            These report rows are supplied by the Physical Inventory API and stay in this operational workspace rather than the global Reports catalog.
           </div>
         ) : null}
       </div>

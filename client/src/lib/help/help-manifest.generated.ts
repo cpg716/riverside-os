@@ -93,16 +93,16 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "reports",
     title: "Reports (curated)",
-    summary: "Back Office Reports library: categorized searchable report tiles, booked vs completed basis, CSV, Admin-only margin; vs Insights (Metabase).",
+    summary: "Back Office Reports library: categorized searchable report tiles, booked vs completed basis, CSV, Admin-only margin, and native conversational Insights.",
     markdown: manual_2_raw,
     tags: ["reports","analytics","insights","pivot","margin","rbac","search","categories"],
   },
   {
     id: "insights",
-    title: "Insights (Metabase)",
-    summary: "Metabase analytics in-app, Metabase login, Staff commission reports, permissions. For the curated Reports library, open the Reports (curated) manual in Help.",
+    title: "Insights — conversational reporting",
+    summary: "Ask ROSIE for governed reports, refine them in plain language, export or print every result, and reuse favorites and report history.",
     markdown: manual_3_raw,
-    tags: ["insights","metabase","reports","analytics","commission"],
+    tags: ["insights","rosie","cube","reports","analytics","favorites","history","export","print"],
   },
   {
     id: "wedding-manager",

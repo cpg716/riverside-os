@@ -234,7 +234,7 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 | QBO | **`qbo-staging.spec.ts`**, **`qbo-audit-contract.spec.ts`**, visual baseline | Live sync, production mappings |
 | Payments Operations | **`api-gates.spec.ts`**, **`payments-operations-contract.spec.ts`**, **`payments-operations-ui.spec.ts`**, Helcim Rust parser tests | Live Helcim smoke, browser smoke against production-like data, DB integration tests beyond Playwright seeds |
 | **Reports** (curated insights library) | **`reports-workspace.spec.ts`**, **`reports-mobile-cards.spec.ts`** | Extra report tiles, CSV export |
-| Insights / Metabase shell | **`pwa-responsive.spec.ts`**, **`intelligence-and-finance.spec.ts`** | iframe embed, Metabase auth |
+| Native Insights / Cube reporting | **`pwa-responsive.spec.ts`**, **`intelligence-and-finance.spec.ts`** | Ask/run, charts/tables, favorites/history, archive, CSV/print, Cube unavailable state |
 | Settings / backups / integrations | **`settings-mobile.spec.ts`**, **`settings-mobile-sections.spec.ts`**, **`settings-deeplink-contract.spec.ts`**, **`podium-settings.spec.ts`**, visual paths | Full backup flow, every integration card |
 | Scheduler | **`scheduler-mobile-ergonomics.spec.ts`**, **`alterations-smart-scheduler.spec.ts`** | Book/edit appointment breadth |
 | Alterations / gift cards / loyalty | **`alterations-register-lookup-mobile.spec.ts`**, **`alterations-safety.spec.ts`**, **`alterations-smart-scheduler.spec.ts`**, **`gift-card-redemption-contract.spec.ts`**, **`gift-cards-mobile-cards.spec.ts`**, **`loyalty-redemption-contract.spec.ts`**, **`loyalty-eligible-mobile.spec.ts`** | Additional edge cases for legacy data |

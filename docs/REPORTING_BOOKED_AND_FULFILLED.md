@@ -5,7 +5,7 @@ Riverside OS uses two time axes for revenue-style analytics:
 | Axis | Meaning | Typical use |
 |------|---------|-------------|
 | **Booked** | **`transactions.booked_at`** (sale / register day). Includes deposits on **open** transactions. | Register activity, “what we rang,” pipeline. |
-| **Fulfilled** | **Pickup / takeaway:** **`transaction_lines.fulfilled_at`**. **Ship:** first qualifying **`shipment_event`** on the order’s **`shipment`** — `label_purchased`, or staff patch to **in_transit** / **delivered** (message patterns match `server/src/logic/shipment.rs` updates). | Sales tax audit, commission **earned** windows, **fulfilled** sales pivots, Metabase “fulfilled revenue” cuts. |
+| **Fulfilled** | **Pickup / takeaway:** **`transaction_lines.fulfilled_at`**. **Ship:** first qualifying **`shipment_event`** on the order’s **`shipment`** — `label_purchased`, or staff patch to **in_transit** / **delivered** (message patterns match `server/src/logic/shipment.rs` updates). | Sales tax audit, commission **earned** windows, fulfilled sales pivots, native Insights **recognized revenue** reports. |
 
 **Single source in SQL:** `reporting.order_recognition_at(transaction_id, ...)` (baseline migration **106**, active migration layout in `migrations/001` / `007` / `019`). Server-side dynamic SQL must stay aligned with **`server/src/logic/report_basis.rs`** (`ORDER_RECOGNITION_TS_SQL`, `transaction_date_filter_sql`, `transaction_recognition_tax_filter_sql`).
 
@@ -23,7 +23,7 @@ Back Office -> Reports exposes these curated report tiles through staff-facing n
 - **`staff-performance`** — Optional **`basis`** for 7-day **revenue_momentum** (booked vs fulfilled).
 - **`loyalty-velocity`** — Time-series of loyalty points earned vs. burned (Earn vs Burn).
 
-## Metabase (`reporting` schema)
+## Native Insights and Cube (`reporting` schema)
 
 Current reporting schema:
 
@@ -44,14 +44,14 @@ That report is an audited paged response, ordered by activity time and stable ro
 
 Lane-scoped Register Day requests require the query's `register_session_id` to match a valid POS session secret. A staff caller without that matching secret must hold `register.reports`; an open session UUID by itself grants no report access.
 
-**`metabase_ro`:** `GRANT SELECT` on ALL TABLES IN SCHEMA reporting.
+**`cube_ro`:** reporting-schema-only login used by Cube Core. Migration 185 revokes **`public.*`** access, grants **`SELECT`** on **`reporting.*`**, and sets a 20-second statement timeout.
 
 ## Roadmap / gaps
 
 - Storefront “picked up” vs “shipped” customer-facing states and a dedicated **`transactions.shipped_at`** (or carrier webhook event) would simplify fulfillment recognition; today rely on **Shipments** hub events.
 - **`/api/insights/best-sellers`** and **`/dead-stock`** use the same **`basis`** query parameter as **`/api/insights/sales-pivot`** (**`booked`** → **`transactions.booked_at`**; **`fulfilled`** → fulfillment instant per **`transaction_date_filter_sql`** / **`reporting.order_recognition_at`**).
 - **`/api/insights/margin-pivot`** (**Admin only**) uses the same **`basis`** and **`group_by`** as **`sales-pivot`**; margin is pre-tax line revenue minus **`SUM(transaction_lines.unit_cost × quantity)`** (cost frozen at checkout).
-- **Metabase** (**`reporting.order_lines`**): same line-level **`unit_cost`**, **`line_extended_cost`**, **`line_gross_margin_pre_tax`**; filter by **`order_business_date`** (booked) or **`order_recognition_business_date`** (fulfilled) to match API **`basis`**.
+- **Native Insights** models separate **`booked_items`** and **`recognized_items`** Cube datasets over **`reporting.order_lines`**. Their cost and margin measures are enforced as Riverside Admin-only by the Rust semantic catalog.
 - Operational Reports catalog tiles for appointment no-shows, wedding readiness, schedule coverage, customer follow-up, and exception risk use dedicated read-only endpoints. They must not be used as a substitute for the booked vs fulfilled API contracts above.
 
 ## Related docs

@@ -1,6 +1,6 @@
 # Reports (curated library)
 
-**Audience:** Owners, managers, and staff who need **trusted daily numbers** without building Metabase questions.
+**Audience:** Owners, managers, and staff who need **trusted daily numbers** from the fixed report library.
 
 **Where in ROS:** Back Office → sidebar **Reports** (chart icon, labeled **BO**). This is **not** the POS rail **Reports** tab (lane register tools). Those are covered in **[pos-reports.md](pos-reports.md)** and **[operations-home.md](operations-home.md)** (Daily Sales under Operations).
 
@@ -12,13 +12,11 @@
 
 ## What this screen is for
 
-**Reports** is a **fixed catalog** of read-only reports. Each tile calls **one** Riverside API, so what you see matches **store permissions** (unlike Metabase, where access is controlled separately inside Metabase).
+**Reports** is a **fixed catalog** of read-only reports. Each tile calls **one** Riverside API, so what you see matches **store permissions**.
 
 Use **Reports** when you need a **quick answer**: sales by dimension, best sellers, tax buckets, register history, wedding pipeline health, and similar. You can now search by the task or question you have, not only by report title.
 
-Use **Insights** (Metabase) when you need to **explore**, save ad-hoc questions, or use dashboards your admins built there. On the Reports page, **Open Insights (Metabase)** switches to that shell.
-
-**Metabase logins:** Riverside does **not** automatically make you a Metabase “admin.” Your store should give you a **staff** or **admin** **Metabase** username for Insights; that controls margin and other sensitive views **inside Metabase** (see **[insights-back-office.md](insights-back-office.md)**).
+Use **Insights** when you need to explore with a custom natural-language question, refine the report, save a favorite, or return to automatically retained report history. **Open Advanced Reports** switches to that native workspace. There is no separate analytics login; Riverside permissions apply, and cost or margin measures remain Admin-only.
 
 ---
 
@@ -33,7 +31,7 @@ Use **Insights** (Metabase) when you need to **explore**, save ad-hoc questions,
 5. When the detail shows **From** / **To**, pick the **date range** (store-local dates as shown by the control).
 6. When **Basis** appears, choose:
    - **Booked (sale date)** — when the sale was rung (pipeline / “what we sold”).
-   - **Completed (recognition)** — when qualifying fulfillment events happened (pickup / ship per your store rules). Same ideas as Metabase reporting; see **[REPORTING_BOOKED_AND_FULFILLED.md](../REPORTING_BOOKED_AND_FULFILLED.md)** if you need detail.
+   - **Completed (recognition)** — when qualifying fulfillment events happened (pickup / ship per your store rules). See **[REPORTING_BOOKED_AND_FULFILLED.md](../REPORTING_BOOKED_AND_FULFILLED.md)** if you need detail.
 7. For **Sales Breakdown** and **Margin & Cost Breakdown** (Admin only), use **Group by** to change the breakdown (brand, category, salesperson, customer, or day).
 8. Use **Refresh** if you change filters. Use **View Report** to review the loaded report inside ROS, including summary-style reports and no-row results. Use **Print Report** to send that report to the configured Reports printer.
 9. Use **CSV** (when shown) to download the current table.
@@ -106,7 +104,7 @@ Exact titles in the app may vary slightly as the catalog is updated; trust the *
 | Search returns nothing | Try a task word like **pickup**, **balance**, **tax**, or **slow stock** | Manager if the report should exist |
 | Empty or truncated table | Widen dates; **Basis** may exclude rows you expect | Manager / **[REPORTING_BOOKED_AND_FULFILLED.md](../REPORTING_BOOKED_AND_FULFILLED.md)** |
 | Error after open | Note the message; retry **Refresh** | IT if it persists |
-| Need a custom cut beyond the built-in charts | Use **Open Insights (Metabase)** | Metabase training |
+| Need a custom cut beyond the built-in charts | Use **Open Advanced Reports** | [insights-back-office.md](insights-back-office.md) |
 
 Use **Negative Items from Transactions** when researching sale, pickup, or shipping recognition movements that drove a SKU below zero in a selected period. The report is for follow-up and inventory correction after the transaction completes; staff should not block a customer sale or pickup solely because the item is already negative.
 
@@ -122,7 +120,7 @@ Use **Negative Items from Transactions** when researching sale, pickup, or shipp
 
 ## See also
 
-- **[insights-back-office.md](insights-back-office.md)** — Metabase shell and **commission reports**
+- **[insights-back-office.md](insights-back-office.md)** — conversational Insights and **commission reports**
 - **[../AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)** — Curated Reports v1 table and API reference
 - **[../REPORTING_BOOKED_AND_FULFILLED.md](../REPORTING_BOOKED_AND_FULFILLED.md)** — Booked vs fulfilled
 - **[../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)** — RMS charge vs payment

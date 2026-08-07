@@ -143,18 +143,14 @@ test.describe("PWA layout — tablet (iPad Pro 11 preset)", () => {
       .getByRole("navigation", { name: "Main Navigation" })
       .getByRole("button", { name: /^insights(\s+bo)?$/i })
       .click();
-    await expect
-      .poll(
-        async () =>
-          (await page.getByTitle("Data Insights").isVisible().catch(() => false)) ||
-          (await page
-            .getByRole("button", { name: /back to back office/i })
-            .isVisible()
-            .catch(() => false)) ||
-          (await page.getByText(/loading data insights/i).isVisible().catch(() => false)),
-        { timeout: 25_000 },
-      )
-      .toBeTruthy();
+    await expect(
+      page.getByRole("heading", { name: /ask riverside anything reportable/i }),
+    ).toBeVisible({ timeout: 25_000 });
+    await expect(page.getByText(/rosie \+ cube core/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /^history$/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^favorites$/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^archive$/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /build report/i })).toBeVisible();
   });
 
   test("offline status is explained in the live shell", async ({ page, context }) => {

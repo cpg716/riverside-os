@@ -3725,36 +3725,18 @@ async fn post_meilisearch_reindex(
 #[derive(Debug, Serialize)]
 struct InsightsSettingsResponse {
     config: StoreInsightsConfig,
-    jwt_secret_configured: bool,
+    cube_secret_configured: bool,
+    cube_upstream: String,
 }
 
-async fn metabase_jwt_secret_configured(state: &AppState) -> bool {
-    if let Ok(values) = integration_credentials::load_integration_credentials(
-        &state.db,
-        "insights",
-        &["metabase_jwt_secret"],
-    )
-    .await
-    {
-        if values
-            .get("metabase_jwt_secret")
-            .map(|secret| {
-                let trimmed = secret.trim();
-                !trimmed.is_empty() && trimmed.len() >= 16
-            })
-            .unwrap_or(false)
-        {
-            return true;
-        }
-    }
+fn cube_secret_configured() -> bool {
+    std::env::var("RIVERSIDE_CUBE_API_SECRET")
+        .or_else(|_| std::env::var("CUBEJS_API_SECRET"))
+        .is_ok_and(|secret| secret.trim().len() >= 32)
+}
 
-    match std::env::var("RIVERSIDE_METABASE_JWT_SECRET") {
-        Ok(s) => {
-            let t = s.trim();
-            !t.is_empty() && t.len() >= 16
-        }
-        Err(_) => false,
-    }
+fn cube_upstream() -> String {
+    std::env::var("RIVERSIDE_CUBE_UPSTREAM").unwrap_or_else(|_| "http://127.0.0.1:4000".to_string())
 }
 
 async fn get_insights_settings(
@@ -3768,7 +3750,8 @@ async fn get_insights_settings(
     let config = StoreInsightsConfig::from_json_value(raw);
     Ok(Json(InsightsSettingsResponse {
         config,
-        jwt_secret_configured: metabase_jwt_secret_configured(&state).await,
+        cube_secret_configured: cube_secret_configured(),
+        cube_upstream: cube_upstream(),
     }))
 }
 
@@ -3792,7 +3775,8 @@ async fn patch_insights_settings(
         .await?;
     Ok(Json(InsightsSettingsResponse {
         config,
-        jwt_secret_configured: metabase_jwt_secret_configured(&state).await,
+        cube_secret_configured: cube_secret_configured(),
+        cube_upstream: cube_upstream(),
     }))
 }
 

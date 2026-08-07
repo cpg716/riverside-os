@@ -1,24 +1,22 @@
-import { getBaseUrl } from "../../lib/apiConfig";
 import React, { useCallback, useEffect, useState } from "react";
-import { BarChart3, RefreshCw } from "lucide-react";
+import { Archive, Database, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
-import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
-import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 
 const baseUrl = getBaseUrl();
 
 type InsightsConfig = {
-  data_access_mode: string;
+  data_access_mode: "reporting_views_only";
   staff_note_markdown: string;
-  metabase_jwt_sso_enabled: boolean;
-  jwt_email_domain: string;
-  metabase_collections_note: string;
+  cube_max_rows: number;
+  history_archive_days: number;
 };
 
 type InsightsSettingsResponse = {
   config: InsightsConfig;
-  jwt_secret_configured: boolean;
+  cube_secret_configured: boolean;
+  cube_upstream: string;
 };
 
 const InsightsSettingsPanel: React.FC = () => {
@@ -26,22 +24,24 @@ const InsightsSettingsPanel: React.FC = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [jwtSecretConfigured, setJwtSecretConfigured] = useState(false);
   const [cfg, setCfg] = useState<InsightsConfig | null>(null);
+  const [cubeSecretConfigured, setCubeSecretConfigured] = useState(false);
+  const [cubeUpstream, setCubeUpstream] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${baseUrl}/api/settings/insights`, {
+      const response = await fetch(`${baseUrl}/api/settings/insights`, {
         headers: backofficeHeaders(),
       });
-      if (!res.ok) {
+      if (!response.ok) {
         toast("Could not load Insights settings", "error");
         return;
       }
-      const data = (await res.json()) as InsightsSettingsResponse;
+      const data = (await response.json()) as InsightsSettingsResponse;
       setCfg(data.config);
-      setJwtSecretConfigured(data.jwt_secret_configured);
+      setCubeSecretConfigured(data.cube_secret_configured);
+      setCubeUpstream(data.cube_upstream);
     } catch {
       toast("Could not load Insights settings", "error");
     } finally {
@@ -57,32 +57,28 @@ const InsightsSettingsPanel: React.FC = () => {
     if (!cfg) return;
     setSaving(true);
     try {
-      const res = await fetch(`${baseUrl}/api/settings/insights`, {
+      const response = await fetch(`${baseUrl}/api/settings/insights`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
           ...(backofficeHeaders() as Record<string, string>),
         },
-        body: JSON.stringify({
-          data_access_mode: cfg.data_access_mode,
-          staff_note_markdown: cfg.staff_note_markdown,
-          metabase_jwt_sso_enabled: cfg.metabase_jwt_sso_enabled,
-          jwt_email_domain: cfg.jwt_email_domain,
-          metabase_collections_note: cfg.metabase_collections_note,
-        }),
+        body: JSON.stringify(cfg),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        toast(
-          typeof err.error === "string" ? err.error : "Save failed",
-          "error",
-        );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message =
+          payload && typeof payload === "object" && "error" in payload
+            ? String((payload as { error: unknown }).error)
+            : "Save failed";
+        toast(message, "error");
         return;
       }
-      const data = (await res.json()) as InsightsSettingsResponse;
+      const data = payload as InsightsSettingsResponse;
       setCfg(data.config);
-      setJwtSecretConfigured(data.jwt_secret_configured);
-      toast("Insights settings saved", "success");
+      setCubeSecretConfigured(data.cube_secret_configured);
+      setCubeUpstream(data.cube_upstream);
+      toast("Native Insights policy saved", "success");
     } catch {
       toast("Save failed", "error");
     } finally {
@@ -90,9 +86,7 @@ const InsightsSettingsPanel: React.FC = () => {
     }
   };
 
-  if (!hasPermission("settings.admin")) {
-    return null;
-  }
+  if (!hasPermission("settings.admin")) return null;
 
   if (loading || !cfg) {
     return (
@@ -103,178 +97,145 @@ const InsightsSettingsPanel: React.FC = () => {
   }
 
   return (
-    <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header className="mb-10">
-        <div className="mb-4 flex items-center">
-          <IntegrationBrandLogo
-            brand="metabase"
-            kind="wordmark"
-            className="inline-flex rounded-2xl border border-app-border bg-app-surface px-4 py-2 shadow-sm"
-            imageClassName="h-10 w-auto object-contain"
-          />
+    <div className="animate-in space-y-8 fade-in slide-in-from-bottom-4 duration-500">
+      <header>
+        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-violet-600">
+          <Sparkles className="h-4 w-4" /> ROSIE + Cube Core
         </div>
-        <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Data Insights</h2>
-        <p className="text-sm text-app-text-muted mt-2 font-medium">Configure Metabase OSS reporting, reporting-only database access, and optional paid JWT SSO.</p>
+        <h2 className="text-3xl font-black uppercase italic tracking-tighter text-app-text">
+          Native Data Insights
+        </h2>
+        <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
+          Configure the governed semantic reporting layer, automatic report history, and output limits.
+          Staff use their existing Riverside access—there is no separate reporting login.
+        </p>
       </header>
 
-      <section className="ui-card p-8 max-w-4xl border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-transparent shadow-xl">
-        <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
-          <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-app-surface shadow-inner ring-1 ring-black/5">
-              <IntegrationBrandLogo
-                brand="metabase"
-                kind="icon"
-                className="inline-flex"
-                imageClassName="h-8 w-8 object-contain"
-              />
+      <section className="ui-card max-w-4xl border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-transparent p-6 shadow-xl sm:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-app-border/50 pb-6">
+          <div className="flex items-start gap-4">
+            <div className="rounded-2xl bg-violet-500/10 p-3 text-violet-600 ring-1 ring-violet-500/20">
+              <Database className="h-7 w-7" />
             </div>
             <div>
-              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Business Intelligence Layer</h3>
-              <p className="text-xs text-app-text-muted mt-1 max-w-xl leading-relaxed">
-                Phase 2 reporting uses the <code className="font-mono text-[10px] bg-app-surface/40 dark:bg-black/20 px-1 rounded">reporting</code> schema.
-                Configure how the insights engine connects to the operational database.
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Governed reporting engine
+              </h3>
+              <p className="mt-1 max-w-xl text-xs font-medium leading-relaxed text-app-text-muted">
+                Cube can query only approved <code className="font-mono">reporting.*</code> models.
+                Gemma produces a validated ReportSpec and never SQL.
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => void load()}
-            className="ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest flex items-center gap-2 border-violet-200"
+            className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-2 text-[10px] font-black uppercase tracking-widest"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Reload Config
+            <RefreshCw className="h-3.5 w-3.5" /> Reload
           </button>
         </div>
 
-        <div className="space-y-8">
-          <div className="grid gap-6 md:grid-cols-2">
-            <label className="block">
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-2 ml-1">Data Access Restriction Mode</span>
-              <select
-                className="ui-input w-full px-4 py-3 text-sm font-bold bg-app-bg"
-                value={cfg.data_access_mode}
-                onChange={(e) =>
-                  setCfg((c) => (c ? { ...c, data_access_mode: e.target.value } : c))
-                }
-              >
-                <option value="reporting_views_only">Restricted (Reporting Schema Only)</option>
-                <option value="full_database_delegate">Unrestricted (Delegated Privilege)</option>
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-2 ml-1">Synthetic JWT Email Domain</span>
-              <input
-                type="text"
-                className="ui-input w-full px-4 py-3 text-sm font-mono bg-app-bg"
-                value={cfg.jwt_email_domain}
-                onChange={(e) =>
-                  setCfg((c) => (c ? { ...c, jwt_email_domain: e.target.value } : c))
-                }
-                placeholder="e.g. store.riverside.io"
-              />
-            </label>
-          </div>
-
-          <IntegrationCredentialsCard
-            baseUrl={baseUrl}
-            integrationKey="insights"
-            title="Insights Credentials"
-            description="Add, replace, or clear Metabase credentials here. OSS stations use Staff/Admin shared-auth accounts; JWT SSO is only for paid Metabase plans. Environment values are fallback/bootstrap only."
-            fields={[
-              {
-                key: "metabase_jwt_secret",
-                label: "Metabase JWT secret",
-                help: "Required only when automated Insights SSO is enabled (paid Metabase plans).",
-              },
-              {
-                key: "metabase_admin_email",
-                label: "Metabase Admin email",
-                help: "Admin-class Metabase account email for silent shared-auth fallback (OSS).",
-              },
-              {
-                key: "metabase_admin_password",
-                label: "Metabase Admin password",
-                help: "Admin-class Metabase account password. Encrypted at rest.",
-              },
-              {
-                key: "metabase_staff_email",
-                label: "Metabase Staff email",
-                help: "Staff-class Metabase account email for restricted reporting access.",
-              },
-              {
-                key: "metabase_staff_password",
-                label: "Metabase Staff password",
-                help: "Staff-class Metabase account password. Encrypted at rest.",
-              },
-            ]}
-            onSaved={load}
-          />
-
-          <label className="flex items-start gap-4 rounded-2xl border border-app-border bg-app-surface-2/60 p-5 cursor-pointer hover:border-violet-500/50 transition-all">
-            <div className={`mt-1 h-5 w-5 rounded border-2 flex items-center justify-center transition-all ${cfg.metabase_jwt_sso_enabled ? 'bg-violet-600 border-violet-600 text-white' : 'border-app-border'}`}>
-               {cfg.metabase_jwt_sso_enabled && <BarChart3 className="h-3 w-3" />}
-            </div>
-            <input
-              type="checkbox"
-              className="sr-only"
-              checked={cfg.metabase_jwt_sso_enabled}
-              onChange={(e) =>
-                setCfg((c) =>
-                  c ? { ...c, metabase_jwt_sso_enabled: e.target.checked } : c,
-                )
-              }
-            />
-            <div className="flex-1">
-              <span className="text-sm font-black uppercase tracking-widest text-app-text">Enable Automated Insights SSO</span>
-              <p className="text-[10px] text-app-text-muted mt-1 leading-relaxed font-medium">
-                Paid Metabase Pro/Enterprise only. Keep this off for the free OSS install and use the saved Staff/Admin credentials above. Secret configured:{" "}
-                {jwtSecretConfigured ? (
-                  <span className="text-emerald-600 font-black">ACTIVE</span>
-                ) : (
-                  <span className="text-rose-600 font-black">NEEDS SETUP</span>
-                )}
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-emerald-600" />
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Database access
               </p>
             </div>
+            <p className="mt-3 text-sm font-black text-app-text">Reporting views only</p>
+            <p className="mt-1 text-[10px] font-medium leading-relaxed text-app-text-muted">
+              Full-database delegation is retired and cannot be enabled from Riverside.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
+            <div className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-violet-600" />
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Cube Core connection
+              </p>
+            </div>
+            <p className={`mt-3 text-sm font-black ${cubeSecretConfigured ? "text-emerald-600" : "text-amber-600"}`}>
+              {cubeSecretConfigured ? "Server secret configured" : "Server secret needs setup"}
+            </p>
+            <p className="mt-1 break-all font-mono text-[10px] text-app-text-muted">{cubeUpstream}</p>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-5 sm:grid-cols-2">
+          <label className="block">
+            <span className="ml-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Maximum rows per report
+            </span>
+            <input
+              type="number"
+              min={25}
+              max={500}
+              value={cfg.cube_max_rows}
+              onChange={(event) =>
+                setCfg((current) =>
+                  current
+                    ? { ...current, cube_max_rows: Number(event.target.value) }
+                    : current,
+                )
+              }
+              className="ui-input mt-2 w-full px-4 py-3 text-sm font-bold"
+            />
+            <p className="mt-2 text-[10px] font-medium text-app-text-muted">
+              Applies to interactive results, CSV export, and print output. Hard maximum: 500.
+            </p>
           </label>
 
-          <div className="grid gap-6">
-            <label className="block">
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-2 ml-1">Staff Access Documentation (Markdown)</span>
-              <textarea
-                className="ui-input w-full min-h-[100px] p-4 text-xs font-mono leading-relaxed bg-app-bg/50"
-                value={cfg.staff_note_markdown}
-                onChange={(e) =>
-                  setCfg((c) => (c ? { ...c, staff_note_markdown: e.target.value } : c))
-                }
-                placeholder="Suggest staff classes, collection paths, or how to request new reports."
-              />
-            </label>
+          <label className="block">
+            <span className="ml-1 inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              <Archive className="h-3.5 w-3.5" /> Archive after unused days
+            </span>
+            <input
+              type="number"
+              min={30}
+              max={730}
+              value={cfg.history_archive_days}
+              onChange={(event) =>
+                setCfg((current) =>
+                  current
+                    ? { ...current, history_archive_days: Number(event.target.value) }
+                    : current,
+                )
+              }
+              className="ui-input mt-2 w-full px-4 py-3 text-sm font-bold"
+            />
+            <p className="mt-2 text-[10px] font-medium text-app-text-muted">
+              Default is 180 days. Favorites stay pinned; archived history can be restored or rerun.
+            </p>
+          </label>
+        </div>
 
-            <label className="block">
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-2 ml-1">Operational Provisioning Notes</span>
-              <textarea
-                className="ui-input w-full min-h-[80px] p-4 text-xs font-mono leading-relaxed bg-app-bg/50"
-                value={cfg.metabase_collections_note}
-                onChange={(e) =>
-                  setCfg((c) =>
-                    c ? { ...c, metabase_collections_note: e.target.value } : c,
-                  )
-                }
-                placeholder="Internal notes on collections, groups, or Metabase provisioning. Invisible to store staff."
-              />
-            </label>
-          </div>
+        <label className="mt-6 block">
+          <span className="ml-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Staff reporting guidance
+          </span>
+          <textarea
+            value={cfg.staff_note_markdown}
+            onChange={(event) =>
+              setCfg((current) =>
+                current ? { ...current, staff_note_markdown: event.target.value } : current,
+              )
+            }
+            className="ui-input mt-2 min-h-28 w-full p-4 text-xs font-medium leading-relaxed"
+            placeholder="Optional guidance about booked vs recognized reporting, report ownership, or review expectations."
+          />
+        </label>
 
-          <div className="pt-8 border-t border-app-border/40">
-            <button
-              onClick={() => void save()}
-              disabled={saving}
-              className="ui-btn-primary h-12 px-10 text-[11px] font-black uppercase tracking-[0.2em] shadow-lg shadow-violet-500/20"
-            >
-              {saving ? "Persisting..." : "Save Insights Policy"}
-            </button>
-          </div>
+        <div className="mt-8 border-t border-app-border/50 pt-6">
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving}
+            className="ui-btn-primary h-12 px-8 text-[11px] font-black uppercase tracking-[0.18em]"
+          >
+            {saving ? "Saving..." : "Save Insights policy"}
+          </button>
         </div>
       </section>
     </div>

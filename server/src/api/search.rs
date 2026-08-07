@@ -1845,7 +1845,9 @@ fn shortcut_ids(q: &str, perms: &HashSet<String>) -> Vec<UniversalShortcutHit> {
         has_permission(perms, INSIGHTS_VIEW)
             && (words.contains("report")
                 || words.contains("reports")
-                || words.contains("metabase")),
+                || words.contains("insights")
+                || words.contains("cube")
+                || words.contains("rosie")),
     );
     add(
         "register_close",

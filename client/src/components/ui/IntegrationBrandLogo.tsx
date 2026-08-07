@@ -1,7 +1,5 @@
 import meilisearchIcon from "../../assets/images/brands/Meilisearch_Icon.svg";
 import meilisearchWordmark from "../../assets/images/brands/meilisearch-logo.png";
-import metabaseIcon from "../../assets/images/brands/Metabase_Icon.svg";
-import metabaseWordmark from "../../assets/images/brands/metabase_logo.png";
 import nuorderIcon from "../../assets/images/brands/nuorder_icon.png";
 import nuorderWordmark from "../../assets/images/brands/nuorder-logo.png";
 import podiumBlackIcon from "../../assets/images/brands/Podium_Black_Icon.jpg";
@@ -18,7 +16,6 @@ import weatherIcon from "../../assets/images/brands/weather_icon.jpeg";
 
 export type IntegrationBrand =
   | "meilisearch"
-  | "metabase"
   | "nuorder"
   | "podium"
   | "qbo"
@@ -34,7 +31,6 @@ const constantContactWordmark = `data:image/svg+xml;utf8,<svg xmlns="http://www.
 
 const BRAND_LABELS: Record<IntegrationBrand, string> = {
   meilisearch: "Meilisearch",
-  metabase: "Metabase",
   nuorder: "NuORDER",
   podium: "Podium",
   qbo: "QuickBooks Online",
@@ -54,9 +50,6 @@ function resolveSrc(
   }
   if (brand === "helcim") {
     return kind === "icon" ? helcimIcon : helcimWordmark;
-  }
-  if (brand === "metabase") {
-    return kind === "icon" ? metabaseIcon : metabaseWordmark;
   }
   if (brand === "meilisearch") {
     return kind === "icon" ? meilisearchIcon : meilisearchWordmark;

@@ -1040,7 +1040,7 @@ function App() {
     enterBackofficeShell("orders", "all");
   }, [enterBackofficeShell]);
 
-  const onOpenMetabaseExplore = useCallback(() => {
+  const onOpenInsights = useCallback(() => {
     enterInsightsShell();
   }, [enterInsightsShell]);
 
@@ -1175,7 +1175,7 @@ function App() {
             customersMessagingFocusHubTab={customersMessagingFocusHubTab}
             setCustomersMessagingFocusHubTab={setCustomersMessagingFocusHubTab}
             openCustomerHubFromInbox={openCustomerHubFromInbox}
-            onOpenMetabaseExplore={onOpenMetabaseExplore}
+            onOpenInsights={onOpenInsights}
             onNavigateRegisterReports={onNavigateRegisterReports}
             onNavigateCommissionPayouts={onNavigateCommissionPayouts}
             registerReportsDeepLinkTxnId={registerReportsDeepLinkTxnId}
@@ -1292,7 +1292,7 @@ interface AppShellProps {
   customersMessagingFocusHubTab: string | null;
   setCustomersMessagingFocusHubTab: (tab: string | null) => void;
   openCustomerHubFromInbox: (c: Customer) => void;
-  onOpenMetabaseExplore: () => void;
+  onOpenInsights: () => void;
   onNavigateRegisterReports: (transactionId?: string) => void;
   onNavigateCommissionPayouts: () => void;
   registerReportsDeepLinkTxnId: string | null;
@@ -1398,7 +1398,7 @@ function AppShell({
   customersMessagingFocusHubTab,
   setCustomersMessagingFocusHubTab,
   openCustomerHubFromInbox,
-  onOpenMetabaseExplore,
+  onOpenInsights,
   onNavigateRegisterReports,
   onNavigateCommissionPayouts,
   registerReportsDeepLinkTxnId,
@@ -1712,7 +1712,7 @@ function AppShell({
                   setCustomersMessagingFocusHubTab(null);
                 }}
                 onOpenCustomerHubFromInbox={openCustomerHubFromInbox}
-                onOpenMetabaseExplore={onOpenMetabaseExplore}
+                onOpenInsights={onOpenInsights}
                 onNavigateRegisterReports={onNavigateRegisterReports}
                 onNavigateCommissionPayouts={onNavigateCommissionPayouts}
                 registerReportsDeepLinkTxnId={registerReportsDeepLinkTxnId}
@@ -1945,7 +1945,7 @@ type AppMainColumnProps = {
   customersMessagingFocusHubTab: string | null;
   onCustomersMessagingFocusConsumed: () => void;
   onOpenCustomerHubFromInbox: (customer: Customer) => void;
-  onOpenMetabaseExplore: () => void;
+  onOpenInsights: () => void;
   onNavigateRegisterReports: (transactionId?: string) => void;
   onNavigateCommissionPayouts: () => void;
   registerReportsDeepLinkTxnId: string | null;
@@ -1996,7 +1996,7 @@ function AppMainColumn({
   customersMessagingFocusHubTab,
   onCustomersMessagingFocusConsumed,
   onOpenCustomerHubFromInbox,
-  onOpenMetabaseExplore,
+  onOpenInsights,
   onNavigateRegisterReports,
   onNavigateCommissionPayouts,
   registerReportsDeepLinkTxnId,
@@ -2276,7 +2276,7 @@ function AppMainColumn({
                 if (activeTab === "reports") {
                   return (
                     <ReportsWorkspace
-                      onOpenMetabaseExplore={onOpenMetabaseExplore}
+                      onOpenInsights={onOpenInsights}
                       onNavigateRegisterReports={onNavigateRegisterReports}
                       onNavigateCommissionPayouts={onNavigateCommissionPayouts}
                     />

@@ -1,0 +1,490 @@
+cubes:
+  - name: booked_transactions
+    title: Booked Transactions
+    description: Financial transactions grouped by the governed booking business date. Revenue is not yet recognized until fulfillment.
+    sql: |
+      SELECT *
+      FROM reporting.transactions_core
+      WHERE status <> 'cancelled'
+    measures:
+      - name: transaction_count
+        type: count
+      - name: gross_sales
+        sql: total_price
+        type: sum
+        format: currency
+      - name: amount_paid
+        sql: amount_paid
+        type: sum
+        format: currency
+      - name: balance_due
+        sql: balance_due
+        type: sum
+        format: currency
+    dimensions:
+      - name: business_date
+        sql: booked_business_date
+        type: time
+      - name: status
+        sql: status
+        type: string
+      - name: sale_channel
+        sql: sale_channel
+        type: string
+      - name: fulfillment_method
+        sql: fulfillment_method
+        type: string
+      - name: customer_name
+        sql: customer_display_name
+        type: string
+      - name: salesperson
+        sql: primary_salesperson_display_name
+        type: string
+      - name: operator
+        sql: operator_display_name
+        type: string
+
+  - name: recognized_transactions
+    title: Recognized Transactions
+    description: Financial transactions grouped by the governed fulfillment or pickup recognition date.
+    sql: |
+      SELECT *
+      FROM reporting.transactions_core
+      WHERE status <> 'cancelled'
+        AND recognition_at IS NOT NULL
+    measures:
+      - name: transaction_count
+        type: count
+      - name: recognized_sales
+        sql: total_price
+        type: sum
+        format: currency
+      - name: amount_paid
+        sql: amount_paid
+        type: sum
+        format: currency
+      - name: balance_due
+        sql: balance_due
+        type: sum
+        format: currency
+    dimensions:
+      - name: business_date
+        sql: recognition_business_date
+        type: time
+      - name: status
+        sql: status
+        type: string
+      - name: sale_channel
+        sql: sale_channel
+        type: string
+      - name: fulfillment_method
+        sql: fulfillment_method
+        type: string
+      - name: customer_name
+        sql: customer_display_name
+        type: string
+      - name: salesperson
+        sql: primary_salesperson_display_name
+        type: string
+      - name: operator
+        sql: operator_display_name
+        type: string
+
+  - name: booked_items
+    title: Booked Item Sales
+    description: Item-level demand grouped by the governed transaction booking date.
+    sql: |
+      SELECT *
+      FROM reporting.order_lines
+      WHERE order_status <> 'cancelled'
+    measures:
+      - name: line_count
+        type: count
+      - name: units
+        sql: quantity
+        type: sum
+      - name: gross_sales
+        sql: line_extended_price
+        type: sum
+        format: currency
+      - name: cost
+        sql: line_extended_cost
+        type: sum
+        format: currency
+      - name: gross_margin
+        sql: line_gross_margin_pre_tax
+        type: sum
+        format: currency
+    dimensions:
+      - name: business_date
+        sql: order_business_date
+        type: time
+      - name: item
+        sql: item_display_name
+        type: string
+      - name: product
+        sql: product_display_name
+        type: string
+      - name: variation
+        sql: variant_display_name
+        type: string
+      - name: sku
+        sql: sku
+        type: string
+      - name: category
+        sql: category_name
+        type: string
+      - name: vendor
+        sql: vendor_display_name
+        type: string
+      - name: salesperson
+        sql: line_salesperson_display_name
+        type: string
+      - name: fulfillment_type
+        sql: fulfillment
+        type: string
+
+  - name: recognized_items
+    title: Recognized Item Sales
+    description: Item-level fulfilled demand grouped by the governed recognition date.
+    sql: |
+      SELECT *
+      FROM reporting.order_lines
+      WHERE order_status <> 'cancelled'
+        AND order_recognition_at IS NOT NULL
+    measures:
+      - name: line_count
+        type: count
+      - name: units
+        sql: quantity
+        type: sum
+      - name: recognized_sales
+        sql: line_extended_price
+        type: sum
+        format: currency
+      - name: cost
+        sql: line_extended_cost
+        type: sum
+        format: currency
+      - name: gross_margin
+        sql: line_gross_margin_pre_tax
+        type: sum
+        format: currency
+    dimensions:
+      - name: business_date
+        sql: order_recognition_business_date
+        type: time
+      - name: item
+        sql: item_display_name
+        type: string
+      - name: product
+        sql: product_display_name
+        type: string
+      - name: variation
+        sql: variant_display_name
+        type: string
+      - name: sku
+        sql: sku
+        type: string
+      - name: category
+        sql: category_name
+        type: string
+      - name: vendor
+        sql: vendor_display_name
+        type: string
+      - name: salesperson
+        sql: line_salesperson_display_name
+        type: string
+      - name: fulfillment_type
+        sql: fulfillment
+        type: string
+
+  - name: fulfillment_orders
+    title: Fulfillment Orders
+    description: Logistical Fulfillment Orders, separate from financial Transactions.
+    sql_table: reporting.fulfillment_orders_core
+    measures:
+      - name: fulfillment_order_count
+        type: count
+    dimensions:
+      - name: created_date
+        sql: created_at
+        type: time
+      - name: fulfilled_date
+        sql: fulfilled_at
+        type: time
+      - name: status
+        sql: fulfillment_status
+        type: string
+      - name: customer_name
+        sql: customer_display_name
+        type: string
+      - name: wedding_party
+        sql: wedding_party_name
+        type: string
+
+  - name: weddings
+    title: Wedding Program Economics
+    description: Wedding party membership, Transaction activity, and program economics.
+    sql_table: reporting.wedding_party_economics
+    measures:
+      - name: wedding_count
+        type: count
+      - name: member_count
+        sql: member_count
+        type: sum
+      - name: transaction_count
+        sql: order_count
+        type: sum
+      - name: booked_sales
+        sql: total_revenue
+        type: sum
+        format: currency
+      - name: cost
+        sql: total_cost
+        type: sum
+        format: currency
+      - name: profit
+        sql: total_profit
+        type: sum
+        format: currency
+    dimensions:
+      - name: event_date
+        sql: event_date
+        type: time
+      - name: wedding_party
+        sql: wedding_party_name
+        type: string
+      - name: groom
+        sql: groom_name
+        type: string
+      - name: bride
+        sql: bride_name
+        type: string
+      - name: salesperson
+        sql: wedding_salesperson_name
+        type: string
+
+  - name: payments
+    title: Payment Ledger
+    description: Tender and merchant activity by the governed payment business date.
+    sql_table: reporting.payment_ledger
+    measures:
+      - name: payment_count
+        type: count
+      - name: gross_amount
+        sql: gross_amount
+        type: sum
+        format: currency
+      - name: merchant_fees
+        sql: merchant_fee
+        type: sum
+        format: currency
+      - name: net_amount
+        sql: net_amount
+        type: sum
+        format: currency
+    dimensions:
+      - name: business_date
+        sql: business_date
+        type: time
+      - name: category
+        sql: category
+        type: string
+      - name: status
+        sql: status
+        type: string
+      - name: payment_method
+        sql: payment_method
+        type: string
+      - name: provider
+        sql: payment_provider
+        type: string
+      - name: card_brand
+        sql: card_brand
+        type: string
+      - name: payer_name
+        sql: payer_name
+        type: string
+
+  - name: inventory
+    title: Inventory Snapshot
+    description: Current product variation inventory, reservations, layaway units, availability, and value.
+    sql_table: reporting.inventory_snapshot
+    measures:
+      - name: variation_count
+        type: count
+      - name: stock_on_hand
+        sql: stock_on_hand
+        type: sum
+      - name: reserved_stock
+        sql: reserved_stock
+        type: sum
+      - name: on_layaway
+        sql: on_layaway
+        type: sum
+      - name: available_stock
+        sql: available_stock
+        type: sum
+      - name: inventory_cost_value
+        sql: inventory_cost_value
+        type: sum
+        format: currency
+    dimensions:
+      - name: created_date
+        sql: created_at
+        type: time
+      - name: item
+        sql: item_display_name
+        type: string
+      - name: product
+        sql: product_name
+        type: string
+      - name: brand
+        sql: brand
+        type: string
+      - name: sku
+        sql: sku
+        type: string
+      - name: category
+        sql: category_name
+        type: string
+      - name: vendor
+        sql: vendor_name
+        type: string
+      - name: active
+        sql: is_active
+        type: boolean
+      - name: low_stock_threshold
+        sql: reorder_point
+        type: number
+      - name: retail_price
+        sql: retail_price
+        type: number
+      - name: unit_cost
+        sql: unit_cost
+        type: number
+
+  - name: loyalty_customers
+    title: Customer Loyalty
+    description: Current and lifetime customer loyalty activity.
+    sql_table: reporting.loyalty_customer_snapshot
+    measures:
+      - name: customer_count
+        type: count
+      - name: current_points
+        sql: current_balance
+        type: sum
+      - name: lifetime_points_earned
+        sql: lifetime_earned_from_orders
+        type: sum
+      - name: lifetime_points_redeemed
+        sql: lifetime_points_redeemed
+        type: sum
+      - name: reward_dollars_issued
+        sql: total_reward_dollars_issued
+        type: sum
+        format: currency
+    dimensions:
+      - name: customer_name
+        sql: customer_display_name
+        type: string
+      - name: customer_code
+        sql: customer_code
+        type: string
+
+  - name: alterations
+    title: Active Alterations
+    description: Active alteration workload, status, due dates, and overdue work.
+    sql_table: reporting.alterations_active
+    measures:
+      - name: alteration_count
+        type: count
+    dimensions:
+      - name: due_date
+        sql: due_at
+        type: time
+      - name: created_date
+        sql: created_at
+        type: time
+      - name: status
+        sql: status
+        type: string
+      - name: overdue
+        sql: is_overdue
+        type: boolean
+      - name: customer_name
+        sql: customer_name
+        type: string
+
+  - name: shipments
+    title: Active Shipments
+    description: Active shipment volume, carriers, services, and shipping economics.
+    sql_table: reporting.shipments_active
+    measures:
+      - name: shipment_count
+        type: count
+      - name: shipping_charged
+        sql: shipping_charged_usd
+        type: sum
+        format: currency
+      - name: quoted_amount
+        sql: quoted_amount_usd
+        type: sum
+        format: currency
+      - name: label_cost
+        sql: label_cost_usd
+        type: sum
+        format: currency
+    dimensions:
+      - name: created_date
+        sql: created_at
+        type: time
+      - name: status
+        sql: status
+        type: string
+      - name: source
+        sql: source
+        type: string
+      - name: carrier
+        sql: carrier
+        type: string
+      - name: service
+        sql: service_name
+        type: string
+      - name: customer_name
+        sql: customer_name
+        type: string
+
+  - name: daily_sales_weather
+    title: Daily Sales and Weather
+    description: Booked daily sales aligned to the weather snapshot captured for that store day.
+    sql_table: reporting.daily_sales_weather
+    measures:
+      - name: sales
+        sql: sales
+        type: sum
+        format: currency
+      - name: tax_collected
+        sql: tax_collected
+        type: sum
+        format: currency
+      - name: transaction_count
+        sql: transaction_count
+        type: sum
+      - name: units
+        sql: line_units
+        type: sum
+      - name: precipitation_inches
+        sql: precipitation_inches
+        type: avg
+    dimensions:
+      - name: business_date
+        sql: business_date
+        type: time
+      - name: condition
+        sql: weather_condition
+        type: string
+      - name: weather_source
+        sql: weather_source
+        type: string

@@ -110,7 +110,7 @@ Current signals:
 - environment mode (`Development` vs `Strict production`)
 - Helcim config state, including API token readiness and Register #1/#2 terminal-code readiness
 - Shippo mode
-- Metabase auth mode
+- Cube Core readiness and configuration
 - search mode
 - weather mode
 - backup directory mode
@@ -119,7 +119,7 @@ Current signals:
 Current labels:
 - **Helcim**: `Configured`, `Partial`, `Not configured`
 - **Shippo**: `Disabled`, `Live rates`, `Stub fallback`, `Stub mode`
-- **Metabase auth**: `JWT SSO`, `Shared auth`, `Fallback login`
+- **Cube Core**: configured upstream and API secret readiness; secrets are never returned
 - **Search**: `Meilisearch configured`, `Bundled fallback`. Configuration alone is not a healthy
   search verdict; the integration feed also requires a current reachability heartbeat and a
   successful full rebuild inside the same 36-hour freshness window used by runtime search.
@@ -174,7 +174,7 @@ Manual signoffs are persisted in `ops_readiness_signoffs` and are guarded by `op
 The tab can navigate to source tabs, copy the current diagnostics snapshot, and record manager-reviewed manual signoff evidence. It does not perform payments, inventory posting, accounting posting, deployment actions, or destructive maintenance.
 
 Related operator-visible fallback surfaces:
-- **Insights** shows an inline warning when automatic Metabase sign-in falls back to the normal Metabase login page.
+- **Insights** shows a clear unavailable state when Cube Core or its shared secret is not ready.
 - **Help Center** shows local/manual fallback messaging when bundled search is being used instead of live search.
 - **Operations** and the **Register dashboard** show a `Mock Weather` badge and short note when weather data is coming from mock mode.
 

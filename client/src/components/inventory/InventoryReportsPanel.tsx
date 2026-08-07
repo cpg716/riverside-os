@@ -372,7 +372,7 @@ export default function InventoryReportsPanel() {
 
       <p className="text-[10px] font-bold text-app-text-muted">
         <FileText size={12} className="mr-1 inline" />
-        Inventory reports are operational inventory records and stay separate from Insights/Metabase reporting.
+        Inventory reports are operational inventory records and stay separate from the global Insights workspace.
       </p>
 
       {activeReportId ? (

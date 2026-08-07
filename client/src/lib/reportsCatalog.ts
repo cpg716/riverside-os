@@ -751,7 +751,7 @@ export const REPORTS_CATALOG: ReportDef[] = [
       "Donation tender activity with customer, linked transaction, amount, and required note for accounting review.",
     category: "Finance",
     aliases: ["donation tender", "donations", "charity payments", "donation notes"],
-    keywords: ["donation", "tender", "charity", "notes", "qbo", "accounting", "metabase"],
+    keywords: ["donation", "tender", "charity", "notes", "qbo", "accounting", "insights"],
     questions: ["What donations were recorded?", "Why were donation tenders used?", "Which donations need accounting review?"],
     audience: "Manager",
     sensitivity: "Manager",

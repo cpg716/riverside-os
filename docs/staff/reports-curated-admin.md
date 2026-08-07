@@ -2,7 +2,7 @@
 
 **Audience:** **Store administrators**, owners, and IT implementing **Riverside OS** reporting policy.
 
-**Purpose:** Run the **Back Office → Reports** workspace safely: **who sees what**, how **basis** works, where **margin** is restricted, how staff search by task/question, and how this surface relates to **Metabase** and the **`reporting.*`** schema.
+**Purpose:** Run the **Back Office → Reports** workspace safely: **who sees what**, how **basis** works, where **margin** is restricted, how staff search by task/question, and how this surface relates to native Insights and the **`reporting.*`** schema.
 
 **Staff-facing walkthrough:** **[reports-curated-manual.md](reports-curated-manual.md)**
 
@@ -11,7 +11,7 @@
 ## Product shape
 
 - **Reports** = fixed tile grid + detail pane + client-side search index. Available tiles map to **one** HTTP surface (mostly **`GET /api/insights/*`**, plus **`GET /api/customers/rms-charge/records`** for the CRM-shaped tile). Planned tiles are catalog-only and do not call the server. Catalog lives in **`client/src/lib/reportsCatalog.ts`**.
-- **Insights** = **`InsightsShell`** + Metabase iframe; exploratory analytics and **separate** Metabase RBAC.
+- **Insights** = **`InsightsShell`** + native ROSIE/Cube workspace; exploratory analytics governed by Riverside RBAC and a server-validated semantic catalog.
 - **Non-goals:** No second SPA; commission reporting stays under **Staff → Commissions → Reports** for staff-level review.
 
 ## Search metadata
@@ -78,17 +78,17 @@ Many tiles pass **`basis`** (`booked` vs `completed` / recognition). Store polic
 ## Margin and cost (sensitive)
 
 - **Margin pivot** uses pre-tax revenue minus **COGS** from **line unit cost × quantity** frozen at checkout (server **`margin_pivot`** logic). Only **Admin** staff see the tile; **non-Admin** callers must get **403** from **`GET /api/insights/margin-pivot`**.
-- **Metabase (Insights)** does **not** inherit Riverside Admin vs salesperson. Use **separate Metabase logins**: a **staff-class** Metabase user (limited collections, no margin / private cuts) and an **admin-class** Metabase user (full reporting including **`reporting.order_lines`** margin columns — migration **107**). Anyone with **`insights.view`** can open the Insights shell; **which Metabase account they use** determines sensitive data access. **[METABASE_REPORTING.md](../METABASE_REPORTING.md)** § Operational standard.
+- **Native Insights** enforces the same server-side Riverside identity. **insights.view** permits standard governed measures; cost and margin measures additionally require the Riverside Admin role. Cube uses the read-only **`cube_ro`** role and cannot select application tables outside **`reporting.*`**.
 
 ---
 
-## Metabase vs curated Reports
+## Native Insights vs curated Reports
 
-| Concern | Curated Reports | Metabase |
+| Concern | Curated Reports | Native Insights |
 |--------|-----------------|----------|
-| RBAC | Riverside **staff permissions** + **Admin** role | Metabase **user / group** model |
-| Margin | **Admin** Riverside role in app | **Admin Metabase login** + groups/collections in Metabase |
-| Change control | Tile list is **code + catalog**; ship with PR | Questions/dashboards per **ops** process |
+| RBAC | Riverside **staff permissions** + **Admin** role | Riverside **staff permissions** + server catalog validation |
+| Margin | **Admin** Riverside role in app | **Admin** Riverside role on every generated or rerun spec |
+| Change control | Tile list is **code + catalog**; ship with PR | Cube semantic model and report validator ship with code; staff favorites store only validated specs |
 
 ## New endpoint coverage
 

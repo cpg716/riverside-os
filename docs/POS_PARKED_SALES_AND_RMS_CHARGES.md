@@ -135,10 +135,10 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 - RMS payment reversals debit the same **`RMS_R2S_PAYMENT_CLEARING`** account so refund-day journals stay balanced with the cash/check outflow.
 - Phase 3 reconciliation surfaces those clearing expectations inside the RMS Charge workspace so finance staff can triage Riverside/R2S/QBO mismatches without leaving the RMS toolset.
 
-### Reporting (Insights / Metabase)
+### Reporting (Reports / Insights)
 
 - **`GET /api/insights/rms-charges`** — query params **`from`**, **`to`**. Requires **`insights.view`**. Returns rows from **`pos_rms_charge_record`** including **`record_kind`** (migration **69** + API shape). Up to **500** rows with order/customer context.
-- **UI:** Back Office **Insights** is **Metabase** (same-origin **`/metabase/`**). Use a Metabase question or dashboard wired to the charge ledger (or a store template), or consume this **JSON** endpoint from integrations. For **filtered** charge vs payment lists and customer filters, use **Customers → RMS charge**.
+- **UI:** Use the curated **RMS charges** report or ask native **Insights** for a governed payment cut. For filtered charge vs payment lists and customer filters, use **Customers → RMS charge**. Integrations may continue to consume the JSON endpoint.
 
 ---
 
@@ -161,4 +161,4 @@ See **`client/src/components/pos/NexoCheckoutDrawer.tsx`**.
 - **`docs/PLAN_NOTIFICATION_CENTER.md`**, **`docs/NOTIFICATION_GENERATORS_AND_OPS.md`** — inbox patterns.
 - **`docs/AI_REPORTING_DATA_CATALOG.md`** — **`/api/insights/rms-charges`** for NL reporting.
 - **`docs/staff/pos-register-cart.md`** — cashier-facing parked + tender notes.
-- **`docs/staff/insights-back-office.md`** — Back Office Insights (Metabase) + RMS context.
+- **`docs/staff/insights-back-office.md`** — Back Office native Insights + RMS context.

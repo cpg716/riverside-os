@@ -297,5 +297,5 @@ After checkout, staff should either:
 ## Related workflows
 
 - [Reports (curated)](manual:reports)
-- [Insights (Metabase)](manual:insights)
+- [Insights — conversational reporting](manual:insights)
 - [Register Reports](manual:pos-register-reports)

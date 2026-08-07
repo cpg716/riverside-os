@@ -27,7 +27,7 @@ Riverside has one parent Back Office app shell with three embedded runtime shell
 
 - **POS shell** for Register, Dashboard, and mirrored POS workspaces
 - **Wedding shell** for full Wedding Manager workflows
-- **Insights shell** for embedded Metabase analytics
+- **Insights shell** for native ROSIE + Cube Core conversational analytics
 
 Current runtime contract:
 
@@ -123,9 +123,8 @@ docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < 
 
 # 2. Server env: copy server/.env.example -> server/.env for local runs.
 #    DATABASE_URL must point at localhost:5433 (the repo Docker Postgres), not localhost:5432.
-#    If you expect automatic Metabase sign-in in local/RC runs, save the Metabase
-#    Staff/Admin credentials in Settings -> Integrations -> Insights after the app starts.
-#    RIVERSIDE_METABASE_* values in server/.env are fallback/bootstrap only.
+#    Native Insights requires Cube Core. Set the same long secret in root .env as
+#    CUBEJS_API_SECRET and server/.env as RIVERSIDE_CUBE_API_SECRET.
 #
 # 3. API server (http://127.0.0.1:3000) — from repo root, prefer npm (`dev-server.sh` / `cargo-server.sh` put Rust 1.91 first on PATH when Homebrew rustc shadows rustup):
 npm run dev:server
@@ -145,13 +144,13 @@ For this repo to behave the same way in a local RC worktree as it does in the va
 - Run **`cd client && npm install`** for the Vite/Playwright client toolchain.
 - Keep a real **`server/.env`** for local parity (copy from **`server/.env.example`**). The server can boot with fallbacks, but validated local behavior depends on that file.
 - For local Docker Postgres, **`DATABASE_URL`** must use **`postgresql://postgres:password@localhost:5433/riverside_os`**.
-- If you expect automatic Metabase login in local/RC runs, save the local **Metabase Admin/Staff** shared-auth values in **Settings → Integrations → Insights**. **`RIVERSIDE_METABASE_ADMIN_*`** and **`RIVERSIDE_METABASE_STAFF_*`** in **`server/.env`** are fallback/bootstrap only.
+- For native Insights, set matching **`CUBEJS_API_SECRET`** and **`RIVERSIDE_CUBE_API_SECRET`** values. Production Cube must connect as the migration-provisioned **`cube_ro`** role.
 - Expected local services and ports:
   - Postgres: **`localhost:5433`**
   - API: **`127.0.0.1:3000`**
   - Vite dev UI: **`localhost:5173`**
   - Deterministic E2E API/UI: **`127.0.0.1:43300`** / **`localhost:43173`**
-  - Metabase: **`localhost:3001`**
+  - Cube Core: **`127.0.0.1:4000`**
   - Meilisearch when used: **`localhost:7700`**
 - Expected local DB/application state:
   - **`store_settings`** row **`id = 1`**
@@ -207,11 +206,9 @@ Environment variables:
 | `RIVERSIDE_VISUAL_CROSSING_ENABLED` | _(unset)_ | Optional; force live weather on/off — see **`docs/WEATHER_VISUAL_CROSSING.md`** |
 | `RIVERSIDE_MEILISEARCH_URL` | _(unset)_ | Optional deployment fallback; routine Meilisearch host setup belongs in Backoffice Settings. Enables fuzzy catalog/CRM/inventory/transaction search with SQL hydration + fallback — **`docs/SEARCH_AND_PAGINATION.md`** |
 | `RIVERSIDE_MEILISEARCH_API_KEY` | _(unset)_ | Optional deployment fallback for Meilisearch master/API key when the instance requires auth; routine setup belongs in Backoffice Settings. |
-| `RIVERSIDE_METABASE_ADMIN_EMAIL` / `RIVERSIDE_METABASE_ADMIN_PASSWORD` | _(unset)_ | Fallback/bootstrap only for Metabase shared-auth when JWT SSO is off. Normal add/edit/update happens in **Settings → Integrations → Insights**. |
-| `RIVERSIDE_METABASE_STAFF_EMAIL` / `RIVERSIDE_METABASE_STAFF_PASSWORD` | _(unset)_ | Fallback/bootstrap only for staff-class Metabase shared-auth when JWT SSO is off. Normal add/edit/update happens in **Settings → Integrations → Insights**. |
-| `METABASE_SITE_URL` / `METABASE_SITE_NAME` / `METABASE_JAVA_TIMEZONE` | Compose defaults | Root **`.env`** overrides for the OSS Metabase service. Site URL must match the public ROS URL including **`/metabase/`**. |
-| `METABASE_ANON_TRACKING_ENABLED` / `METABASE_ENABLE_PUBLIC_SHARING` | `false` | Root **`.env`** overrides for Metabase telemetry and public dashboard links. Keep public sharing disabled unless an admin intentionally uses public/guest embeds. |
-| `MB_ENCRYPTION_SECRET_KEY` | _(unset)_ | Optional native Metabase boot secret for encrypting database credentials in Metabase’s own application DB. Generate once, set before adding databases, and keep stable. |
+| `RIVERSIDE_CUBE_UPSTREAM` | `http://127.0.0.1:4000` | Loopback Cube Core endpoint used only by the Rust reporting gateway. |
+| `RIVERSIDE_CUBE_API_SECRET` / `CUBEJS_API_SECRET` | _(unset)_ | Matching long shared secret for signed Rust-to-Cube requests. Keep it server-side and stable. |
+| `RIVERSIDE_CUBE_REPORTING_DB_USER` / `RIVERSIDE_CUBE_REPORTING_DB_PASSWORD` | local Compose defaults | Cube PostgreSQL credentials. Production must use the **`cube_ro`** reporting-only role; see **[`docs/CUBE_INSIGHTS_REPORTING.md`](docs/CUBE_INSIGHTS_REPORTING.md)**. |
 | `RIVERSIDE_LLAMA_UPSTREAM` / `ROSIE_LOCAL_LLM_BASE_URL` | _(unset)_ | ROSIE local provider fallback endpoints. Routine provider endpoint setup belongs in **Settings → ROSIE → ROSIE Provider Credentials**. |
 | `OPENAI_API_KEY` / `GEMINI_API_KEY` | _(unset)_ | ROSIE cloud provider fallback keys. Routine keys and cloud model names belong in **Settings → ROSIE → ROSIE Provider Credentials**; never put them in Vite/client env. |
 | `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | Desktop direct/local ROSIE host controls. Tauri clients use the Main Hub's server-governed route by default; set `VITE_ROSIE_LLM_DIRECT=1` only for a workstation intentionally bundled with the local model. Full table **`DEVELOPER.md`**. |
@@ -232,7 +229,7 @@ cd client && npm run lint        # ESLint check
 cd client && npm run build       # tsc --noEmit + vite build
 ```
 
-**Reporting routes:** when adding **GET** APIs used by **Insights**, **Metabase**, or other analytics surfaces, refresh **`docs/AI_REPORTING_DATA_CATALOG.md`** (hint: `python3 scripts/scan_axum_get_routes_hint.py`). **Pair that file** with **`docs/AI_CONTEXT_FOR_ASSISTANTS.md`** (routing, RBAC safety, Help vs reporting, **ROSIE** launch posture — **`docs/PLAN_LOCAL_LLM_HELP.md`**, **`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`**). Booked vs fulfilled semantics: **[`docs/BOOKED_VS_FULFILLED.md`](docs/BOOKED_VS_FULFILLED.md)** and **[`docs/REPORTING_BOOKED_AND_FULFILLED.md`](docs/REPORTING_BOOKED_AND_FULFILLED.md)**. Layaway lifecycle: **[`docs/LAYAWAY_OPERATIONS.md`](docs/LAYAWAY_OPERATIONS.md)**. Ops model: **`docs/METABASE_REPORTING.md`**, **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`**. Order and Wedding Order rules: **[`docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`](docs/TRANSACTIONS_AND_WEDDING_ORDERS.md)**.
+**Reporting routes:** when adding **GET** APIs used by **Reports**, **Insights**, or other analytics surfaces, refresh **`docs/AI_REPORTING_DATA_CATALOG.md`** (hint: `python3 scripts/scan_axum_get_routes_hint.py`). Native conversational reporting architecture and operations are in **[`docs/CUBE_INSIGHTS_REPORTING.md`](docs/CUBE_INSIGHTS_REPORTING.md)**. **Pair that file** with **`docs/AI_CONTEXT_FOR_ASSISTANTS.md`** for routing and RBAC safety. Booked vs fulfilled semantics: **[`docs/BOOKED_VS_FULFILLED.md`](docs/BOOKED_VS_FULFILLED.md)** and **[`docs/REPORTING_BOOKED_AND_FULFILLED.md`](docs/REPORTING_BOOKED_AND_FULFILLED.md)**. Layaway lifecycle: **[`docs/LAYAWAY_OPERATIONS.md`](docs/LAYAWAY_OPERATIONS.md)**. Order and Wedding Order rules: **[`docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`](docs/TRANSACTIONS_AND_WEDDING_ORDERS.md)**.
 
 ## E2E tests (Playwright)
 

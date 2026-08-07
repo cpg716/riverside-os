@@ -47,7 +47,6 @@ pub mod meilisearch_documents;
 pub mod meilisearch_search;
 pub mod meilisearch_sync;
 pub mod messaging;
-pub mod metabase_staff_jwt;
 pub mod money;
 pub mod notification_scheduler;
 pub mod notifications;

@@ -20,7 +20,7 @@ If your team uses macOS for local validation before Windows production cutover, 
 
 - `docker context show` should return **`orbstack`**.
 - `docker info` should identify **OrbStack** as the runtime.
-- `docker compose ps` should show expected services healthy (`db`, optional local-dev `meilisearch`, optional `metabase` stack).
+- `docker compose ps` should show expected services healthy (`db`, `cube`, and optional local-dev `meilisearch`).
 
 Record this verification in your deployment log so troubleshooting always starts from a known container runtime.
 

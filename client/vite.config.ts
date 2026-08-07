@@ -139,7 +139,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         cleanupOutdatedCaches: true,
         navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/api\//, /^\/metabase(\/|$)/],
+        navigateFallbackDenylist: [/^\/api\//],
       },
       devOptions: {
         enabled: false,
@@ -185,12 +185,6 @@ export default defineConfig({
         // Catalog CSV import can run for many minutes (large Lightspeed exports + long DB transaction).
         timeout: 1_800_000,
         proxyTimeout: 1_800_000,
-      },
-      // Same-origin Metabase iframe (Insights): forward to Axum, which proxies to RIVERSIDE_METABASE_UPSTREAM.
-      "/metabase": {
-        target: process.env.VITE_DEV_PROXY_TARGET || "http://127.0.0.1:3000",
-        changeOrigin: true,
-        ws: true,
       },
       // Staff avatar photos uploaded to server/uploads/avatars
       "/uploads": {

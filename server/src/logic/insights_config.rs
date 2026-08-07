@@ -1,33 +1,34 @@
-//! `store_settings.insights_config` — Metabase / Insights policy for admins.
+//! `store_settings.insights_config` — native Insights policy for admins.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoreInsightsConfig {
-    /// `reporting_views_only` (default) or `full_database_delegate` (ops uses a privileged DB user in Metabase).
+    /// Cube is deliberately restricted to governed `reporting.*` models.
     #[serde(default = "default_data_access_mode")]
     pub data_access_mode: String,
-    /// Shown in Settings; optional staff-facing note for Metabase connection / collections.
+    /// Optional staff-facing reporting guidance.
     #[serde(default)]
     pub staff_note_markdown: String,
-    /// When true and the saved or env Metabase JWT secret is set, Insights calls `POST /api/insights/metabase-launch` to mint a JWT for Metabase (requires Metabase **JWT authentication**, typically a paid plan).
-    #[serde(default)]
-    pub metabase_jwt_sso_enabled: bool,
-    /// Synthetic email domain when `staff.email` is null: `{cashier_code}@{jwt_email_domain}`.
-    #[serde(default = "default_jwt_email_domain")]
-    pub jwt_email_domain: String,
-    /// Free-form ops note (collections, Metabase groups named `ROS Admin`, etc.).
-    #[serde(default)]
-    pub metabase_collections_note: String,
+    /// Maximum rows returned by one native Insights query (hard-capped at 500).
+    #[serde(default = "default_cube_max_rows")]
+    pub cube_max_rows: i64,
+    /// Automatically archive unpinned history after this many unused days.
+    #[serde(default = "default_history_archive_days")]
+    pub history_archive_days: i32,
 }
 
 fn default_data_access_mode() -> String {
     "reporting_views_only".to_string()
 }
 
-fn default_jwt_email_domain() -> String {
-    "riverside-insights.local".to_string()
+fn default_cube_max_rows() -> i64 {
+    500
+}
+
+fn default_history_archive_days() -> i32 {
+    180
 }
 
 impl Default for StoreInsightsConfig {
@@ -35,16 +36,21 @@ impl Default for StoreInsightsConfig {
         Self {
             data_access_mode: default_data_access_mode(),
             staff_note_markdown: String::new(),
-            metabase_jwt_sso_enabled: false,
-            jwt_email_domain: default_jwt_email_domain(),
-            metabase_collections_note: String::new(),
+            cube_max_rows: default_cube_max_rows(),
+            history_archive_days: default_history_archive_days(),
         }
     }
 }
 
 impl StoreInsightsConfig {
-    pub fn from_json_value(v: Value) -> Self {
-        serde_json::from_value(v).unwrap_or_default()
+    pub fn from_json_value(value: Value) -> Self {
+        let mut config: Self = serde_json::from_value(value).unwrap_or_default();
+        // Retired Metabase configurations could delegate the full database. The
+        // native replacement always fails back to the governed reporting schema.
+        config.data_access_mode = default_data_access_mode();
+        config.cube_max_rows = config.cube_max_rows.clamp(25, 500);
+        config.history_archive_days = config.history_archive_days.clamp(30, 730);
+        config
     }
 
     pub fn to_json_value(&self) -> Value {
@@ -53,47 +59,59 @@ impl StoreInsightsConfig {
 
     /// Merge PATCH body (partial object) into current config.
     pub fn apply_patch(&mut self, body: &Value) -> Result<(), String> {
-        if let Some(s) = body.get("data_access_mode").and_then(|x| x.as_str()) {
-            let t = s.trim();
-            if t != "reporting_views_only" && t != "full_database_delegate" {
-                return Err(
-                    "data_access_mode must be reporting_views_only or full_database_delegate"
-                        .to_string(),
-                );
+        if let Some(mode) = body.get("data_access_mode").and_then(Value::as_str) {
+            if mode.trim() != "reporting_views_only" {
+                return Err("data_access_mode must be reporting_views_only".to_string());
             }
-            self.data_access_mode = t.to_string();
+            self.data_access_mode = default_data_access_mode();
         }
-        if let Some(s) = body.get("staff_note_markdown").and_then(|x| x.as_str()) {
-            if s.len() > 65_000 {
+        if let Some(note) = body.get("staff_note_markdown").and_then(Value::as_str) {
+            if note.len() > 65_000 {
                 return Err("staff_note_markdown exceeds 65000 bytes".to_string());
             }
-            self.staff_note_markdown = s.to_string();
+            self.staff_note_markdown = note.to_string();
         }
-        if let Some(b) = body
-            .get("metabase_jwt_sso_enabled")
-            .and_then(|x| x.as_bool())
-        {
-            self.metabase_jwt_sso_enabled = b;
+        if let Some(max_rows) = body.get("cube_max_rows").and_then(Value::as_i64) {
+            if !(25..=500).contains(&max_rows) {
+                return Err("cube_max_rows must be between 25 and 500".to_string());
+            }
+            self.cube_max_rows = max_rows;
         }
-        if let Some(s) = body.get("jwt_email_domain").and_then(|x| x.as_str()) {
-            let t = s.trim();
-            if t.is_empty() || t.len() > 255 {
-                return Err("jwt_email_domain must be 1–255 characters".to_string());
+        if let Some(days) = body.get("history_archive_days").and_then(Value::as_i64) {
+            if !(30..=730).contains(&days) {
+                return Err("history_archive_days must be between 30 and 730".to_string());
             }
-            if t.contains('@') || t.contains(' ') {
-                return Err("jwt_email_domain must be a host/domain only (no @)".to_string());
-            }
-            self.jwt_email_domain = t.to_string();
-        }
-        if let Some(s) = body
-            .get("metabase_collections_note")
-            .and_then(|x| x.as_str())
-        {
-            if s.len() > 65_000 {
-                return Err("metabase_collections_note exceeds 65000 bytes".to_string());
-            }
-            self.metabase_collections_note = s.to_string();
+            self.history_archive_days = days as i32;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retired_full_database_mode_is_not_restored() {
+        let config = StoreInsightsConfig::from_json_value(json!({
+            "data_access_mode": "full_database_delegate"
+        }));
+        assert_eq!(config.data_access_mode, "reporting_views_only");
+    }
+
+    #[test]
+    fn validates_native_limits() {
+        let mut config = StoreInsightsConfig::default();
+        assert!(config
+            .apply_patch(&json!({ "cube_max_rows": 501 }))
+            .is_err());
+        config
+            .apply_patch(&json!({
+                "cube_max_rows": 250,
+                "history_archive_days": 180
+            }))
+            .expect("valid policy");
+        assert_eq!(config.cube_max_rows, 250);
+        assert_eq!(config.history_archive_days, 180);
     }
 }

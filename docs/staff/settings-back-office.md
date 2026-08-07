@@ -217,7 +217,7 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 
 1. **Ops Health Board**: Confirm DB/API/integrations are healthy from one status panel.
 2. **Station Fleet Board**: Verify each Register station heartbeat, version, active offline state, and stale-history retention state.
-3. **Runtime Diagnostics**: Confirm the station's resolved API base, strict-production status, Helcim readiness, Shippo mode, Metabase auth mode, help-search mode, weather mode, backup path, and station lifecycle governance without exposing any secrets.
+3. **Runtime Diagnostics**: Confirm the station's resolved API base, strict-production status, Helcim readiness, Shippo mode, Cube Core readiness, help-search mode, weather mode, backup path, and station lifecycle governance without exposing any secrets.
 4. **Alert Center**: Acknowledge active incidents and verify suppression/recurrence behavior.
 5. **Guarded Actions**: Run maintenance actions only with explicit reason + dual confirmation.
 6. **Bug Manager Overlay**: Keep ROS bug reports as source-of-truth and attach bugs to active incidents for triage context.
@@ -252,7 +252,7 @@ The Main Hub update button remains disabled when the update check does not provi
 
 ### Current operator-visible fallback states
 
-- **Insights**: if automatic Metabase sign-in is unavailable, the station shows an inline Riverside warning and continues to the normal Metabase sign-in screen.
+- **Insights**: the workspace shows Cube Core readiness and reports a clear unavailable state when the local semantic service or shared secret is not configured.
 - **Help Center**: if live search is unavailable, the drawer clearly indicates bundled/manual fallback mode.
 - **Weather**: Operations and the POS dashboard show a `Mock Weather` badge and note when weather data is coming from mock mode.
 

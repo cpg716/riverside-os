@@ -178,7 +178,7 @@ http://127.0.0.1:3002/api/bridge/health
 ```
 
 ### 2e. Bridge Command Center
-The bridge includes a local dashboard for manual triggers and log monitoring. It listens on port **3002** (to avoid collision with Metabase on 3001).
+The bridge includes a local dashboard for manual triggers and log monitoring. It listens on port **3002**.
 - **URL**: `http://localhost:3002`
 - **Manual Mode (Default)**: By default, the bridge starts in manual mode. It checks Main Hub ROS health and waits for a staff-triggered extraction.
 - **Continuous Sync**: Do not use continuous sync for the go-live cutover. Run the intentional extraction, review proof, fix exceptions, then sign off.

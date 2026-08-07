@@ -1104,13 +1104,13 @@ function RegisterDayRowsTable({
 }
 
 type Props = {
-  onOpenMetabaseExplore: () => void;
+  onOpenInsights: () => void;
   onNavigateRegisterReports: () => void;
   onNavigateCommissionPayouts: () => void;
 };
 
 export default function ReportsWorkspace({
-  onOpenMetabaseExplore,
+  onOpenInsights,
   onNavigateRegisterReports,
   onNavigateCommissionPayouts,
 }: Props) {
@@ -1663,7 +1663,7 @@ export default function ReportsWorkspace({
           </div>
           <button
             type="button"
-            onClick={onOpenMetabaseExplore}
+            onClick={onOpenInsights}
             className="ui-btn-secondary inline-flex min-h-11 items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold"
           >
             Open Advanced Reports

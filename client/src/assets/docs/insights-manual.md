@@ -1,149 +1,89 @@
 ---
 id: insights
-title: "Insights (Metabase)"
+title: "Insights — conversational reporting"
 order: 15
-summary: "Metabase analytics in-app, Metabase login, Staff commission reports, permissions. For the curated Reports library, open the Reports (curated) manual in Help."
-tags: insights, metabase, reports, analytics, commission
+summary: "Ask ROSIE for governed reports, refine them in plain language, export or print every result, and reuse favorites and report history."
+tags: insights, rosie, cube, reports, analytics, favorites, history, export, print
 ---
 
-# Insights (Metabase) — staff guide
+# Insights — conversational reporting
 
 ## Screenshots
 
-![Reports catalog](../images/help/insights/workflow-1.png)
+![Open Advanced Reports from the curated Reports library](../images/help/insights/workflow-2.png)
 
-![Operational home](../images/help/insights/workflow-2.png)
+![Use curated Reports when a fixed report already answers the question](../images/help/insights/workflow-3.png)
 
-![Insights Metabase dashboard](../images/help/insights/workflow-3.png)
 ## What this is
 
-Insights displays **Metabase** dashboards directly within Riverside OS. Use this for advanced analytics, staff commissions, and custom store performance tracking.
+**Back Office → Insights** is Riverside's native report builder. Ask for a report in plain language and ROSIE converts the request into a validated report definition. Cube Core runs that definition against read-only **`reporting.*`** data. ROSIE cannot submit arbitrary SQL.
 
-## When to use it
+There is no separate reporting login. Riverside staff access and permissions apply throughout the workspace. Cost and margin measures remain Admin-only.
 
-Use **Insights** when you need:
-- Staff commission reporting (Fulfilled/Recognition basis).
-- Detailed inventory performance charts.
-- Custom management dashboards.
-- Drill-down analysis that the curated **Reports** library doesn't offer.
-
-## Metabase sign-in
+## Ask for a report
 
 1. Open **Insights** in the left rail.
-2. On configured stations, Riverside signs you into the correct **Metabase** access level automatically.
-3. If you see a login screen or the automatic sign-in warning, enter the store-provided **Metabase credentials** or contact an admin to check **Settings → Integrations → Insights**.
+2. Describe the result you need, including the business basis and period when they matter. For example: **“Show recognized revenue by category for the last 90 days as a bar chart.”**
+3. Select **Generate report**.
+4. Review the title, business-basis explanation, date range, chart, and table before using the result.
 
-## Quick steps
+Use **booked** for activity measured when a Transaction was created. Use **recognized** for revenue measured when qualifying fulfillment or pickup occurred. If that distinction is unclear, state which business event you mean.
 
-1. Select a dashboard from the **Collections** or use the sidebar shortcuts.
-2. Adjust **Filters** at the top of the dashboard (e.g., Date Range, Staff Member, Category).
-3. Click **Update** or wait for the cards to refresh.
-4. To drill down into a specific number, click on the value in the chart or table.
-5. Use the **Download** icon on any individual card to export that specific data set.
+## Refine or correct the current report
 
-## What to watch for
+Keep the current result open and type the change you want, such as:
 
-- **Session Expiry**: Metabase sessions are separate from Riverside. If a dashboard fails to load, try refreshing the page or re-authenticating.
-- **Data Freshness**: Insights data is pulled from the live PostgreSQL database but may have a slight caching delay depending on the Metabase configuration.
-- **Permissions**: Your Metabase role (Staff vs Admin) determines which dashboards and collections you can see.
+- **Change this to recognized revenue.**
+- **Group it by salesperson instead.**
+- **Use the prior quarter and show a line chart.**
+- **Remove canceled Fulfillment Orders.**
 
-- You can stay in Metabase to perform ad-hoc "Questions" if your role allows.
-- Navigate back to **Operations** or **Reports** for standard store management tasks.
+ROSIE receives the current validated definition as context and returns a replacement definition. Each successful version is recorded in report history.
+
+## Change the period
+
+Use the **From** and **To** controls above a result, then select **Run period**. This reruns the same report definition for the new dates without rebuilding it. The rerun is also saved to report history.
+
+## Export and print
+
+Every successful result includes:
+
+- **Export CSV** — downloads the complete returned table using the displayed business labels.
+- **Print report** — opens a print-ready report with the title, period, generated time, basis explanation, columns, rows, and totals available in the result. Choose a physical printer or **Save as PDF** in the system print dialog.
+
+## Favorites
+
+Select **Save favorite**, give the report a useful name, and save it. Favorites store the governed report definition, not a copied spreadsheet. Open a favorite to rerun it against current Riverside data, then use the period controls for another day, week, month, quarter, or custom range.
+
+Deleting a favorite does not delete its prior history entries.
+
+## Recent reports and archive
+
+Every successfully generated or rerun report is saved automatically under **Recent**. History stores the question, validated definition, generated time, row count, and last-used time. It does not preserve a stale copy of financial rows; reopening an entry reruns its definition against authoritative current data.
+
+Reports that have not been used within the configured retention period are moved to **Archive** automatically. The default is **180 days**. Open **Archive** to restore or rerun an older report. An Admin can change the retention period in **Settings → Integrations → Insights**.
+
+## Permissions and safety
+
+- **insights.view** is required to open Insights and run reports.
+- Cost and margin measures require Riverside Admin access.
+- Cube can read only the governed reporting schema through the dedicated **`cube_ro`** database role.
+- ROSIE builds a constrained report definition; the server validates datasets, measures, filters, dates, row limits, and visualization before Cube runs it.
+- Report results are read-only. Any business correction still uses the normal Riverside workflow and confirmation rules.
+
+## Troubleshooting
+
+| Symptom | What to try |
+|---|---|
+| Cube status is unavailable | Ask IT to check the Cube Core service and its read-only database credentials. |
+| ROSIE cannot build the report | Add a clear period, measure, grouping, and booked or recognized basis. The requested data may not yet be in the governed catalog. |
+| A report returns no rows | Check the period and filters, then verify whether the requested activity occurred on the selected basis. |
+| Cost or margin is rejected | Sign in with Riverside Admin access or choose a revenue-only measure. |
+| Insights is missing | Ask an Admin to verify **insights.view** for your role. |
 
 ## Related workflows
 
 - [Reports (curated)](manual:reports)
 - [Staff Commissions](manual:staff-commission-manager-workspace)
 
----
-
-## Open Insights
-
-1. Sign in to **Back Office** (staff code and PIN when required).
-2. In the main navigation, select **Insights** (chart icon, labeled **BO**).
-3. The main layout switches to the **Insights** shell. The center area loads **Metabase** from the same site address under **`/metabase/`** (your store may hide this path; you just see the analytics app).
-
-If you **do not** see **Insights**, your role may not include **insights.view**. Ask an admin to check **Staff → Role access** or your **User overrides** (see **`docs/STAFF_PERMISSIONS.md`**).
-
----
-
-## Sign in to Metabase
-
-Configured free Metabase OSS stations should open Metabase automatically with the saved Admin or Staff Metabase account. Admin staff launch with the saved Admin Metabase account; other staff launch with the saved Staff Metabase account. Paid Metabase stations may use JWT SSO instead. The first time, after a logout, or when the station is missing Metabase credentials, Metabase may show its **own** login page inside the frame.
-
-1. Use the **Metabase username** you were assigned if automatic launch is unavailable. Stores should use **at least two classes** of Metabase login: **staff** (staff-safe dashboards only — typically **no** margin or cost) and **admin** (full reporting, including margin on **`reporting.*** views). **`insights.view`** in Riverside only opens the shell; **the Metabase account** controls private data inside Metabase.
-2. After a successful login, Metabase keeps a **session cookie** in the **same browser** as Riverside, so returning to **Insights** usually stays signed in.
-
-**Security notes**
-
-- Treat **admin** Metabase credentials like **financial** access: do not share them with everyone who has **`insights.view`**.
-- **Log out** of Metabase when switching between staff and admin Metabase identities on a shared PC, or use separate browser profiles, per store policy.
-- Anyone who can log into Metabase as **user X** sees everything **user X** is allowed in Metabase (collections, groups). See **`docs/METABASE_REPORTING.md`**.
-
----
-
-## Using Metabase day to day
-
-- Build or open **questions** and **dashboards** the way Metabase documents describe (filters, time ranges, exports — depending on what your admins enabled).
-- Use **Back to Back Office** in the Riverside header when you are done; you return to the normal sidebar layout.
-- The **notification bell** in the Insights header is still Riverside’s inbox (same as elsewhere).
-
----
-
-## Reports API vs Metabase
-
-**Reports** and **Insights** answer different needs:
-
-- **Reports** uses Riverside APIs for curated operational answers, CSV, and print.
-- **Insights** uses Metabase on readable **reporting** views for dashboards and ad-hoc questions.
-
-Some Reports are available now in Riverside but need a future **reporting** view before Metabase can slice them freely: Appointments & No-Show, Wedding Event Readiness, Staff Schedule Coverage vs Sales, Customer Follow-Up, Exception & Risk, and broad Register Day Activity. Until those views are added, use **Back Office → Reports** for those answers.
-
-Merchant Activity already maps to Metabase payment views. Loyalty reporting should use the loyalty reporting views when building dashboards.
-
----
-
-## Commission reports (Staff workspace)
-
-Commission reporting is **not** inside the Metabase iframe. It uses Riverside APIs and lives under **Staff**.
-
-**Permissions:** You need **insights.view** to see commission reports. If the subsection is missing, ask an admin.
-
-1. Unlock **Staff** with your staff code if prompted.
-2. Open **Staff** → **Commissions** → **Reports**.
-3. Set the **date range** (or use presets), then **Refresh** to load the report.
-4. Pick a staff member for individual drilldown, or leave staff blank for all-staff reporting.
-5. Review the earned-only payroll columns: **Rate**, **Rate since**, **Sales**, **By rate**, **SPIFF $**, and final **Earned commission**.
-6. Use **Print report** for payroll review.
-7. Expand a staff row and use **Trace** when you need line-level calculation context.
-
-Fixed SPIFF and combo incentives are managed under **Staff** → **Commissions** → **SPIFFs & Combos**. Staff base commission rates are set on each Staff Profile.
-
----
-
-## Troubleshooting
-
-| Symptom | What to try |
-|--------|----------------|
-| Blank or gray iframe | Metabase service may be down, or the store proxy is off — contact IT. |
-| Automatic sign-in warning | Ask an admin to check **Settings → Integrations → Insights**. Free OSS stations need saved Staff/Admin shared-auth credentials; JWT SSO is for paid Metabase plans. |
-| Metabase login loop or broken links | **Site URL** in Metabase admin must match how staff open the store (including **`/metabase`** if you use that path). |
-| 404 or “proxy disabled” | Server ops may have turned off the Metabase upstream — see **DEVELOPER.md** (Metabase section). |
-| Cannot see **Commission reports** | You need **insights.view**. |
-
----
-
-## Related POS reporting
-
-**POS → Reports** (inside **POS** mode) is for **register session** snapshots (tenders, cash context). It is **not** the same as **Back Office Insights**. **Back Office → Reports** offers **fixed** sales and margin pivots and related tiles (see **Help → Reports (curated)**). **Custom** dashboards and deep exploration use **Metabase** here under **Insights**.
-
-**RMS / R2S** charge and payment history for operations is also available under **Customers → RMS charge** and in **POS → Reports** for session-scoped views; see **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**.
-
----
-
-## See also
-
-- **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`** — architecture, proxy, Phase 2 reporting views (planned).
-- **`docs/STAFF_PERMISSIONS.md`** — **insights.view**, **staff.manage_commission**.
-- **`docs/AI_REPORTING_DATA_CATALOG.md`** — API catalog for **`/api/insights/*`** (operational reads; not a substitute for Metabase exploration).
-- **Staff guide (longer):** **`docs/staff/insights-back-office.md`**
+For operational and deployment detail, see **`docs/CUBE_INSIGHTS_REPORTING.md`** and **`docs/REPORTING_BOOKED_AND_FULFILLED.md`**.

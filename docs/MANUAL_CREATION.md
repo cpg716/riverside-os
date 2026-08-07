@@ -12,7 +12,7 @@ There is **no** separate `config/help-manuals.json`. The Help Center discovers e
 
 `client/src/assets/docs/`
 
-Examples: `pos-manual.md` → manual id **`pos`**; `insights-manual.md` → **`insights`** (Back Office Insights / Metabase + commission payouts).
+Examples: `pos-manual.md` → manual id **`pos`**; `insights-manual.md` → **`insights`** (native conversational reporting + commission report links).
 
 ### Optional YAML front matter (metadata only)
 

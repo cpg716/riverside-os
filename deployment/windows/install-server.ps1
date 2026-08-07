@@ -566,9 +566,9 @@ function Invoke-PsqlAdminDatabase($PsqlPath, $Db, $DatabaseName, $Sql) {
 
 function Ensure-OptionalReportingRole($PsqlPath, $Db) {
   try {
-    Invoke-PsqlAdmin $PsqlPath $Db "DO `$`$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'metabase_ro') THEN CREATE ROLE metabase_ro NOLOGIN; END IF; END `$`$;"
+    Invoke-PsqlAdmin $PsqlPath $Db "DO `$`$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cube_ro') THEN CREATE ROLE cube_ro LOGIN; ELSE ALTER ROLE cube_ro LOGIN; END IF; END `$`$;"
   } catch {
-    Write-Warning "Could not create optional reporting role metabase_ro. Reporting grants will be skipped where supported."
+    Write-Warning "Could not create optional reporting role cube_ro. Reporting grants will be skipped where supported."
   }
 }
 

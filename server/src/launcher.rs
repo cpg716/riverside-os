@@ -49,8 +49,6 @@ fn static_cache_control_for_path(path: &str) -> Option<HeaderValue> {
         || lower.starts_with("/api/")
         || lower == "/uploads"
         || lower.starts_with("/uploads/")
-        || lower == "/metabase"
-        || lower.starts_with("/metabase/")
     {
         return None;
     }

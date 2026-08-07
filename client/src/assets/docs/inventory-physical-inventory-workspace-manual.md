@@ -31,11 +31,11 @@ Use **Physical count** to run a full-store or category-limited count, review var
 5. Move the session into **Review** when counting is complete for the chosen scope.
 6. Review all variance rows, including anything in scope that was **not counted**.
 7. Publish only after the missing rows, discovered scans, and zero-cost movement blockers are cleared. Publishing requires Manager Access.
-8. Use **Physical Inventory Reports** in this workspace for variance, raw scan stream, discovered scans, accounting impact, and Manager Access signoff. These rows can feed Metabase without moving the reports into the global Reports workspace.
+8. Use **Physical Inventory Reports** in this workspace for variance, raw scan stream, discovered scans, accounting impact, and Manager Access signoff. These operational rows stay in Physical Inventory rather than moving into the global Reports workspace.
 
 ## Large counts
 
-Physical Inventory is designed for large catalogs. Scanner entry keeps a recent worklist in the browser instead of loading every counted SKU, and Review shows a bounded high-impact/search result set while publish evaluates the full session on the server. For broad analysis across very large sessions, use the Physical Inventory workspace report data as the Metabase source instead of trying to inspect every row in the browser.
+Physical Inventory is designed for large catalogs. Scanner entry keeps a recent worklist in the browser instead of loading every counted SKU, and Review shows a bounded high-impact/search result set while publish evaluates the full session on the server. For broad analysis across very large sessions, use the Physical Inventory workspace report data instead of trying to inspect every row in the browser.
 
 If a scanner station loses connection during counting, scans are saved on that device and replayed with duplicate protection when the connection returns. Do not move to Review until the offline scan queue is empty.
 

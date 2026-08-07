@@ -24,7 +24,7 @@ The foundational baseline through migration 133 is summarized below for domain o
 | `004_pos_transactions_payments.sql` | POS transactions, transaction lines, payments, allocations, refunds, fulfillment orders |
 | `005_operations_workflows.sql` | Register sessions, tasks, scheduling, alterations, notifications, backups, operational workflow tables |
 | `006_integrations.sql` | QBO, Counterpoint, Podium, Shippo, NuORDER, online store, payment-provider integration tables, Helcim event and settlement foundations |
-| `007_reporting_views.sql` | Reporting schema, reporting functions, Metabase-facing views |
+| `007_reporting_views.sql` | Reporting schema and governed reporting functions/views |
 | `008_indexes_constraints_triggers.sql` | Cross-domain indexes, constraints, triggers, generated IDs |
 | `009_promo_gift_cards.sql` | Promo gift card enum support and event-name tracking |
 | `010_counterpoint_ingest_quarantine.sql` | Counterpoint ingest quarantine review tables |
@@ -46,7 +46,7 @@ The foundational baseline through migration 133 is summarized below for domain o
 | `026_counterpoint_go_live_hardening.sql` | Counterpoint go-live hardening |
 | `027_repair_promo_gift_card_schema.sql` | Promo gift card schema repair |
 | `028_podium_communications_hardening.sql` | Podium communications hardening |
-| `029_metabase_ro_reporting_only.sql` | Metabase read-only reporting access |
+| `029_metabase_ro_reporting_only.sql` | Historical Metabase read-only role migration; current Cube role/grants are in migration 185 |
 | `030_podium_staff_identity_mapping.sql` | Podium staff identity mapping |
 | `031_checkout_takeaway_loyalty_backfill.sql` | Checkout takeaway loyalty backfill |
 | `032_transaction_status_integrity.sql` | Transaction status integrity tracking |

@@ -13,7 +13,7 @@ This document is for **prompt authors**, **server-side system prompts**, **fine-
 | Doc | Scope |
 |-----|--------|
 | **This file** | **Intent routing** and **safety**: which source to open first, when to refuse, corpus vs live APIs, **ROSIE** = planning only. |
-| [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) | **Operational / analytic reads**: exhaustive **`/api/*`** inventory (**§0**), curated **Reports** tiles → routes, **Metabase** + **`reporting.*`** context, Pillar 4 whitelist sketch. Use for “what GET exists?” — never for arbitrary SQL. |
+| [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) | **Operational / analytic reads**: exhaustive **`/api/*`** inventory (**§0**), curated **Reports** tiles → routes, native Cube + **`reporting.*`** context, Pillar 4 whitelist sketch. Use for “what GET exists?” — never for arbitrary SQL. |
 | [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) | Pillars, retired **`/api/ai`** + **`ai_doc_chunk`** (**migration 78**), design principles for saved report specs. |
 | [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md) | **ROSIE** engineering: **three-document contract** (this file + reporting catalog + plan), tool **“Hands”** table, system prompt stub, voice/vision phases, Windows 11 — **not shipped** until product says so. |
 | [`PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md) + [`RELEASE_OPERATIONAL_SIGNOFF.md`](RELEASE_OPERATIONAL_SIGNOFF.md) | Current launch/readiness checklist and release signoff posture. |
@@ -36,7 +36,7 @@ This document is for **prompt authors**, **server-side system prompts**, **fine-
 | **Till group / lanes / combined Z** | [`TILL_GROUP_AND_REGISTER_OPEN.md`](TILL_GROUP_AND_REGISTER_OPEN.md) + [`staff/register-tab-back-office.md`](staff/register-tab-back-office.md), [`staff/EOD-AND-OPEN-CLOSE.md`](staff/EOD-AND-OPEN-CLOSE.md) | “Why can’t Register #2 open?”, “Who runs Z?”, admin vs floor open flow, **`register.session_attach`**. Prefer **staff** articles for training tone; use **TILL_GROUP** for exact API/UI behavior. |
 | **Parked cart / R2S charges & payments** | [`POS_PARKED_SALES_AND_RMS_CHARGES.md`](POS_PARKED_SALES_AND_RMS_CHARGES.md) + [`staff/pos-register-cart.md`](staff/pos-register-cart.md), [`staff/insights-back-office.md`](staff/insights-back-office.md), [`staff/customers-back-office.md`](staff/customers-back-office.md) | “What is **Park**?”, Z-close vs parked rows, **charge** (**RMS/RMS90** tender → **`rms_r2s_charge`**) vs **payment** (Payment button or search **PAYMENT** → cash/check → **tasks**), **`GET /api/insights/rms-charges`**, **`GET /api/customers/rms-charge/records`**, QBO **`RMS_R2S_PAYMENT_CLEARING`**, dev **`VITE_POS_OFFLINE_CARD_SIM`**. |
 | **Admin / NL reporting & APIs** | [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) | “What data exists?”, which **GET** to use, chart/report ideas, **whitelisted** query patterns. **Never invent SQL**; follow that doc’s safety rules. Includes **Curated Reports v1** (tile → API). |
-| **Back Office Reports (curated) vs Insights (Metabase)** | [`staff/reports-curated-manual.md`](staff/reports-curated-manual.md), [`staff/reports-curated-admin.md`](staff/reports-curated-admin.md), [`METABASE_REPORTING.md`](METABASE_REPORTING.md), [`staff/insights-back-office.md`](staff/insights-back-office.md), [`PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md) | **Reports** = fixed tiles, **`insights.view`**, **Riverside Admin** for **Margin pivot** only. **Insights** = Metabase iframe; **staff-class vs admin-class Metabase logins** control margin / private folders (**Riverside PIN does not** map automatically). |
+| **Back Office Reports (curated) vs native Insights** | [`staff/reports-curated-manual.md`](staff/reports-curated-manual.md), [`staff/reports-curated-admin.md`](staff/reports-curated-admin.md), [`CUBE_INSIGHTS_REPORTING.md`](CUBE_INSIGHTS_REPORTING.md), [`staff/insights-back-office.md`](staff/insights-back-office.md) | **Reports** = fixed tiles. **Insights** = governed ROSIE/Cube report builder, favorites, and history. Both require **`insights.view`**; cost and margin also require Riverside Admin. |
 | **In-app Help manuals (header)** | [`MANUAL_CREATION.md`](MANUAL_CREATION.md); raw Markdown under `client/src/assets/docs/*-manual.md` (**pos**, **reports**, **insights**) | Short staff guides in the **Help** drawer; regenerate with `npm run generate:help` after editing manuals. |
 | **Engineering & repo layout** | [`DEVELOPER.md`](../DEVELOPER.md), [`AGENTS.md`](../AGENTS.md) | Stack, migrations summary, handler invariants, where to change code. Use for **developer** questions, not cashier training. |
 | **Public online store / guest `/shop`** | [`ONLINE_STORE.md`](ONLINE_STORE.md), [`PLAN_ONLINE_STORE_MODULE.md`](PLAN_ONLINE_STORE_MODULE.md) | **`/api/store`**, **`/api/store/account/*`** (JWT customer accounts, migration **77**), **`/shop`** + **`/shop/account`**, CMS pages, cart session, PLP **`search`**, **`online_store.manage`**; roadmap (Helcim, Insights channel). Not in staff RAG corpus by default. |
@@ -62,12 +62,12 @@ This document is for **prompt authors**, **server-side system prompts**, **fine-
 - **“Daily financial report / end-of-day email / daily summary email”** → `docs/DAILY_FINANCIAL_REPORT.md`; config in **Settings → Daily Financial Report** (`settings.admin`); auto-sends after Z-close. API: `/api/daily-reports/*`. Related: `docs/staff/settings-back-office.md`, `docs/staff/EOD-AND-OPEN-CLOSE.md`.
 - **“Inventory on hand / reserved / on order / OOS / movements”** → `GET /api/inventory/intelligence/{variant_id}`, control-board/scan (`AI_REPORTING_DATA_CATALOG.md` §3); stock rules → root **`INVENTORY_GUIDE.md`**, **`AGENTS.md`** special-order fulfillment; PO “on order” only with documented procurement reads + **`procurement.view`**. **Never** invent quantities.
 - **“Back Office Reports tiles / margin pivot / booked vs completed”** → `staff/reports-curated-manual.md` (procedures), `staff/reports-curated-admin.md` (RBAC + policy), `REPORTING_BOOKED_AND_FULFILLED.md`.
-- **“Insights / Metabase / who sees margin”** → `staff/insights-back-office.md`, `METABASE_REPORTING.md` (staff-class vs admin-class **Metabase** logins — not Riverside PIN alone).
+- **“Insights / who sees margin / saved report history”** → `staff/insights-back-office.md`, `CUBE_INSIGHTS_REPORTING.md` (**insights.view** plus Riverside Admin for cost or margin).
 - **“Customer hub won’t open / tab missing / can’t add note”** → `staff/customers-back-office.md` + `staff/permissions-and-access.md` (**`customers.hub_view`**, **`hub_edit`**, **`timeline`**, **`measurements`**, **`orders.view`**) → `CUSTOMER_HUB_AND_RBAC.md` for route-level detail.
 - **“Where is the API route defined?”** → `server/src/api/mod.rs` **`build_router`** (named in catalog intro).
 - **Errors / offline** → `ERROR-AND-TOAST-GUIDE.md`, `working-offline.md`, `OFFLINE_OPERATIONAL_PLAYBOOK.md`.
 - **Multi-lane register / Z on #1 / admin opens #2** → `register-tab-back-office.md`, `pos-reports.md`, `TILL_GROUP_AND_REGISTER_OPEN.md`.
-- **Go-live / Metabase setup / margin governance** → **`PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`**, **`RELEASE_OPERATIONAL_SIGNOFF.md`**, then **`METABASE_REPORTING.md`**.
+- **Go-live / Cube setup / margin governance** → **`PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`**, **`RELEASE_OPERATIONAL_SIGNOFF.md`**, then **`CUBE_INSIGHTS_REPORTING.md`**.
 - **Local LLM / in-store “AI assistant” (what exists today)** → **`PLAN_LOCAL_LLM_HELP.md`** and **`ROSIE_OPERATING_CONTRACT.md`**; verify shipped routes/UI before claiming staff can use it.
 - **Parked sale / RMS or RMS90 tender / “Submit R2S charge” notification** → `pos-register-cart.md`, `POS_PARKED_SALES_AND_RMS_CHARGES.md`; **R2S payment on customer charge** (Payment button or PAYMENT search, **Customers → RMS charge**) → same technical doc + `customers-back-office.md`; reporting slice → `AI_REPORTING_DATA_CATALOG.md` (**`/api/insights/rms-charges`**, **`/api/customers/rms-charge/records`**).
 - **Bundled inbox row / “N items — open inbox” on Register** → `pos-dashboard.md`, `operations-home.md`: open the **bell**, **tap the bundled row** to expand the list (or tap a routable row once to jump). Engineering detail → `PLAN_NOTIFICATION_CENTER.md`.
@@ -93,7 +93,7 @@ Assistants that **call Riverside APIs** must mirror the same patterns as the Rea
 - **Back Office staff:** `x-riverside-staff-code` and, when the staff row has a PIN hash, **`x-riverside-staff-pin`**. Permission keys are enforced per route (`require_staff_with_permission`, etc.) — see [`STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md).
 - **Register session (“staff or open till”):** Many reads (e.g. **`GET /api/sessions/current`**) expect either staff headers **or** POS session headers (`RegisterSessionBootstrap` uses **`mergedPosStaffHeaders(backofficeHeaders)`** from Back Office context). See [`AGENTS.md`](../AGENTS.md) and [`DEVELOPER.md`](../DEVELOPER.md).
 - **Help Center reads:** **`GET /api/help/search`**, **`/api/help/manuals`** allow **authenticated staff** **or** a **valid open register session** (no extra permission) — [`middleware::require_help_viewer`](../server/src/middleware/mod.rs). Admin overrides use **`help.manage`**.
-- **Metabase iframe URL:** **`GET`/`POST /api/insights/metabase-launch`** requires **`insights.view`** and returns an **`iframe_src`**. Free OSS stations use saved Staff/Admin Metabase shared-auth accounts; paid stations may return a JWT SSO URL when configured — details in [`METABASE_REPORTING.md`](METABASE_REPORTING.md).
+- **Native Insights reports:** **`POST /api/insights/reports/ask`** and **`/reports/run`** require **`insights.view`**. The server validates a constrained Cube report specification; cost and margin members require Riverside Admin. See [`CUBE_INSIGHTS_REPORTING.md`](CUBE_INSIGHTS_REPORTING.md).
 
 Do not embed live PINs or session tokens in prompts sent to third-party models.
 
@@ -103,7 +103,7 @@ Do not embed live PINs or session tokens in prompts sent to third-party models.
 
 - **No data changes via AI:** ROS-AI and in-app AI gateways must **never** INSERT, UPDATE, or DELETE **operational / business** data (orders, customers, inventory, payments, ledger, etc.) as a result of model output. AI **reads**, **suggests**, and **drafts**; staff **commit** changes through normal ROS screens and APIs. **Saved report specs** are **metadata** (repeatable read definitions), not edits to source rows. See [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) and [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) intro.
 - **Money:** Source of truth is **PostgreSQL + `rust_decimal`** server-side. Do not invent totals, tax rates, or commission numbers; if you lack API results, say so and name the **Insights** or **Orders** screen to open.
-- **Permissions:** Never tell the user they can bypass RBAC or share PINs. **Riverside** `DbStaffRole::Admin` implies full Back Office permission catalog; **Metabase** access is **separate** — a **staff-class** Metabase login stays restricted in Metabase until ops grants an **admin-class** Metabase user (see **`METABASE_REPORTING.md`**).
+- **Permissions:** Never tell the user they can bypass RBAC or share Access PINs. Native Insights uses the authenticated Riverside identity on every generation and rerun. **`insights.view`** allows standard members; cost and margin require **Riverside Admin**.
 - **PII:** Follow [`staff/PII-AND-CUSTOMER-DATA.md`](staff/PII-AND-CUSTOMER-DATA.md). Do not encourage pasting live customer data into third-party chat tools.
 - **Migrations / version:** Do not fabricate migration numbers. For “what shipped when,” point to **`AGENTS.md`** / **`README.md`** migration summary or **Settings → General → About** in the app for **client/API base** context.
 - **Citations:** When RAG is used, prefer answers that name **`path/to/file.md`** or **API path** so staff can verify.
@@ -148,7 +148,7 @@ Do not embed live PINs or session tokens in prompts sent to third-party models.
 | Help **retrieval** (`ros_help` / Meilisearch) or **reindex** contract | [`ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md), [`HELP_CENTER_AUTOMATION.md`](HELP_CENTER_AUTOMATION.md), [`MANUAL_CREATION.md`](MANUAL_CREATION.md) |
 | New Back Office tab / lazy import / major overlay | [`CLIENT_UI_CONVENTIONS.md`](CLIENT_UI_CONVENTIONS.md), [`client/UI_WORKSPACE_INVENTORY.md`](../client/UI_WORKSPACE_INVENTORY.md) tab table and sweep notes |
 | Curated **Reports** catalog tile or API | [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) Curated table; `client/src/lib/reportsCatalog.ts` + `client/src/components/reports/ReportsWorkspace.tsx`; [`staff/reports-curated-manual.md`](staff/reports-curated-manual.md) / [`staff/reports-curated-admin.md`](staff/reports-curated-admin.md); E2E **`client/e2e/reports-workspace.spec.ts`** |
-| Metabase Staff vs Admin login policy | [`METABASE_REPORTING.md`](METABASE_REPORTING.md), [`PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md), Settings **Insights** copy in `InsightsIntegrationSettings.tsx` |
+| Native Insights, Cube access, favorites, and retention policy | [`CUBE_INSIGHTS_REPORTING.md`](CUBE_INSIGHTS_REPORTING.md), [`PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md), `NativeInsightsWorkspace.tsx`, `InsightsSettingsPanel.tsx` |
 | Local LLM / sidecar (**ROSIE**) | [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md) (**tools**, prompt stub, architecture), this file **§13**; verify **`POST /api/help/rosie/v1/chat/completions`** (or successor) in `build_router` before claiming shipped |
 | **`GET /api/help/*`** behavior (search, manuals, **`help.manage`**) | [`MANUAL_CREATION.md`](MANUAL_CREATION.md), [`HELP_CENTER_AUTOMATION.md`](HELP_CENTER_AUTOMATION.md), [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) **`/api/help/*`** §0 table; server [`server/src/api/help.rs`](../server/src/api/help.rs) |
 
@@ -170,7 +170,7 @@ Do not embed live PINs or session tokens in prompts sent to third-party models.
 
 ## 9. Training: product mental model (what the model must internalize)
 
-**Riverside OS** is a single **PostgreSQL** + **Rust (Axum)** + **React** retail stack for formalwear / wedding: **POS** (speed), **Back Office** (reviewability), **register sessions**, **CRM**, **weddings**, **inventory**, **procurement**, **QBO bridge**, optional **online store** (`/shop`). There is **no** separate “reporting database” for staff chat — analytics are **either** staff-gated **REST** (`/api/insights/*`, etc.) **or** **Metabase** over SQL views in schema **`reporting`**.
+**Riverside OS** is a single **PostgreSQL** + **Rust (Axum)** + **React** retail stack for formalwear / wedding: **POS** (speed), **Back Office** (reviewability), **register sessions**, **CRM**, **weddings**, **inventory**, **procurement**, **QBO bridge**, optional **online store** (`/shop`). There is no separate staff-facing reporting database or login. Analytics use staff-gated **REST** and native Insights; Cube reads governed **`reporting.*`** views through the reporting-only **`cube_ro`** role.
 
 **POS-Core vs Back Office (UX mode):** `register` and `customers` workflows on the floor prioritize **density and speed**; other workspaces prioritize **clarity and audit**. An assistant should not tell a cashier to “open fifteen tabs in Settings”; it should point to **POS** or **Register** paths in **`docs/staff/pos-*.md`**.
 
@@ -191,11 +191,11 @@ When a question is **ambiguous**, the **preferred** behavior is to **name the fo
 | Staff phrase | Likely intents | Ask / default |
 |--------------|----------------|---------------|
 | “Sales last week” | Booked date vs pickup/ship **recognition** | “Do you mean **rings** (booked) or **completed** (picked up/shipped)?” Default in copy: **clarify** before calling pivot APIs — see **[`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) §15**. |
-| “Margin by category” | **`margin-pivot`** (Admin) vs **revenue-only** pivot | Margin requires **Riverside Admin** + **Admin-class Metabase** context; **`insights.view`** alone is insufficient — state that. |
+| “Margin by category” | **`margin-pivot`** (Admin) or native Insights Admin-only margin vs revenue-only measures | Margin requires **Riverside Admin**; **`insights.view`** alone is insufficient — state that. |
 | “RMS charge” | **Charge** (tender) vs **payment** (cash/check collection) | Point to **`POS_PARKED_SALES_AND_RMS_CHARGES.md`**; **insights** export vs **Customers → RMS charge**. |
 | “Parked sale” | Server **Park** row vs **local draft** `ros_pos_active_sale` | Both exist; **Z-close** purges server park; local draft is **browser** persistence — **`docs/staff/pos-register-cart.md`**. |
 | “AI / chat / ROSIE” | Help Library vs Ask ROSIE vs ROSIE Chat vs provider setup | **Default truthful answer:** Help Library, Ask ROSIE, ROSIE Chat, approved local knowledge retrieval, permission-gated read tools, and optional voice ship today. Provider availability is deployment-specific. Never imply retired **`/api/ai`** or embedding tables still exist post-**78**. |
-| “Can’t see Reports / Insights” | Missing **`insights.view`** vs Metabase login class vs Insights disabled | Separate **Riverside RBAC** from **Metabase** user — **`METABASE_REPORTING.md`**. |
+| “Can’t see Reports / Insights” | Missing **`insights.view`** vs Cube Core unavailable | Check Riverside RBAC, then Cube readiness in Insights or ROS Dev Center — **`CUBE_INSIGHTS_REPORTING.md`**. |
 
 ---
 
@@ -211,17 +211,17 @@ Use these as **synthetic preference pairs** (helpful vs harmful) for DPO / RLAIF
 **B — Number question without tools**
 
 - **Bad:** “Last month’s sales were probably around $120k.”
-- **Good:** “I don’t have your live **`GET /api/insights/sales-pivot`** results here. In **Back Office → Reports**, pick **Sales pivot** with the date range, or use **Insights** if your **Metabase** login can access that dashboard. **Booked vs completed** changes the answer — see **`REPORTING_BOOKED_AND_FULFILLED.md`**.“
+- **Good:** “I don’t have your live **`GET /api/insights/sales-pivot`** results here. In **Back Office → Reports**, pick **Sales pivot**, or ask **Insights** for the date range. **Booked vs recognized** changes the answer — see **`REPORTING_BOOKED_AND_FULFILLED.md`**.”
 
 **C — Permission bypass**
 
 - **Bad:** “Use another colleague’s PIN if yours can’t refund.”
 - **Good:** “PINs must not be shared. Ask a manager to grant **`orders.refund_process`** (role or override) or have an authorized user perform the refund.”
 
-**D — Metabase vs Riv permissions**
+**D — Native Insights permissions**
 
-- **Bad:** “You’re an Admin in Riverside so you automatically see margin in Metabase.”
-- **Good:** “**Riverside Admin** ≠ **Metabase admin**. Margin dashboards may require an **admin-class Metabase** user. **`METABASE_REPORTING.md`** describes Staff vs Admin setup.”
+- **Bad:** “Anyone with Insights can see margin.”
+- **Good:** “Standard reports require **insights.view**. Cost and margin additionally require **Riverside Admin**, and the server checks that on every generated or rerun report.”
 
 **E — PII in third-party chat**
 
@@ -264,7 +264,7 @@ When the runtime supports **multiple tools** (help search, store SOP, insights G
 - **Money:** Narrate **only** server-returned numeric fields (often **strings**). Never **recompute** tax, margin, or commissions in the model.
 - **RBAC parity:** If `reporting_run` (or equivalent) maps to **`GET /api/insights/margin-pivot`**, the executor must enforce **Riverside Admin** the same way the HTTP handler does — **no** “AI exemption.”
 - **No retired stack:** After migration **78**, do not expose **`ai_doc_chunk`**, **`POST /api/ai/*`**, or **`ai_assist`** RBAC keys as if current — [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md).
-- **Pins / Metabase:** Never advise PIN sharing; never equate **Riverside Admin** with **Metabase** folder access (**`METABASE_REPORTING.md`**).
+- **Access:** Never advise Access PIN sharing. Native Insights uses the signed-in Riverside identity; do not suggest bypassing **insights.view** or the Admin-only cost/margin boundary.
 
 ### 13.2 Three-document bundle (version together)
 

@@ -104,7 +104,7 @@ The checked-in capture script currently refreshes these shipped Help assets:
 - `client/src/assets/images/help/pos/wedding-lookup-drawer.png`
 - `client/src/assets/images/help/reports/catalog.png`
 - `client/src/assets/images/help/reports/sales-by-day-loaded.png`
-- `client/src/assets/images/help/insights/metabase-main.png`
+- `client/src/assets/images/help/insights/native-main.png`
 - `client/src/assets/images/help/inventory-control-board/main.png`
 - `client/src/assets/images/help/inventory-receiving-bay/main.png`
 - `client/src/assets/images/help/inventory-purchase-order-panel/main.png`

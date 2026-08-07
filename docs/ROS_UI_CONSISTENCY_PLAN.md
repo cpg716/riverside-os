@@ -103,7 +103,7 @@ For **each** primary component below: (a) fix misclassified instructional copy (
 | `staff` | `StaffWorkspace`, schedule, tasks, commission, PIN/access modals |
 | `qbo` | `QboWorkspace`, staging drill-down modals |
 | `appointments` | `SchedulerWorkspace`, [`AppointmentModal.tsx`](../client/src/components/scheduler/AppointmentModal.tsx) |
-| `dashboard` | `InsightsShell` / Metabase embed chrome |
+| `dashboard` | `InsightsShell` / native conversational reporting workspace |
 | `settings` | `SettingsWorkspace` and **all** nested panels (profile, general, backups, integrations: weather, Podium, Meilisearch, Counterpoint, online store, help center, insights integration, etc.) |
 
 ### POS mode (`PosShell`)

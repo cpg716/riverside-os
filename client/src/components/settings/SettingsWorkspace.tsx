@@ -201,7 +201,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   nuorder: "NuORDER catalog and vendor sync configuration.",
   geoapify: "Address lookup setup for customer, vendor, and shipping entry.",
   weather: "Weather provider settings for store planning signals.",
-  insights: "Reporting and Metabase launch configuration.",
+  insights: "Native ROSIE reporting, Cube policy, favorites, and report history.",
   meilisearch: "Search index health, reindex controls, and diagnostics.",
   "help-center": "Help Center content, manuals, and staff guidance publishing.",
   rosie: "ROSIE assistant settings and runtime behavior.",
@@ -227,7 +227,6 @@ const SETTINGS_HUB_INTEGRATION_BRANDS: Partial<
   "constant-contact": "constant_contact",
   nuorder: "nuorder",
   weather: "weather",
-  insights: "metabase",
   meilisearch: "meilisearch",
 };
 
@@ -1232,11 +1231,10 @@ export default function SettingsWorkspace({
                     },
                     {
                       id: "insights",
-                      label: "Metabase Insights",
-                      desc: "Enterprise reporting & SSO",
+                      label: "Native Data Insights",
+                      desc: "ROSIE reports, Cube policy & history",
                       color: "bg-app-surface",
-                      brand: "metabase" as IntegrationBrand,
-                      brandKind: "icon" as const,
+                      icon: Database,
                     },
                     {
                       id: "weather",

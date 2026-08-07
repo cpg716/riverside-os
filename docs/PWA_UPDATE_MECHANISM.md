@@ -34,7 +34,7 @@ VitePWA({
     maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
     cleanupOutdatedCaches: true,
     navigateFallback: "/index.html",
-    navigateFallbackDenylist: [/^\/api\//, /^\/metabase(\/|$)/],
+    navigateFallbackDenylist: [/^\/api\//],
   },
 })
 ```

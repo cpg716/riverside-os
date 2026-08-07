@@ -2,7 +2,7 @@
 id: reports
 title: "Reports (curated)"
 order: 14
-summary: "Back Office Reports library: categorized searchable report tiles, booked vs completed basis, CSV, Admin-only margin; vs Insights (Metabase)."
+summary: "Back Office Reports library: categorized searchable report tiles, booked vs completed basis, CSV, Admin-only margin, and native conversational Insights."
 tags: reports, analytics, insights, pivot, margin, rbac, search, categories
 ---
 
@@ -16,7 +16,7 @@ tags: reports, analytics, insights, pivot, margin, rbac, search, categories
 
 ![Insights dashboard context](../images/help/reports/workflow-3.png)
 
-**Back Office → Reports** shows a **catalog** of read-only reports. Each card is wired to **Riverside** APIs and **your permissions** (not Metabase’s).
+**Back Office → Reports** shows a **catalog** of read-only reports. Each card is wired to **Riverside** APIs and **your permissions**.
 
 ## Who can open it
 
@@ -71,9 +71,9 @@ Each report card shows an icon, category, intended audience, and sensitivity:
 ## Reports vs Insights
 
 - **Reports** — fixed list, fast answers, **Riverside RBAC**. Only **Admin** Riverside roles get **Margin pivot** here.
-- **Insights** — **Metabase**. Your store should give you a **staff** or **admin** **Metabase** login; that controls margin and private collections inside Metabase.
+- **Insights** — native conversational reporting. Ask ROSIE for a custom governed report, refine it, save it as a favorite, or reopen its history. Riverside permissions apply, and cost or margin remains Admin-only.
 
-Use **Open Insights (Metabase)** on the Reports page when you need dashboards or custom questions.
+Use **Open Advanced Reports** on the Reports page when you need a custom question, chart, favorite, or reusable report history.
 
 ## Payouts and register tools
 
@@ -102,9 +102,9 @@ Use **Open Insights (Metabase)** on the Reports page when you need dashboards or
 
 - CSV exports land in your browser's download folder for spreadsheet analysis.
 - Printed reports are formatted for standard 8.5x11 paper or PDF.
-- If you need a custom chart not found here, switch to the **Insights (Metabase)** manual.
+- If you need a custom chart not found here, switch to the **Insights** manual.
 
 ## Related workflows
 
-- [Insights (Metabase)](manual:insights)
+- [Insights — conversational reporting](manual:insights)
 - [Register Reports](manual:pos-register-reports)

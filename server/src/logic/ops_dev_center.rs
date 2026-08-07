@@ -1138,29 +1138,6 @@ fn looks_placeholder(value: &str) -> bool {
         || lower.contains("example")
 }
 
-fn saved_or_env(
-    values: &HashMap<String, String>,
-    credential_key: &str,
-    env_key: &str,
-) -> Option<String> {
-    values
-        .get(credential_key)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| nonempty_env(env_key))
-}
-
-fn metabase_jwt_secret_configured(values: &HashMap<String, String>) -> bool {
-    saved_or_env(
-        values,
-        "metabase_jwt_secret",
-        "RIVERSIDE_METABASE_JWT_SECRET",
-    )
-    .map(|secret| secret.len() >= 16)
-    .unwrap_or(false)
-}
-
 pub async fn runtime_diagnostics_snapshot(
     pool: &PgPool,
     meilisearch_configured: bool,
@@ -1256,59 +1233,22 @@ pub async fn runtime_diagnostics_snapshot(
             .fetch_one(pool)
             .await?;
     let insights = StoreInsightsConfig::from_json_value(insights_raw);
-    let metabase_credentials = integration_credentials::load_integration_credentials(
-        pool,
-        "insights",
-        &[
-            "metabase_jwt_secret",
-            "metabase_admin_email",
-            "metabase_admin_password",
-            "metabase_staff_email",
-            "metabase_staff_password",
-        ],
-    )
-    .await
-    .unwrap_or_default();
-    let shared_auth_ready = [
-        ("metabase_admin_email", "RIVERSIDE_METABASE_ADMIN_EMAIL"),
+    let cube_secret_ready = nonempty_env("RIVERSIDE_CUBE_API_SECRET")
+        .or_else(|| nonempty_env("CUBEJS_API_SECRET"))
+        .is_some_and(|secret| secret.len() >= 32);
+    let (cube_value, cube_detail, cube_severity) = if cube_secret_ready {
         (
-            "metabase_admin_password",
-            "RIVERSIDE_METABASE_ADMIN_PASSWORD",
-        ),
-        ("metabase_staff_email", "RIVERSIDE_METABASE_STAFF_EMAIL"),
-        (
-            "metabase_staff_password",
-            "RIVERSIDE_METABASE_STAFF_PASSWORD",
-        ),
-    ]
-    .iter()
-    .all(|(credential_key, env_key)| {
-        saved_or_env(&metabase_credentials, credential_key, env_key).is_some()
-    });
-    let metabase_jwt_ready =
-        insights.metabase_jwt_sso_enabled && metabase_jwt_secret_configured(&metabase_credentials);
-    let (metabase_value, metabase_detail, metabase_severity) = if metabase_jwt_ready {
-        (
-            "JWT SSO".to_string(),
-            "Insights uses signed staff JWT handoff into Metabase.".to_string(),
+            "Configured".to_string(),
+            format!(
+                "Native Insights signs governed Cube Core queries. Row limit: {}; history archive: {} days.",
+                insights.cube_max_rows, insights.history_archive_days
+            ),
             "info".to_string(),
-        )
-    } else if !insights.metabase_jwt_sso_enabled && shared_auth_ready {
-        (
-            "Shared auth".to_string(),
-            "Insights uses the shared Metabase session fallback for staff launch.".to_string(),
-            "warning".to_string(),
-        )
-    } else if insights.metabase_jwt_sso_enabled {
-        (
-            "Fallback login".to_string(),
-            "JWT SSO is enabled in settings, but the server-side JWT secret is missing or too short, so staff fall back to the Metabase login screen.".to_string(),
-            "warning".to_string(),
         )
     } else {
         (
-            "Fallback login".to_string(),
-            "No automatic Metabase auth is fully configured, so staff land on the Metabase login screen.".to_string(),
+            "Needs secret".to_string(),
+            "RIVERSIDE_CUBE_API_SECRET must match CUBEJS_API_SECRET and contain at least 32 characters.".to_string(),
             "warning".to_string(),
         )
     };
@@ -1414,11 +1354,11 @@ pub async fn runtime_diagnostics_snapshot(
                 severity: shippo_severity,
             },
             RuntimeDiagnosticItem {
-                key: "metabase_auth".to_string(),
-                label: "Metabase Auth".to_string(),
-                value: metabase_value,
-                detail: metabase_detail,
-                severity: metabase_severity,
+                key: "cube_core".to_string(),
+                label: "Cube Core".to_string(),
+                value: cube_value,
+                detail: cube_detail,
+                severity: cube_severity,
             },
             RuntimeDiagnosticItem {
                 key: "search_mode".to_string(),

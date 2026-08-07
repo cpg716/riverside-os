@@ -75,10 +75,10 @@ In wedding and formalwear retail, customers often "book" a transaction months be
 
 ## Reporting Semantics in ROS
 
-### Metabase & Insights
+### Native Insights
 - `reporting.transactions_core` and `reporting.order_lines` include both booked and recognition dates.
-- Most financial dashboards default to **Recognition Date** (Fulfillment).
-- Performance/Volume dashboards use **Booked Date** to track current sales activity.
+- Cube exposes separate **booked** and **recognized** datasets so the basis cannot change silently.
+- Ask for **recognized** reporting for fulfilled revenue and **booked** reporting for current sales activity or pipeline.
 
 ### Sales Tax Tracking
 Strictly **Fulfilled-only**. Items are only taxed when they leave the store (Fulfillment).

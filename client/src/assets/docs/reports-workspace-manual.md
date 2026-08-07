@@ -49,7 +49,7 @@ Use Reports to find sales, register, finance, customer, wedding, inventory, staf
 
 ## Operational detail
 
-Use Reports when the store needs a repeatable answer with the same filters, basis, and permissions every time. Use Insights when leadership needs dashboard exploration or Metabase-level analysis. Category colors and icons are visual shortcuts only; Riverside permissions decide what each staff member can open. If a report is marked planned, treat it as searchable roadmap guidance only; it should not be used as proof of a current operational total.
+Use Reports when the store needs a repeatable curated answer with the same filters, basis, and permissions every time. Use Insights when staff need a custom governed report, natural-language refinement, a saved favorite, or reusable report history. Category colors and icons are visual shortcuts only; Riverside permissions decide what each staff member can open. If a report is marked planned, treat it as searchable roadmap guidance only; it should not be used as proof of a current operational total.
 
 
 ## What to watch for
@@ -78,4 +78,4 @@ Report cards open a detail view and load current data from Riverside.
 - Reports (curated) staff manual
 - Daily Sales Reports
 - Booked vs Fulfilled reporting
-- Insights / Metabase
+- Insights conversational reporting

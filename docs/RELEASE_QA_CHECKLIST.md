@@ -19,13 +19,13 @@
 - Run **`cd client && npm install`**.
 - Keep **`server/.env`** present for local parity (copy from **`server/.env.example`**). For local Docker Postgres, **`DATABASE_URL`** must use **`localhost:5433`**.
 - Keep DB-backed tests isolated from the application connection: set both **`TEST_DATABASE_URL`** and **`DATABASE_URL`** to **`postgresql://postgres:password@localhost:5433/riverside_os`** for the test process, apply every active migration through the current ceiling (**129**), and verify the Docker migration ledger before running Rust integration tests.
-- If you expect automatic local Metabase sign-in, configure the local **Metabase Admin/Staff** shared-auth values in **Settings → Integrations → Insights**. **`RIVERSIDE_METABASE_ADMIN_*`** and **`RIVERSIDE_METABASE_STAFF_*`** in **`server/.env`** are fallback/bootstrap only.
+- For native Insights, set matching long **`CUBEJS_API_SECRET`** and **`RIVERSIDE_CUBE_API_SECRET`** values. Production Cube must connect as **`cube_ro`**.
 - Expected local services and ports:
   - Postgres **5433**
   - API **3000**
   - Vite **5173**
   - deterministic E2E API/UI **43300 / 43173**
-  - Metabase **3001**
+  - Cube Core **4000** (loopback only)
   - Meilisearch **7700** when used
 - Expected seed/state assumptions:
   - **`store_settings`** row **`id = 1`**
@@ -74,7 +74,7 @@ npm run dev:e2e
 
 This boots Docker Postgres, reapplies any pending migrations, seeds the standard E2E staff fixtures, and starts the Rust API plus the Vite UI used by browser specs.
 
-**Local env requirement:** the API process still reads **`server/.env`** (or exported shell env). For local Docker runs, **`DATABASE_URL`** must target **`localhost:5433`**. If your RC validation expects automatic Metabase sign-in instead of a standalone Metabase login screen, ensure **Settings → Integrations → Insights** has saved Metabase Admin/Staff shared-auth credentials; **`server/.env`** Metabase credentials are fallback/bootstrap only.
+**Local env requirement:** the API process still reads **`server/.env`** (or exported shell env). For local Docker runs, **`DATABASE_URL`** must target **`localhost:5433`**. Native Insights requires **`RIVERSIDE_CUBE_API_SECRET`** to match the Cube service's **`CUBEJS_API_SECRET`**.
 **Root dependency requirement:** repo-root helpers such as **`npm run dev:e2e`**, **`npm run test:e2e:*`**, and **`npm run pack`** expect the root package dependencies to be installed in this worktree, not borrowed through ad hoc symlinks.
 
 ### Terminal 2: run tests from client

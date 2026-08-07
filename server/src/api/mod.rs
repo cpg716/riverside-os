@@ -33,6 +33,7 @@ pub mod bug_reports;
 pub mod categories;
 pub mod counterpoint_sync;
 pub mod counterpoint_workbench;
+pub mod cube_insights;
 pub mod customer_notifications;
 pub mod customers;
 pub mod daily_reports;
@@ -47,7 +48,6 @@ pub mod integrations_cc;
 pub mod inventory;
 pub mod loyalty;
 pub mod mailbox;
-pub mod metabase_proxy;
 pub mod notifications;
 pub mod ops;
 pub mod order_lifecycle;
@@ -247,12 +247,14 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
     let mut router = Router::new()
         .route("/api/version", get(api_version))
         .route("/api/network-info", get(api_network_info))
-        .merge(metabase_proxy::router())
         .nest("/api/ai", ai::router())
         .nest("/api/inventory", inventory::router())
         .nest("/api/inventory/physical", physical_inventory::router())
         .nest("/api/alterations", alterations::router())
-        .nest("/api/insights", insights::router())
+        .nest(
+            "/api/insights",
+            insights::router().merge(cube_insights::router()),
+        )
         .nest("/api/transactions", transactions::router())
         .nest("/api/categories", categories::router())
         .nest("/api/products", products::router())

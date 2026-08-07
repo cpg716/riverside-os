@@ -109,7 +109,7 @@ ROSIE is designed to **stay current** as Riverside evolves. “Learning” means
 
 1. **Constitution layer (maintained Markdown, human-reviewed):**
    - **[`AI_CONTEXT_FOR_ASSISTANTS.md`](AI_CONTEXT_FOR_ASSISTANTS.md)** — **Intent routing** (staff corpus vs **`GET /api/help/search`** vs reporting vs store SOP API), **safety non-negotiables**, **authenticated access** patterns, training §9–§12, and **[§13 — ROSIE runtime contract](AI_CONTEXT_FOR_ASSISTANTS.md)** (tool policy, RAG allow/deny, three-doc bundle). Treat as the **primary source** when drafting ROSIE’s controlling prompt (or when chunking for RAG).
-   - **[`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md)** — **Exhaustive read inventory (§0)**, **Curated Reports v1** (tile → route), **ROSIE** note under canonical router, **`reporting.*` / Metabase** context, **RBAC labeling contract**, and **[§15](AI_REPORTING_DATA_CATALOG.md)** (time/`basis` / NL→route). The model must **map** natural language to **`spec_id` + params** (or exact **`GET` paths**) already listed here—**never** invent SQL or new endpoints in the prompt.
+   - **[`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md)** — **Exhaustive read inventory (§0)**, **Curated Reports v1** (tile → route), native Cube **`reporting.*`** context, **RBAC labeling contract**, and **[§15](AI_REPORTING_DATA_CATALOG.md)** (time/`basis` / NL→route). For native Insights, the model may only produce the constrained report tool schema; it must never invent SQL or endpoints.
 
 2. **Grounding:** Keep an **allow-listed** RAG corpus (hashed chunks) including—at minimum—`docs/staff/*` (manifest-driven), `client/src/assets/docs/*-manual.md`, **`AI_CONTEXT_FOR_ASSISTANTS.md`**, **`AI_REPORTING_DATA_CATALOG.md`** (may be large; chunk by §), plus [`AGENTS.md`](../AGENTS.md) excerpts for invariants when **developer-mode** ROSIE is enabled.
 
@@ -138,7 +138,7 @@ Use as the non-droppable prefix for **production** ROSIE (local or hosted stub).
 ```
 You are ROSIE (RiversideOS Intelligence Engine)—assistive only. Your mission: help users learn Riverside OS, help staff use the product, help admins operate it responsibly, explain sales/inventory/finance via read tools and docs, and (for authorized roles) triage Bug Center items and SUGGEST code fixes as diffs for human review—never merge code yourself. You NEVER change business logic or store state. You do NOT execute SQL, write to Postgres, mutate orders/customers/inventory/payments/ledger rows, or bypass RBAC. You learn Riverside by docs, tool traces, and governed corpora—not by altering data. Numeric truth: only from tool JSON the Riverside Axum server returned. Procedures: cite docs/staff paths or help manual anchors.
 
-Follow docs/AI_CONTEXT_FOR_ASSISTANTS.md invariants (money: rust_decimal; no PIN sharing; Metabase ≠ Riverside Admin for margin). Reporting: map questions to whitelisted read tools only; spec_id and params MUST match docs/AI_REPORTING_DATA_CATALOG.md §0 and §15 (basis booked vs recognition—ask if unclear).
+Follow docs/AI_CONTEXT_FOR_ASSISTANTS.md invariants (money: rust_decimal; no Access PIN sharing; Riverside Admin required for cost/margin). Reporting: map questions to whitelisted read tools or the constrained native Insights ReportSpec only; basis booked vs recognition must be explicit when it changes the answer.
 
 Policy pack: {POLICY_PACK_VERSION}. If a tool returns 403, explain Missing permission—do not suggest workarounds that violate policy.
 ```
@@ -348,7 +348,7 @@ Add a **staff-gated** forwarder (new handler in [`server/src/api/help.rs`](../se
 | **Upstream** | Env **`RIVERSIDE_LLAMA_UPSTREAM`** (e.g. **`http://127.0.0.1:8080`**) — **strip** trailing slash; forward to **`{upstream}/v1/chat/completions`**. **Unset or empty** → **503** JSON error (no silent fallback). |
 | **Safety** | Respect Axum **`DefaultBodyLimit`** (or route-specific limit) for JSON size; **do not** blindly forward browser **`Authorization`** to llama unless product adds a **server-side API key** for the upstream. |
 | **Timeout** | Shared **`http_client`** in [`main.rs`](../server/src/main.rs) is currently **25s** — may need a **longer** client or dedicated **`reqwest::Client`** for LLM + **SSE** streams. |
-| **Streaming** | Prefer **SSE** / **chunked** proxy pattern (see [`metabase_proxy.rs`](../server/src/api/metabase_proxy.rs)); **non-streaming JSON** OK for an MVP. |
+| **Streaming** | Prefer the existing ROSIE SSE/chunked provider path where progressive output is useful; **non-streaming JSON** is appropriate for validated report-tool execution. |
 
 ### Deployment diagram (parity)
 
