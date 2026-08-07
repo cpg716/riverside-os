@@ -564,12 +564,100 @@ function Invoke-PsqlAdminDatabase($PsqlPath, $Db, $DatabaseName, $Sql) {
   }
 }
 
-function Ensure-OptionalReportingRole($PsqlPath, $Db) {
+function Invoke-PsqlAdminScalar($PsqlPath, $Db, $DatabaseName, $Sql) {
+  $env:PGPASSWORD = $Db.adminPassword
   try {
-    Invoke-PsqlAdmin $PsqlPath $Db "DO `$`$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cube_ro') THEN CREATE ROLE cube_ro LOGIN; ELSE ALTER ROLE cube_ro LOGIN; END IF; END `$`$;"
+    $adminUrl = "postgresql://$($Db.adminUser)@$($Db.host):$($Db.port)/$DatabaseName"
+    return Invoke-PsqlScalar $PsqlPath $adminUrl $Sql
+  } finally {
+    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+  }
+}
+
+function Ensure-OptionalReportingRole($PsqlPath, $Db, [switch]$Required) {
+  try {
+    Invoke-PsqlAdmin $PsqlPath $Db "DO `$`$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cube_ro') THEN CREATE ROLE cube_ro LOGIN NOINHERIT; ELSE ALTER ROLE cube_ro LOGIN NOINHERIT; END IF; END `$`$;"
   } catch {
+    if ($Required) {
+      throw "Could not provision the required Cube reporting role cube_ro: $($_.Exception.Message)"
+    }
     Write-Warning "Could not create optional reporting role cube_ro. Reporting grants will be skipped where supported."
   }
+}
+
+function Invoke-CubeRoleMigrationFile($PsqlPath, $Db, [string]$FilePath) {
+  Ensure-OptionalReportingRole $PsqlPath $Db -Required
+
+  $appUser = "$($Db.appUser)".Trim()
+  if ([string]::IsNullOrWhiteSpace($appUser)) {
+    throw "PostgreSQL app role is required for Cube reporting migration compatibility."
+  }
+
+  $appUserLiteral = Escape-SqlLiteral $appUser
+  $appUserIdentifier = Quote-SqlIdentifier $appUser
+  $hadCreateRole = Invoke-PsqlAdminScalar $PsqlPath $Db $Db.databaseName "SELECT rolcreaterole FROM pg_roles WHERE rolname = '$appUserLiteral';"
+  if ($hadCreateRole -notin @("t", "f")) {
+    throw "Could not determine PostgreSQL role-management state for the app role."
+  }
+
+  $membershipState = Invoke-PsqlAdminScalar $PsqlPath $Db $Db.databaseName @"
+SELECT COALESCE(
+  (
+    SELECT CASE WHEN membership.admin_option THEN 'admin' ELSE 'member' END
+    FROM pg_auth_members membership
+    JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+    JOIN pg_roles member_role ON member_role.oid = membership.member
+    WHERE granted_role.rolname = 'cube_ro'
+      AND member_role.rolname = '$appUserLiteral'
+    LIMIT 1
+  ),
+  'none'
+);
+"@
+  if ($membershipState -notin @("none", "member", "admin")) {
+    throw "Could not determine Cube reporting-role membership for the app role."
+  }
+
+  $enableSql = @()
+  $restoreSql = @()
+  if ($hadCreateRole -eq "f") {
+    $enableSql += "ALTER ROLE $appUserIdentifier CREATEROLE;"
+    $restoreSql += "ALTER ROLE $appUserIdentifier NOCREATEROLE;"
+  }
+  if ($membershipState -ne "admin") {
+    $enableSql += "GRANT cube_ro TO $appUserIdentifier WITH ADMIN OPTION;"
+    if ($membershipState -eq "none") {
+      $restoreSql = @("REVOKE cube_ro FROM $appUserIdentifier;") + $restoreSql
+    } else {
+      $restoreSql = @("REVOKE ADMIN OPTION FOR cube_ro FROM $appUserIdentifier;") + $restoreSql
+    }
+  }
+
+  $env:PGPASSWORD = $Db.adminPassword
+  try {
+    $adminUrl = "postgresql://$($Db.adminUser)@$($Db.host):$($Db.port)/$($Db.databaseName)"
+    $arguments = @($adminUrl, "-v", "ON_ERROR_STOP=1", "-1", "-w")
+    if ($enableSql.Count -gt 0) {
+      $arguments += @("-c", ($enableSql -join " "))
+    }
+    $arguments += @(
+      "-c", "SET ROLE $appUserIdentifier;",
+      "-f", $FilePath,
+      "-c", "RESET ROLE;"
+    )
+    if ($restoreSql.Count -gt 0) {
+      $arguments += @("-c", ($restoreSql -join " "))
+    }
+
+    $exitCode = Invoke-NativeCommand $PsqlPath $arguments
+    if ($exitCode -ne 0) {
+      throw "psql failed with exit code $exitCode. $script:lastNativeCommandOutput"
+    }
+  } finally {
+    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
+  }
+
+  Write-Host "Applied Cube reporting migration with transaction-scoped role administration; app role privileges restored."
 }
 
 function Ensure-DatabaseExtension($PsqlPath, $Db, [string]$DatabaseName, [string]$ExtensionName) {
@@ -704,7 +792,11 @@ function Test-RiversideApiEndpoint([string]$Url, [string]$ExpectedPrefixPattern)
   try {
     $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 5
     $content = "$($response.Content)".TrimStart()
-    return $response.StatusCode -eq 200 -and ($content -match $ExpectedPrefixPattern)
+    $matched = $response.StatusCode -eq 200 -and ($content -match $ExpectedPrefixPattern)
+    if ($matched) {
+      $script:lastRiversideApiReadyError = $null
+    }
+    return $matched
   } catch {
     $script:lastRiversideApiReadyError = $_.Exception.Message
     return $false
@@ -717,7 +809,13 @@ function Get-RiversideServerStartupStatus {
     $task = Get-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue
     if ($task) {
       $info = Get-ScheduledTaskInfo -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue
-      $lastResult = if ($info) { $info.LastTaskResult } else { "unknown" }
+      $lastResult = if (-not $info) {
+        "unknown"
+      } elseif ($info.LastTaskResult -eq 267009) {
+        "running (0x41301)"
+      } else {
+        $info.LastTaskResult
+      }
       $taskSummary = "task state: $($task.State), last result: $lastResult"
     }
   } catch {
@@ -760,16 +858,23 @@ function Wait-RiversideApiReady([string]$BaseUrl, [int]$Port) {
   }
 
   Write-Host "Waiting for Riverside OS database readiness at $readyUrl..."
+  $script:lastRiversideApiReadyError = $null
   $deadline = (Get-Date).AddSeconds(180)
   $readyPassed = $false
+  $lastReadyStatusAt = (Get-Date).AddSeconds(-10)
   do {
     if (Test-RiversideApiEndpoint $readyUrl '^\{') {
       Write-Host "Riverside OS readiness check passed at $readyUrl"
       $readyPassed = $true
       break
     }
-    if ($script:lastRiversideApiReadyError) {
-      Write-Host "API readiness check is not ready yet: $script:lastRiversideApiReadyError"
+    if ($script:lastRiversideApiReadyError -and (Get-Date) -ge $lastReadyStatusAt.AddSeconds(10)) {
+      if ($script:lastRiversideApiReadyError -match '\(503\)') {
+        Write-Host "Riverside OS database readiness is warming up; retrying."
+      } else {
+        Write-Host "API readiness check is not ready yet: $script:lastRiversideApiReadyError"
+      }
+      $lastReadyStatusAt = Get-Date
     }
     Start-Sleep -Seconds 2
   } while ((Get-Date) -lt $deadline)
@@ -1304,6 +1409,10 @@ function Escape-SqlLiteral([string]$Value) {
   return $Value.Replace("'", "''")
 }
 
+function Quote-SqlIdentifier([string]$Value) {
+  return '"' + $Value.Replace('"', '""') + '"'
+}
+
 function Resolve-ServerEnvironmentMode($Config) {
   $mode = "$($Config.server.environmentMode)".Trim().ToLowerInvariant()
   if ([string]::IsNullOrWhiteSpace($mode)) {
@@ -1525,6 +1634,8 @@ function Install-RosieStack($PackageRoot) {
       $rosieStatus = Get-Content -Raw $statusPath | ConvertFrom-Json
       if ($rosieStatus.ready -eq $true) {
         Write-Host "ROSIE: Component status reports full stack readiness."
+      } elseif ($rosieStatus.installation_ready -eq $true) {
+        Write-Host "ROSIE: Runtime assets verified. Functional certification will run next."
       } else {
         Write-Warning "ROSIE: Component status reports partial setup. LLM may still be configured if the Gemma model is present."
       }
@@ -1717,7 +1828,7 @@ END $$;
   Invoke-Psql $PsqlPath $DatabaseUrl $sql
 }
 
-function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir) {
+function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir, $DbConfig) {
   Write-DeploymentStatus "MIGRATING" "Starting database migrations"
   $files = Get-ChildItem $MigrationsDir -Filter "*.sql" |
     Where-Object { $_.Name -match '^\d+[a-zA-Z]?_.*\.sql$' } |
@@ -1755,7 +1866,11 @@ function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir) {
     Write-Host "Apply migration $($file.Name)"
     try {
       Repair-PublicSerialSequences $PsqlPath $DatabaseUrl
-      Invoke-PsqlFile $PsqlPath $DatabaseUrl $file.FullName
+      if ($file.Name -eq "185_cube_insights_and_saved_reports.sql") {
+        Invoke-CubeRoleMigrationFile $PsqlPath $DbConfig $file.FullName
+      } else {
+        Invoke-PsqlFile $PsqlPath $DatabaseUrl $file.FullName
+      }
     } catch {
       throw "Migration failed: $($file.Name). $($_.Exception.Message)"
     }
@@ -2227,7 +2342,7 @@ if ($script:postgresReachable) {
       }
       $env:PGPASSWORD = $db.appPassword
       try {
-        Apply-Migrations $psql $databaseUrl (Join-Path $releaseDir "migrations")
+        Apply-Migrations $psql $databaseUrl (Join-Path $releaseDir "migrations") $db
         Apply-SeedFiles $psql $databaseUrl (Join-Path $releaseDir "seeds")
         Set-DatabaseEnvironmentMode $psql $databaseUrl (Resolve-ServerEnvironmentMode $config)
       } finally {

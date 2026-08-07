@@ -81,6 +81,8 @@ RIVERSIDE_CUBE_REPORTING_DB_PASSWORD=...
 
 Migration 185 creates or upgrades **`cube_ro`** as a login role when the migration owner is privileged, grants database connect plus read access to **`reporting.*`**, revokes access to **`public.*`**, and sets a 20-second statement timeout. Set the role password outside migrations. If migrations run without PostgreSQL role-management privileges, create the role as an administrator and rerun the grants.
 
+The Windows Main Hub installer keeps migration-owned tables and views under the normal PostgreSQL app role. For migration 185 only, it grants the app role the required role-management authority inside the same database transaction, runs the migration with **`SET ROLE`**, and restores the app role's prior privileges before commit. A migration or cleanup failure rolls back both the schema work and the temporary authority.
+
 ## Operations
 
 - Cube readiness: **`GET http://127.0.0.1:4000/readyz`** on the Main Hub.

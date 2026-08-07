@@ -249,6 +249,14 @@ export default function RosieSettingsPanel() {
 
   const runIntelligenceRefresh = async (reindexSearch: boolean) => {
     if (!canManageIntelligence) return;
+    if (!intelligenceStatus?.refresh_capabilities.generate_help_manifest) {
+      toast("ROSIE sources are bundled with this installed release", "info");
+      return;
+    }
+    if (reindexSearch && !intelligenceStatus.refresh_capabilities.reindex_search) {
+      toast("Meilisearch is not configured for Help reindexing", "info");
+      return;
+    }
     setIntelligenceBusy(true);
     try {
       const refreshed = await refreshRosieIntelligence({
@@ -926,7 +934,10 @@ export default function RosieSettingsPanel() {
               <button
                 type="button"
                 onClick={() => void runIntelligenceRefresh(false)}
-                disabled={intelligenceBusy}
+                disabled={
+                  intelligenceBusy ||
+                  !intelligenceStatus?.refresh_capabilities.generate_help_manifest
+                }
                 className="ui-btn-secondary px-3 py-1.5 text-[10px] font-black uppercase tracking-widest"
                 data-testid="rosie-intelligence-refresh"
               >
@@ -938,7 +949,11 @@ export default function RosieSettingsPanel() {
               <button
                 type="button"
                 onClick={() => void runIntelligenceRefresh(true)}
-                disabled={intelligenceBusy}
+                disabled={
+                  intelligenceBusy ||
+                  !intelligenceStatus?.refresh_capabilities.generate_help_manifest ||
+                  !intelligenceStatus?.refresh_capabilities.reindex_search
+                }
                 className="ui-btn-primary px-3 py-1.5 text-[10px] font-black uppercase tracking-widest"
                 data-testid="rosie-intelligence-refresh-reindex"
               >
@@ -949,6 +964,15 @@ export default function RosieSettingsPanel() {
               </button>
             </div>
           </div>
+
+          {intelligenceStatus != null &&
+          !intelligenceStatus.refresh_capabilities.generate_help_manifest ? (
+            <p className="mt-3 text-xs font-medium text-app-text-muted">
+              Approved ROSIE sources are embedded in this installed release. Refresh and
+              reindex controls are available only from a deployment workspace that includes
+              the governed build tools.
+            </p>
+          ) : null}
 
           <div className="mt-4 rounded-xl border border-app-border bg-app-surface/60 p-4 text-sm font-medium text-app-text-muted">
             {!intelligenceLoaded && "Loading intelligence status…"}
@@ -968,7 +992,13 @@ export default function RosieSettingsPanel() {
                   </div>
                   <div className="rounded-lg bg-app-surface-2 p-3">
                     <p className="text-[10px] uppercase tracking-widest text-app-text-muted">Last Generated</p>
-                    <p className="mt-1 text-sm font-bold text-app-text">{formatTimestamp(intelligenceStatus.pack.last_generated_at)}</p>
+                    <p className="mt-1 text-sm font-bold text-app-text">
+                      {intelligenceStatus.pack.last_generated_at
+                        ? formatTimestamp(intelligenceStatus.pack.last_generated_at)
+                        : intelligenceStatus.pack.issues_detected.length === 0
+                          ? "Bundled in release"
+                          : "Unavailable"}
+                    </p>
                   </div>
                   <div className="rounded-lg bg-app-surface-2 p-3">
                     <p className="text-[10px] uppercase tracking-widest text-app-text-muted">Last Reindex</p>
@@ -982,8 +1012,10 @@ export default function RosieSettingsPanel() {
                   </div>
                   <div className="rounded-lg bg-app-surface-2 p-3">
                     <p className="text-[10px] uppercase tracking-widest text-app-text-muted">Meilisearch</p>
-                    <p className={`mt-1 text-sm font-bold ${intelligenceStatus.meilisearch_configured ? "text-green-600" : "text-red-600"}`}>
-                      {intelligenceStatus.meilisearch_configured ? "Configured" : "Not configured"}
+                    <p className={`mt-1 text-sm font-bold ${intelligenceStatus.meilisearch_configured ? "text-green-600" : "text-app-text-muted"}`}>
+                      {intelligenceStatus.meilisearch_configured
+                        ? "Configured"
+                        : "Optional · Not configured"}
                     </p>
                   </div>
                 </div>

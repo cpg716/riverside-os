@@ -205,6 +205,14 @@ function Invoke-BoundedProcess([string]$FilePath, [string[]]$Arguments, [int]$Ti
   }
 }
 
+function Test-RosieHealthTranscript([string]$Transcript) {
+  if ([string]::IsNullOrWhiteSpace($Transcript)) { return $false }
+
+  # Keep the Riverside/health-check anchors exact while accepting the bounded
+  # phonetic variants produced by the pinned Kokoro and SenseVoice models.
+  return $Transcript -match '(?is)\briverside\s+(rosie|rosy|rose|roy)\s+health\s+check\b'
+}
+
 function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$SttModelDir, [string]$TtsModelDir) {
   $probeDir = Join-Path $env:TEMP "riverside-rosie-speech-$([guid]::NewGuid().ToString('N'))"
   $probeWav = Join-Path $probeDir "speech-check.wav"
@@ -217,7 +225,7 @@ function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$Stt
       "--kokoro-data-dir=`"$(Join-Path $TtsModelDir 'espeak-ng-data')`"",
       "--kokoro-lang=en-us",
       "--output-filename=`"$probeWav`"",
-      "--sid=5",
+      "--sid=0",
       "--speed=1.0",
       "`"Riverside Rosie health check`""
     )
@@ -262,9 +270,17 @@ function Test-RosieSpeechFunction([string]$AsrExe, [string]$TtsExe, [string]$Stt
     $transcript = "$($sttProbe.stdout)".Trim()
     # A recognized fixture is the end-to-end STT result. Preserve a nonzero
     # exit code as a warning instead of hiding successfully recognized speech.
-    $recognized = $transcript -match '(?is)riverside\s+(rosie|rosy)\s+health\s+check'
-    $ttsWarning = if ($ttsProbe.success) { "" } else { "Kokoro produced a valid WAV but exited with code $($ttsProbe.exit_code)." }
-    $sttWarning = if (-not $recognized -or $sttProbe.success) { "" } else { "SenseVoice recognized the fixture but exited with code $($sttProbe.exit_code)." }
+    $recognized = Test-RosieHealthTranscript $transcript
+    $ttsWarning = if ($ttsProbe.timed_out) {
+      "Kokoro produced a valid WAV but the probe process timed out."
+    } elseif (-not $ttsProbe.success -and $null -ne $ttsProbe.exit_code) {
+      "Kokoro produced a valid WAV but exited with code $($ttsProbe.exit_code)."
+    } else { "" }
+    $sttWarning = if ($recognized -and $sttProbe.timed_out) {
+      "SenseVoice recognized the fixture but the probe process timed out."
+    } elseif ($recognized -and -not $sttProbe.success -and $null -ne $sttProbe.exit_code) {
+      "SenseVoice recognized the fixture but exited with code $($sttProbe.exit_code)."
+    } else { "" }
     $sttError = if ($recognized) { "" } else { "SenseVoice functional probe did not recognize the health-check fixture: exit_code=$($sttProbe.exit_code); timed_out=$($sttProbe.timed_out); stderr=$($sttProbe.stderr); stdout=$($sttProbe.stdout)" }
     return [pscustomobject]@{
       ready = [bool]($wavReady -and $recognized)

@@ -402,19 +402,17 @@ export type RosieSpeechPlayback = {
 };
 
 const ROSIE_SETTINGS_STORAGE_KEY = "ros.rosie.settings.v1";
-const ROSIE_KOKORO_VOICE_COUNT = 53;
 const ROSIE_OPTIONAL_INSIGHT_TIMEOUT_MS = 120_000;
 
-export const DEFAULT_ROSIE_VOICE = "5";
+export const DEFAULT_ROSIE_VOICE = "0";
 
 export const ROSIE_VOICE_TEST_SENTENCE =
   "Hello, I am ROSIE. This is the selected Kokoro voice preview for Riverside OS.";
 
 export const ROSIE_KOKORO_VOICE_OPTIONS = [
-  { value: "5", label: "ROSIE Classic" },
-  { value: "6", label: "ROSIE Calm" },
-  { value: "7", label: "ROSIE Bright" },
-  { value: "8", label: "ROSIE Clear" },
+  { value: "0", label: "ROSIE Maple (US English)" },
+  { value: "1", label: "ROSIE Sol (US English)" },
+  { value: "2", label: "ROSIE Vale (British English)" },
 ] as const;
 
 const ROSIE_KOKORO_VOICE_VALUES = new Set<string>(
@@ -422,17 +420,17 @@ const ROSIE_KOKORO_VOICE_VALUES = new Set<string>(
 );
 
 const ROSIE_LEGACY_VOICE_ALIASES: Record<string, string> = {
-  adam: "5",
-  michael: "6",
-  emma: "7",
-  isabella: "8",
+  adam: "0",
+  michael: "0",
+  emma: "0",
+  isabella: "2",
 };
 
 export function rosieVoiceLabel(voiceValue: string | null | undefined): string {
   return (
     ROSIE_KOKORO_VOICE_OPTIONS.find((voice) => voice.value === voiceValue)?.label ??
     ROSIE_KOKORO_VOICE_OPTIONS.find((voice) => voice.value === DEFAULT_ROSIE_VOICE)?.label ??
-    "ROSIE Classic"
+    "ROSIE Maple (US English)"
   );
 }
 
@@ -447,17 +445,10 @@ function normalizeRosieVoice(rawVoice: unknown): string {
     ];
   }
   if (/^\d+$/.test(normalized)) {
-    const numericVoice = Number(normalized);
-    if (
-      Number.isInteger(numericVoice) &&
-      numericVoice >= 0 &&
-      numericVoice < ROSIE_KOKORO_VOICE_COUNT
-    ) {
-      const voiceValue = String(numericVoice);
-      return ROSIE_KOKORO_VOICE_VALUES.has(voiceValue)
-        ? voiceValue
-        : DEFAULT_ROSIE_VOICE;
-    }
+    const voiceValue = String(Number(normalized));
+    return ROSIE_KOKORO_VOICE_VALUES.has(voiceValue)
+      ? voiceValue
+      : DEFAULT_ROSIE_VOICE;
   }
   return DEFAULT_ROSIE_VOICE;
 }

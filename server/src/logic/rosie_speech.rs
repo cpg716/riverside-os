@@ -1091,7 +1091,10 @@ async fn synthesize_kokoro_to_wav(
     }
 
     if command_exists(&binary) {
-        let sid = voice.and_then(|v| v.parse::<i32>().ok()).unwrap_or(5);
+        let sid = voice
+            .and_then(|value| value.parse::<i32>().ok())
+            .filter(|value| (0..=2).contains(value))
+            .unwrap_or(0);
         let output = tokio::process::Command::new(&binary)
             .args([
                 &format!("--kokoro-model={}", model_path.to_string_lossy()),

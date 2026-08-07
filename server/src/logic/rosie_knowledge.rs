@@ -14,6 +14,7 @@ use sqlx::PgPool;
 use tokio::sync::{OnceCell, RwLock};
 
 use crate::logic::help_corpus::{load_help_chunk_docs_with_policies, slugify_heading};
+use crate::logic::help_manual_policy::rosie_approved_bundled_markdown;
 use crate::logic::rosie_intelligence::load_rosie_intelligence_pack;
 
 const MAX_BODY_CHARS: usize = 2_400;
@@ -251,7 +252,9 @@ fn load_markdown_source_chunks(
         return None;
     }
     let path = root.join(&normalized);
-    let raw = std::fs::read_to_string(path).ok()?;
+    let raw = std::fs::read_to_string(path)
+        .ok()
+        .or_else(|| rosie_approved_bundled_markdown(&normalized).map(str::to_string))?;
     let body = crate::logic::help_corpus::strip_yaml_front_matter(&raw);
     let body = trim_text(&body, MAX_DOC_CHARS);
     Some(split_doc_sections(source_group, &normalized, &body))
@@ -774,5 +777,17 @@ mod tests {
             matched.iter().any(|term| term.contains("chekout~checkout")),
             "expected fuzzy checkout match, got {matched:?}"
         );
+    }
+
+    #[test]
+    fn packaged_runtime_loads_embedded_staff_sources() {
+        let chunks = load_markdown_source_chunks(
+            Path::new("/nonexistent/riverside-source-root"),
+            "staff_corpus",
+            "docs/staff/README.md",
+        )
+        .expect("embedded staff source");
+
+        assert!(!chunks.is_empty());
     }
 }

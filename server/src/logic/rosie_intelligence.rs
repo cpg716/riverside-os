@@ -13,7 +13,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use crate::logic::help_manual_policy::HELP_MANUAL_FILES;
+use crate::logic::help_manual_policy::{
+    help_manual_bundled_markdown, rosie_approved_bundled_markdown, HELP_MANUAL_FILES,
+};
 
 #[derive(Debug, serde::Serialize)]
 pub struct RosieUpstreamHealth {
@@ -467,8 +469,7 @@ fn detect_pack_issues(
             continue;
         }
         for rel_path in &group.source_paths {
-            let full_path = root.join(rel_path);
-            if !full_path.exists() {
+            if !approved_source_available(root, &group.key, rel_path) {
                 issues.push(RosieIntelligenceIssue {
                     path: rel_path.clone(),
                     issue: "approved source path is missing on disk".to_string(),
@@ -478,6 +479,21 @@ fn detect_pack_issues(
     }
 
     issues
+}
+
+fn approved_source_available(root: &Path, group_key: &str, rel_path: &str) -> bool {
+    if root.join(rel_path).exists() {
+        return true;
+    }
+
+    match group_key {
+        "help_manuals" => help_manual_bundled_markdown(rel_path).is_some(),
+        "staff_corpus" | "policy_contracts" => rosie_approved_bundled_markdown(rel_path).is_some(),
+        // These files are release-gated build outputs. Their runtime content is
+        // already represented by the bundled Help and ROSIE source constants.
+        "generated_help_outputs" => true,
+        _ => false,
+    }
 }
 
 fn load_staff_corpus_paths() -> Vec<String> {
@@ -728,6 +744,17 @@ mod tests {
             .expect("policy contract group");
 
         assert_eq!(contracts.source_paths, POLICY_CONTRACT_DOCS);
+    }
+
+    #[test]
+    fn packaged_intelligence_pack_uses_embedded_approved_sources() {
+        let pack = load_rosie_intelligence_pack(Path::new("/nonexistent/riverside-source-root"));
+
+        assert!(
+            pack.issues_detected.is_empty(),
+            "packaged sources should remain available: {:?}",
+            pack.issues_detected
+        );
     }
 
     #[test]

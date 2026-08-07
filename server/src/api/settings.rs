@@ -363,7 +363,7 @@ fn default_rosie_speech_rate() -> f32 {
 }
 
 fn default_rosie_voice() -> String {
-    "adam".to_string()
+    "0".to_string()
 }
 
 fn default_rosie_microphone_mode() -> RosieMicrophoneMode {

@@ -663,6 +663,11 @@ for (const copy of [
   "Retained the failed initial install config because PostgreSQL app credentials were already applied.",
   "Restored the previous installed deployment config after the failed update.",
   "Removed the incomplete installed deployment config after the failed initial install.",
+  "function Invoke-CubeRoleMigrationFile",
+  'if ($file.Name -eq "185_cube_insights_and_saved_reports.sql")',
+  '"-c", "SET ROLE $appUserIdentifier;"',
+  "REVOKE ADMIN OPTION FOR cube_ro",
+  "Applied Cube reporting migration with transaction-scoped role administration; app role privileges restored.",
   "[switch]$PreserveExistingRosie",
   "Get-PreservedRosieEnvironment $envPath",
   "Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment",
@@ -686,10 +691,13 @@ for (const copy of [
   'ROSIE LLM detail: $($llmProbe.error)',
   'ROSIE speech detail: $($speechProbe.error)',
   '"`"Riverside Rosie health check`""',
+  '"--sid=0"',
+  "function Test-RosieHealthTranscript",
+  "(rosie|rosy|rose|roy)",
   '$process.WaitForExit()',
   'function Test-WavFixture([string]$Path)',
   '$wavReady = Test-WavFixture $probeWav',
-  '$recognized = $transcript -match',
+  '$recognized = Test-RosieHealthTranscript $transcript',
   'stt_error = "Skipped because the TTS fixture was not certified."',
   'wav_bytes = $speechProbe.tts_wav_bytes',
 ]) {
@@ -699,11 +707,40 @@ for (const copy of [
     "ROSIE certification must allow bounded cold startup and report the exact failing subsystem",
   );
 }
+for (const copy of [
+  "ROSIE: Runtime assets verified. Functional certification will run next.",
+  "Riverside OS database readiness is warming up; retrying.",
+  '"running (0x41301)"',
+]) {
+  assertIncludes(
+    mainHubInstaller,
+    copy,
+    "Main Hub updates must distinguish expected startup progress from actionable failures",
+  );
+}
+assertNotIncludes(
+  "deployment/windows/watch-rosie-stack.ps1",
+  '"--sid=5"',
+  "the Kokoro v1.1-zh package reserves speaker IDs 0-2 for English voices",
+);
 assertNotIncludes(
   "deployment/windows/watch-rosie-stack.ps1",
   "$wavReady = $ttsProbe.success -and",
   "a structurally valid generated WAV is the authoritative TTS functional result",
 );
+for (const [path, copy] of [
+  ["client/src/lib/rosie.ts", 'export const DEFAULT_ROSIE_VOICE = "0"'],
+  ["client/src/lib/rosie.ts", '{ value: "2", label: "ROSIE Vale (British English)" }'],
+  ["server/src/api/settings.rs", '"0".to_string()'],
+  ["server/src/logic/rosie_speech.rs", ".filter(|value| (0..=2).contains(value))"],
+  ["client/src-tauri/src/rosie_voice.rs", ".filter(|value| (0..=2).contains(value))"],
+]) {
+  assertIncludes(
+    path,
+    copy,
+    "ROSIE must restrict Kokoro v1.1-zh to its English speaker IDs",
+  );
+}
 assertNotIncludes(
   "deployment/windows/watch-rosie-stack.ps1",
   "$recognized = $sttProbe.success -and",

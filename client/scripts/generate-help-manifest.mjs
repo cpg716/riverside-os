@@ -40,6 +40,15 @@ const CLIENT_LIB_HELP = path.join(REPO_ROOT, "client", "src", "lib", "help");
 const OUT_TS = path.join(CLIENT_LIB_HELP, "help-manifest.generated.ts");
 const OUT_RS = path.join(REPO_ROOT, "server", "src", "logic", "help_corpus_manuals.generated.rs");
 const OUT_QUALITY = path.join(DOCS_DIR, "help-quality-report.generated.json");
+const STAFF_CORPUS_MANIFEST = path.join(REPO_ROOT, "docs", "staff", "CORPUS.manifest.json");
+const ROSIE_POLICY_DOCS = [
+  "docs/AI_CONTEXT_FOR_ASSISTANTS.md",
+  "docs/AI_REPORTING_DATA_CATALOG.md",
+  "docs/HELP_CENTER_AUTOMATION.md",
+  "docs/PLAN_LOCAL_LLM_HELP.md",
+  "docs/ROS_AI_HELP_CORPUS.md",
+  "docs/ROSIE_OPERATING_CONTRACT.md",
+];
 const MIN_APPROVED_UNIQUE_SCREENSHOTS = 2;
 const TARGET_APPROVED_DEDICATED_SCREENSHOTS = 3;
 const TARGET_MAJOR_WORKFLOW_SCREENSHOTS = 4;
@@ -759,6 +768,13 @@ export function helpManualById(id: string): HelpManual | undefined {
 
 function writeRs(manuals) {
   const approvedManuals = manuals.filter((manual) => manual.status === "approved");
+  const staffCorpus = JSON.parse(fs.readFileSync(STAFF_CORPUS_MANIFEST, "utf8"));
+  const approvedRosieSources = [...new Set([...staffCorpus.files, ...ROSIE_POLICY_DOCS])].sort();
+  for (const rel of approvedRosieSources) {
+    if (!fs.existsSync(path.join(REPO_ROOT, rel))) {
+      throw new Error(`Approved ROSIE source is missing: ${rel}`);
+    }
+  }
   const rows = approvedManuals
     .map((m) => `    (${JSON.stringify(m.id)}, ${JSON.stringify(posix(m.markdown))}),`)
     .join("\n");
@@ -767,6 +783,12 @@ function writeRs(manuals) {
       const rel = posix(m.markdown);
       const includePath = posix(path.relative(path.dirname(OUT_RS), path.join(REPO_ROOT, rel)));
       return `    (${JSON.stringify(m.id)}, ${JSON.stringify(rel)}, include_str!(${JSON.stringify(includePath)})),`;
+    })
+    .join("\n");
+  const embeddedRosieRows = approvedRosieSources
+    .map((rel) => {
+      const includePath = posix(path.relative(path.dirname(OUT_RS), path.join(REPO_ROOT, rel)));
+      return `    (${JSON.stringify(rel)}, include_str!(${JSON.stringify(includePath)})),`;
     })
     .join("\n");
 
@@ -787,6 +809,18 @@ pub fn help_manual_bundled_markdown(rel_path: &str) -> Option<&'static str> {
         .iter()
         .find(|(_, path, _)| *path == rel_path)
         .map(|(_, _, markdown)| *markdown)
+}
+
+/// Approved staff and policy markdown embedded for packaged ROSIE runtimes.
+pub const ROSIE_APPROVED_BUNDLED_MARKDOWN: &[(&str, &str)] = &[
+${embeddedRosieRows}
+];
+
+pub fn rosie_approved_bundled_markdown(rel_path: &str) -> Option<&'static str> {
+    ROSIE_APPROVED_BUNDLED_MARKDOWN
+        .iter()
+        .find(|(path, _)| *path == rel_path)
+        .map(|(_, markdown)| *markdown)
 }
 `;
   fs.mkdirSync(path.dirname(OUT_RS), { recursive: true });
