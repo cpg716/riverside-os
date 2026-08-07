@@ -8,7 +8,7 @@ function apiBase(): string {
   const raw =
     process.env.E2E_API_BASE?.trim() ||
     process.env.VITE_API_BASE?.trim() ||
-    "http://127.0.0.1:3000";
+    "http://127.0.0.1:43300";
   return raw.replace(/\/$/, "");
 }
 
@@ -47,7 +47,7 @@ test.beforeEach(() => {
 });
 
 test.describe("Settings Podium integration", () => {
-  test("Integrations tab shows Podium section", async ({ page }) => {
+  test("Integrations overview opens Podium controls", async ({ page }) => {
     test.setTimeout(90_000);
     await signInToBackOffice(page);
     const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
@@ -77,9 +77,15 @@ test.describe("Settings Podium integration", () => {
     await expect(
       page.getByText(/sms, inbox & reviews/i).first(),
     ).toBeVisible({ timeout: 25_000 });
+
+    const podiumCard = page
+      .getByRole("button", { name: /podium.*podium comms/i })
+      .first();
+    await expect(podiumCard).toBeEnabled();
+    await podiumCard.click();
     await expect(
       page.getByRole("button", { name: /check podium health/i }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20_000 });
     await expect(
       page.getByRole("button", { name: /reconcile contacts/i }),
     ).toBeVisible();
