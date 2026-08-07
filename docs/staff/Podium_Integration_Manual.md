@@ -76,9 +76,9 @@ Riverside requests these Podium OAuth scopes today: `read_locations`, `read_mess
 
 If anything fails, use the **readiness** strip (credentials, webhook secret, API base, toggles), then click **Check Podium Health**. The live check refreshes the saved OAuth token and verifies authenticated `read_locations` access; a green result is stronger than basic network reachability but still does not send a message.
 
-### 3.2 Turn SMS on
+### 3.2 Choose which texts are enabled
 
-- **Send operational SMS via Podium** — master switch for template-driven SMS (pickup, alteration, unknown-sender welcome, etc.).
+Podium text delivery is controlled separately for **staff-authored texts**, **text receipts**, **ready for pickup**, **alteration ready**, **appointment confirmation**, **appointment reminder**, and the **new-sender welcome**. Turning on one does not turn on the others. Review requests continue to use their separate store review policy.
 
 SMS still requires **non-empty Podium location UID** and valid credentials.
 
@@ -256,7 +256,7 @@ Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 | **Podium says Client ID and redirect URI do not match** | The redirect URI used by Riverside is not registered on the same Podium app as the saved Client ID. Register the exact callback URL shown by Riverside, then restart the authorization from Settings. |
 | **Podium consent page says something went wrong** | Missing/disabled Podium app scopes or product access; verify `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, and `write_contacts` on the Podium app. |
 | **Podium page says "Client ID is required"** | The authorization URL did not include a Client ID. Return to Settings, confirm Client ID is saved, and start authorization again from the Podium card. |
-| **No SMS** | `sms_send_enabled`, location UID, credentials, customer phone, SMS opt-in, template not empty when required. |
+| **No SMS** | The specific message-type toggle, location UID, credentials, customer phone, SMS opt-in, and a non-empty template when required. |
 | **Send Text cannot send to a new number** | Enter phone, first name, last name, and message body; confirm the staff member has `customers.hub_edit`. |
 | **Store email fails** | IONOS mailbox settings, customer email, and server logs. See [EMAIL_MAILBOX.md](../EMAIL_MAILBOX.md). |
 | **502 / Podium unavailable** in UI | Server logs; Podium status; token refresh; API base override. |

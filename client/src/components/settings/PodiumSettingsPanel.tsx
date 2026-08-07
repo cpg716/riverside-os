@@ -15,6 +15,15 @@ import {
 
 interface PodiumSmsConfig {
   sms_send_enabled: boolean;
+  sms_features: {
+    staff_messages: boolean;
+    receipts: boolean;
+    ready_for_pickup: boolean;
+    alteration_ready: boolean;
+    appointment_confirmation: boolean;
+    appointment_reminder: boolean;
+    unknown_sender_welcome: boolean;
+  };
   location_uid: string;
   templates: {
     ready_for_pickup: string;
@@ -122,17 +131,20 @@ const RECEIPT_TEMPLATE_DEFAULTS: PodiumSmsConfig["receipt_templates"] = {
 };
 
 type SmsTemplateKey = keyof PodiumSmsConfig["templates"];
+type SmsFeatureKey = keyof PodiumSmsConfig["sms_features"];
 type ReviewTemplateKey = keyof PodiumSmsConfig["review_templates"];
 type ReceiptTemplateKey = keyof PodiumSmsConfig["receipt_templates"];
 
 const PODIUM_SMS_TEMPLATE_BLOCKS: {
   key: SmsTemplateKey;
+  featureKey: SmsFeatureKey;
   label: string;
   description: string;
   tags: { token: string; label: string }[];
 }[] = [
   {
     key: "ready_for_pickup",
+    featureKey: "ready_for_pickup",
     label: "Ready for pickup",
     description: "Sent when order items are ready for pickup.",
     tags: [
@@ -147,6 +159,7 @@ const PODIUM_SMS_TEMPLATE_BLOCKS: {
   },
   {
     key: "alteration_ready",
+    featureKey: "alteration_ready",
     label: "Alteration ready",
     description: "Sent when an alteration is marked ready.",
     tags: [
@@ -161,6 +174,7 @@ const PODIUM_SMS_TEMPLATE_BLOCKS: {
   },
   {
     key: "appointment_confirmation",
+    featureKey: "appointment_confirmation",
     label: "Appointment confirmation",
     description: "Sent when a customer appointment is created.",
     tags: [
@@ -175,6 +189,7 @@ const PODIUM_SMS_TEMPLATE_BLOCKS: {
   },
   {
     key: "appointment_reminder",
+    featureKey: "appointment_reminder",
     label: "Appointment reminder",
     description: "Sent 24 hours before a customer appointment.",
     tags: [
@@ -189,6 +204,7 @@ const PODIUM_SMS_TEMPLATE_BLOCKS: {
   },
   {
     key: "unknown_sender_welcome",
+    featureKey: "unknown_sender_welcome",
     label: "New text sender",
     description: "Sent once when a new inbound phone number creates a customer stub.",
     tags: [],
@@ -707,24 +723,21 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
               </div>
            </div>
 
-           <div className="flex items-center gap-6">
-              {[
-                { key: 'sms_send_enabled', label: "SMS Active" },
-              ].map(toggle => (
-                <label key={toggle.key} className="flex items-center gap-2 cursor-pointer group">
-                   <div className={`h-4 w-4 rounded-md border-2 flex items-center justify-center transition-all ${podiumSms[toggle.key as keyof PodiumSmsConfig] ? 'bg-app-accent border-app-accent text-white' : 'border-app-border group-hover:border-app-accent'}`}>
-                      {podiumSms[toggle.key as keyof PodiumSmsConfig] && <CheckCircle2 size={10} />}
-                   </div>
-                   <input
-                     type="checkbox"
-                     className="sr-only"
-                     checked={!!podiumSms[toggle.key as keyof PodiumSmsConfig]}
-                     onChange={e => setPodiumSms({...podiumSms, [toggle.key]: e.target.checked})}
-                   />
-                   <span className="text-[10px] font-black uppercase tracking-widest text-app-text">{toggle.label}</span>
-                </label>
-              ))}
-           </div>
+           <label className="flex cursor-pointer items-center gap-2 group">
+              <div className={`h-4 w-4 rounded-md border-2 flex items-center justify-center transition-all ${podiumSms.sms_features.staff_messages ? 'bg-app-accent border-app-accent text-white' : 'border-app-border group-hover:border-app-accent'}`}>
+                 {podiumSms.sms_features.staff_messages && <CheckCircle2 size={10} />}
+              </div>
+              <input
+                type="checkbox"
+                className="sr-only"
+                checked={podiumSms.sms_features.staff_messages}
+                onChange={e => setPodiumSms({
+                  ...podiumSms,
+                  sms_features: { ...podiumSms.sms_features, staff_messages: e.target.checked },
+                })}
+              />
+              <span className="text-[10px] font-black uppercase tracking-widest text-app-text">Staff-authored texts</span>
+           </label>
         </div>
 
         <div className="space-y-12">
@@ -742,12 +755,32 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                            <span className="text-[10px] font-black uppercase tracking-widest text-app-accent">{block.label}</span>
                            <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">{block.description}</p>
                          </div>
-                         <button
-                           onClick={() => setPodiumSms({...podiumSms, templates: {...podiumSms.templates, [block.key]: PODIUM_TEMPLATE_DEFAULTS[block.key]}})}
-                           className="shrink-0 text-[8px] font-black uppercase tracking-widest text-app-accent hover:text-app-text transition-colors"
-                         >
-                           Reset
-                         </button>
+                         <div className="flex shrink-0 flex-col items-end gap-3">
+                           <label className="flex cursor-pointer items-center gap-2 group">
+                             <div className={`h-4 w-4 rounded-md border-2 flex items-center justify-center transition-all ${podiumSms.sms_features[block.featureKey] ? 'bg-app-accent border-app-accent text-white' : 'border-app-border group-hover:border-app-accent'}`}>
+                               {podiumSms.sms_features[block.featureKey] && <CheckCircle2 size={10} />}
+                             </div>
+                             <input
+                               type="checkbox"
+                               className="sr-only"
+                               checked={podiumSms.sms_features[block.featureKey]}
+                               onChange={event => setPodiumSms({
+                                 ...podiumSms,
+                                 sms_features: {
+                                   ...podiumSms.sms_features,
+                                   [block.featureKey]: event.target.checked,
+                                 },
+                               })}
+                             />
+                             <span className="text-[8px] font-black uppercase tracking-widest text-app-text">Enabled</span>
+                           </label>
+                           <button
+                             onClick={() => setPodiumSms({...podiumSms, templates: {...podiumSms.templates, [block.key]: PODIUM_TEMPLATE_DEFAULTS[block.key]}})}
+                             className="text-[8px] font-black uppercase tracking-widest text-app-accent hover:text-app-text transition-colors"
+                           >
+                             Reset
+                           </button>
+                         </div>
                       </div>
                       {block.tags.length > 0 ? (
                         <div className="flex flex-wrap gap-2">
@@ -916,9 +949,26 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
            </div>
 
            <div className="pt-10 border-t border-app-border/40">
-              <div className="mb-4">
-                <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">Receipt Delivery Messages</h4>
-                <p className="mt-2 text-xs font-medium text-app-text-muted">These edit the email subject and Podium MMS caption. The authoritative receipt body and image remain controlled by Receipt Settings.</p>
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text">Receipt Delivery Messages</h4>
+                  <p className="mt-2 text-xs font-medium text-app-text-muted">These edit the email subject and Podium MMS caption. The authoritative receipt body and image remain controlled by Receipt Settings.</p>
+                </div>
+                <label className="flex cursor-pointer items-center gap-2 group">
+                  <div className={`h-4 w-4 rounded-md border-2 flex items-center justify-center transition-all ${podiumSms.sms_features.receipts ? 'bg-app-accent border-app-accent text-white' : 'border-app-border group-hover:border-app-accent'}`}>
+                    {podiumSms.sms_features.receipts && <CheckCircle2 size={10} />}
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={podiumSms.sms_features.receipts}
+                    onChange={event => setPodiumSms({
+                      ...podiumSms,
+                      sms_features: { ...podiumSms.sms_features, receipts: event.target.checked },
+                    })}
+                  />
+                  <span className="text-[9px] font-black uppercase tracking-widest text-app-text">Text receipts enabled</span>
+                </label>
               </div>
               <div className="ui-card ui-tint-neutral p-5 space-y-4">
                 <div className="flex flex-wrap gap-2">

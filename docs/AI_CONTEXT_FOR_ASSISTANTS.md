@@ -170,7 +170,7 @@ Do not embed live PINs or session tokens in prompts sent to third-party models.
 
 ## 9. Training: product mental model (what the model must internalize)
 
-**Riverside OS** is a single **PostgreSQL** + **Rust (Axum)** + **React** retail stack for formalwear / wedding: **POS** (speed), **Back Office** (reviewability), **register sessions**, **CRM**, **weddings**, **inventory**, **procurement**, **QBO bridge**, optional **online store** (`/shop`). There is no separate staff-facing reporting database or login. Analytics use staff-gated **REST** and native Insights; Cube reads governed **`reporting.*`** views through the reporting-only **`cube_ro`** role.
+**Riverside OS** is a single **PostgreSQL** + **Rust (Axum)** + **React** retail stack for formalwear / wedding: **POS** (speed), **Back Office** (reviewability), **register sessions**, **CRM**, **weddings**, **inventory**, **procurement**, **QBO bridge**, optional **online store** (`/shop`). There is no separate staff-facing reporting database, service, credential, or login. Analytics use staff-gated **REST** and native Insights over governed **`reporting.*`** views.
 
 **POS-Core vs Back Office (UX mode):** `register` and `customers` workflows on the floor prioritize **density and speed**; other workspaces prioritize **clarity and audit**. An assistant should not tell a cashier to “open fifteen tabs in Settings”; it should point to **POS** or **Register** paths in **`docs/staff/pos-*.md`**.
 
@@ -195,7 +195,7 @@ When a question is **ambiguous**, the **preferred** behavior is to **name the fo
 | “RMS charge” | **Charge** (tender) vs **payment** (cash/check collection) | Point to **`POS_PARKED_SALES_AND_RMS_CHARGES.md`**; **insights** export vs **Customers → RMS charge**. |
 | “Parked sale” | Server **Park** row vs **local draft** `ros_pos_active_sale` | Both exist; **Z-close** purges server park; local draft is **browser** persistence — **`docs/staff/pos-register-cart.md`**. |
 | “AI / chat / ROSIE” | Help Library vs Ask ROSIE vs ROSIE Chat vs provider setup | **Default truthful answer:** Help Library, Ask ROSIE, ROSIE Chat, approved local knowledge retrieval, permission-gated read tools, and optional voice ship today. Provider availability is deployment-specific. Never imply retired **`/api/ai`** or embedding tables still exist post-**78**. |
-| “Can’t see Reports / Insights” | Missing **`insights.view`** vs Cube Core unavailable | Check Riverside RBAC, then Cube readiness in Insights or ROS Dev Center — **`CUBE_INSIGHTS_REPORTING.md`**. |
+| “Can’t see Reports / Insights” | Missing **`insights.view`** vs reporting views not installed | Check Riverside RBAC, then native Insights readiness in Insights or ROS Dev Center — **`CUBE_INSIGHTS_REPORTING.md`**. |
 
 ---
 

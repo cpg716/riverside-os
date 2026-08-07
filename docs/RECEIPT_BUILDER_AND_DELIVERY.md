@@ -82,6 +82,7 @@ External references: [New York sales-tax recordkeeping](https://www.tax.ny.gov/p
 
 ## Text receipt (Podium: ReceiptLine MMS image with SMS fallback)
 
+- **Enablement:** **Settings → Integrations → Podium → Receipt Delivery Messages → Text receipts enabled** controls receipt SMS/MMS independently from staff-authored, pickup, alteration, appointment, and new-sender texts. Review requests retain their own review-policy switch.
 - **`POST /api/transactions/{transaction_id}/receipt/send-sms`** — JSON optional **`to_phone`**, optional **`png_base64`** (raw base64 PNG, no data-URL prefix), optional **`gift`** and **`transaction_line_ids`** (gift uses plain-text **`format_pos_gift_receipt_text_message`** when no PNG; MMS raster uses **`receipt.html`** with the same query params as the client).
 - **With `png_base64`:** decodes PNG (max **6 MiB** decoded), sends **`POST /v4/messages/attachment`** (multipart: JSON **`data`** + **`attachment`** file `receipt.png`) via **`send_podium_phone_message_with_png_attachment`**. Short caption text accompanies the image (MMS behavior depends on carrier / Podium). Response may include **`"mode": "mms_attachment"`**.
 - Normal and gift-receipt MMS captions are editable in **Settings → Integrations → Podium → Receipt Delivery Messages** with `{store_name}`, `{receipt_ref}`, `{receipt_type}`, `{customer_name}`, and `{customer_code}` values.

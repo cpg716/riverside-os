@@ -150,6 +150,7 @@ interface SettingsWorkspaceProps {
   onPosRefreshMeta?: () => Promise<void>;
   onNavigateToTab?: (tab: string) => void;
   onOpenOnlineStore?: () => void;
+  onOpenInsights?: () => void;
 }
 
 type IntegrationCardItem = {
@@ -201,7 +202,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   nuorder: "NuORDER catalog and vendor sync configuration.",
   geoapify: "Address lookup setup for customer, vendor, and shipping entry.",
   weather: "Weather provider settings for store planning signals.",
-  insights: "Native ROSIE reporting, Cube policy, favorites, and report history.",
+  insights: "Native ROSIE reporting, report limits, staff guidance, favorites, and history.",
   meilisearch: "Search index health, reindex controls, and diagnostics.",
   "help-center": "Help Center content, manuals, and staff guidance publishing.",
   rosie: "ROSIE assistant settings and runtime behavior.",
@@ -281,6 +282,7 @@ export default function SettingsWorkspace({
   onPosRefreshMeta,
   onNavigateToTab,
   onOpenOnlineStore,
+  onOpenInsights,
 }: SettingsWorkspaceProps) {
   const baseUrl = getBaseUrl();
 
@@ -1232,7 +1234,7 @@ export default function SettingsWorkspace({
                     {
                       id: "insights",
                       label: "Native Data Insights",
-                      desc: "ROSIE reports, Cube policy & history",
+                      desc: "ROSIE reports, limits, guidance & history",
                       color: "bg-app-surface",
                       icon: Database,
                     },
@@ -1451,7 +1453,7 @@ export default function SettingsWorkspace({
             )}
 
             {activeTab === "insights" && hasPermission("settings.admin") && (
-              <InsightsSettingsPanel />
+              <InsightsSettingsPanel onOpenInsights={onOpenInsights} />
             )}
 
             {activeTab === "weather" && hasPermission("settings.admin") && (

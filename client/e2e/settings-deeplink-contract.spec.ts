@@ -111,4 +111,17 @@ test.describe("settings deep-link contract", () => {
     await expect(page.getByText("EPL2", { exact: true })).toBeVisible();
     await expect(page.getByText("Last test result:")).toBeVisible();
   });
+
+  test("Insights settings uses built-in reporting without a server-secret prompt", async ({ page }) => {
+    test.setTimeout(60_000);
+    await signInToBackOffice(page, { persistSession: true });
+
+    await page.goto("/settings/insights", { waitUntil: "domcontentloaded" });
+    await expectNoDeadShell(page);
+
+    await expect(page.getByRole("heading", { name: "Native Data Insights" })).toBeVisible();
+    await expect(page.getByText("Reporting is ready")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Open Insights/i })).toBeVisible();
+    await expect(page.getByText("Server secret needs setup", { exact: true })).toHaveCount(0);
+  });
 });

@@ -78,7 +78,7 @@ Many tiles pass **`basis`** (`booked` vs `completed` / recognition). Store polic
 ## Margin and cost (sensitive)
 
 - **Margin pivot** uses pre-tax revenue minus **COGS** from **line unit cost × quantity** frozen at checkout (server **`margin_pivot`** logic). Only **Admin** staff see the tile; **non-Admin** callers must get **403** from **`GET /api/insights/margin-pivot`**.
-- **Native Insights** enforces the same server-side Riverside identity. **insights.view** permits standard governed measures; cost and margin measures additionally require the Riverside Admin role. Cube uses the read-only **`cube_ro`** role and cannot select application tables outside **`reporting.*`**.
+- **Native Insights** enforces the same server-side Riverside identity. **insights.view** permits standard governed measures; cost and margin measures additionally require the Riverside Admin role. The server builds bounded read-only queries only from approved **`reporting.*`** mappings.
 
 ---
 

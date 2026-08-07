@@ -11875,6 +11875,13 @@ async fn post_transaction_receipt_send_sms(
         ));
     }
 
+    let podium_cfg = podium::load_store_podium_config(&state.db).await?;
+    if !podium_cfg.sms_features.receipts {
+        return Err(TransactionError::InvalidPayload(
+            "Text receipt delivery is disabled in Settings → Integrations → Podium.".to_string(),
+        ));
+    }
+
     let receipt_cfg: crate::api::settings::ReceiptConfig =
         sqlx::query_scalar::<_, serde_json::Value>(
             "SELECT receipt_config FROM store_settings WHERE id = 1",
@@ -11920,10 +11927,7 @@ async fn post_transaction_receipt_send_sms(
                 ));
             }
             let receipt_ref = receipt_shared::receipt_display_ref(&receipt_order);
-            let message_templates = podium::load_store_podium_config(&state.db)
-                .await?
-                .receipt_templates
-                .merged_defaults();
+            let message_templates = podium_cfg.receipt_templates.merged_defaults();
             let customer_name = receipt_order
                 .customer
                 .as_ref()

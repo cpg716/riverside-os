@@ -10,7 +10,7 @@
 
 ## How to use this screen
 
-**Reports** answers **“How is this drawer doing right now?”** — tender buckets, expected vs actual cash context, and mid-shift checks. It is **not** **Back Office → Insights**, which provides store-wide conversational analytics through ROSIE and Cube Core (see [insights-back-office.md](insights-back-office.md)).
+**Reports** answers **“How is this drawer doing right now?”** — tender buckets, expected vs actual cash context, and mid-shift checks. It is **not** **Back Office → Insights**, which provides store-wide conversational analytics through ROSIE and governed Riverside report data (see [insights-back-office.md](insights-back-office.md)).
 
 **Z-Reports (Unified):** **Register #1** is the canonical closing lane. Running **close / Z** on lane #1 automatically aggregates data from satellite lanes (**#2 iPad**, **#3 Back Office**) into a single professional audit document. The close flow is three pages: **Cash**, **Checks**, then **Z-Report**. Canceling before the final page does not close the drawer. Mid-shift "X-Reports" have been deprecated; use the live **Register Dashboard** for mid-shift reads — see **[Till group](../TILL_GROUP_AND_REGISTER_OPEN.md)**.
 

@@ -574,92 +574,6 @@ function Invoke-PsqlAdminScalar($PsqlPath, $Db, $DatabaseName, $Sql) {
   }
 }
 
-function Ensure-OptionalReportingRole($PsqlPath, $Db, [switch]$Required) {
-  try {
-    Invoke-PsqlAdmin $PsqlPath $Db "DO `$`$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cube_ro') THEN CREATE ROLE cube_ro LOGIN NOINHERIT; ELSE ALTER ROLE cube_ro LOGIN NOINHERIT; END IF; END `$`$;"
-  } catch {
-    if ($Required) {
-      throw "Could not provision the required Cube reporting role cube_ro: $($_.Exception.Message)"
-    }
-    Write-Warning "Could not create optional reporting role cube_ro. Reporting grants will be skipped where supported."
-  }
-}
-
-function Invoke-CubeRoleMigrationFile($PsqlPath, $Db, [string]$FilePath) {
-  Ensure-OptionalReportingRole $PsqlPath $Db -Required
-
-  $appUser = "$($Db.appUser)".Trim()
-  if ([string]::IsNullOrWhiteSpace($appUser)) {
-    throw "PostgreSQL app role is required for Cube reporting migration compatibility."
-  }
-
-  $appUserLiteral = Escape-SqlLiteral $appUser
-  $appUserIdentifier = Quote-SqlIdentifier $appUser
-  $hadCreateRole = Invoke-PsqlAdminScalar $PsqlPath $Db $Db.databaseName "SELECT rolcreaterole FROM pg_roles WHERE rolname = '$appUserLiteral';"
-  if ($hadCreateRole -notin @("t", "f")) {
-    throw "Could not determine PostgreSQL role-management state for the app role."
-  }
-
-  $membershipState = Invoke-PsqlAdminScalar $PsqlPath $Db $Db.databaseName @"
-SELECT COALESCE(
-  (
-    SELECT CASE WHEN membership.admin_option THEN 'admin' ELSE 'member' END
-    FROM pg_auth_members membership
-    JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
-    JOIN pg_roles member_role ON member_role.oid = membership.member
-    WHERE granted_role.rolname = 'cube_ro'
-      AND member_role.rolname = '$appUserLiteral'
-    LIMIT 1
-  ),
-  'none'
-);
-"@
-  if ($membershipState -notin @("none", "member", "admin")) {
-    throw "Could not determine Cube reporting-role membership for the app role."
-  }
-
-  $enableSql = @()
-  $restoreSql = @()
-  if ($hadCreateRole -eq "f") {
-    $enableSql += "ALTER ROLE $appUserIdentifier CREATEROLE;"
-    $restoreSql += "ALTER ROLE $appUserIdentifier NOCREATEROLE;"
-  }
-  if ($membershipState -ne "admin") {
-    $enableSql += "GRANT cube_ro TO $appUserIdentifier WITH ADMIN OPTION;"
-    if ($membershipState -eq "none") {
-      $restoreSql = @("REVOKE cube_ro FROM $appUserIdentifier;") + $restoreSql
-    } else {
-      $restoreSql = @("REVOKE ADMIN OPTION FOR cube_ro FROM $appUserIdentifier;") + $restoreSql
-    }
-  }
-
-  $env:PGPASSWORD = $Db.adminPassword
-  try {
-    $adminUrl = "postgresql://$($Db.adminUser)@$($Db.host):$($Db.port)/$($Db.databaseName)"
-    $arguments = @($adminUrl, "-v", "ON_ERROR_STOP=1", "-1", "-w")
-    if ($enableSql.Count -gt 0) {
-      $arguments += @("-c", ($enableSql -join " "))
-    }
-    $arguments += @(
-      "-c", "SET ROLE $appUserIdentifier;",
-      "-f", $FilePath,
-      "-c", "RESET ROLE;"
-    )
-    if ($restoreSql.Count -gt 0) {
-      $arguments += @("-c", ($restoreSql -join " "))
-    }
-
-    $exitCode = Invoke-NativeCommand $PsqlPath $arguments
-    if ($exitCode -ne 0) {
-      throw "psql failed with exit code $exitCode. $script:lastNativeCommandOutput"
-    }
-  } finally {
-    Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
-  }
-
-  Write-Host "Applied Cube reporting migration with transaction-scoped role administration; app role privileges restored."
-}
-
 function Ensure-DatabaseExtension($PsqlPath, $Db, [string]$DatabaseName, [string]$ExtensionName) {
   try {
     Invoke-PsqlAdminDatabase $PsqlPath $Db $DatabaseName "CREATE EXTENSION IF NOT EXISTS ""$ExtensionName"";"
@@ -1866,11 +1780,7 @@ function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir, $DbConfig) {
     Write-Host "Apply migration $($file.Name)"
     try {
       Repair-PublicSerialSequences $PsqlPath $DatabaseUrl
-      if ($file.Name -eq "185_cube_insights_and_saved_reports.sql") {
-        Invoke-CubeRoleMigrationFile $PsqlPath $DbConfig $file.FullName
-      } else {
-        Invoke-PsqlFile $PsqlPath $DatabaseUrl $file.FullName
-      }
+      Invoke-PsqlFile $PsqlPath $DatabaseUrl $file.FullName
     } catch {
       throw "Migration failed: $($file.Name). $($_.Exception.Message)"
     }

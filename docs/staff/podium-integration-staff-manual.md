@@ -47,7 +47,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 
 1. Sign in with a role that can open **Settings** → **Integrations**.
 2. Open **Podium (SMS + web chat)**.
-3. Check the **readiness** strip: credentials, webhook (IT), **location UID** filled in, and **SMS Active** as your SOP requires.
+3. Check the **readiness** strip: credentials, webhook (IT), **location UID** filled in, and the individual text-message toggles required by your SOP.
 4. If the card says **credentials missing**, an admin can save or update the Podium credentials in this Settings screen. Use **Authorize via Podium Portal** / **Connect Podium** only after both **Client ID** and **Client Secret** are saved and the redirect URI is registered in Podium.
 5. Ensure the Podium app has all required scopes enabled: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, and `write_contacts`.
 
@@ -72,8 +72,9 @@ If the authorization page says the Client ID and redirect URI do not match, regi
 
 1. **Settings** → **Integrations** → **Podium**.
 2. Under **Customer Messages & Web Chat**, edit any operational SMS/Store Email, Podium review SMS/email, or receipt delivery message. Keep `{review_url}` in both review bodies; Receipt Settings still controls protected receipt content and images.
-3. Use the value buttons for customer, store, Transaction, alteration, appointment, review-link, and receipt data. Use **Reset** to restore shipped wording when needed.
-4. Click **Save Podium / messaging settings** and wait for the success toast. New sends use the saved wording; already-sent messages do not change.
+3. Enable only the text workflows the store wants: staff-authored texts, text receipts, ready for pickup, alteration ready, appointment confirmation, appointment reminder, and new-sender welcome are independent.
+4. Use the value buttons for customer, store, Transaction, alteration, appointment, review-link, and receipt data. Use **Reset** to restore shipped wording when needed.
+5. Click **Save Podium / messaging settings** and wait for the success toast. New sends use the saved wording; already-sent messages do not change.
 
 ### Staff: reply to a customer by SMS from their profile
 

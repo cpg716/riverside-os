@@ -3,7 +3,7 @@ id: insights
 title: "Insights — conversational reporting"
 order: 15
 summary: "Ask ROSIE for governed reports, refine them in plain language, export or print every result, and reuse favorites and report history."
-tags: insights, rosie, cube, reports, analytics, favorites, history, export, print
+tags: insights, rosie, reports, analytics, favorites, history, export, print
 ---
 
 # Insights — conversational reporting
@@ -16,7 +16,7 @@ tags: insights, rosie, cube, reports, analytics, favorites, history, export, pri
 
 ## What this is
 
-**Back Office → Insights** is Riverside's native report builder. Ask for a report in plain language and ROSIE converts the request into a validated report definition. Cube Core runs that definition against read-only **`reporting.*`** data. ROSIE cannot submit arbitrary SQL.
+**Back Office → Insights** is Riverside's native report builder. Ask for a report in plain language and ROSIE converts the request into a validated report definition. The Riverside server runs that definition against approved read-only report data. ROSIE cannot submit arbitrary SQL.
 
 There is no separate reporting login. Riverside staff access and permissions apply throughout the workspace. Cost and margin measures remain Admin-only.
 
@@ -67,15 +67,15 @@ Reports that have not been used within the configured retention period are moved
 
 - **insights.view** is required to open Insights and run reports.
 - Cost and margin measures require Riverside Admin access.
-- Cube can read only the governed reporting schema through the dedicated **`cube_ro`** database role.
-- ROSIE builds a constrained report definition; the server validates datasets, measures, filters, dates, row limits, and visualization before Cube runs it.
+- The server builds queries only from approved reporting views and static dataset/member mappings.
+- ROSIE builds a constrained report definition; the server validates datasets, measures, filters, dates, row limits, and visualization before running it in a read-only transaction.
 - Report results are read-only. Any business correction still uses the normal Riverside workflow and confirmation rules.
 
 ## Troubleshooting
 
 | Symptom | What to try |
 |---|---|
-| Cube status is unavailable | Ask IT to check the Cube Core service and its read-only database credentials. |
+| Reporting needs an update | Ask an Admin to run the normal Riverside Main Hub update or repair process. There is no separate reporting password. |
 | ROSIE cannot build the report | Add a clear period, measure, grouping, and booked or recognized basis. The requested data may not yet be in the governed catalog. |
 | A report returns no rows | Check the period and filters, then verify whether the requested activity occurred on the selected basis. |
 | Cost or margin is rejected | Sign in with Riverside Admin access or choose a revenue-only measure. |

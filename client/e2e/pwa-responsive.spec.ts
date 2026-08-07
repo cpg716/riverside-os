@@ -146,7 +146,7 @@ test.describe("PWA layout — tablet (iPad Pro 11 preset)", () => {
     await expect(
       page.getByRole("heading", { name: /ask riverside anything reportable/i }),
     ).toBeVisible({ timeout: 25_000 });
-    await expect(page.getByText(/rosie \+ cube core/i)).toBeVisible();
+    await expect(page.getByText(/riverside insights/i).first()).toBeVisible();
     await expect(page.getByRole("button", { name: /^history$/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /^favorites$/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /^archive$/i })).toBeVisible();

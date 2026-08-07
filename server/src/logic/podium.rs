@@ -251,10 +251,78 @@ fn non_empty_or(s: &str, fallback: &'static str) -> String {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PodiumSmsFeatureSettings {
+    #[serde(default)]
+    pub staff_messages: bool,
+    #[serde(default)]
+    pub receipts: bool,
+    #[serde(default)]
+    pub ready_for_pickup: bool,
+    #[serde(default)]
+    pub alteration_ready: bool,
+    #[serde(default)]
+    pub appointment_confirmation: bool,
+    #[serde(default)]
+    pub appointment_reminder: bool,
+    #[serde(default)]
+    pub unknown_sender_welcome: bool,
+}
+
+impl PodiumSmsFeatureSettings {
+    fn from_legacy(enabled: bool) -> Self {
+        Self {
+            staff_messages: enabled,
+            receipts: enabled,
+            ready_for_pickup: enabled,
+            alteration_ready: enabled,
+            appointment_confirmation: enabled,
+            appointment_reminder: enabled,
+            unknown_sender_welcome: enabled,
+        }
+    }
+
+    pub fn any_enabled(&self) -> bool {
+        self.staff_messages
+            || self.receipts
+            || self.ready_for_pickup
+            || self.alteration_ready
+            || self.appointment_confirmation
+            || self.appointment_reminder
+            || self.unknown_sender_welcome
+    }
+
+    pub fn is_enabled(&self, feature: PodiumSmsFeature) -> bool {
+        match feature {
+            PodiumSmsFeature::StaffMessages => self.staff_messages,
+            PodiumSmsFeature::Receipts => self.receipts,
+            PodiumSmsFeature::ReadyForPickup => self.ready_for_pickup,
+            PodiumSmsFeature::AlterationReady => self.alteration_ready,
+            PodiumSmsFeature::AppointmentConfirmation => self.appointment_confirmation,
+            PodiumSmsFeature::AppointmentReminder => self.appointment_reminder,
+            PodiumSmsFeature::UnknownSenderWelcome => self.unknown_sender_welcome,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PodiumSmsFeature {
+    StaffMessages,
+    Receipts,
+    ReadyForPickup,
+    AlterationReady,
+    AppointmentConfirmation,
+    AppointmentReminder,
+    UnknownSenderWelcome,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StorePodiumSmsConfig {
-    /// When true and env credentials + location_uid are set, operational SMS uses Podium.
+    /// Legacy aggregate retained in saved JSON and readiness responses. New code
+    /// derives it from `sms_features` so each SMS workflow can be controlled alone.
     #[serde(default)]
     pub sms_send_enabled: bool,
+    #[serde(default)]
+    pub sms_features: PodiumSmsFeatureSettings,
     /// Legacy JSON field retained for older saved settings. General operational
     /// Podium email is disabled; review-request email uses its dedicated path.
     #[serde(default)]
@@ -277,7 +345,16 @@ pub struct StorePodiumSmsConfig {
 
 impl StorePodiumSmsConfig {
     pub fn load_from_json(v: serde_json::Value) -> Self {
+        let has_feature_settings = v.get("sms_features").is_some();
+        let legacy_enabled = v
+            .get("sms_send_enabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let mut cfg: Self = serde_json::from_value(v).unwrap_or_default();
+        if !has_feature_settings {
+            cfg.sms_features = PodiumSmsFeatureSettings::from_legacy(legacy_enabled);
+        }
+        cfg.sms_send_enabled = cfg.sms_features.any_enabled();
         cfg.email_send_enabled = false;
         cfg
     }
@@ -286,6 +363,7 @@ impl StorePodiumSmsConfig {
 #[derive(Debug, Serialize)]
 pub struct PodiumSmsSettingsResponse {
     pub sms_send_enabled: bool,
+    pub sms_features: PodiumSmsFeatureSettings,
     pub location_uid: String,
     pub widget_embed_enabled: bool,
     pub widget_snippet_html: String,
@@ -824,7 +902,8 @@ pub fn apply_template_placeholders(template: &str, vars: &[(&str, &str)]) -> Str
     out
 }
 
-/// Fire-and-forget operational SMS. Logs `podium_send_ok` / `podium_send_err` (no phone/body).
+/// Fire-and-forget operational SMS for one independently enabled workflow.
+/// Logs `podium_send_ok` / `podium_send_err` (no phone/body).
 /// When `crm_customer_id` is set and the send succeeds, appends an **`automated`** row to **`podium_message`** for the customer hub thread.
 pub async fn try_send_operational_sms(
     pool: &PgPool,
@@ -833,6 +912,7 @@ pub async fn try_send_operational_sms(
     to_e164: &str,
     body: String,
     crm_customer_id: Option<Uuid>,
+    feature: PodiumSmsFeature,
 ) -> Result<(), PodiumError> {
     let creds = match PodiumEnvCredentials::load(pool).await {
         Some(c) => c,
@@ -854,11 +934,11 @@ pub async fn try_send_operational_sms(
         }
     };
 
-    if !cfg.sms_send_enabled {
+    if !cfg.sms_features.is_enabled(feature) {
         tracing::debug!(
             target = "podium",
             event = "podium_send_skip",
-            reason = "sms_send_disabled"
+            reason = "sms_feature_disabled"
         );
         return Err(PodiumError::NotConfigured);
     }
@@ -1345,7 +1425,7 @@ pub async fn send_podium_sms_message_tracked(
         tracing::error!(error = %error, "podium load_store_podium_config failed (tracked sms send)");
         PodiumError::NotConfigured
     })?;
-    if !cfg.sms_send_enabled || cfg.location_uid.trim().is_empty() || body.trim().is_empty() {
+    if cfg.location_uid.trim().is_empty() || body.trim().is_empty() {
         return Err(PodiumError::NotConfigured);
     }
     let Some(e164) = normalize_phone_e164(to_phone_raw) else {
@@ -2114,6 +2194,13 @@ mod tests {
             cfg.templates.merged_defaults().ready_for_pickup,
             "Custom pickup"
         );
+        assert!(cfg.sms_features.staff_messages);
+        assert!(cfg.sms_features.receipts);
+        assert!(cfg.sms_features.ready_for_pickup);
+        assert!(cfg.sms_features.alteration_ready);
+        assert!(cfg.sms_features.appointment_confirmation);
+        assert!(cfg.sms_features.appointment_reminder);
+        assert!(cfg.sms_features.unknown_sender_welcome);
         assert!(cfg
             .email_templates
             .merged_defaults()
@@ -2129,6 +2216,27 @@ mod tests {
             .merged_defaults()
             .gift_email_subject
             .contains("{receipt_ref}"));
+    }
+
+    #[test]
+    fn sms_features_are_independent_and_drive_legacy_aggregate() {
+        let cfg = StorePodiumSmsConfig::load_from_json(json!({
+            "sms_send_enabled": true,
+            "sms_features": {
+                "staff_messages": false,
+                "receipts": true,
+                "ready_for_pickup": false,
+                "alteration_ready": false,
+                "appointment_confirmation": false,
+                "appointment_reminder": false,
+                "unknown_sender_welcome": false
+            }
+        }));
+
+        assert!(cfg.sms_send_enabled);
+        assert!(cfg.sms_features.receipts);
+        assert!(!cfg.sms_features.staff_messages);
+        assert!(!cfg.sms_features.ready_for_pickup);
     }
 
     #[test]

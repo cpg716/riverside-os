@@ -22,6 +22,8 @@ tags: customers, podium, messaging, inbox, communications
 
 Podium Inbox is the shared list of recent Podium SMS and email conversations.
 
+Sending a staff-authored text requires **Settings → Integrations → Podium → Staff-authored texts**. That switch does not enable automated pickup, alteration, appointment, receipt, new-sender, or review messages.
+
 In Operations and POS, this surface is for communications follow-up only. It is not a general task inbox.
 
 ## How to use it

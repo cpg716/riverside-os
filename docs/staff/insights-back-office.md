@@ -5,7 +5,7 @@
 ## Where in ROS
 
 - **Back Office → Reports** provides fixed, curated operational reports backed by Riverside APIs.
-- **Back Office → Insights** provides native conversational reporting through ROSIE and Cube Core.
+- **Back Office → Insights** provides native conversational reporting through ROSIE and governed Riverside report data.
 - **Back Office → Staff → Commissions → Reports** provides payroll-oriented commission review.
 
 All three surfaces use Riverside authentication. There is no separate analytics login.
@@ -27,7 +27,7 @@ All three surfaces use Riverside authentication. There is no separate analytics 
 
 **Booked** measures a Transaction when it is created. **Recognized** measures qualifying fulfillment or pickup. These are deliberately separate datasets; do not silently substitute one for the other.
 
-ROSIE never sends arbitrary SQL. It proposes a constrained report definition, the Riverside server validates it against the governed catalog and staff permissions, and Cube runs it through the read-only **`cube_ro`** role.
+ROSIE never sends arbitrary SQL. It proposes a constrained report definition, and the Riverside server validates it against the governed catalog and staff permissions before running a bounded read-only query against approved reporting views.
 
 ## Favorites, history, and archive
 
@@ -57,7 +57,7 @@ Operational RMS charge and payment lines remain under **Customers → RMS charge
 | Symptom | First check |
 |---|---|
 | No Insights tab | Role has **insights.view**. |
-| Cube unavailable | Cube Core service, API secret, and **`cube_ro`** database connection. |
+| Reporting needs an update | Run the normal Riverside Main Hub update or repair process; there is no separate reporting password. |
 | Report cannot be generated | Ask for a supported measure, grouping, period, and booked or recognized basis. |
 | No margin or cost option | Riverside Admin access is required. |
 | Unexpected total | Verify the date range, filters, and booked versus recognized basis before escalating. |
@@ -73,4 +73,4 @@ If fulfilled reports, receipt loyalty, commissions, QBO staging, or tax totals d
 - [../AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)
 - [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)
 
-**Last reviewed:** 2026-08-06
+**Last reviewed:** 2026-08-07

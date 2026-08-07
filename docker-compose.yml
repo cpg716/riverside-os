@@ -8,8 +8,7 @@
 # Host port 5433 → container 5432 so local dev does not collide with a native Postgres on localhost:5432
 # (Homebrew / Postgres.app often own 5432; the API would then hit the wrong empty `riverside_os`).
 #
-# Cube Core powers native ROS Insights at http://127.0.0.1:4000. ROS is the only
-# staff-facing client; Cube is bound to loopback and uses the versioned semantic model in ./cube.
+# Native Insights runs inside the Riverside server against approved reporting views.
 
 services:
   db:
@@ -56,39 +55,6 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
-
-  # Headless semantic/query layer for native ROS Insights.
-  cube:
-    image: cubejs/cube:v1.7.16
-    container_name: riverside-os-cube
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "127.0.0.1:4000:4000"
-    environment:
-      CUBEJS_DB_TYPE: postgres
-      CUBEJS_DB_HOST: db
-      CUBEJS_DB_PORT: 5432
-      CUBEJS_DB_NAME: ${POSTGRES_DB:-riverside_os}
-      # Cube never receives the application owner credential. Set a separately managed
-      # password on the migration-provisioned cube_ro role before starting this service.
-      CUBEJS_DB_USER: ${RIVERSIDE_CUBE_REPORTING_DB_USER:-cube_ro}
-      CUBEJS_DB_PASS: ${RIVERSIDE_CUBE_REPORTING_DB_PASSWORD:-}
-      CUBEJS_API_SECRET: ${CUBEJS_API_SECRET:-change_me_cube_api_secret_at_least_32_chars}
-      CUBEJS_DEV_MODE: "false"
-      CUBEJS_TELEMETRY: "false"
-      CUBEJS_DB_QUERY_DEFAULT_LIMIT: "500"
-      TZ: America/New_York
-    volumes:
-      - ./cube:/cube/conf:ro
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:4000/readyz >/dev/null || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 30s
 
 volumes:
   riverside_pgdata:

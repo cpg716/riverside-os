@@ -214,7 +214,8 @@ export default function NativeInsightsWorkspace() {
   const [favoriteToDelete, setFavoriteToDelete] = useState<SavedFavorite | null>(null);
   const [fromDate, setFromDate] = useState(ninetyDaysAgoYmd());
   const [toDate, setToDate] = useState(todayYmd());
-  const [health, setHealth] = useState<"connected" | "degraded" | "unreachable" | "needs_configuration" | null>(null);
+  const [health, setHealth] = useState<"connected" | "needs_update" | null>(null);
+  const [staffGuidance, setStaffGuidance] = useState("");
 
   const headers = useCallback(
     () => backofficeHeaders() as Record<string, string>,
@@ -232,7 +233,7 @@ export default function NativeInsightsWorkspace() {
           fetch(`${baseUrl}/api/insights/reports/history?archived=true`, {
             headers: requestHeaders,
           }),
-          fetch(`${baseUrl}/api/insights/cube-health`, { headers: requestHeaders }),
+          fetch(`${baseUrl}/api/insights/health`, { headers: requestHeaders }),
         ]);
       if (favoritesResponse.ok) {
         const rows = (await favoritesResponse.json()) as SavedFavorite[];
@@ -247,8 +248,12 @@ export default function NativeInsightsWorkspace() {
         setArchive(rows.filter((row) => isReportSpec(row.report_spec)));
       }
       if (healthResponse.ok) {
-        const data = (await healthResponse.json()) as { status?: typeof health };
+        const data = (await healthResponse.json()) as {
+          status?: typeof health;
+          staff_guidance?: string;
+        };
         setHealth(data.status ?? null);
+        setStaffGuidance(data.staff_guidance?.trim() ?? "");
       }
     } catch {
       toast("Could not refresh report history", "error");
@@ -606,14 +611,14 @@ export default function NativeInsightsWorkspace() {
               </div>
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.24em] text-violet-600">
-                  ROSIE + Cube Core
+                  Riverside Insights
                 </p>
                 <h1 className="mt-1 text-3xl font-black tracking-tight text-app-text">
                   Ask Riverside anything reportable
                 </h1>
                 <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
-                  Gemma builds a validated semantic report. Cube queries governed reporting views,
-                  and Riverside renders the chart, table, printout, and export without a second login.
+                  Ask in plain language. Gemma creates a checked report plan, and Riverside reads
+                  only approved report data before presenting the chart, table, printout, and export.
                 </p>
               </div>
             </div>
@@ -622,14 +627,23 @@ export default function NativeInsightsWorkspace() {
                 className={`h-2.5 w-2.5 rounded-full ${
                   health === "connected"
                     ? "bg-emerald-500"
-                    : health === "degraded" || health === "needs_configuration"
-                      ? "bg-amber-500"
-                      : "bg-rose-500"
+                    : "bg-amber-500"
                 }`}
               />
-              {health === "connected" ? "Reporting ready" : "Check reporting setup"}
+              {health === "connected" ? "Reporting ready" : "Main Hub update needed"}
             </div>
           </div>
+
+          {staffGuidance ? (
+            <div className="mt-5 rounded-2xl border border-violet-500/20 bg-violet-500/[0.05] px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-widest text-violet-600">
+                Store reporting guidance
+              </p>
+              <p className="mt-1 whitespace-pre-wrap text-xs font-semibold leading-relaxed text-app-text-muted">
+                {staffGuidance}
+              </p>
+            </div>
+          ) : null}
 
           <form
             className="mt-6 flex flex-col gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/[0.04] p-4 lg:flex-row"

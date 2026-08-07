@@ -206,7 +206,7 @@ impl MessagingDeliverySummary {
 }
 
 /// Core messaging dispatcher for automated notifications.
-/// SMS: Podium when env + `podium_sms_config.sms_send_enabled` + location_uid.
+/// SMS: Podium when credentials, location UID, and the matching `sms_features` flag are set.
 /// Email: first-party store email (IONOS-compatible IMAP/SMTP) when enabled.
 pub struct MessagingService;
 
@@ -272,7 +272,11 @@ impl MessagingService {
         let mut attempted = Vec::new();
         let mut errors: Vec<String> = Vec::new();
 
-        if sms_opt_in_ok(&customer) {
+        if podium_cfg
+            .as_ref()
+            .is_some_and(|cfg| cfg.sms_features.appointment_confirmation)
+            && sms_opt_in_ok(&customer)
+        {
             if let Some(ref phone) = customer.phone {
                 if let Some(e164) = normalize_phone_e164(phone) {
                     let sms_body =
@@ -449,7 +453,11 @@ impl MessagingService {
             ("store_address", store.store_address.as_str()),
         ];
 
-        if sms_opt_in_ok(&customer) {
+        if podium_cfg
+            .as_ref()
+            .is_some_and(|cfg| cfg.sms_features.appointment_reminder)
+            && sms_opt_in_ok(&customer)
+        {
             if let Some(ref phone) = customer.phone {
                 let sms_body =
                     apply_template_placeholders(&sms_templates.appointment_reminder, &vars);
@@ -461,6 +469,7 @@ impl MessagingService {
                         &e164,
                         sms_body.clone(),
                         Some(customer_id),
+                        podium::PodiumSmsFeature::AppointmentReminder,
                     )
                     .await
                     .err()
@@ -566,7 +575,11 @@ impl MessagingService {
         ];
 
         let sms_ok = customer.transactional_sms_opt_in || customer.marketing_sms_opt_in;
-        if sms_ok {
+        if podium_cfg
+            .as_ref()
+            .is_some_and(|cfg| cfg.sms_features.ready_for_pickup)
+            && sms_ok
+        {
             if let Some(ref phone) = customer.phone {
                 let body = apply_template_placeholders(&sms_templates.ready_for_pickup, &vars);
 
@@ -586,6 +599,7 @@ impl MessagingService {
                         &e164,
                         body.clone(),
                         Some(customer_id),
+                        podium::PodiumSmsFeature::ReadyForPickup,
                     )
                     .await;
                     match &sms_result {
@@ -727,7 +741,11 @@ impl MessagingService {
         ];
 
         let sms_ok = customer.transactional_sms_opt_in || customer.marketing_sms_opt_in;
-        if sms_ok {
+        if podium_cfg
+            .as_ref()
+            .is_some_and(|cfg| cfg.sms_features.alteration_ready)
+            && sms_ok
+        {
             if let Some(ref phone) = customer.phone {
                 let body = apply_template_placeholders(&sms_templates.alteration_ready, &vars);
 
@@ -747,6 +765,7 @@ impl MessagingService {
                         &e164,
                         body.clone(),
                         Some(customer_id),
+                        podium::PodiumSmsFeature::AlterationReady,
                     )
                     .await;
                     match &sms_result {

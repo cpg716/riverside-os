@@ -746,6 +746,8 @@ pub async fn ingest_from_webhook(
             if let Some(ref ph) = to_phone {
                 let tpl = load_store_podium_config(&pool_c)
                     .await
+                    .ok()
+                    .filter(|c| c.sms_features.unknown_sender_welcome)
                     .map(|c| c.templates.merged_defaults().unknown_sender_welcome)
                     .unwrap_or_default();
                 let tpl_t = tpl.trim();

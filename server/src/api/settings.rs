@@ -2882,6 +2882,7 @@ async fn podium_sms_settings_response(
     let receipt_templates_effective = cfg.receipt_templates.merged_defaults();
     PodiumSmsSettingsResponse {
         sms_send_enabled: cfg.sms_send_enabled,
+        sms_features: cfg.sms_features,
         location_uid: cfg.location_uid,
         widget_embed_enabled: cfg.widget_embed_enabled,
         widget_snippet_html: cfg.widget_snippet_html,
@@ -2949,8 +2950,20 @@ struct PatchReceiptMessageTemplatesBody {
 }
 
 #[derive(Debug, Deserialize, Default)]
+struct PatchPodiumSmsFeaturesBody {
+    staff_messages: Option<bool>,
+    receipts: Option<bool>,
+    ready_for_pickup: Option<bool>,
+    alteration_ready: Option<bool>,
+    appointment_confirmation: Option<bool>,
+    appointment_reminder: Option<bool>,
+    unknown_sender_welcome: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Default)]
 struct PatchPodiumSmsBody {
     sms_send_enabled: Option<bool>,
+    sms_features: Option<PatchPodiumSmsFeaturesBody>,
     location_uid: Option<String>,
     widget_embed_enabled: Option<bool>,
     widget_snippet_html: Option<String>,
@@ -2995,9 +3008,40 @@ async fn patch_podium_sms_settings(
 
     let mut current = StorePodiumSmsConfig::load_from_json(existing_raw);
 
-    if let Some(v) = body.sms_send_enabled {
-        current.sms_send_enabled = v;
+    if let Some(features) = body.sms_features {
+        if let Some(value) = features.staff_messages {
+            current.sms_features.staff_messages = value;
+        }
+        if let Some(value) = features.receipts {
+            current.sms_features.receipts = value;
+        }
+        if let Some(value) = features.ready_for_pickup {
+            current.sms_features.ready_for_pickup = value;
+        }
+        if let Some(value) = features.alteration_ready {
+            current.sms_features.alteration_ready = value;
+        }
+        if let Some(value) = features.appointment_confirmation {
+            current.sms_features.appointment_confirmation = value;
+        }
+        if let Some(value) = features.appointment_reminder {
+            current.sms_features.appointment_reminder = value;
+        }
+        if let Some(value) = features.unknown_sender_welcome {
+            current.sms_features.unknown_sender_welcome = value;
+        }
+    } else if let Some(v) = body.sms_send_enabled {
+        current.sms_features = crate::logic::podium::PodiumSmsFeatureSettings {
+            staff_messages: v,
+            receipts: v,
+            ready_for_pickup: v,
+            alteration_ready: v,
+            appointment_confirmation: v,
+            appointment_reminder: v,
+            unknown_sender_welcome: v,
+        };
     }
+    current.sms_send_enabled = current.sms_features.any_enabled();
     current.email_send_enabled = false;
     if let Some(s) = body.location_uid {
         current.location_uid = s;
@@ -3725,18 +3769,7 @@ async fn post_meilisearch_reindex(
 #[derive(Debug, Serialize)]
 struct InsightsSettingsResponse {
     config: StoreInsightsConfig,
-    cube_secret_configured: bool,
-    cube_upstream: String,
-}
-
-fn cube_secret_configured() -> bool {
-    std::env::var("RIVERSIDE_CUBE_API_SECRET")
-        .or_else(|_| std::env::var("CUBEJS_API_SECRET"))
-        .is_ok_and(|secret| secret.trim().len() >= 32)
-}
-
-fn cube_upstream() -> String {
-    std::env::var("RIVERSIDE_CUBE_UPSTREAM").unwrap_or_else(|_| "http://127.0.0.1:4000".to_string())
+    engine_ready: bool,
 }
 
 async fn get_insights_settings(
@@ -3748,10 +3781,10 @@ async fn get_insights_settings(
         .fetch_one(&state.db)
         .await?;
     let config = StoreInsightsConfig::from_json_value(raw);
+    let engine_ready = crate::logic::insights_config::reporting_engine_ready(&state.db).await?;
     Ok(Json(InsightsSettingsResponse {
         config,
-        cube_secret_configured: cube_secret_configured(),
-        cube_upstream: cube_upstream(),
+        engine_ready,
     }))
 }
 
@@ -3773,10 +3806,10 @@ async fn patch_insights_settings(
         .bind(&updated)
         .execute(&state.db)
         .await?;
+    let engine_ready = crate::logic::insights_config::reporting_engine_ready(&state.db).await?;
     Ok(Json(InsightsSettingsResponse {
         config,
-        cube_secret_configured: cube_secret_configured(),
-        cube_upstream: cube_upstream(),
+        engine_ready,
     }))
 }
 

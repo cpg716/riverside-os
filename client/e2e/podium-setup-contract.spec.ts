@@ -55,6 +55,23 @@ test("Podium callback shows the provider exchange error", () => {
   expect(callback).toContain("`Podium connection failed: ${j.error}`");
 });
 
+test("Podium SMS workflows have independent enablement controls", () => {
+  for (const feature of [
+    "staff_messages",
+    "receipts",
+    "ready_for_pickup",
+    "alteration_ready",
+    "appointment_confirmation",
+    "appointment_reminder",
+    "unknown_sender_welcome",
+  ]) {
+    expect(panel).toContain(feature);
+    expect(podiumLogic).toContain(feature);
+  }
+  expect(panel).toContain("Text receipts enabled");
+  expect(panel).not.toContain('label: "SMS Active"');
+});
+
 test("Podium provider contracts and webhook processing stay hardened", () => {
   expect(podiumLogic).toContain('"phoneNumber"');
   expect(podiumLogic).toContain('"locations"');

@@ -6241,6 +6241,18 @@ async fn find_customer_id_by_phone_tail(
     .await
 }
 
+async fn require_podium_staff_messages_enabled(state: &AppState) -> Result<(), CustomerError> {
+    let config = podium::load_store_podium_config(&state.db).await?;
+    if config.sms_features.staff_messages {
+        Ok(())
+    } else {
+        Err(CustomerError::PodiumUnavailable(
+            "Staff-authored Podium texts are disabled in Settings → Integrations → Podium."
+                .to_string(),
+        ))
+    }
+}
+
 async fn post_podium_direct_sms(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -6248,6 +6260,7 @@ async fn post_podium_direct_sms(
 ) -> Result<Json<PostPodiumDirectSmsResponse>, CustomerError> {
     let actor =
         customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    require_podium_staff_messages_enabled(&state).await?;
     let text = body.body.trim();
     if text.is_empty() {
         return Err(CustomerError::BadRequest("body is required".to_string()));
@@ -6499,6 +6512,7 @@ async fn post_customer_podium_reply(
     let row = load_customer_profile_row(&state.db, customer_id).await?;
     match ch.as_str() {
         "sms" | "phone" => {
+            require_podium_staff_messages_enabled(&state).await?;
             let Some(ref ph) = row.phone else {
                 return Err(CustomerError::BadRequest(
                     "Customer has no phone on file".to_string(),

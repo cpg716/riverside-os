@@ -37,15 +37,12 @@ Local runtime parity for this RC branch expects:
 - local **`server/.env`** present (copy from **`server/.env.example`**)
 - local Docker Postgres URL:
   - **`DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os`**
-- native Insights requires matching long secrets:
-  - root **`.env`**: **`CUBEJS_API_SECRET`**
-  - **`server/.env`**: **`RIVERSIDE_CUBE_API_SECRET`**
+- native Insights runs inside the Riverside server and requires no separate service credential
 - expected local services and ports:
   - Postgres **5433**
   - API **3000**
   - Vite **5173**
   - deterministic E2E API/UI **43300 / 43173**
-  - Cube Core **4000** (loopback only)
   - Meilisearch **7700** when used
 - expected DB/application state:
   - **`store_settings`** row **`id = 1`**

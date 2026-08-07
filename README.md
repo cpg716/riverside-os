@@ -27,7 +27,7 @@ Riverside has one parent Back Office app shell with three embedded runtime shell
 
 - **POS shell** for Register, Dashboard, and mirrored POS workspaces
 - **Wedding shell** for full Wedding Manager workflows
-- **Insights shell** for native ROSIE + Cube Core conversational analytics
+- **Insights shell** for native ROSIE conversational analytics over governed Riverside report data
 
 Current runtime contract:
 
@@ -123,8 +123,7 @@ docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < 
 
 # 2. Server env: copy server/.env.example -> server/.env for local runs.
 #    DATABASE_URL must point at localhost:5433 (the repo Docker Postgres), not localhost:5432.
-#    Native Insights requires Cube Core. Set the same long secret in root .env as
-#    CUBEJS_API_SECRET and server/.env as RIVERSIDE_CUBE_API_SECRET.
+#    Native Insights runs inside the Riverside server and needs no separate service or secret.
 #
 # 3. API server (http://127.0.0.1:3000) — from repo root, prefer npm (`dev-server.sh` / `cargo-server.sh` put Rust 1.91 first on PATH when Homebrew rustc shadows rustup):
 npm run dev:server
@@ -144,13 +143,12 @@ For this repo to behave the same way in a local RC worktree as it does in the va
 - Run **`cd client && npm install`** for the Vite/Playwright client toolchain.
 - Keep a real **`server/.env`** for local parity (copy from **`server/.env.example`**). The server can boot with fallbacks, but validated local behavior depends on that file.
 - For local Docker Postgres, **`DATABASE_URL`** must use **`postgresql://postgres:password@localhost:5433/riverside_os`**.
-- For native Insights, set matching **`CUBEJS_API_SECRET`** and **`RIVERSIDE_CUBE_API_SECRET`** values. Production Cube must connect as the migration-provisioned **`cube_ro`** role.
+- Native Insights is included in the Riverside server and uses existing Staff Access plus approved **`reporting.*`** views; no extra reporting credential is required.
 - Expected local services and ports:
   - Postgres: **`localhost:5433`**
   - API: **`127.0.0.1:3000`**
   - Vite dev UI: **`localhost:5173`**
   - Deterministic E2E API/UI: **`127.0.0.1:43300`** / **`localhost:43173`**
-  - Cube Core: **`127.0.0.1:4000`**
   - Meilisearch when used: **`localhost:7700`**
 - Expected local DB/application state:
   - **`store_settings`** row **`id = 1`**
@@ -206,9 +204,6 @@ Environment variables:
 | `RIVERSIDE_VISUAL_CROSSING_ENABLED` | _(unset)_ | Optional; force live weather on/off — see **`docs/WEATHER_VISUAL_CROSSING.md`** |
 | `RIVERSIDE_MEILISEARCH_URL` | _(unset)_ | Optional deployment fallback; routine Meilisearch host setup belongs in Backoffice Settings. Enables fuzzy catalog/CRM/inventory/transaction search with SQL hydration + fallback — **`docs/SEARCH_AND_PAGINATION.md`** |
 | `RIVERSIDE_MEILISEARCH_API_KEY` | _(unset)_ | Optional deployment fallback for Meilisearch master/API key when the instance requires auth; routine setup belongs in Backoffice Settings. |
-| `RIVERSIDE_CUBE_UPSTREAM` | `http://127.0.0.1:4000` | Loopback Cube Core endpoint used only by the Rust reporting gateway. |
-| `RIVERSIDE_CUBE_API_SECRET` / `CUBEJS_API_SECRET` | _(unset)_ | Matching long shared secret for signed Rust-to-Cube requests. Keep it server-side and stable. |
-| `RIVERSIDE_CUBE_REPORTING_DB_USER` / `RIVERSIDE_CUBE_REPORTING_DB_PASSWORD` | local Compose defaults | Cube PostgreSQL credentials. Production must use the **`cube_ro`** reporting-only role; see **[`docs/CUBE_INSIGHTS_REPORTING.md`](docs/CUBE_INSIGHTS_REPORTING.md)**. |
 | `RIVERSIDE_LLAMA_UPSTREAM` / `ROSIE_LOCAL_LLM_BASE_URL` | _(unset)_ | ROSIE local provider fallback endpoints. Routine provider endpoint setup belongs in **Settings → ROSIE → ROSIE Provider Credentials**. |
 | `OPENAI_API_KEY` / `GEMINI_API_KEY` | _(unset)_ | ROSIE cloud provider fallback keys. Routine keys and cloud model names belong in **Settings → ROSIE → ROSIE Provider Credentials**; never put them in Vite/client env. |
 | `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | Desktop direct/local ROSIE host controls. Tauri clients use the Main Hub's server-governed route by default; set `VITE_ROSIE_LLM_DIRECT=1` only for a workstation intentionally bundled with the local model. Full table **`DEVELOPER.md`**. |
