@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Daily Financial Report is an automated system that generates, stores, and emails a comprehensive financial summary at the end of each business day. It covers sales, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, supplier inbound freight, category margins, and QBO journal status. Alteration charges are included in recognized sales and are also disclosed separately. Shipping is disclosed separately and is excluded from sales totals and commissions.
+The Daily Financial Report is an automated system that generates, stores, and emails a comprehensive financial summary at the end of each business day. Its headline daily and month-to-date figures use canonical **booked Daily Sales**, matching the ROS Today's Sales card and booked Register report. The body separately discloses recognized revenue, business-day weather, tenders, tax, returns, deposits, gift cards, alterations, inventory receiving, supplier inbound freight, category margins, and QBO journal status. Alteration charges are included in the applicable sales basis and are also disclosed separately. Shipping is disclosed separately and is excluded from sales totals and commissions.
 
 Reports are generated after the register Z-close and can be viewed, resent, or test-sent from the Settings panel.
 
@@ -24,16 +24,37 @@ Reports are generated after the register Z-close and can be viewed, resent, or t
 Each daily report includes:
 
 ### Key Metrics
-- **Recognized Net Sales** — fulfilled/recognized gross sales minus discounts
-- **Recognized Transaction Count** — unique fulfilled transactions
-- **Average Recognized Transaction** — recognized net sales ÷ recognized transaction count
+- **Booked Net Sales** — canonical pre-tax booking-event net sales, including reportable later amendments and same-day returns, matching ROS Daily Sales
+- **Booked Sales Count** — unique booked sales reported by the canonical Daily Sales summary
+- **Average Booked Sale** — booked net sales ÷ booked sales count
+- **MTD Booked Net** — booked net sales from the first day of the report month through the report date
+- **MTD vs Last Year — $** — dollar difference from the same calendar-day month-to-date window one year earlier
+- **MTD vs Last Year — %** — percentage difference from the prior-year booked-net window; shown as `N/A` when the prior-year net baseline is zero
 
-Revenue, item, discount, and tax sections use the fulfillment/recognition date. Payment Methods and Total Tendered use the payment processing date. They are separate ledgers and are not expected to equal each other. Booked Daily Sales, recognized revenue, deposits, and processed tender must never be substituted for one another.
+Headline cards, the Booked Sales Summary, and MTD comparisons use the booking-event business date. Recognized Revenue Detail, recognized item/discount figures, and recognized tax use the fulfillment/recognition date. Payment Methods and Total Tendered use the payment processing date. These are separate ledgers and are not expected to equal each other. Booked Daily Sales, recognized revenue, deposits, and processed tender must never be substituted for one another.
 
-### Sales Summary
-- Gross sales, discounts, net sales, items sold. Discounts include POS price
+### Month-to-Date Net Comparison
+
+- Current MTD and prior-year MTD call the same canonical booked Daily Sales summary used by the daily **Booked Net Sales** figure.
+- The comparison always ends on the report business date, not the email-send date.
+- The prior-year window uses the same month and day numbers. For a February 29 report, a non-leap prior year ends on February 28.
+- The body lists both exact date windows, both net values, the signed dollar change, and the signed percentage change.
+
+### Business Day Weather
+
+- Shows condition, high/low temperature in Fahrenheit, and precipitation in inches from the stored Visual Crossing snapshot for the report business date.
+- The report labels whether the row is a Register-close snapshot or a finalized historical observation.
+- Simulated/mock weather is never presented as actual data in a financial report. If no explicitly sourced Visual Crossing row is available, the weather section says actual weather was unavailable.
+
+### Booked Sales Summary
+
+- Booked net sales, booked tax, total with tax, booked sales count, and average booked sale from the canonical booked Daily Sales source.
+
+### Recognized Revenue Detail
+
+- Recognized gross sales, discounts, net sales, and items sold. Discounts include POS price
   overrides, customer profile discounts, employee prices, and explicit discount
-  amounts while keeping net sales on the final line price.
+  amounts while keeping recognized net sales on the final line price.
 
 ### Recognized Tax
 - State tax, local tax, total tax
@@ -70,8 +91,9 @@ Revenue, item, discount, and tax sections use the fulfillment/recognition date. 
 
 The report is rendered as a professional HTML email with:
 - Dark gradient header with store name and date
-- Color-coded KPI summary cards (green/blue/purple)
+- Two rows of color-coded KPI summary cards: three booked daily cards and three booked MTD/year-over-year cards
 - Clean data tables with monospace amounts
+- Exact current/prior MTD windows and a business-day weather section
 - Category margin heat coloring
 - QBO status badge
 - Dark footer with generation timestamp
@@ -82,6 +104,7 @@ After the register Z-close:
 1. ROS saves the EOD snapshot
 2. ROS ensures the pending QBO journal for the business date
 3. **ROS checks daily report config** — if enabled:
+   - Captures the business-date weather snapshot before report generation
    - Generates the report for the exact business date closed by the Z-report, even when staff closes it the following morning
    - Renders HTML email
    - Stores the report in `daily_financial_reports`
@@ -160,6 +183,7 @@ All endpoints require `settings.admin` permission.
 ## Dependencies
 
 - **Email integration** must be configured in Settings → Email (SMTP credentials)
+- **Visual Crossing weather** must be enabled with a valid API key in Settings → Integrations → Weather for actual weather data to appear; the report does not use simulated fallback weather
 - **Store timezone** from `reporting.effective_store_timezone()` determines the business date
 - **Store name** from `receipt_config.store_name` appears in the report header
 
@@ -170,4 +194,4 @@ All endpoints require `settings.admin` permission.
 - [staff/qbo-bridge.md](staff/qbo-bridge.md) — QuickBooks staging and sync
 - [QBO_JOURNAL_TEST_MATRIX.md](QBO_JOURNAL_TEST_MATRIX.md) — Journal verification
 
-**Last reviewed:** 2026-08-06
+**Last reviewed:** 2026-08-08

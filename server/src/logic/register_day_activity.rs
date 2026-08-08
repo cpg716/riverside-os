@@ -867,6 +867,188 @@ async fn set_repeatable_read_only(connection: &mut PgConnection) -> Result<(), s
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegisterSalesTotals {
+    pub sales_count: i64,
+    pub net_sales: Decimal,
+    pub tax_total: Decimal,
+    pub avg_sale: Decimal,
+    pub online_order_count: i64,
+}
+
+async fn fetch_register_sales_totals_on_connection(
+    connection: &mut PgConnection,
+    start_utc: chrono::DateTime<Utc>,
+    end_utc: chrono::DateTime<Utc>,
+    register_session_id: Option<Uuid>,
+    basis: ReportBasis,
+    summary_order_in_range: &str,
+    order_session_filter: &str,
+) -> Result<RegisterSalesTotals, RegisterDayActivityError> {
+    let summary_line_source = match basis {
+        ReportBasis::Booked => r#"
+            SELECT
+                e.transaction_id,
+                SUM(
+                    CASE
+                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 0::numeric
+                        ELSE e.subtotal_delta
+                    END
+                )::numeric(14,2) AS line_subtotal,
+                SUM(
+                    CASE
+                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 0::numeric
+                        ELSE e.tax_delta
+                    END
+                )::numeric(14,2) AS line_tax
+            FROM transaction_line_booking_events e
+            LEFT JOIN product_variants pv
+              ON pv.id = NULLIF(e.metadata->>'variant_id', '')::uuid
+            WHERE e.booked_at >= $1
+              AND e.booked_at < $2
+              AND e.is_internal = FALSE
+              AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
+              AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
+              AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
+            GROUP BY e.transaction_id
+            HAVING SUM(e.subtotal_delta + e.tax_delta) > 0
+        "#
+        .to_string(),
+        ReportBasis::Completed => r#"
+            SELECT
+                oi.transaction_id,
+                SUM(
+                    CASE
+                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 0::numeric
+                        ELSE oi.quantity::numeric * oi.unit_price
+                    END
+                )::numeric(14,2) AS line_subtotal,
+                SUM(
+                    CASE
+                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 0::numeric
+                        ELSE oi.quantity::numeric * (oi.state_tax + oi.local_tax)
+                    END
+                )::numeric(14,2) AS line_tax
+            FROM transaction_lines oi
+            LEFT JOIN products p ON p.id = oi.product_id
+            LEFT JOIN product_variants pv ON pv.id = oi.variant_id
+            WHERE COALESCE(oi.is_internal, false) = FALSE
+              AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+              AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+            GROUP BY oi.transaction_id
+        "#
+        .to_string(),
+    };
+    let agg_sql = format!(
+        r#"
+        SELECT
+            COUNT(DISTINCT o.id) FILTER (
+                WHERE ln.line_subtotal <> 0 OR ln.line_tax <> 0
+            )::bigint AS sale_count,
+            COALESCE(SUM(ln.line_subtotal), 0::numeric) AS subtotal_no_tax,
+            COALESCE(SUM(ln.line_tax), 0::numeric) AS tax_total,
+            COUNT(DISTINCT o.id) FILTER (
+                WHERE o.sale_channel = 'web'
+                  AND (ln.line_subtotal <> 0 OR ln.line_tax <> 0)
+            )::bigint AS web_count
+        FROM transactions o
+        INNER JOIN ({summary_line_source}) ln ON ln.transaction_id = o.id
+        WHERE {summary_order_in_range}
+        {order_session_filter}
+        "#,
+    );
+
+    let row: (i64, Option<Decimal>, Option<Decimal>, i64) = sqlx::query_as(&agg_sql)
+        .bind(start_utc)
+        .bind(end_utc)
+        .bind(register_session_id)
+        .fetch_one(&mut *connection)
+        .await?;
+
+    let return_adjustments: (Decimal, Decimal) = sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE(SUM(COALESCE(
+                trl.refund_subtotal,
+                tl.unit_price * trl.quantity_returned
+            )), 0)::numeric(14,2),
+            COALESCE(SUM(
+                COALESCE(trl.refund_state_tax, tl.state_tax * trl.quantity_returned)
+                + COALESCE(trl.refund_local_tax, tl.local_tax * trl.quantity_returned)
+            ), 0)::numeric(14,2)
+        FROM transaction_return_lines trl
+        INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+        LEFT JOIN products p ON p.id = tl.product_id
+        LEFT JOIN product_variants pv ON pv.id = tl.variant_id
+        WHERE trl.created_at >= $1
+          AND trl.created_at < $2
+          AND ($3::uuid IS NULL OR trl.register_session_id = $3)
+          AND COALESCE(tl.is_internal, false) = false
+          AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+          AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+          AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+        "#,
+    )
+    .bind(start_utc)
+    .bind(end_utc)
+    .bind(register_session_id)
+    .fetch_one(&mut *connection)
+    .await?;
+
+    let sales_count = row.0;
+    let net_sales = row.1.unwrap_or(Decimal::ZERO) - return_adjustments.0;
+    let tax_total = row.2.unwrap_or(Decimal::ZERO) - return_adjustments.1;
+    let avg_sale = if sales_count > 0 {
+        net_sales / Decimal::from(sales_count)
+    } else {
+        Decimal::ZERO
+    };
+
+    Ok(RegisterSalesTotals {
+        sales_count,
+        net_sales,
+        tax_total,
+        avg_sale,
+        online_order_count: row.3,
+    })
+}
+
+pub async fn fetch_booked_sales_totals(
+    pool: &PgPool,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> Result<RegisterSalesTotals, RegisterDayActivityError> {
+    if from > to {
+        return Err(RegisterDayActivityError::InvalidRange(
+            "booked sales from date must be on or before the to date".to_string(),
+        ));
+    }
+
+    let mut transaction = pool.begin().await?;
+    set_repeatable_read_only(&mut transaction).await?;
+    let tz_name = receipt_timezone_on_connection(&mut transaction).await?;
+    let tz = effective_tz(Some(tz_name));
+    let (start_utc, end_utc) =
+        local_day_bounds(tz, from, to).map_err(RegisterDayActivityError::InvalidRange)?;
+    let order_in_range = "o.status::text NOT IN ('cancelled')";
+    let totals = fetch_register_sales_totals_on_connection(
+        &mut transaction,
+        start_utc,
+        end_utc,
+        None,
+        ReportBasis::Booked,
+        order_in_range,
+        order_session_filter_sql(ReportBasis::Booked),
+    )
+    .await?;
+    transaction.commit().await?;
+    Ok(totals)
+}
+
 fn validate_complete_row_bounds(
     activity_total: i64,
     pickup_total: i64,
@@ -1124,124 +1306,20 @@ async fn fetch_register_day_summary_page_on_connection(
     };
     let order_session_filter = order_session_filter_sql(basis);
     let summary_order_in_range = order_in_range.clone();
-    let summary_line_source = match basis {
-        ReportBasis::Booked => r#"
-            SELECT
-                e.transaction_id,
-                SUM(
-                    CASE
-                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-                        THEN 0::numeric
-                        ELSE e.subtotal_delta
-                    END
-                )::numeric(14,2) AS line_subtotal,
-                SUM(
-                    CASE
-                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-                        THEN 0::numeric
-                        ELSE e.tax_delta
-                    END
-                )::numeric(14,2) AS line_tax
-            FROM transaction_line_booking_events e
-            LEFT JOIN product_variants pv
-              ON pv.id = NULLIF(e.metadata->>'variant_id', '')::uuid
-            WHERE e.booked_at >= $1
-              AND e.booked_at < $2
-              AND e.is_internal = FALSE
-              AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
-              AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
-              AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
-            GROUP BY e.transaction_id
-            HAVING SUM(e.subtotal_delta + e.tax_delta) > 0
-        "#
-        .to_string(),
-        ReportBasis::Completed => r#"
-            SELECT
-                oi.transaction_id,
-                SUM(
-                    CASE
-                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-                        THEN 0::numeric
-                        ELSE oi.quantity::numeric * oi.unit_price
-                    END
-                )::numeric(14,2) AS line_subtotal,
-                SUM(
-                    CASE
-                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-                        THEN 0::numeric
-                        ELSE oi.quantity::numeric * (oi.state_tax + oi.local_tax)
-                    END
-                )::numeric(14,2) AS line_tax
-            FROM transaction_lines oi
-            LEFT JOIN products p ON p.id = oi.product_id
-            LEFT JOIN product_variants pv ON pv.id = oi.variant_id
-            WHERE COALESCE(oi.is_internal, false) = FALSE
-              AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
-              AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-            GROUP BY oi.transaction_id
-        "#
-        .to_string(),
-    };
-    let agg_sql = format!(
-        r#"
-        SELECT
-            COUNT(DISTINCT o.id) FILTER (
-                WHERE ln.line_subtotal <> 0 OR ln.line_tax <> 0
-            )::bigint AS sale_count,
-            COALESCE(SUM(ln.line_subtotal), 0::numeric) AS subtotal_no_tax,
-            COALESCE(SUM(ln.line_tax), 0::numeric) AS tax_total,
-            COUNT(DISTINCT o.id) FILTER (
-                WHERE o.sale_channel = 'web'
-                  AND (ln.line_subtotal <> 0 OR ln.line_tax <> 0)
-            )::bigint AS web_count
-        FROM transactions o
-        INNER JOIN ({summary_line_source}) ln ON ln.transaction_id = o.id
-        WHERE {summary_order_in_range}
-        {order_session_filter}
-        "#,
-    );
-
-    let row: (i64, Option<Decimal>, Option<Decimal>, i64) = sqlx::query_as(&agg_sql)
-        .bind(start_utc)
-        .bind(end_utc)
-        .bind(register_session_id)
-        .fetch_one(&mut *connection)
-        .await?;
-
-    let sales_count = row.0;
-    let return_adjustments: (Decimal, Decimal) = sqlx::query_as(
-        r#"
-        SELECT
-            COALESCE(SUM(COALESCE(
-                trl.refund_subtotal,
-                tl.unit_price * trl.quantity_returned
-            )), 0)::numeric(14,2),
-            COALESCE(SUM(
-                COALESCE(trl.refund_state_tax, tl.state_tax * trl.quantity_returned)
-                + COALESCE(trl.refund_local_tax, tl.local_tax * trl.quantity_returned)
-            ), 0)::numeric(14,2)
-        FROM transaction_return_lines trl
-        INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
-        LEFT JOIN products p ON p.id = tl.product_id
-        LEFT JOIN product_variants pv ON pv.id = tl.variant_id
-        WHERE trl.created_at >= $1
-          AND trl.created_at < $2
-          AND ($3::uuid IS NULL OR trl.register_session_id = $3)
-          AND COALESCE(tl.is_internal, false) = false
-          AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
-          AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-          AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-        "#,
+    let sales_totals = fetch_register_sales_totals_on_connection(
+        &mut *connection,
+        start_utc,
+        end_utc,
+        register_session_id,
+        basis,
+        &summary_order_in_range,
+        order_session_filter,
     )
-    .bind(start_utc)
-    .bind(end_utc)
-    .bind(register_session_id)
-    .fetch_one(&mut *connection)
     .await?;
-
-    let subtotal = row.1.unwrap_or(Decimal::ZERO) - return_adjustments.0;
-    let tax_total = row.2.unwrap_or(Decimal::ZERO) - return_adjustments.1;
-    let online_order_count = row.3;
+    let sales_count = sales_totals.sales_count;
+    let subtotal = sales_totals.net_sales;
+    let tax_total = sales_totals.tax_total;
+    let online_order_count = sales_totals.online_order_count;
 
     let shipping_sql = match basis {
         ReportBasis::Booked => format!(

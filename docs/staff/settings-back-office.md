@@ -119,7 +119,8 @@ Typical areas (labels may group differently by build):
 - **Generate**: Manually create a report for any date.
 - **Generate & Send**: Create and email a report to all recipients.
 - **Test Send**: Send the most recent completed report with `[TEST]` prefix. Supports email override.
-- **Report History**: View all generated reports with net sales, status badges, and actions to **View** (in-app HTML preview) or **Resend**. For a failed or partial delivery, **Resend** targets only recipients not already recorded as successful. Automatic failures also create a system alert for manager review.
+- **Report History**: View all generated reports with basis-labeled net sales, status badges, and actions to **View** (in-app HTML preview) or **Resend**. New reports show booked net sales; older archived reports remain explicitly labeled as legacy recognized net sales. For a failed or partial delivery, **Resend** targets only recipients not already recorded as successful. Automatic failures also create a system alert for manager review.
+- **Report content**: The email's first three cards use canonical booked Daily Sales, matching the ROS Today's Sales and booked Register report. Three more cards show month-to-date booked net sales plus the dollar and percentage comparison with the same month-to-date window last year. The body shows both exact date windows, separately labeled recognized revenue, and actual Visual Crossing business-day weather when available. Simulated weather is not shown as actual financial-report data.
 - See [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md) for API details and email template specs.
 
 ### Database

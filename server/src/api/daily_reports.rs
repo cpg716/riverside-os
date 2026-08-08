@@ -344,6 +344,7 @@ struct ReportListRow {
     sent_to: Option<Vec<String>>,
     send_error: Option<String>,
     is_test: bool,
+    sales_basis: String,
     net_sales: Option<rust_decimal::Decimal>,
     transaction_count: Option<i64>,
     total_tendered: Option<rust_decimal::Decimal>,
@@ -369,8 +370,18 @@ async fn list_reports(
             sent_to,
             send_error,
             is_test,
-            (report_payload->>'net_sales')::numeric(14,2) AS net_sales,
-            (report_payload->>'transaction_count')::bigint AS transaction_count,
+            CASE
+                WHEN report_payload ? 'booked_sales' THEN 'booked'
+                ELSE 'recognized'
+            END AS sales_basis,
+            COALESCE(
+                (report_payload->'booked_sales'->>'net_sales')::numeric(14,2),
+                (report_payload->>'net_sales')::numeric(14,2)
+            ) AS net_sales,
+            COALESCE(
+                (report_payload->'booked_sales'->>'sales_count')::bigint,
+                (report_payload->>'transaction_count')::bigint
+            ) AS transaction_count,
             (report_payload->>'total_tendered')::numeric(14,2) AS total_tendered
         FROM daily_financial_reports
         WHERE ($1::date IS NULL OR report_date >= $1)

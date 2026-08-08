@@ -3145,10 +3145,21 @@ async fn close_session(
         .await;
 
         let snapshot_pool = state.db.clone();
+        let snapshot_http = state.http_client.clone();
         let snapshot_till = till_gid;
         let snapshot_primary = primary_id;
         let snapshot_summary = close_day_summary.clone();
         tokio::spawn(async move {
+            if let Err(error) = crate::logic::weather::capture_store_daily_weather(
+                &snapshot_http,
+                &snapshot_pool,
+                business_date,
+                "register_close",
+            )
+            .await
+            {
+                tracing::warn!(%error, %business_date, "register business-day weather capture failed");
+            }
             if let Err(error) = crate::logic::register_day_activity::save_eod_snapshot(
                 &snapshot_pool,
                 business_date,

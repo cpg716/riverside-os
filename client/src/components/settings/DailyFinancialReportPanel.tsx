@@ -37,6 +37,7 @@ interface ReportListRow {
   sent_to: string[] | null;
   send_error: string | null;
   is_test: boolean;
+  sales_basis: "booked" | "recognized";
   net_sales: string | null;
   transaction_count: number | null;
   total_tendered: string | null;
@@ -622,7 +623,10 @@ const DailyFinancialReportPanel: React.FC<DailyFinancialReportPanelProps> = ({
                       <div className="text-xs text-app-text-muted flex items-center gap-3 mt-0.5">
                         {r.net_sales != null && (
                           <span>
-                            Recognized Net Sales:{" "}
+                            {r.sales_basis === "booked"
+                              ? "Booked Net Sales"
+                              : "Recognized Net Sales (legacy)"}
+                            :{" "}
                             <span className="font-semibold text-emerald-600 dark:text-emerald-400">
                               $
                               {Number(r.net_sales).toLocaleString(undefined, {
@@ -632,7 +636,12 @@ const DailyFinancialReportPanel: React.FC<DailyFinancialReportPanelProps> = ({
                           </span>
                         )}
                         {r.transaction_count != null && (
-                          <span>{r.transaction_count} recognized transactions</span>
+                          <span>
+                            {r.transaction_count}{" "}
+                            {r.sales_basis === "booked"
+                              ? "booked sales"
+                              : "recognized transactions"}
+                          </span>
                         )}
                         {r.sent_to && r.sent_to.length > 0 && (
                           <span className="truncate max-w-[200px]">

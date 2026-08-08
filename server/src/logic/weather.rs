@@ -424,12 +424,13 @@ pub fn local_today_plus_one_day(timezone: &str) -> (NaiveDate, NaiveDate) {
 }
 
 /// Fetches live data when configured; otherwise mock. On upstream errors, logs and uses mock.
-pub async fn fetch_weather_range(
+/// The provider marker lets persisted reporting snapshots distinguish actual from simulated data.
+async fn fetch_weather_range_with_provider(
     http: &reqwest::Client,
     pool: &PgPool,
     start: NaiveDate,
     end: NaiveDate,
-) -> Vec<DailyWeatherContext> {
+) -> (Vec<DailyWeatherContext>, &'static str) {
     let settings = load_store_weather_settings(pool).await;
     let (start, end) = if start <= end {
         (start, end)
@@ -443,7 +444,7 @@ pub async fn fetch_weather_range(
             location = %settings.location,
             "weather using mock data; Visual Crossing live weather is not available"
         );
-        return mock_range(start, end);
+        return (mock_range(start, end), "mock");
     }
 
     match fetch_visual_crossing(http, pool, &settings, start, end, VcInclude::Days).await {
@@ -456,13 +457,24 @@ pub async fn fetch_weather_range(
                 days = rows.len(),
                 "weather loaded from Visual Crossing"
             );
-            rows
+            (rows, "visual_crossing")
         }
         Err(e) => {
             warn!(error = %e, "visual crossing request failed; using mock");
-            mock_range(start, end)
+            (mock_range(start, end), "mock")
         }
     }
+}
+
+pub async fn fetch_weather_range(
+    http: &reqwest::Client,
+    pool: &PgPool,
+    start: NaiveDate,
+    end: NaiveDate,
+) -> Vec<DailyWeatherContext> {
+    fetch_weather_range_with_provider(http, pool, start, end)
+        .await
+        .0
 }
 
 pub async fn persist_store_daily_weather(
@@ -508,16 +520,15 @@ pub async fn capture_store_daily_weather(
     http: &reqwest::Client,
     pool: &PgPool,
     business_date: NaiveDate,
-    source: &str,
+    capture_source: &str,
 ) -> anyhow::Result<()> {
-    let Some(weather) = fetch_weather_range(http, pool, business_date, business_date)
-        .await
-        .into_iter()
-        .next()
-    else {
+    let (rows, provider) =
+        fetch_weather_range_with_provider(http, pool, business_date, business_date).await;
+    let Some(weather) = rows.into_iter().next() else {
         anyhow::bail!("weather provider returned no row for {business_date}");
     };
-    persist_store_daily_weather(pool, &weather, source, false).await
+    let source = format!("{provider}:{capture_source}");
+    persist_store_daily_weather(pool, &weather, &source, false).await
 }
 
 /// Captures store-day weather after the financial transaction has committed.

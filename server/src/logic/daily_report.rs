@@ -4,13 +4,14 @@
 //! inventory, tax, deposits, returns, gift cards, alterations, freight, and QBO status.
 //! Output: structured JSON payload + rendered HTML email body.
 
-use chrono::{NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::logic::register_day_activity::{self, RegisterDayActivityError};
 use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
 
 // ── Configuration ────────────────────────────────────────────────────────────
@@ -78,12 +79,21 @@ pub struct DailyReport {
     pub business_timezone: String,
     pub generated_at: String,
 
-    // Sales
+    // Canonical booked Daily Sales
+    pub booked_sales: BookedSalesSummary,
+
+    // Recognized revenue detail
     pub gross_sales: Decimal,
     pub net_sales: Decimal,
     pub transaction_count: i64,
     pub avg_transaction: Decimal,
     pub items_sold: i64,
+
+    // Month-to-date booked net comparison
+    pub month_to_date: MonthToDateComparison,
+
+    // Store-day weather context
+    pub weather: Option<ReportWeather>,
 
     // Returns
     pub return_count: i64,
@@ -142,6 +152,112 @@ pub struct CategorySummary {
     pub units: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BookedSalesSummary {
+    pub net_sales: Decimal,
+    pub sales_count: i64,
+    pub avg_sale: Decimal,
+    pub tax_total: Decimal,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MonthToDateComparison {
+    pub current_start: NaiveDate,
+    pub current_end: NaiveDate,
+    pub current_net_sales: Decimal,
+    pub prior_year_start: NaiveDate,
+    pub prior_year_end: NaiveDate,
+    pub prior_year_net_sales: Decimal,
+    pub change_amount: Decimal,
+    pub change_percent: Option<Decimal>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ReportWeather {
+    pub condition: String,
+    pub temp_high_f: f32,
+    pub temp_low_f: f32,
+    pub precipitation_inches: f32,
+    pub source: String,
+    pub captured_at: String,
+    pub finalized: bool,
+}
+
+fn month_to_date_windows(date: NaiveDate) -> (NaiveDate, NaiveDate, NaiveDate, NaiveDate) {
+    let current_start = NaiveDate::from_ymd_opt(date.year(), date.month(), 1)
+        .expect("a valid date always has a valid first day of month");
+    let prior_year = date.year() - 1;
+    let prior_year_start = NaiveDate::from_ymd_opt(prior_year, date.month(), 1)
+        .expect("a valid month always has a valid first day in the prior year");
+    let prior_year_end = NaiveDate::from_ymd_opt(prior_year, date.month(), date.day())
+        .unwrap_or_else(|| {
+            let next_month_start = if date.month() == 12 {
+                NaiveDate::from_ymd_opt(prior_year + 1, 1, 1)
+            } else {
+                NaiveDate::from_ymd_opt(prior_year, date.month() + 1, 1)
+            }
+            .expect("a valid month always has a valid following month");
+            next_month_start - Duration::days(1)
+        });
+
+    (current_start, date, prior_year_start, prior_year_end)
+}
+
+fn build_month_to_date_comparison(
+    current_start: NaiveDate,
+    current_end: NaiveDate,
+    current_net_sales: Decimal,
+    prior_year_start: NaiveDate,
+    prior_year_end: NaiveDate,
+    prior_year_net_sales: Decimal,
+) -> MonthToDateComparison {
+    let change_amount = current_net_sales - prior_year_net_sales;
+    let change_percent = if prior_year_net_sales.is_zero() {
+        None
+    } else {
+        Some(((change_amount / prior_year_net_sales) * Decimal::from(100)).round_dp(1))
+    };
+
+    MonthToDateComparison {
+        current_start,
+        current_end,
+        current_net_sales,
+        prior_year_start,
+        prior_year_end,
+        prior_year_net_sales,
+        change_amount,
+        change_percent,
+    }
+}
+
+fn is_visual_crossing_weather_source(source: &str) -> bool {
+    source == "visual_crossing_final" || source.starts_with("visual_crossing:")
+}
+
+fn map_register_day_error(error: RegisterDayActivityError) -> sqlx::Error {
+    match error {
+        RegisterDayActivityError::Db(error) => error,
+        other => sqlx::Error::Protocol(format!("booked Daily Sales summary: {other}")),
+    }
+}
+
+async fn fetch_booked_sales_summary(
+    pool: &PgPool,
+    start: NaiveDate,
+    end: NaiveDate,
+) -> Result<BookedSalesSummary, sqlx::Error> {
+    let totals = register_day_activity::fetch_booked_sales_totals(pool, start, end)
+        .await
+        .map_err(map_register_day_error)?;
+
+    Ok(BookedSalesSummary {
+        net_sales: totals.net_sales,
+        sales_count: totals.sales_count,
+        avg_sale: totals.avg_sale,
+        tax_total: totals.tax_total,
+    })
+}
+
 // ── Generation ───────────────────────────────────────────────────────────────
 
 pub async fn generate_report(
@@ -155,6 +271,9 @@ pub async fn generate_report(
         sqlx::query_scalar("SELECT reporting.effective_store_timezone()")
             .fetch_one(pool)
             .await?;
+
+    // ── Canonical booked Daily Sales ─────────────────────────────────────────
+    let booked_sales = fetch_booked_sales_summary(pool, activity_date, activity_date).await?;
 
     // ── Sales summary ────────────────────────────────────────────────────────
     #[derive(sqlx::FromRow)]
@@ -227,6 +346,20 @@ AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
     } else {
         Decimal::ZERO
     };
+
+    // ── Month-to-date booked net comparison ─────────────────────────────────
+    let (mtd_start, mtd_end, prior_mtd_start, prior_mtd_end) = month_to_date_windows(activity_date);
+    let current_mtd = fetch_booked_sales_summary(pool, mtd_start, mtd_end).await?;
+    let prior_mtd = fetch_booked_sales_summary(pool, prior_mtd_start, prior_mtd_end).await?;
+
+    let month_to_date = build_month_to_date_comparison(
+        mtd_start,
+        mtd_end,
+        current_mtd.net_sales,
+        prior_mtd_start,
+        prior_mtd_end,
+        prior_mtd.net_sales,
+    );
 
     // ── Tax ──────────────────────────────────────────────────────────────────
     #[derive(sqlx::FromRow)]
@@ -507,15 +640,54 @@ AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
     .fetch_optional(pool)
     .await?;
 
+    // ── Store-day weather ────────────────────────────────────────────────────
+    #[derive(sqlx::FromRow)]
+    struct StoredWeatherRow {
+        snapshot: sqlx::types::Json<crate::logic::weather::DailyWeatherContext>,
+        source: String,
+        captured_at: DateTime<Utc>,
+        finalized_at: Option<DateTime<Utc>>,
+    }
+
+    let stored_weather: Option<StoredWeatherRow> = sqlx::query_as(
+        r#"
+        SELECT snapshot, source, captured_at, finalized_at
+        FROM store_daily_weather
+        WHERE weather_date = $1::date
+        "#,
+    )
+    .bind(activity_date)
+    .fetch_optional(pool)
+    .await?;
+
+    let weather = stored_weather.and_then(|row| {
+        if !is_visual_crossing_weather_source(&row.source) {
+            return None;
+        }
+        let snapshot = row.snapshot.0;
+        Some(ReportWeather {
+            condition: snapshot.condition,
+            temp_high_f: snapshot.temp_high,
+            temp_low_f: snapshot.temp_low,
+            precipitation_inches: snapshot.precipitation_inches,
+            source: row.source,
+            captured_at: row.captured_at.to_rfc3339(),
+            finalized: row.finalized_at.is_some(),
+        })
+    });
+
     let report = DailyReport {
         report_date: activity_date,
         business_timezone: business_timezone.clone(),
         generated_at: Utc::now().to_rfc3339(),
+        booked_sales,
         gross_sales: gross,
         net_sales: net,
         transaction_count: sales.transaction_count,
         avg_transaction: avg_tx,
         items_sold: sales.items_sold,
+        month_to_date,
+        weather,
         return_count: returns.return_count,
         return_total: returns.return_total.unwrap_or(Decimal::ZERO),
         tax_collected: ts + tl,
@@ -577,6 +749,33 @@ fn money(v: Decimal) -> String {
 
 fn pct(v: Decimal) -> String {
     format!("{:.1}%", v)
+}
+
+fn signed_money(v: Decimal) -> String {
+    if v > Decimal::ZERO {
+        format!("+${:.2}", v)
+    } else if v < Decimal::ZERO {
+        format!("-${:.2}", -v)
+    } else {
+        "$0.00".to_string()
+    }
+}
+
+fn signed_pct(v: Decimal) -> String {
+    if v > Decimal::ZERO {
+        format!("+{:.1}%", v)
+    } else {
+        format!("{:.1}%", v)
+    }
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 pub fn render_html(report: &DailyReport, store_name: &str) -> String {
@@ -652,6 +851,68 @@ pub fn render_html(report: &DailyReport, store_name: &str) -> String {
         String::new()
     };
 
+    let mtd_change_positive = report.month_to_date.change_amount >= Decimal::ZERO;
+    let mtd_change_color = if mtd_change_positive {
+        "#15803d"
+    } else {
+        "#b91c1c"
+    };
+    let mtd_change_background = if mtd_change_positive {
+        "#f0fdf4"
+    } else {
+        "#fef2f2"
+    };
+    let mtd_percent = report
+        .month_to_date
+        .change_percent
+        .map(signed_pct)
+        .unwrap_or_else(|| "N/A".to_string());
+    let mtd_percent_color = if report.month_to_date.change_percent.is_none() {
+        "#475569"
+    } else {
+        mtd_change_color
+    };
+    let mtd_percent_background = if report.month_to_date.change_percent.is_none() {
+        "#f8fafc"
+    } else {
+        mtd_change_background
+    };
+    let booked_total_with_tax = report.booked_sales.net_sales + report.booked_sales.tax_total;
+
+    let weather_section = match &report.weather {
+        Some(weather) => {
+            let status = if weather.finalized {
+                "Final Visual Crossing historical observation"
+            } else {
+                "Visual Crossing snapshot captured at Register close"
+            };
+            format!(
+                r#"<div style="margin-bottom:24px">
+                    <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Business Day Weather</h3>
+                    <table style="width:100%;border-collapse:collapse">
+                        <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Conditions</td><td style="padding:6px 0;text-align:right;font-size:13px;font-weight:700">{}</td></tr>
+                        <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">High / Low</td><td style="padding:6px 0;text-align:right;font-size:13px;font-weight:700">{:.0}°F / {:.0}°F</td></tr>
+                        <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Precipitation</td><td style="padding:6px 0;text-align:right;font-size:13px;font-weight:700">{:.2} in</td></tr>
+                    </table>
+                    <p style="margin:8px 0 0;font-size:10px;color:#64748b">{} · Captured {}</p>
+                </div>"#,
+                escape_html(&weather.condition),
+                weather.temp_high_f,
+                weather.temp_low_f,
+                weather.precipitation_inches,
+                status,
+                escape_html(&weather.captured_at),
+            )
+        }
+        None => r#"<div style="margin-bottom:24px">
+                <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Business Day Weather</h3>
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px;font-size:12px;color:#475569">
+                    Actual weather data was unavailable for this business date. Simulated weather is not included in financial reports.
+                </div>
+            </div>"#
+            .to_string(),
+    };
+
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -672,26 +933,54 @@ pub fn render_html(report: &DailyReport, store_name: &str) -> String {
 <!-- Key Metrics -->
 <div style="background:#ffffff;padding:28px 32px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb">
     <div style="margin-bottom:20px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:10px;padding:12px 14px;color:#1e3a8a;font-size:12px;line-height:1.5">
-        Revenue, transaction, item, discount, and tax figures use <strong>fulfillment / recognition date</strong>. Payment Methods and Total Tendered use the actual payment processing date. These sections reconcile different ledgers and are not expected to equal each other.
+        Headline cards and month-to-date comparisons use <strong>booked Daily Sales</strong>, matching the ROS Today’s Sales and Register report. Recognized Revenue uses fulfillment / recognition date. Payment Methods and Total Tendered use the actual payment processing date. These sections are separate ledgers and are not expected to equal each other.
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:24px">
         <div style="flex:1;min-width:140px;background:#f0fdf4;border-radius:12px;padding:16px;text-align:center">
-            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#16a34a">Recognized Net Sales</p>
-            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#15803d;font-family:monospace">{net_sales}</p>
+            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#16a34a">Booked Net Sales</p>
+            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#15803d;font-family:monospace">{booked_net_sales}</p>
         </div>
         <div style="flex:1;min-width:140px;background:#eff6ff;border-radius:12px;padding:16px;text-align:center">
-            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#2563eb">Recognized Transactions</p>
-            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#1d4ed8">{tx_count}</p>
+            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#2563eb">Booked Sales</p>
+            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#1d4ed8">{booked_sales_count}</p>
         </div>
         <div style="flex:1;min-width:140px;background:#faf5ff;border-radius:12px;padding:16px;text-align:center">
-            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#7c3aed">Avg Recognized Transaction</p>
-            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#6d28d9;font-family:monospace">{avg_tx}</p>
+            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#7c3aed">Avg Booked Sale</p>
+            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#6d28d9;font-family:monospace">{booked_avg_sale}</p>
+        </div>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:24px">
+        <div style="flex:1;min-width:140px;background:#fff7ed;border-radius:12px;padding:16px;text-align:center">
+            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#c2410c">MTD Booked Net</p>
+            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#9a3412;font-family:monospace">{mtd_net_sales}</p>
+        </div>
+        <div style="flex:1;min-width:140px;background:{mtd_change_background};border-radius:12px;padding:16px;text-align:center">
+            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:{mtd_change_color}">MTD vs Last Year — $</p>
+            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:{mtd_change_color};font-family:monospace">{mtd_change_amount}</p>
+        </div>
+        <div style="flex:1;min-width:140px;background:{mtd_percent_background};border-radius:12px;padding:16px;text-align:center">
+            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:{mtd_percent_color}">MTD vs Last Year — %</p>
+            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:{mtd_percent_color};font-family:monospace">{mtd_change_percent}</p>
         </div>
     </div>
 
-    <!-- Sales Detail -->
+    <!-- Booked Sales Detail -->
     <div style="margin-bottom:24px">
-        <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Recognized Sales Summary</h3>
+        <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.05em">Booked Sales Summary</h3>
+        <p style="margin:0 0 12px;font-size:11px;color:#64748b">Canonical booking-event totals matching ROS Daily Sales for this business date.</p>
+        <table style="width:100%;border-collapse:collapse">
+            <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Booked Net Sales</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;font-weight:700">{booked_net_sales}</td></tr>
+            <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Booked Tax</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;font-weight:700">{booked_tax_total}</td></tr>
+            <tr style="border-top:2px solid #111827"><td style="padding:8px 0;font-size:14px;font-weight:800;color:#111827">Booked Total With Tax</td><td style="padding:8px 0;text-align:right;font-size:14px;font-family:monospace;font-weight:800;color:#15803d">{booked_total_with_tax}</td></tr>
+            <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Booked Sales</td><td style="padding:6px 0;text-align:right;font-size:13px;font-weight:700">{booked_sales_count}</td></tr>
+            <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Average Booked Sale</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;font-weight:700">{booked_avg_sale}</td></tr>
+        </table>
+    </div>
+
+    <!-- Recognized Revenue Detail -->
+    <div style="margin-bottom:24px">
+        <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.05em">Recognized Revenue Detail</h3>
+        <p style="margin:0 0 12px;font-size:11px;color:#64748b">Fulfilled revenue shown separately from booked Daily Sales.</p>
         <table style="width:100%;border-collapse:collapse">
             <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Recognized Gross Sales</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;font-weight:700">{gross_sales}</td></tr>
             <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Discounts</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;color:#dc2626">-{discount}</td></tr>
@@ -699,6 +988,21 @@ pub fn render_html(report: &DailyReport, store_name: &str) -> String {
             <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Items Sold</td><td style="padding:6px 0;text-align:right;font-size:13px;font-weight:700">{items_sold}</td></tr>
         </table>
     </div>
+
+    <!-- Month-to-Date Comparison -->
+    <div style="margin-bottom:24px">
+        <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.05em">Month-to-Date Net Comparison</h3>
+        <p style="margin:0 0 12px;font-size:11px;color:#64748b">Pre-tax booked net sales using the same canonical booking-event basis as ROS Daily Sales.</p>
+        <table style="width:100%;border-collapse:collapse">
+            <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Current MTD ({mtd_current_start} through {mtd_current_end})</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;font-weight:700">{mtd_net_sales}</td></tr>
+            <tr><td style="padding:6px 0;font-size:13px;color:#6b7280">Same period last year ({mtd_prior_start} through {mtd_prior_end})</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;font-weight:700">{mtd_prior_net_sales}</td></tr>
+            <tr style="border-top:1px solid #e5e7eb"><td style="padding:6px 0;font-size:13px;font-weight:700">Dollar Change</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;font-weight:800;color:{mtd_change_color}">{mtd_change_amount}</td></tr>
+            <tr><td style="padding:6px 0;font-size:13px;font-weight:700">Percentage Change</td><td style="padding:6px 0;text-align:right;font-size:13px;font-family:monospace;font-weight:800;color:{mtd_percent_color}">{mtd_change_percent}</td></tr>
+        </table>
+    </div>
+
+    <!-- Weather -->
+    {weather_section}
 
     <!-- Tax -->
     <div style="margin-bottom:24px">
@@ -761,9 +1065,24 @@ pub fn render_html(report: &DailyReport, store_name: &str) -> String {
         store_name = store_name,
         date = report.report_date,
         tz = report.business_timezone,
+        booked_net_sales = money(report.booked_sales.net_sales),
+        booked_sales_count = report.booked_sales.sales_count,
+        booked_avg_sale = money(report.booked_sales.avg_sale),
+        booked_tax_total = money(report.booked_sales.tax_total),
+        booked_total_with_tax = money(booked_total_with_tax),
         net_sales = money(report.net_sales),
-        tx_count = report.transaction_count,
-        avg_tx = money(report.avg_transaction),
+        mtd_net_sales = money(report.month_to_date.current_net_sales),
+        mtd_prior_net_sales = money(report.month_to_date.prior_year_net_sales),
+        mtd_change_amount = signed_money(report.month_to_date.change_amount),
+        mtd_change_percent = mtd_percent,
+        mtd_change_color = mtd_change_color,
+        mtd_change_background = mtd_change_background,
+        mtd_percent_color = mtd_percent_color,
+        mtd_percent_background = mtd_percent_background,
+        mtd_current_start = report.month_to_date.current_start,
+        mtd_current_end = report.month_to_date.current_end,
+        mtd_prior_start = report.month_to_date.prior_year_start,
+        mtd_prior_end = report.month_to_date.prior_year_end,
         gross_sales = money(report.gross_sales),
         discount = money(report.discount_total),
         items_sold = report.items_sold,
@@ -835,15 +1154,16 @@ pub fn render_html(report: &DailyReport, store_name: &str) -> String {
         } else {
             String::new()
         },
+        weather_section = weather_section,
         inventory_section = inventory_section,
         cat_section = if !report.category_breakdown.is_empty() {
             format!(
                 r#"<div style="margin-bottom:24px">
-                    <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Sales by Category</h3>
+                    <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 12px;text-transform:uppercase;letter-spacing:0.05em">Recognized Sales by Category</h3>
                     <table style="width:100%;border-collapse:collapse">
                         <thead><tr style="background:#f9fafb">
                             <th style="padding:8px 16px;text-align:left;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700">Category</th>
-                            <th style="padding:8px 16px;text-align:right;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700">Sales</th>
+                            <th style="padding:8px 16px;text-align:right;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700">Recognized Net</th>
                             <th style="padding:8px 16px;text-align:right;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700">COGS</th>
                             <th style="padding:8px 16px;text-align:right;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700">Margin</th>
                             <th style="padding:8px 16px;text-align:center;font-size:10px;text-transform:uppercase;color:#6b7280;font-weight:700">Units</th>
@@ -928,4 +1248,174 @@ pub async fn record_delivery_result(
     .execute(pool)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal_macros::dec;
+
+    fn date(year: i32, month: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(year, month, day).expect("valid test date")
+    }
+
+    fn sample_report(weather: Option<ReportWeather>) -> DailyReport {
+        DailyReport {
+            report_date: date(2026, 8, 7),
+            business_timezone: "America/New_York".to_string(),
+            generated_at: "2026-08-08T00:00:00Z".to_string(),
+            booked_sales: BookedSalesSummary {
+                net_sales: dec!(9427.95),
+                sales_count: 31,
+                avg_sale: dec!(304.13),
+                tax_total: dec!(727.65),
+            },
+            gross_sales: dec!(1500.00),
+            net_sales: dec!(1200.00),
+            transaction_count: 6,
+            avg_transaction: dec!(200.00),
+            items_sold: 10,
+            month_to_date: build_month_to_date_comparison(
+                date(2026, 8, 1),
+                date(2026, 8, 7),
+                dec!(12000.00),
+                date(2025, 8, 1),
+                date(2025, 8, 7),
+                dec!(10000.00),
+            ),
+            weather,
+            return_count: 0,
+            return_total: Decimal::ZERO,
+            tax_collected: dec!(105.00),
+            tax_state: dec!(60.00),
+            tax_local: dec!(45.00),
+            tenders: vec![],
+            total_tendered: dec!(1305.00),
+            gift_cards_sold: Decimal::ZERO,
+            gift_cards_sold_count: 0,
+            gift_cards_redeemed: Decimal::ZERO,
+            deposits_received: Decimal::ZERO,
+            deposits_released: Decimal::ZERO,
+            alterations_income: Decimal::ZERO,
+            units_received: 0,
+            receiving_cost: Decimal::ZERO,
+            freight_cost: Decimal::ZERO,
+            discount_total: dec!(300.00),
+            category_breakdown: vec![],
+            qbo_journal_status: None,
+            qbo_journal_balanced: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn daily_report_query_executes_against_migrated_database() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let pool = sqlx::PgPool::connect(&database_url)
+            .await
+            .expect("connect migrated test database");
+        let report = generate_report(&pool, date(2026, 8, 8))
+            .await
+            .expect("daily financial report SQL should execute");
+        let html = render_html(&report, "Riverside Men's Shop");
+
+        assert!(html.contains("Booked Net Sales"));
+        assert!(html.contains("Month-to-Date Net Comparison"));
+        assert!(html.contains("Business Day Weather"));
+    }
+
+    #[test]
+    fn month_to_date_windows_compare_the_same_calendar_days() {
+        assert_eq!(
+            month_to_date_windows(date(2026, 8, 7)),
+            (
+                date(2026, 8, 1),
+                date(2026, 8, 7),
+                date(2025, 8, 1),
+                date(2025, 8, 7),
+            )
+        );
+        assert_eq!(
+            month_to_date_windows(date(2024, 2, 29)),
+            (
+                date(2024, 2, 1),
+                date(2024, 2, 29),
+                date(2023, 2, 1),
+                date(2023, 2, 28),
+            )
+        );
+    }
+
+    #[test]
+    fn month_to_date_change_uses_net_values_and_handles_no_baseline() {
+        let comparison = build_month_to_date_comparison(
+            date(2026, 8, 1),
+            date(2026, 8, 7),
+            dec!(1200.00),
+            date(2025, 8, 1),
+            date(2025, 8, 7),
+            dec!(1000.00),
+        );
+        assert_eq!(comparison.change_amount, dec!(200.00));
+        assert_eq!(comparison.change_percent, Some(dec!(20.0)));
+
+        let no_baseline = build_month_to_date_comparison(
+            date(2026, 8, 1),
+            date(2026, 8, 7),
+            dec!(1200.00),
+            date(2025, 8, 1),
+            date(2025, 8, 7),
+            Decimal::ZERO,
+        );
+        assert_eq!(no_baseline.change_percent, None);
+    }
+
+    #[test]
+    fn financial_report_accepts_only_explicit_visual_crossing_sources() {
+        assert!(is_visual_crossing_weather_source(
+            "visual_crossing:register_close"
+        ));
+        assert!(is_visual_crossing_weather_source("visual_crossing_final"));
+        assert!(!is_visual_crossing_weather_source("mock:register_close"));
+        assert!(!is_visual_crossing_weather_source("register_close"));
+    }
+
+    #[test]
+    fn rendered_report_includes_mtd_cards_comparison_and_actual_weather() {
+        let html = render_html(
+            &sample_report(Some(ReportWeather {
+                condition: "Rain & <wind>".to_string(),
+                temp_high_f: 81.0,
+                temp_low_f: 65.0,
+                precipitation_inches: 0.42,
+                source: "visual_crossing:register_close".to_string(),
+                captured_at: "2026-08-08T00:00:00Z".to_string(),
+                finalized: false,
+            })),
+            "Riverside Men's Shop",
+        );
+
+        assert!(html.contains("Booked Net Sales"));
+        assert!(html.contains("$9427.95"));
+        assert!(html.contains("Booked Total With Tax"));
+        assert!(html.contains("$10155.60"));
+        assert!(html.contains("MTD Booked Net"));
+        assert!(html.contains("MTD vs Last Year — $"));
+        assert!(html.contains("MTD vs Last Year — %"));
+        assert!(html.contains("Month-to-Date Net Comparison"));
+        assert!(html.contains("2025-08-01 through 2025-08-07"));
+        assert!(html.contains("+$2000.00"));
+        assert!(html.contains("+20.0%"));
+        assert!(html.contains("Business Day Weather"));
+        assert!(html.contains("Rain &amp; &lt;wind&gt;"));
+        assert!(html.contains("0.42 in"));
+    }
+
+    #[test]
+    fn rendered_report_does_not_present_simulated_weather_as_actual() {
+        let html = render_html(&sample_report(None), "Riverside Men's Shop");
+        assert!(html.contains("Actual weather data was unavailable"));
+        assert!(html.contains("Simulated weather is not included"));
+    }
 }
