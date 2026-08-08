@@ -44,7 +44,7 @@ When a sellable parent product has multiple variations, the shared side panel ke
 
 If the selected member has a wedding deposit funded by another party member, the prompt identifies the available exact source amount and contributing payer. Displaying or accepting the prompt does not redeem it. Staff explicitly choose the held-deposit amount from **Pay**.
 
-The prompt, checklist, variation panel, and parked draft are nonfinancial entry surfaces. Only successful server-validated checkout may create the member Transaction Record, Wedding Fulfillment Order, payment allocation or open-deposit redemption, tax records, salesperson attribution, reporting activity, provider evidence, and receipt. A declined payment or abandoned prompt creates none of those financial records.
+The prompt, checklist, variation panel, and parked draft are nonfinancial entry surfaces. For **Collect & Build Orders**, successful payer checkout durably saves every reviewed member draft and stable checkout identity on Main Hub in the same database transaction as the funded workflow. A later Deposit Only build saves each reviewed member draft before moving to the next member. Only successful server-validated member checkout may create the member Transaction Record, Wedding Fulfillment Order, payment allocation or open-deposit redemption, tax records, salesperson attribution, reporting activity, provider evidence, and receipt. The Builder does not report completion until a fresh Main Hub read confirms every required member Transaction. A declined payment or abandoned prompt creates none of those financial records.
 
 ## Measurement Gate
 

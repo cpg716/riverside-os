@@ -614,6 +614,7 @@ pub async fn recover_paid_parked_sale(
             metadata: Some(payment_metadata),
         }]),
         wedding_disbursements: None,
+        wedding_member_order_drafts: Vec::new(),
         order_payments: Vec::new(),
         below_cost_approval: Some(BelowCostApproval {
             approved_by_staff_id: request.authorized_by_staff_id,
@@ -850,6 +851,7 @@ pub async fn recover_paid_order_payment(
             metadata: Some(payment_metadata),
         }]),
         wedding_disbursements: None,
+        wedding_member_order_drafts: Vec::new(),
         order_payments: vec![CheckoutOrderPayment {
             client_line_id: format!("helcim-recovery-{}", request.payment_provider_attempt_id),
             target_transaction_id,

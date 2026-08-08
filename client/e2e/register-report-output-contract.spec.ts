@@ -4,6 +4,7 @@ import {
   parseRegisterReportMoneyToCents,
   REGISTER_REPORT_OUTPUT_ROW_LIMIT,
   registerReportCombinedRowCount,
+  registerReportTenderCollectedCents,
 } from "../src/components/pos/zReportPrint";
 import { REPORTS_CATALOG } from "../src/lib/reportsCatalog";
 
@@ -144,6 +145,34 @@ test.describe("Register report output integrity contracts", () => {
     expect(parseRegisterReportMoneyToCents("$58,633.00")).toBe(5_863_300);
     expect(parseRegisterReportMoneyToCents("($1,234.56)")).toBe(-123_456);
     expect(parseRegisterReportMoneyToCents("19.99")).toBe(1_999);
+    expect(
+      registerReportTenderCollectedCents({
+        kind: "wedding_deposit",
+        transaction_total: "840.00",
+        wedding_deposit_contributions: "840.00",
+      }),
+    ).toBe(84_000);
+    expect(
+      registerReportTenderCollectedCents({
+        kind: "sale",
+        transaction_total: "260.00",
+        wedding_deposit_contributions: "168.00",
+      }),
+    ).toBe(42_800);
+  });
+
+  test("wedding deposit activity stays separate from merchandise sales", () => {
+    expect(registerReportsSource).toContain(
+      'if (row.kind === "wedding_deposit") return 0;',
+    );
+    expect(registerReportsSource).toContain('"Deposit Details"');
+    expect(registerReportsSource).toContain(
+      "This is held deposit activity, not a merchandise sale.",
+    );
+    expect(registerReportsSource).toContain('row.kind === "wedding_deposit"');
+    expect(reportPrintSource).toContain(
+      'if (row.kind === "wedding_deposit") return transactionCents;',
+    );
   });
 
   test("combined activity and pickup output has a single bounded cap", () => {
@@ -382,12 +411,14 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerReportsSource).toContain('"Payment Applied Today"');
     expect(registerReportsSource).toContain('"Total Paid Today"');
     expect(registerReportsSource).toContain("row.payment_applications?.map(");
-    expect(registerReportsSource).toContain('{row.kind !== "payment" ? (');
+    expect(registerReportsSource).toContain(
+      'row.kind !== "payment" &&\n                                row.kind !== "wedding_deposit"',
+    );
     expect(registerReportsSource).toContain('"Deposit on Order"');
     expect(registerReportsSource).toContain('"Payment in Full on Order"');
-    expect(reportPrintSource).toContain(
-      'row.kind === "payment" ? "Payment Details" : "Line Items"',
-    );
+    expect(reportPrintSource).toContain('"Payment Details"');
+    expect(reportPrintSource).toContain('"Deposit Details"');
+    expect(reportPrintSource).toContain('"Line Items"');
     expect(reportPrintSource).toContain('"Deposit on Order"');
     expect(reportPrintSource).toContain('"Payment in Full on Order"');
     expect(reportPrintSource).toContain("Payment Applied Today");

@@ -1,6 +1,7 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
+use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
 use thiserror::Error;
@@ -27,6 +28,57 @@ pub enum WeddingDepositPreflightError {
     Invalid(String),
     #[error(transparent)]
     Database(#[from] sqlx::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum WeddingDepositDraftError {
+    #[error("{0}")]
+    Invalid(String),
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
+}
+
+pub fn validate_member_order_draft(
+    wedding_member_id: Uuid,
+    checkout_client_id: Uuid,
+    draft: &Value,
+) -> Result<(), String> {
+    let object = draft
+        .as_object()
+        .ok_or_else(|| "Wedding member order draft must be an object.".to_string())?;
+    let draft_member_id = object
+        .get("member")
+        .and_then(Value::as_object)
+        .and_then(|member| member.get("id"))
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok());
+    if draft_member_id != Some(wedding_member_id) {
+        return Err("Wedding member order draft does not match its funded member.".to_string());
+    }
+    let draft_checkout_client_id = object
+        .get("checkoutClientId")
+        .and_then(Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok());
+    if draft_checkout_client_id != Some(checkout_client_id) {
+        return Err(
+            "Wedding member order draft does not match its stable checkout identity.".to_string(),
+        );
+    }
+    if !object
+        .get("lines")
+        .and_then(Value::as_array)
+        .is_some_and(|lines| !lines.is_empty())
+    {
+        return Err("Wedding member order draft must contain merchandise.".to_string());
+    }
+    if !object
+        .get("salespersonId")
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return Err("Wedding member order draft must include a salesperson.".to_string());
+    }
+    Ok(())
 }
 
 pub async fn preflight(
@@ -195,6 +247,10 @@ pub struct WeddingDepositWorkflowAllocation {
     pub target_transaction_id: Option<Uuid>,
     pub target_display_id: Option<String>,
     pub source_credit_ledger_id: Option<Uuid>,
+    pub member_order_required: bool,
+    pub member_checkout_client_id: Option<Uuid>,
+    pub member_order_draft: Option<Value>,
+    pub member_order_draft_saved_at: Option<DateTime<Utc>>,
     pub member_transaction_id: Option<Uuid>,
     pub member_transaction_display_id: Option<String>,
 }
@@ -229,6 +285,9 @@ pub struct WeddingDepositWorkflow {
     pub total_amount: Decimal,
     pub remaining_amount: Decimal,
     pub status: String,
+    pub required_member_order_count: usize,
+    pub confirmed_member_order_count: usize,
+    pub member_orders_complete: bool,
     pub created_at: DateTime<Utc>,
     pub allocations: Vec<WeddingDepositWorkflowAllocation>,
 }
@@ -279,6 +338,10 @@ async fn load_allocations(
             allocation.target_transaction_id,
             target.display_id AS target_display_id,
             allocation.held_credit_ledger_id AS source_credit_ledger_id,
+            allocation.member_order_required,
+            allocation.member_checkout_client_id,
+            allocation.member_order_draft,
+            allocation.member_order_draft_saved_at,
             latest_member_transaction.id AS member_transaction_id,
             latest_member_transaction.display_id AS member_transaction_display_id
         FROM wedding_deposit_workflow_allocations allocation
@@ -296,6 +359,10 @@ async fn load_allocations(
                 ON transaction_record.id = redemption_ledger.transaction_id
             WHERE redemption_event.source_credit_ledger_id = allocation.held_credit_ledger_id
               AND redemption_event.event_kind = 'redemption'
+              AND (
+                  allocation.member_order_required = FALSE
+                  OR transaction_record.checkout_client_id = allocation.member_checkout_client_id
+              )
             ORDER BY redemption_event.created_at DESC, redemption_event.id DESC
             LIMIT 1
         ) latest_member_transaction ON TRUE
@@ -306,6 +373,10 @@ async fn load_allocations(
             customer.last_name,
             member.role,
             target.display_id,
+            allocation.member_order_required,
+            allocation.member_checkout_client_id,
+            allocation.member_order_draft,
+            allocation.member_order_draft_saved_at,
             latest_member_transaction.id,
             latest_member_transaction.display_id
         ORDER BY allocation.created_at, allocation.id
@@ -327,6 +398,16 @@ async fn build_workflow(
             total + allocation.remaining_amount
         })
         .round_dp(2);
+    let required_member_order_count = allocations
+        .iter()
+        .filter(|allocation| allocation.member_order_required)
+        .count();
+    let confirmed_member_order_count = allocations
+        .iter()
+        .filter(|allocation| {
+            allocation.member_order_required && allocation.member_transaction_id.is_some()
+        })
+        .count();
     Ok(WeddingDepositWorkflow {
         id: row.id,
         payer_transaction_id: row.payer_transaction_id,
@@ -340,8 +421,100 @@ async fn build_workflow(
         total_amount: row.total_amount,
         remaining_amount,
         status: row.status,
+        required_member_order_count,
+        confirmed_member_order_count,
+        member_orders_complete: required_member_order_count > 0
+            && confirmed_member_order_count == required_member_order_count,
         created_at: row.created_at,
         allocations,
+    })
+}
+
+pub async fn persist_member_order_draft(
+    pool: &PgPool,
+    workflow_id: Uuid,
+    wedding_member_id: Uuid,
+    checkout_client_id: Uuid,
+    draft: Value,
+    actor_staff_id: Uuid,
+) -> Result<WeddingDepositWorkflow, WeddingDepositDraftError> {
+    validate_member_order_draft(wedding_member_id, checkout_client_id, &draft)
+        .map_err(WeddingDepositDraftError::Invalid)?;
+
+    let mut tx = pool.begin().await?;
+    let allocation = sqlx::query_as::<_, (Option<Uuid>, bool)>(
+        r#"
+        SELECT
+            allocation.member_checkout_client_id,
+            EXISTS (
+                SELECT 1
+                FROM transactions transaction_record
+                WHERE transaction_record.checkout_client_id = allocation.member_checkout_client_id
+            ) AS transaction_posted
+        FROM wedding_deposit_workflow_allocations allocation
+        INNER JOIN wedding_deposit_workflows workflow ON workflow.id = allocation.workflow_id
+        WHERE allocation.workflow_id = $1
+          AND allocation.wedding_member_id = $2
+          AND allocation.destination_kind = 'held_for_future_order'
+          AND workflow.status <> 'voided'
+        FOR UPDATE OF allocation
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(wedding_member_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| {
+        WeddingDepositDraftError::Invalid(
+            "The funded wedding member allocation is no longer available.".to_string(),
+        )
+    })?;
+    if allocation.1 {
+        return Err(WeddingDepositDraftError::Invalid(
+            "This member Transaction is already posted; its reviewed draft cannot be replaced."
+                .to_string(),
+        ));
+    }
+    if allocation
+        .0
+        .is_some_and(|existing| existing != checkout_client_id)
+    {
+        return Err(WeddingDepositDraftError::Invalid(
+            "This member has a different saved checkout identity. Reload the funded workflow before continuing."
+                .to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE wedding_deposit_workflow_allocations
+        SET member_order_required = TRUE,
+            member_checkout_client_id = $3,
+            member_order_draft = $4,
+            member_order_draft_saved_at = NOW(),
+            member_order_draft_saved_by_staff_id = $5,
+            updated_at = NOW()
+        WHERE workflow_id = $1
+          AND wedding_member_id = $2
+        "#,
+    )
+    .bind(workflow_id)
+    .bind(wedding_member_id)
+    .bind(checkout_client_id)
+    .bind(draft)
+    .bind(actor_staff_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE wedding_deposit_workflows SET updated_at = NOW() WHERE id = $1")
+        .bind(workflow_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    get_by_id(pool, workflow_id).await?.ok_or_else(|| {
+        WeddingDepositDraftError::Invalid(
+            "The funded wedding workflow could not be reloaded.".to_string(),
+        )
     })
 }
 
@@ -380,12 +553,51 @@ pub async fn get_by_id(
 
 #[cfg(test)]
 mod tests {
-    use super::{preflight, WeddingDepositPreflightAllocation};
+    use super::{preflight, validate_member_order_draft, WeddingDepositPreflightAllocation};
     use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
     use chrono::NaiveDate;
     use rust_decimal::Decimal;
+    use serde_json::json;
     use sqlx::PgPool;
     use uuid::Uuid;
+
+    #[test]
+    fn member_order_draft_requires_matching_member_checkout_and_lines() {
+        let member_id = Uuid::new_v4();
+        let checkout_client_id = Uuid::new_v4();
+        let valid = json!({
+            "member": { "id": member_id },
+            "checkoutClientId": checkout_client_id,
+            "salespersonId": Uuid::new_v4(),
+            "lines": [{ "cart_row_id": Uuid::new_v4() }]
+        });
+        validate_member_order_draft(member_id, checkout_client_id, &valid)
+            .expect("valid member order draft");
+
+        let wrong_identity = json!({
+            "member": { "id": member_id },
+            "checkoutClientId": Uuid::new_v4(),
+            "salespersonId": Uuid::new_v4(),
+            "lines": [{ "cart_row_id": Uuid::new_v4() }]
+        });
+        assert!(
+            validate_member_order_draft(member_id, checkout_client_id, &wrong_identity)
+                .expect_err("checkout identity mismatch")
+                .contains("stable checkout identity")
+        );
+
+        let no_lines = json!({
+            "member": { "id": member_id },
+            "checkoutClientId": checkout_client_id,
+            "salespersonId": Uuid::new_v4(),
+            "lines": []
+        });
+        assert!(
+            validate_member_order_draft(member_id, checkout_client_id, &no_lines)
+                .expect_err("empty draft")
+                .contains("must contain merchandise")
+        );
+    }
 
     async fn insert_test_customer(pool: &PgPool, label: &str) -> Uuid {
         let suffix = Uuid::new_v4().simple().to_string();

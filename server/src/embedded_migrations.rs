@@ -188,4 +188,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("185_cube_insights_and_saved_reports.sql", include_str!("../../migrations/185_cube_insights_and_saved_reports.sql")),
     ("186_counterpoint_gift_card_classification.sql", include_str!("../../migrations/186_counterpoint_gift_card_classification.sql")),
     ("187_podium_contact_reconciliation.sql", include_str!("../../migrations/187_podium_contact_reconciliation.sql")),
+    ("188_durable_wedding_member_order_drafts.sql", include_str!("../../migrations/188_durable_wedding_member_order_drafts.sql")),
 ];

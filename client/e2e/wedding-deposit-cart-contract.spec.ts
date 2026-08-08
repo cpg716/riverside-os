@@ -45,8 +45,16 @@ const weddingRefundSourceMigration = readFileSync(
   new URL("../../migrations/175_wedding_deposit_refund_sources.sql", import.meta.url),
   "utf8",
 );
+const durableWeddingDraftMigration = readFileSync(
+  new URL("../../migrations/188_durable_wedding_member_order_drafts.sql", import.meta.url),
+  "utf8",
+);
 const weddingWorkflowLogic = readFileSync(
   new URL("../../server/src/logic/wedding_deposit_workflows.rs", import.meta.url),
+  "utf8",
+);
+const transactionCheckoutLogic = readFileSync(
+  new URL("../../server/src/logic/transaction_checkout.rs", import.meta.url),
   "utf8",
 );
 const openDepositLogic = readFileSync(
@@ -216,6 +224,22 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(weddingRefundSourceMigration).toContain(
     "customer_open_deposit_source_event_payments",
   );
+  expect(durableWeddingDraftMigration).toContain("member_order_required");
+  expect(durableWeddingDraftMigration).toContain("member_checkout_client_id");
+  expect(durableWeddingDraftMigration).toContain("member_order_draft");
+  expect(checkoutSource).toContain("wedding_member_order_drafts");
+  expect(transactionCheckoutLogic).toContain(
+    "validate_wedding_member_order_drafts",
+  );
+  expect(transactionCheckoutLogic).toContain(
+    "requires its saved member-order draft and stable checkout identity",
+  );
+  expect(weddingsApiSource).toContain(
+    "/deposit-workflows/{workflow_id}/member-order-drafts",
+  );
+  expect(cartSource).toContain("durableWeddingMemberOrderDrafts");
+  expect(cartSource).toContain("member_orders_complete");
+  expect(cartSource).toContain('cache: "no-store"');
   expect(openDepositLogic).toContain("SourceRequired");
   expect(openDepositLogic).toContain("source_credit_ledger_id");
   expect(registerDayActivitySource).toContain("Wedding Deposit Disbursement");
@@ -312,6 +336,16 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(receiptSummarySource).toContain("completionNextActionLabel");
   expect(receiptSummarySource).toContain("receipt-completion-next-action");
   expect(receiptSummarySource).toContain("Finish without building orders now");
+  expect(receiptSummarySource).toContain("completionNextActionRequired");
+  expect(receiptSummarySource).toContain(
+    "Continue to required next step",
+  );
+  expect(cartSource).toContain("requiresMemberTransactionPosting: true");
+  expect(cartSource).toContain("Deposit complete · orders pending");
+  expect(cartSource).toContain("Continue to Member Transactions");
+  expect(cartSource).toContain(
+    "Payment and deposits recorded · member Transactions not yet created",
+  );
   expect(transactionsApiSource).toContain("wedding_refund_recipient");
   expect(transactionsApiSource).toContain("original_provider_transaction_id");
 });

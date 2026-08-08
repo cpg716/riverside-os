@@ -653,6 +653,13 @@ pub struct WeddingDepositPreflightAllocationRequest {
     pub target_transaction_id: Option<Uuid>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct WeddingMemberOrderDraftRequest {
+    pub wedding_member_id: Uuid,
+    pub checkout_client_id: Uuid,
+    pub draft: serde_json::Value,
+}
+
 #[derive(Debug, Serialize)]
 pub struct WeddingDepositContext {
     pub members: Vec<WeddingDepositMemberContext>,
@@ -999,6 +1006,10 @@ pub fn router() -> Router<AppState> {
             "/deposit-workflows/{workflow_id}",
             get(get_deposit_workflow),
         )
+        .route(
+            "/deposit-workflows/{workflow_id}/member-order-drafts",
+            post(persist_deposit_workflow_member_order_draft),
+        )
         .route("/parties/{party_id}/ledger", get(get_ledger))
         .route(
             "/parties/{party_id}/financial-context",
@@ -1300,6 +1311,33 @@ async fn get_deposit_workflow(
     let workflow = wedding_deposit_workflows::get_by_id(&state.db, workflow_id)
         .await?
         .ok_or(WeddingError::DepositWorkflowNotFound)?;
+    Ok(Json(workflow))
+}
+
+async fn persist_deposit_workflow_member_order_draft(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(workflow_id): Path<Uuid>,
+    Json(request): Json<WeddingMemberOrderDraftRequest>,
+) -> Result<Json<wedding_deposit_workflows::WeddingDepositWorkflow>, WeddingError> {
+    let actor = require_weddings_mutate(&state, &headers).await?;
+    let workflow = wedding_deposit_workflows::persist_member_order_draft(
+        &state.db,
+        workflow_id,
+        request.wedding_member_id,
+        request.checkout_client_id,
+        request.draft,
+        actor.id,
+    )
+    .await
+    .map_err(|error| match error {
+        wedding_deposit_workflows::WeddingDepositDraftError::Invalid(message) => {
+            WeddingError::BadRequest(message)
+        }
+        wedding_deposit_workflows::WeddingDepositDraftError::Database(error) => {
+            WeddingError::Database(error)
+        }
+    })?;
     Ok(Json(workflow))
 }
 

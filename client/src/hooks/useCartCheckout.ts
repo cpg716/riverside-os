@@ -41,6 +41,9 @@ interface UseCartCheckoutProps {
   primarySalespersonId: string;
   weddingDepositSalespersonId: string;
   disbursementMembers: WeddingMember[];
+  weddingMemberOrderDrafts: NonNullable<
+    CheckoutPayload["wedding_member_order_drafts"]
+  >;
   posShipping: PosShippingSelection | null;
   pendingAlterationIntakes: PendingAlterationIntake[];
   orderPaymentLines: OrderPaymentCartLine[];
@@ -250,6 +253,7 @@ export function useCartCheckout({
   primarySalespersonId,
   weddingDepositSalespersonId,
   disbursementMembers,
+  weddingMemberOrderDrafts,
   posShipping,
   pendingAlterationIntakes,
   orderPaymentLines,
@@ -783,6 +787,10 @@ export function useCartCheckout({
           destination_kind: m.deposit_destination_kind,
           target_transaction_id: m.deposit_target_transaction_id ?? undefined,
         })) : undefined,
+        wedding_member_order_drafts:
+          weddingMemberOrderDrafts.length > 0
+            ? weddingMemberOrderDrafts
+            : undefined,
         ...(posShipping ? { shipping_rate_quote_id: posShipping.rate_quote_id } : {}),
         ...(posShipping?.linked_order_ids?.length
           ? {
@@ -1113,7 +1121,7 @@ export function useCartCheckout({
     }
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember,
-    cashierName, primarySalespersonId, weddingDepositSalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
+    cashierName, primarySalespersonId, weddingDepositSalespersonId, disbursementMembers, weddingMemberOrderDrafts, posShipping, pendingAlterationIntakes, orderPaymentLines,
     pickupAlterationIds, pickupConfirmed, pickupTransactionId, pickupTransactions, belowCostApproval, saleDateTimeLocal, backdateApproval, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession, requestPickupPaymentOverride, checkoutClientId
   ]);
 

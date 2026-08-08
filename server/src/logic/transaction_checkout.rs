@@ -172,6 +172,13 @@ pub struct WeddingDisbursement {
     pub target_transaction_id: Option<Uuid>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct WeddingMemberOrderDraft {
+    pub wedding_member_id: Uuid,
+    pub checkout_client_id: Uuid,
+    pub draft: Value,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct BelowCostApproval {
     pub approved_by_staff_id: Uuid,
@@ -231,6 +238,8 @@ pub struct CheckoutRequest {
     pub payment_splits: Option<Vec<CheckoutPaymentSplit>>,
     #[serde(default)]
     pub wedding_disbursements: Option<Vec<WeddingDisbursement>>,
+    #[serde(default)]
+    pub wedding_member_order_drafts: Vec<WeddingMemberOrderDraft>,
     #[serde(default)]
     pub order_payments: Vec<CheckoutOrderPayment>,
     #[serde(default)]
@@ -355,6 +364,7 @@ fn checkout_processing_intent_fingerprint(
         "alteration_intakes": payload.alteration_intakes,
         "actor_name": payload.actor_name,
         "wedding_disbursements": payload.wedding_disbursements,
+        "wedding_member_order_drafts": payload.wedding_member_order_drafts,
         "order_payments": payload.order_payments,
         "below_cost_approval": payload.below_cost_approval,
         "checkout_client_id": payload.checkout_client_id,
@@ -374,6 +384,57 @@ fn checkout_processing_intent_fingerprint(
     });
     strip_sensitive_payment_metadata(&mut intent);
     sha256_json(&intent)
+}
+
+fn validate_wedding_member_order_drafts(
+    payload: &CheckoutRequest,
+) -> Result<HashMap<Uuid, WeddingMemberOrderDraft>, CheckoutError> {
+    if payload.wedding_member_order_drafts.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let disbursements = payload.wedding_disbursements.as_deref().unwrap_or(&[]);
+    let held_member_ids = disbursements
+        .iter()
+        .filter(|disbursement| {
+            disbursement.destination_kind.as_deref() == Some("held_for_future_order")
+        })
+        .map(|disbursement| disbursement.wedding_member_id)
+        .collect::<HashSet<_>>();
+    let mut drafts = HashMap::with_capacity(payload.wedding_member_order_drafts.len());
+    let mut checkout_client_ids = HashSet::with_capacity(payload.wedding_member_order_drafts.len());
+    for draft in &payload.wedding_member_order_drafts {
+        crate::logic::wedding_deposit_workflows::validate_member_order_draft(
+            draft.wedding_member_id,
+            draft.checkout_client_id,
+            &draft.draft,
+        )
+        .map_err(CheckoutError::InvalidPayload)?;
+        if !checkout_client_ids.insert(draft.checkout_client_id) {
+            return Err(CheckoutError::InvalidPayload(
+                "Each Wedding Builder draft must have a different stable checkout identity."
+                    .to_string(),
+            ));
+        }
+        if drafts
+            .insert(draft.wedding_member_id, draft.clone())
+            .is_some()
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "Each funded wedding member may have only one reviewed order draft.".to_string(),
+            ));
+        }
+    }
+    if drafts.len() != held_member_ids.len()
+        || held_member_ids
+            .iter()
+            .any(|member_id| !drafts.contains_key(member_id))
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "Collect & Build requires one reviewed member order draft for every deposit held for a future order."
+                .to_string(),
+        ));
+    }
+    Ok(drafts)
 }
 
 fn validate_processing_intent_fingerprint(
@@ -3229,6 +3290,7 @@ async fn execute_checkout_internal(
         .wedding_disbursements
         .as_ref()
         .is_some_and(|v| !v.is_empty());
+    let wedding_member_order_drafts_by_member = validate_wedding_member_order_drafts(&payload)?;
     let has_shipping_charge = payload.shipping_rate_quote_id.is_some();
     if payload.items.is_empty()
         && !has_wedding_disbursements
@@ -6043,6 +6105,40 @@ async fn execute_checkout_internal(
                             "wedding deposit source reference is invalid".to_string(),
                         )
                     })?;
+                if let Some(source_credit_ledger_id) = source_credit_ledger_id {
+                    let required_order =
+                        sqlx::query_as::<_, (Uuid, bool, Option<Uuid>, bool)>(
+                        r#"
+                        SELECT
+                            allocation.wedding_member_id,
+                            allocation.member_order_required,
+                            allocation.member_checkout_client_id,
+                            EXISTS (
+                                SELECT 1
+                                FROM transactions transaction_record
+                                WHERE transaction_record.checkout_client_id = allocation.member_checkout_client_id
+                            ) AS required_order_posted
+                        FROM wedding_deposit_workflow_allocations allocation
+                        WHERE allocation.held_credit_ledger_id = $1
+                        FOR UPDATE OF allocation
+                        "#,
+                    )
+                    .bind(source_credit_ledger_id)
+                    .fetch_optional(&mut *tx)
+                    .await?;
+                    if let Some((expected_member_id, true, expected_checkout_client_id, false)) =
+                        required_order
+                    {
+                        if payload.wedding_member_id != Some(expected_member_id)
+                            || payload.checkout_client_id != expected_checkout_client_id
+                        {
+                            return Err(CheckoutError::InvalidPayload(
+                                "This held wedding deposit requires its saved member-order draft and stable checkout identity. Reload Wedding Deposit → Orders & Receipts before posting."
+                                    .to_string(),
+                            ));
+                        }
+                    }
+                }
                 customer_open_deposit::apply_checkout_redemption(
                     &mut tx,
                     cid,
@@ -6819,9 +6915,19 @@ async fn execute_checkout_internal(
                                 INSERT INTO wedding_deposit_workflow_allocations (
                                     workflow_id, wedding_member_id,
                                     beneficiary_customer_id, amount,
-                                    destination_kind, held_credit_ledger_id
+                                    destination_kind, held_credit_ledger_id,
+                                    member_order_required,
+                                    member_checkout_client_id,
+                                    member_order_draft,
+                                    member_order_draft_saved_at,
+                                    member_order_draft_saved_by_staff_id
                                 )
-                                VALUES ($1, $2, $3, $4, 'held_for_future_order', $5)
+                                VALUES (
+                                    $1, $2, $3, $4, 'held_for_future_order', $5,
+                                    $6, $7, $8,
+                                    CASE WHEN $6 THEN NOW() ELSE NULL END,
+                                    $9
+                                )
                                 RETURNING id
                                 "#,
                             )
@@ -6830,6 +6936,25 @@ async fn execute_checkout_internal(
                             .bind(bene_customer_id)
                             .bind(d.amount)
                             .bind(held_credit_ledger_id)
+                            .bind(
+                                wedding_member_order_drafts_by_member
+                                    .contains_key(&d.wedding_member_id),
+                            )
+                            .bind(
+                                wedding_member_order_drafts_by_member
+                                    .get(&d.wedding_member_id)
+                                    .map(|draft| draft.checkout_client_id),
+                            )
+                            .bind(
+                                wedding_member_order_drafts_by_member
+                                    .get(&d.wedding_member_id)
+                                    .map(|draft| draft.draft.clone()),
+                            )
+                            .bind(
+                                wedding_member_order_drafts_by_member
+                                    .get(&d.wedding_member_id)
+                                    .map(|_| payload.operator_staff_id),
+                            )
                             .fetch_one(&mut *tx)
                             .await?;
                             for source in &source_chunks {
@@ -7479,6 +7604,7 @@ mod tests {
             actor_name: None,
             payment_splits: Some(splits),
             wedding_disbursements: None,
+            wedding_member_order_drafts: vec![],
             order_payments: vec![],
             below_cost_approval: None,
             checkout_client_id: None,
@@ -8440,6 +8566,7 @@ mod tests {
                 })),
             }]),
             wedding_disbursements: None,
+            wedding_member_order_drafts: vec![],
             order_payments: vec![CheckoutOrderPayment {
                 client_line_id: format!("order-pay-{target_transaction_id}"),
                 target_transaction_id,
@@ -9795,6 +9922,7 @@ mod tests {
             actor_name: Some("Wedding Customer Guard Test".to_string()),
             payment_splits: Some(vec![]),
             wedding_disbursements: None,
+            wedding_member_order_drafts: vec![],
             order_payments: vec![],
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),
@@ -10013,6 +10141,7 @@ mod tests {
             actor_name: Some("Combo SPIFF Test".to_string()),
             payment_splits: None,
             wedding_disbursements: None,
+            wedding_member_order_drafts: vec![],
             order_payments: vec![],
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),
@@ -10386,6 +10515,7 @@ mod tests {
             actor_name: Some("Wedding Group Pay Test".to_string()),
             payment_splits: Some(vec![]),
             wedding_disbursements: None,
+            wedding_member_order_drafts: vec![],
             order_payments: vec![],
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),
@@ -10488,6 +10618,7 @@ mod tests {
                 destination_kind: Some("existing_transaction".to_string()),
                 target_transaction_id: Some(order_transaction_id),
             }]),
+            wedding_member_order_drafts: vec![],
             order_payments: vec![],
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),
@@ -11027,6 +11158,7 @@ mod tests {
                     target_transaction_id: None,
                 },
             ]),
+            wedding_member_order_drafts: vec![],
             order_payments: vec![],
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),
@@ -11363,6 +11495,7 @@ mod tests {
                 })),
             }]),
             wedding_disbursements: None,
+            wedding_member_order_drafts: vec![],
             order_payments: vec![],
             below_cost_approval: None,
             checkout_client_id: Some(Uuid::new_v4()),

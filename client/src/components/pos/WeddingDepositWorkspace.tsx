@@ -19,6 +19,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { splitWeddingPartyWithMembers } from "../../lib/weddingPartyApiShape";
+import type { WeddingCollectBuildDraft } from "../../hooks/useParkedSales";
 import type { Customer, WeddingMember } from "./types";
 
 type DepositParty = {
@@ -40,6 +41,10 @@ export type WorkflowAllocation = {
   target_transaction_id?: string | null;
   target_display_id?: string | null;
   source_credit_ledger_id?: string | null;
+  member_order_required: boolean;
+  member_checkout_client_id?: string | null;
+  member_order_draft?: WeddingCollectBuildDraft | null;
+  member_order_draft_saved_at?: string | null;
   member_transaction_id?: string | null;
   member_transaction_display_id?: string | null;
 };
@@ -56,6 +61,9 @@ export type DepositWorkflow = {
   total_amount: string;
   remaining_amount: string;
   status: string;
+  required_member_order_count: number;
+  confirmed_member_order_count: number;
+  member_orders_complete: boolean;
   created_at: string;
   allocations: WorkflowAllocation[];
 };
@@ -341,7 +349,10 @@ export default function WeddingDepositWorkspace({
     );
     if (
       workflow &&
-      collectBuildSession?.phase === "ready_to_post" &&
+      collectBuildSession &&
+      ["ready_to_post", "posting", "complete"].includes(
+        collectBuildSession.phase,
+      ) &&
       (collectBuildSession.fundedWorkflowId === workflow.id ||
         collectBuildSession.payerTransactionId === workflow.payer_transaction_id)
     ) {
@@ -354,6 +365,13 @@ export default function WeddingDepositWorkspace({
         parseMoneyToCents(candidate.remaining_amount) > 0,
     );
     if (!workflow) return;
+    if (workflow.required_member_order_count > 0) {
+      const workflowKey = `${workflow.id}:durable-builder`;
+      if (autoStartedAllocation.current === workflowKey) return;
+      autoStartedAllocation.current = workflowKey;
+      onResumeBuilder(workflow);
+      return;
+    }
     if (!allocation || !allocation.source_credit_ledger_id) {
       return;
     }
@@ -386,6 +404,7 @@ export default function WeddingDepositWorkspace({
     historyBusy,
     isOpen,
     onStartMemberOrder,
+    onResumeBuilder,
     step,
     workflows,
     collectBuildSession,
@@ -1119,10 +1138,14 @@ export default function WeddingDepositWorkspace({
                       ? collectBuildSession
                       : null;
                   const remainingBuildCount = workflow.allocations.filter(
-                    (allocation) =>
-                      allocation.source_credit_ledger_id &&
-                      !allocation.member_transaction_id &&
-                      parseMoneyToCents(allocation.remaining_amount) > 0,
+                    (allocation) => {
+                      if (allocation.member_transaction_id) return false;
+                      if (allocation.member_order_required) return true;
+                      return Boolean(
+                        allocation.source_credit_ledger_id &&
+                          parseMoneyToCents(allocation.remaining_amount) > 0,
+                      );
+                    },
                   ).length;
                   return (
                   <article key={workflow.id} className={`rounded-3xl border bg-app-surface-2 p-4 ${focused ? "border-app-accent ring-2 ring-app-accent/20" : "border-app-border"}`}>

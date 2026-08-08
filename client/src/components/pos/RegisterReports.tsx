@@ -36,6 +36,7 @@ import {
   parseRegisterReportMoneyToCents,
   REGISTER_REPORT_OUTPUT_ROW_LIMIT,
   registerReportCombinedRowCount,
+  registerReportTenderCollectedCents,
 } from "./zReportPrint";
 import type { ReportPrintAction } from "../../lib/reportPrint";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -514,6 +515,8 @@ function kindPill(kind: string): string {
   switch (kind) {
     case "payment":
       return "bg-app-success/10 text-app-success ring-app-success/25";
+    case "wedding_deposit":
+      return "bg-app-info/10 text-app-info ring-app-info/25";
     case "pickup":
       return "bg-app-info/10 text-app-info ring-app-info/25";
     default:
@@ -540,6 +543,8 @@ function fulfillmentDisplayLabel(value?: string | null): string | null {
       return "Custom Order";
     case "wedding_order":
       return "Wedding Order";
+    case "wedding_deposit":
+      return "Wedding Deposit";
     case "layaway":
       return "Layaway";
     case "pickup":
@@ -598,6 +603,7 @@ function activitySubtotalBeforeTaxCents(
   row: Pick<
     RegisterActivityItem,
     | "items"
+    | "kind"
     | "sales_total"
     | "tax_total"
     | "transaction_total"
@@ -605,6 +611,7 @@ function activitySubtotalBeforeTaxCents(
     | "alterations_total"
   >,
 ): number {
+  if (row.kind === "wedding_deposit") return 0;
   const usesBookingDeltas = (row.items ?? []).some(
     (item) => item.booking_delta != null,
   );
@@ -1755,24 +1762,31 @@ export default function RegisterReports({
           "Sale Price": item?.price ?? "",
           Takeaway: a.is_takeaway ? "Yes" : "No",
           Fulfillment: activityFulfillmentLabel(a) || "",
-          "Deposit Paid": idx === 0 ? a.deposits_paid || "0" : "",
-          "Balance Due": idx === 0 ? a.balance_due || "0" : "",
+          "Deposit Paid":
+            idx === 0
+              ? a.kind === "wedding_deposit"
+                ? "0"
+                : a.deposits_paid || "0"
+              : "",
+          "Balance Due":
+            idx === 0
+              ? a.kind === "wedding_deposit"
+                ? ""
+                : a.balance_due || "0"
+              : "",
           "Transaction Total":
-            idx === 0 ? a.transaction_total || a.amount_label || "0" : "",
+            idx === 0
+              ? a.kind === "wedding_deposit"
+                ? "0"
+                : a.transaction_total || a.amount_label || "0"
+              : "",
           "Wedding Deposits Placed":
             idx === 0 ? a.wedding_deposit_contributions || "0" : "",
           "Wedding Members Funded":
             idx === 0 ? a.wedding_deposit_member_count || 0 : "",
           "Total Tender Collected":
             idx === 0
-              ? centsToFixed2(
-                  parseRegisterReportMoneyToCents(
-                    a.transaction_total || a.amount_label || "0",
-                  ) +
-                    parseRegisterReportMoneyToCents(
-                      a.wedding_deposit_contributions || "0",
-                    ),
-                )
+              ? centsToFixed2(registerReportTenderCollectedCents(a))
               : "",
           Shipping: idx === 0 ? a.shipping_total || "0" : "",
           Alterations: idx === 0 ? a.alterations_total || "0" : "",
@@ -1788,10 +1802,17 @@ export default function RegisterReports({
       // Calculate totals
       const totalTransactionCents = exportSummary.activities.reduce(
         (sum, activity) =>
-          sum +
-          parseRegisterReportMoneyToCents(
-            activity.transaction_total || activity.amount_label || "0",
-          ),
+          activity.kind === "wedding_deposit"
+            ? sum
+            : sum +
+              parseRegisterReportMoneyToCents(
+                activity.transaction_total || activity.amount_label || "0",
+              ),
+        0,
+      );
+      const totalTenderCollectedCents = exportSummary.activities.reduce(
+        (sum, activity) =>
+          sum + registerReportTenderCollectedCents(activity),
         0,
       );
       const totalWeddingDepositsCents = exportSummary.activities.reduce(
@@ -1854,9 +1875,7 @@ export default function RegisterReports({
         "Transaction Total": centsToFixed2(totalTransactionCents),
         "Wedding Deposits Placed": centsToFixed2(totalWeddingDepositsCents),
         "Wedding Members Funded": "",
-        "Total Tender Collected": centsToFixed2(
-          totalTransactionCents + totalWeddingDepositsCents,
-        ),
+        "Total Tender Collected": centsToFixed2(totalTenderCollectedCents),
         Shipping: centsToFixed2(totalShippingCents),
         Alterations: centsToFixed2(totalAlterationsCents),
         Subtotal: centsToFixed2(totalSalesCents),
@@ -2891,23 +2910,29 @@ export default function RegisterReports({
                                   <Receipt size={14} />
                                   Receipt
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const transactionId =
-                                      activityDetailTransactionId(row);
-                                    if (transactionId)
-                                      setDetailOrderId(transactionId);
-                                  }}
-                                  disabled={!activityDetailTransactionId(row)}
-                                  className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                                >
-                                  <Search size={14} /> Detail
-                                </button>
+                                {row.kind !== "wedding_deposit" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const transactionId =
+                                        activityDetailTransactionId(row);
+                                      if (transactionId)
+                                        setDetailOrderId(transactionId);
+                                    }}
+                                    disabled={!activityDetailTransactionId(row)}
+                                    className="ui-btn-secondary flex min-h-11 w-full items-center justify-center gap-2 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-accent hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                                  >
+                                    <Search size={14} /> Detail
+                                  </button>
+                                ) : null}
                                 {(() => {
                                   const transactionId =
                                     activityTransactionId(row);
-                                  if (row.kind === "payment") return null;
+                                  if (
+                                    row.kind === "payment" ||
+                                    row.kind === "wedding_deposit"
+                                  )
+                                    return null;
                                   const canVoid =
                                     isBookedToday(row.occurred_at) &&
                                     isBeforeBatchCloseout();
@@ -2950,30 +2975,47 @@ export default function RegisterReports({
                                 <h5 className="text-sm font-black text-app-text-muted">
                                   {row.kind === "payment"
                                     ? "Payment Details"
+                                    : row.kind === "wedding_deposit"
+                                      ? "Deposit Details"
                                     : "Line Items"}
                                 </h5>
-                                {row.kind !== "payment" ? (
+                                {row.kind !== "payment" &&
+                                row.kind !== "wedding_deposit" ? (
                                   <span className="text-xs font-semibold text-app-text-muted opacity-70">
                                     ({row.items?.length || 0} units)
                                   </span>
                                 ) : null}
                               </div>
-                              {row.kind === "payment" ? (
+                              {row.kind === "payment" ||
+                              row.kind === "wedding_deposit" ? (
                                 <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4">
                                   <div className="text-sm font-black text-app-text">
-                                    {row.title} {row.subtitle || "—"}
+                                    {row.kind === "wedding_deposit"
+                                      ? `${row.wedding_deposit_member_count ?? 0} member wedding deposit${row.wedding_deposit_member_count === 1 ? "" : "s"} funded`
+                                      : `${row.title} ${row.subtitle || "—"}`}
                                   </div>
                                   <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-xs font-bold text-app-text-muted">
                                     <span>
-                                      Payment receipt: {row.short_id || "—"}
+                                      {row.kind === "wedding_deposit"
+                                        ? "Payer Transaction"
+                                        : "Payment receipt"}
+                                      : {row.short_id || "—"}
                                     </span>
                                     <span>
-                                      Amount:{" "}
+                                      {row.kind === "wedding_deposit"
+                                        ? "Deposits held"
+                                        : "Amount"}
+                                      :{" "}
                                       {moneyFromValue(
                                         row.transaction_total || "0.00",
                                       )}
                                     </span>
                                   </div>
+                                  {row.kind === "wedding_deposit" ? (
+                                    <p className="mt-3 text-xs font-bold text-app-info">
+                                      This is held deposit activity, not a merchandise sale. Member items appear on each member Transaction after final posting.
+                                    </p>
+                                  ) : null}
                                 </div>
                               ) : (
                                 <div className="space-y-4">
@@ -3121,7 +3163,8 @@ export default function RegisterReports({
                             {/* 3. Financial Breakdown (Right) */}
                             <div className="flex flex-col justify-between bg-app-surface-2/60 p-5 lg:w-1/4">
                               <div className="space-y-3">
-                                {row.kind !== "payment" ? (
+                                {row.kind !== "payment" &&
+                                row.kind !== "wedding_deposit" ? (
                                   <div className="flex flex-col items-end gap-1">
                                     <span className="text-xs font-bold text-app-text-muted">
                                       Subtotal
@@ -3158,7 +3201,8 @@ export default function RegisterReports({
                                   </div>
                                 ) : null}
 
-                                {row.kind !== "payment" ? (
+                                {row.kind !== "payment" &&
+                                row.kind !== "wedding_deposit" ? (
                                   <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
                                     <span className="text-xs font-bold text-app-text-muted">
                                       Total With Tax
@@ -3175,6 +3219,8 @@ export default function RegisterReports({
                                   <span className="text-xs font-bold text-app-success">
                                     {row.kind === "payment"
                                       ? "Payment Applied Today"
+                                      : row.kind === "wedding_deposit"
+                                        ? "Wedding Deposits Collected"
                                       : row.payment_applications?.length
                                         ? "Total Paid Today"
                                         : "Paid on this Transaction"}
@@ -3208,7 +3254,7 @@ export default function RegisterReports({
                                 </div>
                                 {parseMoneyToCents(
                                   row.wedding_deposit_contributions || "0",
-                                ) > 0 ? (
+                                ) > 0 && row.kind !== "wedding_deposit" ? (
                                   <div className="flex flex-col items-end gap-0.5 border-t border-app-border/40 pt-2">
                                     <span className="text-xs font-bold text-app-info">
                                       Wedding Deposits Placed
@@ -3228,28 +3274,22 @@ export default function RegisterReports({
                                     </span>
                                     <span className="mt-1 text-[11px] font-black uppercase tracking-wider text-app-text-muted">
                                       Total tender collected{" "}
-                                      {moneyFromCents(
-                                        parseMoneyToCents(
-                                          row.transaction_total || "0",
-                                        ) +
-                                          parseMoneyToCents(
-                                            row.wedding_deposit_contributions ||
-                                              "0",
-                                          ),
-                                      )}
+                                      {moneyFromCents(registerReportTenderCollectedCents(row))}
                                     </span>
                                   </div>
                                 ) : null}
                               </div>
 
-                              <div className="mt-6 pt-4 border-t-2 border-app-border flex flex-col items-end">
-                                <span className="mb-1 text-xs font-bold text-app-text-muted">
-                                  Balance Due
-                                </span>
-                                <span className="text-3xl font-black text-app-accent tabular-nums tracking-tighter leading-none">
-                                  ${row.balance_due || "0.00"}
-                                </span>
-                              </div>
+                              {row.kind !== "wedding_deposit" ? (
+                                <div className="mt-6 pt-4 border-t-2 border-app-border flex flex-col items-end">
+                                  <span className="mb-1 text-xs font-bold text-app-text-muted">
+                                    Balance Due
+                                  </span>
+                                  <span className="text-3xl font-black text-app-accent tabular-nums tracking-tighter leading-none">
+                                    ${row.balance_due || "0.00"}
+                                  </span>
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                         </div>

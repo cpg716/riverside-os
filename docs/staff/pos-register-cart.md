@@ -113,6 +113,8 @@ Use the guided flow this way:
 7. If Register shows a held wedding deposit and payer, open **Pay** and explicitly apply the intended amount. Seeing the deposit does not apply it.
 8. Select the correct salesperson and complete checkout normally. The question and item choices are drafts; only successful checkout creates the Transaction Record, Wedding Fulfillment Order, deposit redemption, tax, reporting, and receipt.
 
+For **Wedding Deposit → Collect & Build Orders**, the payer receipt remains **Deposit complete · orders pending** until every prepared member Transaction exists. Riverside saves the reviewed member drafts and their retry identities on Main Hub with the funded workflow. If Register closes, return through the payer's **Wedding Deposit → Orders & Receipts** history to reload them. Choose **Create All Member Transactions** once; **Wedding Builder Complete** appears only after Main Hub confirms every required member Transaction and receipt.
+
 Checklist-only notes are not sellable cart lines. If a checklist item should be charged, open the wedding party and make sure the exact ROS product variation is selected first.
 
 Wedding placeholder suits should stay **Measure** / **Needs measurements** until measurements are complete and the exact variation is chosen. Do not move a placeholder to vendor ordering just to get it into the NTBO queue.

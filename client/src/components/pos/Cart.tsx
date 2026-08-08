@@ -131,6 +131,7 @@ import { calculateNysErieTaxStringsForUnit } from "../../lib/tax";
 import { useCartCheckout } from "../../hooks/useCartCheckout";
 import {
   useParkedSales,
+  type WeddingCollectBuildDraft,
   type WeddingCollectBuildSession,
 } from "../../hooks/useParkedSales";
 import { deleteParkedSaleOnServer } from "../../lib/posParkedSales";
@@ -156,6 +157,7 @@ const ALTERATION_SERVICE_SKU = "ROS-ALTERATION-SERVICE";
 
 type WeddingWorkflowResume = {
   payer: Customer;
+  requiresMemberTransactionPosting: boolean;
   workflowId?: string | null;
   payerTransactionId?: string | null;
 };
@@ -2658,6 +2660,23 @@ export default function Cart({
       );
       return false;
     }
+    const heldBuildMembers = disbursementMembers.filter(
+      (member) => member.deposit_destination_kind === "held_for_future_order",
+    );
+    if (
+      weddingDepositPostPaymentAction === "build_orders" &&
+      heldBuildMembers.length > 0 &&
+      (weddingCollectBuildSession?.phase !== "ready_for_payment" ||
+        heldBuildMembers.some(
+          (member) => !weddingCollectBuildSession.drafts[member.id],
+        ))
+    ) {
+      toast(
+        "Finish and save every funded member order draft before taking the payer's payment.",
+        "error",
+      );
+      return false;
+    }
     if (!hasSalespersonAttribution()) {
       toast(
         "Select a salesperson for every new sale line before applying payment.",
@@ -2731,6 +2750,8 @@ export default function Cart({
     preflightOrderPaymentsBeforeTender,
     selectedCustomer,
     toast,
+    weddingCollectBuildSession,
+    weddingDepositPostPaymentAction,
     weddingDepositSalespersonId,
   ]);
   const processLinkedCardRefundBeforeFinalize = useCallback(
@@ -2954,6 +2975,21 @@ export default function Cart({
     });
   }, []);
 
+  const durableWeddingMemberOrderDrafts = useMemo(() => {
+    const session = weddingCollectBuildSession;
+    if (!session || session.phase !== "ready_for_payment") return [];
+    return session.buildMembers.flatMap((member) => {
+      const draft = session.drafts[member.id];
+      return draft
+        ? [{
+            wedding_member_id: member.id,
+            checkout_client_id: draft.checkoutClientId,
+            draft,
+          }]
+        : [];
+    });
+  }, [weddingCollectBuildSession]);
+
   // --- Checkout Hook ---
   const {
     executeCheckout,
@@ -2976,6 +3012,7 @@ export default function Cart({
     primarySalespersonId,
     weddingDepositSalespersonId,
     disbursementMembers,
+    weddingMemberOrderDrafts: durableWeddingMemberOrderDrafts,
     posShipping,
     pendingAlterationIntakes,
     orderPaymentLines,
@@ -4537,7 +4574,12 @@ export default function Cart({
     setWeddingDepositAutoStartMember(true);
     setWeddingDrawerPreferGroupPay(true);
     setWeddingDrawerOpen(true);
-    toast("Receipt complete. Riverside is opening the Wedding Builder final review for all funded member drafts.", "success");
+    toast(
+      resume.requiresMemberTransactionPosting
+        ? "Deposit complete. Member Transactions are still pending; Riverside is opening the required final review."
+        : "Receipt complete. Riverside is opening the Wedding Builder review.",
+      "success",
+    );
   }, [selectCustomerForSale, toast]);
 
   const resumeFundedWeddingBuilder = useCallback(
@@ -4550,26 +4592,27 @@ export default function Cart({
         );
         return;
       }
-      const buildMembers = workflow.allocations
-        .filter(
-          (allocation) =>
-            allocation.source_credit_ledger_id &&
-            !allocation.member_transaction_id &&
+      const pendingAllocations = workflow.allocations.filter((allocation) => {
+        if (allocation.member_transaction_id) return false;
+        if (allocation.member_order_required) return true;
+        return Boolean(
+          allocation.source_credit_ledger_id &&
             parseMoneyToCents(allocation.remaining_amount) > 0,
-        )
-        .map<WeddingMember>((allocation) => ({
-          id: allocation.wedding_member_id,
-          customer_id: allocation.beneficiary_customer_id,
-          first_name: allocation.beneficiary_name.split(" ")[0] ?? "Wedding",
-          last_name:
-            allocation.beneficiary_name.split(" ").slice(1).join(" ") ||
-            "Member",
-          role: allocation.role,
-          status: "active",
-          measured: false,
-          suit_ordered: false,
-          is_free_suit_promo: false,
-        }));
+        );
+      });
+      const buildMembers = pendingAllocations.map<WeddingMember>((allocation) => ({
+        id: allocation.wedding_member_id,
+        customer_id: allocation.beneficiary_customer_id,
+        first_name: allocation.beneficiary_name.split(" ")[0] ?? "Wedding",
+        last_name:
+          allocation.beneficiary_name.split(" ").slice(1).join(" ") ||
+          "Member",
+        role: allocation.role,
+        status: "active",
+        measured: false,
+        suit_ordered: false,
+        is_free_suit_promo: false,
+      }));
       if (buildMembers.length === 0) {
         toast("Every funded member Transaction is already posted.", "info");
         return;
@@ -4585,6 +4628,21 @@ export default function Cart({
         suit_ordered: false,
         is_free_suit_promo: false,
       };
+      const memberById = new Map(buildMembers.map((member) => [member.id, member]));
+      const savedDrafts: WeddingCollectBuildSession["drafts"] = Object.fromEntries(
+        pendingAllocations.flatMap((allocation) => {
+          const member = memberById.get(allocation.wedding_member_id);
+          return member && allocation.member_order_draft
+            ? [[
+                allocation.wedding_member_id,
+                { ...allocation.member_order_draft, member },
+              ]]
+            : [];
+        }),
+      );
+      const firstMemberWithoutDraft = buildMembers.find(
+        (member) => !savedDrafts[member.id],
+      );
       const session: WeddingCollectBuildSession = {
         payer: selectedCustomer!,
         payerMember,
@@ -4594,25 +4652,32 @@ export default function Cart({
         buildMembers,
         depositSalespersonId: "",
         defaultOrderSalespersonId: "",
-        currentMemberId: buildMembers[0]!.id,
-        phase: "building",
+        currentMemberId: firstMemberWithoutDraft?.id ?? null,
+        phase: firstMemberWithoutDraft ? "building" : "ready_to_post",
         fundedWorkflowId: workflow.id,
         payerTransactionId: workflow.payer_transaction_id,
         operatorStaffId: checkoutOperator!.staffId,
         operatorName: checkoutOperator!.fullName,
-        drafts: {},
+        drafts: savedDrafts,
         results: {},
       };
       setWeddingCollectBuildSession(session);
+      if (!firstMemberWithoutDraft) {
+        toast(
+          `Reloaded ${buildMembers.length} durable member draft${buildMembers.length === 1 ? "" : "s"} from Main Hub. Review once, then create the server-confirmed member Transactions.`,
+          "success",
+        );
+        return;
+      }
       setWeddingDrawerOpen(false);
       setWeddingDrawerPreferGroupPay(false);
       selectWeddingCollectBuildMember(
-        buildMembers[0]!,
+        firstMemberWithoutDraft,
         workflow.party_name,
         session,
       );
       toast(
-        `Wedding Builder opened for ${buildMembers.length} funded member${buildMembers.length === 1 ? "" : "s"}. Drafts only—no financial record changes until Create All Member Transactions.`,
+        `Wedding Builder opened for ${buildMembers.length} funded member${buildMembers.length === 1 ? "" : "s"}. Saved drafts were restored from Main Hub; finish the remaining draft${buildMembers.length === Object.keys(savedDrafts).length + 1 ? "" : "s"} before posting.`,
         "success",
       );
     },
@@ -4822,6 +4887,30 @@ export default function Cart({
             phase: "posting",
           });
         }
+        const confirmationResponse = await fetch(
+          `${baseUrl}/api/weddings/deposit-workflows/${encodeURIComponent(workflow.id)}`,
+          { headers: { ...apiAuth() }, cache: "no-store" },
+        );
+        if (!confirmationResponse.ok) {
+          throw new Error(
+            "Main Hub could not confirm the member Transactions after posting.",
+          );
+        }
+        const confirmedWorkflow =
+          (await confirmationResponse.json()) as DepositWorkflow;
+        const pendingRequiredMembers = confirmedWorkflow.allocations.filter(
+          (allocation) =>
+            allocation.member_order_required &&
+            !allocation.member_transaction_id,
+        );
+        if (
+          !confirmedWorkflow.member_orders_complete ||
+          pendingRequiredMembers.length > 0
+        ) {
+          throw new Error(
+            `Main Hub has not confirmed ${pendingRequiredMembers.length || "all"} required member Transaction${pendingRequiredMembers.length === 1 ? "" : "s"}.`,
+          );
+        }
         setWeddingCollectBuildSession({ ...workingSession, phase: "complete" });
         toast(
           `Created ${session.buildMembers.length} separate member Transaction${session.buildMembers.length === 1 ? "" : "s"}. Review and print each receipt below.`,
@@ -4855,7 +4944,7 @@ export default function Cart({
     ],
   );
 
-  const saveWeddingCollectBuildMember = useCallback(() => {
+  const saveWeddingCollectBuildMember = useCallback(async () => {
     const session = weddingCollectBuildSession;
     const member = activeWeddingMember;
     if (!session || session.phase !== "building" || !member) return;
@@ -4889,22 +4978,58 @@ export default function Cart({
       toast("This member is no longer part of the active Collect & Build workflow.", "error");
       return;
     }
+    const draft: WeddingCollectBuildDraft = {
+      member,
+      lines: lines.map((line) => ({ ...line })),
+      salespersonId: primarySalespersonId.trim(),
+      checkoutClientId:
+        session.drafts[member.id]?.checkoutClientId ?? newCheckoutClientId(),
+      isTaxExempt: weddingDraftTaxExempt,
+      taxExemptReason: weddingDraftTaxExempt
+        ? weddingDraftTaxExemptReason.trim()
+        : null,
+      alterationIntakes: pendingAlterationIntakes.map((intake) => ({ ...intake })),
+    };
+    if (session.fundedWorkflowId) {
+      try {
+        const response = await fetch(
+          `${baseUrl}/api/weddings/deposit-workflows/${encodeURIComponent(session.fundedWorkflowId)}/member-order-drafts`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...apiAuth() },
+            body: JSON.stringify({
+              wedding_member_id: member.id,
+              checkout_client_id: draft.checkoutClientId,
+              draft,
+            }),
+          },
+        );
+        if (!response.ok) {
+          const body = (await response.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(
+            body.error ?? "Main Hub could not save this member order draft.",
+          );
+        }
+      } catch (cause) {
+        toast(
+          cause instanceof Error
+            ? `${cause.message} This draft remains open; it was not advanced or posted.`
+            : "Main Hub could not save this member order draft. It remains open and was not posted.",
+          "error",
+        );
+        return;
+      }
+    }
     const drafts = {
       ...session.drafts,
-      [member.id]: {
-        member,
-        lines: lines.map((line) => ({ ...line })),
-        salespersonId: primarySalespersonId.trim(),
-        checkoutClientId:
-          session.drafts[member.id]?.checkoutClientId ?? newCheckoutClientId(),
-        isTaxExempt: weddingDraftTaxExempt,
-        taxExemptReason: weddingDraftTaxExempt
-          ? weddingDraftTaxExemptReason.trim()
-          : null,
-        alterationIntakes: pendingAlterationIntakes.map((intake) => ({ ...intake })),
-      },
+      [member.id]: draft,
     };
-    const nextMember = session.buildMembers[currentIndex + 1] ?? null;
+    const nextMember =
+      session.buildMembers
+        .slice(currentIndex + 1)
+        .find((candidate) => !drafts[candidate.id]) ?? null;
     clearCart();
     if (nextMember) {
       setWeddingCollectBuildSession({
@@ -4954,6 +5079,8 @@ export default function Cart({
     );
   }, [
     activeWeddingMember,
+    apiAuth,
+    baseUrl,
     clearCart,
     lines,
     primarySalespersonId,
@@ -6629,7 +6756,7 @@ export default function Cart({
                   "error",
                 );
                if (collectingWeddingOrderDraft) {
-                 saveWeddingCollectBuildMember();
+                 void saveWeddingCollectBuildMember();
                  return;
                }
                if (!ensureSaleCashier()) return;
@@ -7451,7 +7578,12 @@ export default function Cart({
             return;
           }
           setLastReceiptOrderPaymentLines(orderPaymentLines);
-          const depositWorkflowPayer = disbursementMembers.length > 0 && weddingDepositPostPaymentAction === "build_orders" ? selectedCustomer : null;
+          const depositWorkflowPayer =
+            disbursementMembers.length > 0 &&
+            weddingDepositPostPaymentAction === "build_orders" &&
+            durableWeddingMemberOrderDrafts.length > 0
+              ? selectedCustomer
+              : null;
           const memberWorkflowSource = weddingDepositOrderSource;
           const completedTransactionId = await executeCheckout(
             applied,
@@ -7480,9 +7612,17 @@ export default function Cart({
                     }
                   : current,
               );
-              setReceiptWeddingWorkflowResume({ payer: depositWorkflowPayer, payerTransactionId: completedTransactionId });
+              setReceiptWeddingWorkflowResume({
+                payer: depositWorkflowPayer,
+                requiresMemberTransactionPosting: true,
+                payerTransactionId: completedTransactionId,
+              });
             } else if (memberWorkflowSource) {
-              setReceiptWeddingWorkflowResume({ payer: memberWorkflowSource.payer, workflowId: memberWorkflowSource.workflowId });
+              setReceiptWeddingWorkflowResume({
+                payer: memberWorkflowSource.payer,
+                requiresMemberTransactionPosting: false,
+                workflowId: memberWorkflowSource.workflowId,
+              });
             } else {
               setReceiptWeddingWorkflowResume(null);
             }
@@ -8892,8 +9032,33 @@ export default function Cart({
         <ReceiptSummaryModal
           transactionId={lastTransactionId}
           onClose={closeCompletionReceipt}
-          completionNextActionLabel={receiptWeddingWorkflowResume ? "Open Wedding Builder" : undefined}
-          completionNextActionEyebrow={receiptWeddingWorkflowResume ? "Create all member Transactions" : undefined}
+          completionNextActionLabel={
+            receiptWeddingWorkflowResume?.requiresMemberTransactionPosting
+              ? "Continue to Member Transactions"
+              : receiptWeddingWorkflowResume
+                ? "Open Wedding Builder"
+                : undefined
+          }
+          completionNextActionEyebrow={
+            receiptWeddingWorkflowResume?.requiresMemberTransactionPosting
+              ? "Required · member Transactions still pending"
+              : receiptWeddingWorkflowResume
+                ? "Review wedding deposit activity"
+                : undefined
+          }
+          completionNextActionRequired={Boolean(
+            receiptWeddingWorkflowResume?.requiresMemberTransactionPosting,
+          )}
+          completionHeading={
+            receiptWeddingWorkflowResume?.requiresMemberTransactionPosting
+              ? "Deposit complete · orders pending"
+              : undefined
+          }
+          completionActivityLabel={
+            receiptWeddingWorkflowResume?.requiresMemberTransactionPosting
+              ? "Payment and deposits recorded · member Transactions not yet created"
+              : undefined
+          }
           onCompletionNextAction={receiptWeddingWorkflowResume ? () => continueWeddingOrders(receiptWeddingWorkflowResume) : undefined}
           baseUrl={baseUrl}
           registerSessionId={sessionId}

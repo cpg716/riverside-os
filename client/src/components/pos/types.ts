@@ -305,6 +305,13 @@ export interface CheckoutPayload {
   wedding_disbursements?: {
     wedding_member_id: string;
     amount: string;
+    destination_kind?: "held_for_future_order" | "existing_transaction";
+    target_transaction_id?: string;
+  }[];
+  wedding_member_order_drafts?: {
+    wedding_member_id: string;
+    checkout_client_id: string;
+    draft: unknown;
   }[];
   checkout_client_id?: string;
   booked_at_local?: string;

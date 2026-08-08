@@ -81,6 +81,9 @@ export interface ReceiptSummaryModalProps {
   /** Optional guided handoff after a completed transaction receipt. */
   completionNextActionLabel?: string;
   completionNextActionEyebrow?: string;
+  completionNextActionRequired?: boolean;
+  completionHeading?: string;
+  completionActivityLabel?: string;
   onCompletionNextAction?: () => void;
 }
 
@@ -217,6 +220,9 @@ export default function ReceiptSummaryModal({
   autoPrintOnOpen = false,
   completionNextActionLabel,
   completionNextActionEyebrow,
+  completionNextActionRequired = false,
+  completionHeading,
+  completionActivityLabel,
   onCompletionNextAction,
 }: ReceiptSummaryModalProps) {
   const { toast } = useToast();
@@ -460,8 +466,13 @@ export default function ReceiptSummaryModal({
   ]);
 
   const closeWithReviewChoice = useCallback(() => {
+    if (completionNextActionRequired && onCompletionNextAction) {
+      onClose();
+      onCompletionNextAction();
+      return;
+    }
     onClose();
-  }, [onClose]);
+  }, [completionNextActionRequired, onClose, onCompletionNextAction]);
 
   const closeWithCompletionNextAction = useCallback(() => {
     onClose();
@@ -471,10 +482,10 @@ export default function ReceiptSummaryModal({
   useEffect(() => {
     if (presentation !== "completion" || !transactionId) return;
     const timeoutId = window.setTimeout(() => {
-      onClose();
+      closeWithReviewChoice();
     }, COMPLETION_PIN_RETURN_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [onClose, presentation, transactionId]);
+  }, [closeWithReviewChoice, presentation, transactionId]);
 
   const handlePrint = useCallback(
     async (opts?: { gift?: boolean; transactionLineIds?: string[] }) => {
@@ -936,7 +947,7 @@ export default function ReceiptSummaryModal({
     (sum, pickup) => sum + parseMoneyToCents(pickup.remaining_balance),
     0,
   );
-  const activityLabel = refundCheckout
+  const activityLabel = completionActivityLabel ?? (refundCheckout
     ? "Return and refund recorded"
     : exchangeCheckout
       ? "Return and replacement recorded"
@@ -952,8 +963,8 @@ export default function ReceiptSummaryModal({
               ? "Sale and pickup recorded"
               : orderPaymentTotalCents > 0
                 ? "Sale and payment recorded"
-                : "Sale recorded";
-  const completionTitle = historicalPresentation
+                : "Sale recorded");
+  const completionTitle = completionHeading ?? (historicalPresentation
     ? refundCheckout || exchangeCheckout
       ? "Return / exchange receipt"
       : "Transaction receipt"
@@ -973,7 +984,7 @@ export default function ReceiptSummaryModal({
               ? "Sale and pickup complete"
               : orderPaymentTotalCents > 0
                 ? "Sale and payment complete"
-                : "Sale complete";
+                : "Sale complete");
   const completionKind = refundCheckout
     ? "Refund"
     : exchangeCheckout
@@ -1241,7 +1252,7 @@ export default function ReceiptSummaryModal({
                 type="button"
                 onClick={() => void closeWithReviewChoice()}
                 className="absolute right-3 top-3 flex min-h-10 min-w-10 items-center justify-center rounded-full border border-app-border bg-app-surface-2 text-app-text-muted transition-colors hover:bg-app-surface-3 hover:text-app-text sm:right-4 sm:top-4 touch-manipulation disabled:opacity-50"
-                aria-label="Close"
+                aria-label={completionNextActionRequired ? "Continue to required next step" : "Close"}
               >
                 <X size={18} />
               </button>
@@ -1792,7 +1803,7 @@ export default function ReceiptSummaryModal({
                   </>
                 )}
               </button>
-              {!historicalPresentation && completionNextActionLabel && onCompletionNextAction ? (
+              {!historicalPresentation && completionNextActionLabel && onCompletionNextAction && !completionNextActionRequired ? (
                 <button type="button" onClick={() => void closeWithReviewChoice()} className="mt-2 min-h-10 w-full rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface-3 hover:text-app-text disabled:opacity-60">
                   Finish without building orders now
                 </button>

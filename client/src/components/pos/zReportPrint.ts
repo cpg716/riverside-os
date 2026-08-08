@@ -27,6 +27,22 @@ export function parseRegisterReportMoneyToCents(
   );
 }
 
+export function registerReportTenderCollectedCents(row: {
+  kind?: string | null;
+  transaction_total?: string | null;
+  amount_label?: string | null;
+  wedding_deposit_contributions?: string | null;
+}): number {
+  const transactionCents = parseRegisterReportMoneyToCents(
+    row.transaction_total || row.amount_label || "0",
+  );
+  if (row.kind === "wedding_deposit") return transactionCents;
+  return (
+    transactionCents +
+    parseRegisterReportMoneyToCents(row.wedding_deposit_contributions)
+  );
+}
+
 export function registerReportCombinedRowCount(
   activityCount: number | null | undefined,
   pickupCount: number | null | undefined,
@@ -1859,26 +1875,28 @@ export async function openProfessionalDailySalesPrint(opts: {
             <div class="time">${tm}</div>
           </div>
           <div class="activity-items">
-            <div class="section-label">${row.kind === "payment" ? "Payment Details" : "Line Items"}</div>
+            <div class="section-label">${row.kind === "payment" ? "Payment Details" : row.kind === "wedding_deposit" ? "Deposit Details" : "Line Items"}</div>
             ${
               row.kind === "payment"
                 ? `<div style="padding:18px 0;"><strong>${escapeReportHtml(row.title)} ${escapeReportHtml(row.subtitle || "—")}</strong><div class="muted" style="margin-top:6px;">Payment receipt: ${escapeReportHtml(row.short_id || "—")}</div></div>`
+                : row.kind === "wedding_deposit"
+                  ? `<div style="padding:18px 0;"><strong>${row.wedding_deposit_member_count ?? 0} member wedding deposit${row.wedding_deposit_member_count === 1 ? "" : "s"} funded</strong><div class="muted" style="margin-top:6px;">Payer Transaction: ${escapeReportHtml(row.short_id || "—")} · Held deposit activity, not a merchandise sale</div></div>`
                 : `${itemsHtml || `<div class="muted" style="padding:18px 0;text-align:center;">No item details recorded for this transaction</div>`}${orderPaymentRows}`
             }
           </div>
           <div class="activity-money">
-            <div class="money-label">${row.kind === "payment" ? "Payment Applied Today" : "Total With Tax"}</div>
-            <div class="money-total">${row.kind === "payment" ? formatReportMoney(row.transaction_total ?? row.amount_label ?? "0") : formatReportMoney(totalWithTaxCents)}</div>
-            ${row.kind !== "payment" ? `<div class="money-sub">Subtotal: ${formatReportMoney(subtotalCents)}</div>` : ""}
-            ${row.kind !== "payment" && row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
-            ${row.kind !== "payment" && parseRegisterReportMoneyToCents(row.shipping_total) !== 0 ? `<div class="money-sub">Shipping: ${formatReportMoney(row.shipping_total ?? "0")}</div>` : ""}
-            ${row.kind !== "payment" && parseRegisterReportMoneyToCents(row.alterations_total) !== 0 ? `<div class="money-sub">Alterations: ${formatReportMoney(row.alterations_total ?? "0")}</div>` : ""}
-            ${row.kind !== "payment" ? `<div class="money-sub">${row.payment_applications?.length ? "Total Paid Today" : "Transaction Total"}: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>` : ""}
-            ${row.wedding_deposit_contributions ? `<div class="money-good">Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} member${row.wedding_deposit_member_count === 1 ? "" : "s"}</div>` : ""}
-            ${row.wedding_deposit_contributions ? `<div class="money-sub">Total Tender Collected: ${formatReportMoney(parseRegisterReportMoneyToCents(row.transaction_total) + parseRegisterReportMoneyToCents(row.wedding_deposit_contributions))}</div>` : ""}
+            <div class="money-label">${row.kind === "payment" ? "Payment Applied Today" : row.kind === "wedding_deposit" ? "Wedding Deposits Collected" : "Total With Tax"}</div>
+            <div class="money-total">${row.kind === "payment" || row.kind === "wedding_deposit" ? formatReportMoney(row.transaction_total ?? row.amount_label ?? "0") : formatReportMoney(totalWithTaxCents)}</div>
+            ${row.kind !== "payment" && row.kind !== "wedding_deposit" ? `<div class="money-sub">Subtotal: ${formatReportMoney(subtotalCents)}</div>` : ""}
+            ${row.kind !== "payment" && row.kind !== "wedding_deposit" && row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
+            ${row.kind !== "payment" && row.kind !== "wedding_deposit" && parseRegisterReportMoneyToCents(row.shipping_total) !== 0 ? `<div class="money-sub">Shipping: ${formatReportMoney(row.shipping_total ?? "0")}</div>` : ""}
+            ${row.kind !== "payment" && row.kind !== "wedding_deposit" && parseRegisterReportMoneyToCents(row.alterations_total) !== 0 ? `<div class="money-sub">Alterations: ${formatReportMoney(row.alterations_total ?? "0")}</div>` : ""}
+            ${row.kind !== "payment" && row.kind !== "wedding_deposit" ? `<div class="money-sub">${row.payment_applications?.length ? "Total Paid Today" : "Transaction Total"}: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>` : ""}
+            ${row.kind !== "wedding_deposit" && row.wedding_deposit_contributions ? `<div class="money-good">Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} member${row.wedding_deposit_member_count === 1 ? "" : "s"}</div>` : ""}
+            ${row.kind !== "wedding_deposit" && row.wedding_deposit_contributions ? `<div class="money-sub">Total Tender Collected: ${formatReportMoney(registerReportTenderCollectedCents(row))}</div>` : ""}
             ${paymentRows}
-            ${row.deposits_paid ? `<div class="money-good">Paid: $${row.deposits_paid}</div>` : ""}
-            ${row.balance_due && (row.kind === "payment" || parseRegisterReportMoneyToCents(row.balance_due) > 0) ? `<div class="money-due">${row.kind === "payment" ? "Remaining Balance" : "Balance"}: ${formatReportMoney(row.balance_due)}</div>` : ""}
+            ${row.kind !== "wedding_deposit" && row.deposits_paid ? `<div class="money-good">Paid: $${row.deposits_paid}</div>` : ""}
+            ${row.kind !== "wedding_deposit" && row.balance_due && (row.kind === "payment" || parseRegisterReportMoneyToCents(row.balance_due) > 0) ? `<div class="money-due">${row.kind === "payment" ? "Remaining Balance" : "Balance"}: ${formatReportMoney(row.balance_due)}</div>` : ""}
           </div>
         </section>
       `;
@@ -2054,8 +2072,8 @@ export async function openProfessionalDailySalesPrint(opts: {
               : ""
           }${row.short_id ? ` | ${row.short_id}` : ""} | Salesperson: ${row.salesperson_name || "Unassigned"} | ${
             customerInfo || "Walk-in Customer"
-          } | ${row.kind === "payment" ? "Payment" : "Sales"}: ${
-            row.kind === "payment"
+          } | ${row.kind === "payment" ? "Payment" : row.kind === "wedding_deposit" ? "Wedding Deposits" : "Sales"}: ${
+            row.kind === "payment" || row.kind === "wedding_deposit"
               ? formatReportMoney(
                   row.transaction_total ?? row.amount_label ?? "0",
                 )
@@ -2076,6 +2094,8 @@ export async function openProfessionalDailySalesPrint(opts: {
             row.short_id ? `Transaction: ${row.short_id}` : "",
             row.kind === "payment"
               ? `${textValue(row.title)}: ${textValue(row.subtitle)}`
+              : row.kind === "wedding_deposit"
+                ? `${row.wedding_deposit_member_count ?? 0} member wedding deposit${row.wedding_deposit_member_count === 1 ? "" : "s"} funded | Held deposit activity, not a merchandise sale`
               : "",
             ...(row.payment_applications ?? []).map(
               (application) =>
@@ -2085,37 +2105,51 @@ export async function openProfessionalDailySalesPrint(opts: {
               ? `Imported at: ${new Date(row.imported_at).toLocaleString()}`
               : "",
             ...paymentDetails,
-            row.kind !== "payment" && row.sales_total
+            row.kind !== "payment" &&
+            row.kind !== "wedding_deposit" &&
+            row.sales_total
               ? `Subtotal: ${formatReportMoney(row.sales_total)}`
               : "",
-            row.kind !== "payment" && row.tax_total
+            row.kind !== "payment" &&
+            row.kind !== "wedding_deposit" &&
+            row.tax_total
               ? `Tax: ${formatReportMoney(row.tax_total)}`
               : "",
             row.kind !== "payment" &&
+            row.kind !== "wedding_deposit" &&
             row.shipping_total &&
             parseRegisterReportMoneyToCents(row.shipping_total) !== 0
               ? `Shipping: ${formatReportMoney(row.shipping_total)}`
               : "",
-            row.kind !== "payment"
+            row.kind !== "payment" && row.kind !== "wedding_deposit"
               ? `Total With Tax: ${formatReportMoney(rowTotalWithTaxCents)}`
               : "",
             row.kind !== "payment" &&
+            row.kind !== "wedding_deposit" &&
             row.alterations_total &&
             parseRegisterReportMoneyToCents(row.alterations_total) !== 0
               ? `Alterations: ${formatReportMoney(row.alterations_total)}`
               : "",
-            row.kind !== "payment" && row.transaction_total
+            row.kind !== "payment" &&
+            row.kind !== "wedding_deposit" &&
+            row.transaction_total
               ? `${row.payment_applications?.length ? "Total Paid Today" : "Transaction Total"}: ${formatReportMoney(row.transaction_total)}`
               : "",
+            row.kind !== "wedding_deposit" &&
             row.wedding_deposit_contributions
               ? `Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} members`
               : "",
+            row.kind !== "wedding_deposit" &&
             row.wedding_deposit_contributions
-              ? `Total Tender Collected: ${formatReportMoney(parseRegisterReportMoneyToCents(row.transaction_total) + parseRegisterReportMoneyToCents(row.wedding_deposit_contributions))}`
+              ? `Total Tender Collected: ${formatReportMoney(registerReportTenderCollectedCents(row))}`
               : "",
-            row.deposits_paid
+            row.kind !== "wedding_deposit" && row.deposits_paid
               ? `Paid: ${formatReportMoney(row.deposits_paid)}`
               : "",
+            row.kind === "wedding_deposit"
+              ? `Wedding Deposits Collected: ${formatReportMoney(row.transaction_total ?? row.amount_label ?? "0")}`
+              : "",
+            row.kind !== "wedding_deposit" &&
             row.balance_due &&
             (row.kind === "payment" ||
               parseRegisterReportMoneyToCents(row.balance_due) > 0)
