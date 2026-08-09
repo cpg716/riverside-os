@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
@@ -1439,7 +1440,7 @@ export default function QboWorkspace({
         </div>
       ) : null}
 
-      {drilldown && (
+      {drilldown ? createPortal(
         <div className="ui-overlay-backdrop justify-end">
           <div
             ref={drillDialogRef}
@@ -1483,8 +1484,9 @@ export default function QboWorkspace({
             </div>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+        document.getElementById("drawer-root") || document.body,
+      ) : null}
 
       {confirmAction && (
         <ConfirmationModal

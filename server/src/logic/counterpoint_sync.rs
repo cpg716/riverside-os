@@ -11958,6 +11958,7 @@ pub struct GiftCardMetadataRepairSummary {
     pub donated: i32,
     pub promo: i32,
     pub customer_links_resolved: i32,
+    pub would_create_issue_events: i32,
     pub would_expire_cards: i32,
     pub would_expire_balance: Decimal,
 }
@@ -12150,6 +12151,35 @@ async fn build_gift_card_customer_id_map(
     Ok(resolved)
 }
 
+async fn create_counterpoint_gift_card_issue_event_if_missing(
+    tx: &mut Transaction<'_, Postgres>,
+    gift_card_id: Uuid,
+    original_value: Decimal,
+    issued_at: DateTime<Utc>,
+) -> Result<bool, CounterpointSyncError> {
+    let inserted = sqlx::query(
+        r#"
+        INSERT INTO gift_card_events (
+            gift_card_id, event_kind, amount, balance_after, notes, created_at
+        )
+        SELECT $1, 'issued', $2, $2, 'Imported from Counterpoint source issue record', $3
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM gift_card_events
+            WHERE gift_card_id = $1
+              AND event_kind = 'issued'
+        )
+        "#,
+    )
+    .bind(gift_card_id)
+    .bind(original_value)
+    .bind(issued_at)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(inserted.rows_affected() == 1)
+}
+
 async fn execute_counterpoint_gift_card_metadata_repair(
     pool: &PgPool,
     rows: &[CounterpointGiftCardRow],
@@ -12190,11 +12220,13 @@ async fn execute_counterpoint_gift_card_metadata_repair(
         donated: 0,
         promo: 0,
         customer_links_resolved: 0,
+        would_create_issue_events: 0,
         would_expire_cards: 0,
         would_expire_balance: Decimal::ZERO,
     };
     let skipped = 0;
     let mut updated = 0;
+    let mut events_created = 0;
     let mut seen_codes = HashSet::with_capacity(rows.len());
 
     for row in rows {
@@ -12221,11 +12253,20 @@ async fn execute_counterpoint_gift_card_metadata_repair(
                 "gift card {code} is missing its Counterpoint issue date"
             ))
         })?;
-        let existing: Option<(Uuid, Decimal)> = sqlx::query_as(
+        let existing: Option<(Uuid, Decimal, Option<Decimal>, bool)> = sqlx::query_as(
             r#"
-            SELECT id, current_balance
-            FROM gift_cards
-            WHERE UPPER(BTRIM(code::text)) = $1
+            SELECT
+                gc.id,
+                gc.current_balance,
+                gc.original_value,
+                EXISTS (
+                    SELECT 1
+                    FROM gift_card_events gce
+                    WHERE gce.gift_card_id = gc.id
+                      AND gce.event_kind = 'issued'
+                ) AS has_issue_event
+            FROM gift_cards gc
+            WHERE UPPER(BTRIM(gc.code::text)) = $1
             FOR UPDATE
             "#,
         )
@@ -12233,7 +12274,9 @@ async fn execute_counterpoint_gift_card_metadata_repair(
         .fetch_optional(&mut *tx)
         .await?;
 
-        let Some((gift_card_id, current_balance)) = existing else {
+        let Some((gift_card_id, current_balance, stored_original_value, has_issue_event)) =
+            existing
+        else {
             repair.missing += 1;
             continue;
         };
@@ -12258,6 +12301,16 @@ async fn execute_counterpoint_gift_card_metadata_repair(
             repair.would_expire_cards += 1;
             repair.would_expire_balance += current_balance;
         }
+        let issue_event_value = if has_issue_event {
+            None
+        } else {
+            repair.would_create_issue_events += 1;
+            Some(row.original_value.or(stored_original_value).ok_or_else(|| {
+                CounterpointSyncError::InvalidPayload(format!(
+                    "gift card {code} cannot receive an imported issue event because its original value is missing"
+                ))
+            })?)
+        };
 
         if mode == CounterpointGiftCardMetadataRepairMode::Apply {
             sqlx::query(
@@ -12280,6 +12333,18 @@ async fn execute_counterpoint_gift_card_metadata_repair(
             .execute(&mut *tx)
             .await?;
             updated += 1;
+            if let Some(issue_event_value) = issue_event_value {
+                if create_counterpoint_gift_card_issue_event_if_missing(
+                    &mut tx,
+                    gift_card_id,
+                    issue_event_value,
+                    issued_at,
+                )
+                .await?
+                {
+                    events_created += 1;
+                }
+            }
         }
     }
 
@@ -12309,7 +12374,7 @@ async fn execute_counterpoint_gift_card_metadata_repair(
     Ok(GiftCardSyncSummary {
         created: 0,
         updated,
-        events_created: 0,
+        events_created,
         skipped,
         customer_links_resolved: repair.customer_links_resolved,
         metadata_repair: Some(repair),
@@ -12364,7 +12429,7 @@ pub async fn execute_counterpoint_gift_card_batch(
                 .fetch_optional(&mut *tx)
                 .await?;
 
-        if let Some(gid) = existing {
+        let gift_card_id = if let Some(gid) = existing {
             sqlx::query(
                 r#"
                 UPDATE gift_cards SET
@@ -12387,11 +12452,13 @@ pub async fn execute_counterpoint_gift_card_batch(
             .execute(&mut *tx)
             .await?;
             summary.updated += 1;
+            gid
         } else {
-            sqlx::query(
+            let gid: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO gift_cards (code, current_balance, original_value, is_liability, card_kind, card_status, expires_at, created_at, customer_id)
                 VALUES ($1, $2, $3, $4, $5::gift_card_kind, 'active'::gift_card_status, $6, COALESCE($7, CURRENT_TIMESTAMP), $8)
+                RETURNING id
                 "#,
             )
             .bind(&code)
@@ -12402,9 +12469,23 @@ pub async fn execute_counterpoint_gift_card_batch(
             .bind(expires)
             .bind(issued_at)
             .bind(customer_id)
-            .execute(&mut *tx)
+            .fetch_one(&mut *tx)
             .await?;
             summary.created += 1;
+            gid
+        };
+
+        if let (Some(original_value), Some(issued_at)) = (row.original_value, issued_at) {
+            if create_counterpoint_gift_card_issue_event_if_missing(
+                &mut tx,
+                gift_card_id,
+                original_value,
+                issued_at,
+            )
+            .await?
+            {
+                summary.events_created += 1;
+            }
         }
     }
 
@@ -20422,7 +20503,7 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO gift_card_events (gift_card_id, event_kind, amount, balance_after, notes)
-            VALUES ($1, 'issued', $2, $2, 'preserve during metadata repair')
+            VALUES ($1, 'adjusted', 0, $2, 'preserve during metadata repair')
             "#,
         )
         .bind(gift_card_id)
@@ -20466,6 +20547,7 @@ mod tests {
         assert_eq!(preview_repair.balance_mismatches, 0);
         assert_eq!(preview_repair.donated, 1);
         assert_eq!(preview_repair.customer_links_resolved, 1);
+        assert_eq!(preview_repair.would_create_issue_events, 1);
         assert_eq!(preview_repair.would_expire_cards, 1);
         assert_eq!(preview_repair.would_expire_balance, source_balance);
 
@@ -20500,6 +20582,7 @@ mod tests {
         .await
         .expect("apply gift card metadata repair");
         assert_eq!(applied.updated, 1);
+        assert_eq!(applied.events_created, 1);
         let repaired: (String, bool, Decimal, DateTime<Utc>, DateTime<Utc>, Option<Uuid>) = sqlx::query_as(
             "SELECT card_kind::text, is_liability, current_balance, created_at, expires_at, customer_id FROM gift_cards WHERE id = $1",
         )
@@ -20528,6 +20611,25 @@ mod tests {
         .await
         .expect("count preserved gift card repair events");
         assert_eq!(preserved_events, 1);
+        let imported_issue_events: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM gift_card_events WHERE gift_card_id = $1 AND event_kind = 'issued' AND notes = 'Imported from Counterpoint source issue record'",
+        )
+        .bind(gift_card_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count imported Counterpoint issue event");
+        assert_eq!(imported_issue_events, 1);
+
+        let repeated = execute_counterpoint_gift_card_batch(
+            &pool,
+            payload(
+                CounterpointGiftCardMetadataRepairMode::Apply,
+                source_balance,
+            ),
+        )
+        .await
+        .expect("repeat gift card metadata repair idempotently");
+        assert_eq!(repeated.events_created, 0);
 
         sqlx::query("DELETE FROM gift_card_events WHERE gift_card_id = $1")
             .bind(gift_card_id)

@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { CreditCard, Gift, RefreshCw, X, TrendingUp, Wallet, BadgeDollarSign, Megaphone, ScanLine } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
@@ -7,6 +8,8 @@ import CustomerSearchInput from "../ui/CustomerSearchInput";
 import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
+import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
 const BASE = getBaseUrl();
 const GIFT_CARD_PAGE_SIZE = 100;
@@ -112,6 +115,7 @@ interface SelectedCardPanelProps {
   selectedCard: GiftCardRow | null;
   selectedEvents: GiftCardEventRow[];
   eventsLoading: boolean;
+  eventsError: string | null;
   isSmallScreen: boolean;
 }
 
@@ -119,6 +123,7 @@ function SelectedCardPanel({
   selectedCard,
   selectedEvents,
   eventsLoading,
+  eventsError,
   isSmallScreen,
 }: SelectedCardPanelProps) {
   if (!selectedCard) {
@@ -193,7 +198,11 @@ function SelectedCardPanel({
             <span className="text-[10px] font-semibold text-app-text-muted">Loading…</span>
           ) : null}
         </div>
-        {selectedEvents.length === 0 ? (
+        {eventsError ? (
+          <p className="text-xs font-semibold text-app-danger" role="alert">
+            {eventsError}
+          </p>
+        ) : selectedEvents.length === 0 ? (
           <p className="text-xs text-app-text-muted">
             No activity has been recorded for this card yet.
           </p>
@@ -381,6 +390,7 @@ export default function GiftCardsWorkspace({
   const [scanBusy, setScanBusy] = useState(false);
   const [selectedEvents, setSelectedEvents] = useState<GiftCardEventRow[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsError, setEventsError] = useState<string | null>(null);
   const { toast } = useToast();
   const isSmallScreen = useMediaQuery("(max-width: 1023px)");
 
@@ -453,11 +463,13 @@ export default function GiftCardsWorkspace({
   useEffect(() => {
     if (!selectedCardId) {
       setSelectedEvents([]);
+      setEventsError(null);
       return;
     }
     let cancelled = false;
     void (async () => {
       setEventsLoading(true);
+      setEventsError(null);
       try {
         const res = await fetch(`${BASE}/api/gift-cards/${selectedCardId}/events`, {
           headers: backofficeHeaders(),
@@ -465,8 +477,15 @@ export default function GiftCardsWorkspace({
         if (!res.ok) throw new Error("Could not load card activity");
         const rows = (await res.json()) as GiftCardEventRow[];
         if (!cancelled) setSelectedEvents(rows);
-      } catch {
-        if (!cancelled) setSelectedEvents([]);
+      } catch (error) {
+        if (!cancelled) {
+          setSelectedEvents([]);
+          setEventsError(
+            error instanceof Error
+              ? error.message
+              : "Gift card activity could not be loaded.",
+          );
+        }
       } finally {
         if (!cancelled) setEventsLoading(false);
       }
@@ -529,6 +548,11 @@ export default function GiftCardsWorkspace({
     scannedCard?.id === selectedCardId
       ? scannedCard
       : cards.find((card) => card.id === selectedCardId) ?? null;
+  useShellBackdropLayer(selectedCard !== null);
+  const { dialogRef: cardDialogRef, titleId: cardTitleId } = useDialogAccessibility(
+    selectedCard !== null,
+    { onEscape: () => setSelectedCardId(null) },
+  );
   const totalPages = Math.max(1, Math.ceil(totalCount / GIFT_CARD_PAGE_SIZE));
   const firstShown = totalCount === 0 ? 0 : page * GIFT_CARD_PAGE_SIZE + 1;
   const lastShown = Math.min(totalCount, page * GIFT_CARD_PAGE_SIZE + cards.length);
@@ -914,17 +938,22 @@ export default function GiftCardsWorkspace({
         </div>
       </div>
 
-      {selectedCard ? (
+      {selectedCard ? createPortal(
         <div className="ui-overlay-backdrop !z-[200]">
           <div
-            className="ui-modal max-h-[92dvh] w-full max-w-2xl overflow-y-auto p-5"
+            ref={cardDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={cardTitleId}
+            tabIndex={-1}
+            className="ui-modal max-h-[92dvh] w-full max-w-2xl overflow-y-auto p-5 outline-none"
           >
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Gift Card Details
                 </p>
-                <h2 className="mt-1 font-mono text-xl font-black text-app-accent">
+                <h2 id={cardTitleId} className="mt-1 font-mono text-xl font-black text-app-accent">
                   {selectedCard.code}
                 </h2>
               </div>
@@ -941,10 +970,12 @@ export default function GiftCardsWorkspace({
               selectedCard={selectedCard}
               selectedEvents={selectedEvents}
               eventsLoading={eventsLoading}
+              eventsError={eventsError}
               isSmallScreen={isSmallScreen}
             />
           </div>
-        </div>
+        </div>,
+        document.getElementById("drawer-root") || document.body,
       ) : null}
 
       {showVoidConfirm && (

@@ -139,6 +139,17 @@ for (const viewport of GIFT_CARDS_VIEWPORTS) {
 
     const pagination = page.getByTestId("gift-cards-pagination");
     await expect(pagination).toContainText("Showing 1–2 of 101 matching cards");
+
+    await page.getByText("RW-1001", { exact: true }).first().click();
+    const detailDialog = page.getByRole("dialog", { name: "RW-1001" });
+    await expect(detailDialog).toBeVisible();
+    await expect(page.locator("#drawer-root > .ui-overlay-backdrop").filter({ has: detailDialog })).toBeVisible();
+    const dialogBox = await detailDialog.boundingBox();
+    expect(dialogBox).not.toBeNull();
+    expect(dialogBox!.y).toBeGreaterThanOrEqual(0);
+    expect(dialogBox!.y + dialogBox!.height).toBeLessThanOrEqual(viewport.height + 1);
+    await detailDialog.getByRole("button", { name: "Close gift card details" }).click();
+
     await pagination.getByRole("button", { name: "Next" }).click();
     await expect(page.getByText("RW-1101", { exact: true })).toBeVisible();
     await expect(pagination).toContainText("Showing 101–101 of 101 matching cards");

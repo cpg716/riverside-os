@@ -28,8 +28,8 @@ The dashboard cards show only **open** cards: active status, a positive balance,
 
 1. **Gift Cards** → **Card Inventory**.
 2. Search by **full code**, **last four**, or the linked customer. Counterpoint-originated cards use the source card owner's customer number when it resolves uniquely to a Riverside customer; missing or ambiguous ownership is never guessed.
-3. Select a row to read **initial value**, **remaining balance**, **status**, **customer link**, and **recent activity**.
-4. Use the activity panel to confirm whether the card was **issued**, **loaded**, **used at checkout**, **refunded to card**, or **voided**. ROS-created Loyalty and Donated issue/load events show the acting staff member.
+3. Select a row to read **initial value**, **remaining balance**, **status**, **customer link**, and **recent activity**. The detail window stays centered in the current workspace even after the card list has been scrolled.
+4. Use the activity panel to confirm whether the card was **issued**, **loaded**, **used at checkout**, **refunded to card**, or **voided**. ROS-created Loyalty and Donated issue/load events show the acting staff member. Counterpoint cards show their source issue record after the guarded import repair has added the missing audit entry without changing the card balance. If activity cannot be retrieved, Riverside reports that failure instead of presenting it as an empty history.
 5. **Void** only with written SOP — it changes **liability** and may need accounting notice.
 6. Use **Previous** and **Next** beneath the inventory to review every matching card. Riverside shows 100 cards per page and displays the complete filtered total, so the summary and inventory range remain reconcilable.
 
