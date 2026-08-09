@@ -15,6 +15,8 @@ import {
   verifyStaffId,
 } from "./helpers/rmsCharge";
 
+test.use({ serviceWorkers: "block" });
+
 const CUSTOMER = {
   id: "11111111-1111-4111-8111-111111111111",
   customer_code: "ROLLOUT-E2E",
@@ -273,6 +275,19 @@ test.describe("operational rollout smoke", () => {
     page,
   }) => {
     test.setTimeout(90_000);
+    let checkoutBody: Record<string, unknown> | null = null;
+    await page.route("**/api/transactions/checkout", async (route) => {
+      checkoutBody = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          transaction_id: "66666666-6666-4666-8666-666666666667",
+          transaction_display_id: "TXN-ROLLOUT-PAYOFF",
+          status: "paid",
+        }),
+      });
+    });
     await mockCustomerSearch(page);
     await openPosRegisterSurface(page);
     await selectCustomer(page);
@@ -305,20 +320,6 @@ test.describe("operational rollout smoke", () => {
     await expect(orderPaymentLine).toContainText("$125.00");
     await expect(orderPaymentLine).toContainText("Remaining after payment: $0.00");
 
-    let checkoutBody: Record<string, unknown> | null = null;
-    await page.route("**/api/transactions/checkout", async (route) => {
-      checkoutBody = route.request().postDataJSON() as Record<string, unknown>;
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          transaction_id: "66666666-6666-4666-8666-666666666667",
-          transaction_display_id: "TXN-ROLLOUT-PAYOFF",
-          status: "paid",
-        }),
-      });
-    });
-
     await page.getByTestId("pos-pay-button").click();
     const checkoutDrawer = page.getByRole("dialog", { name: /checkout/i });
     await expect(checkoutDrawer).toBeVisible({ timeout: 20_000 });
@@ -327,7 +328,15 @@ test.describe("operational rollout smoke", () => {
     await checkoutDrawer.getByRole("button", { name: /^Cash$/i }).click();
     await checkoutDrawer.getByRole("button", { name: /full balance/i }).click();
     await checkoutDrawer.getByRole("button", { name: /add payment/i }).click();
-    await checkoutDrawer.getByTestId("pos-finalize-checkout").click();
+    const finalizeCheckout = checkoutDrawer.getByTestId("pos-finalize-checkout");
+    await expect(finalizeCheckout).toBeEnabled();
+    await finalizeCheckout.click();
+    await expect
+      .poll(() => checkoutBody, {
+        timeout: 20_000,
+        message: "Existing-balance checkout was not submitted",
+      })
+      .not.toBeNull();
     await expect(page.getByRole("heading", { name: "Payment recorded" })).toBeVisible({
       timeout: 45_000,
     });

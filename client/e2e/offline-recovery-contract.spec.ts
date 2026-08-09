@@ -54,6 +54,8 @@ declare global {
   }
 }
 
+test.use({ serviceWorkers: "block" });
+
 async function loadOfflineRecoveryHarness(page: Page): Promise<void> {
   await page.evaluate(async () => {
     if (window.__RIVERSIDE_E2E_QUEUE_HARNESS__) return;
@@ -851,7 +853,6 @@ test.describe("offline checkout recovery contract", () => {
         items: [],
       },
     };
-    await putCheckoutQueueItem(page, item);
     let checkoutPosts = 0;
     await page.route("**/api/transactions/checkout", async (route) => {
       checkoutPosts += 1;
@@ -881,6 +882,7 @@ test.describe("offline checkout recovery contract", () => {
         body: JSON.stringify(mirroredRecoveryJob(body)),
       });
     });
+    await putCheckoutQueueItem(page, item);
     await loadOfflineRecoveryHarness(page);
     await page.evaluate(async () => {
       const queue = window.__RIVERSIDE_E2E_QUEUE_HARNESS__;

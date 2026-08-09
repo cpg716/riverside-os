@@ -72,8 +72,9 @@ test.describe("RMS permissions split", () => {
     await signInToBackOffice(page);
     await openCustomersRmsWorkspace(page);
     await expect(page.getByRole("heading", { name: /RMS Charge Workspace/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Transactions Log/i })).toBeVisible();
-    await page.getByRole("button", { name: /Weekly Account Import/i }).click();
+    const tabs = page.getByRole("tablist", { name: "RMS Charge workspace sections" });
+    await expect(tabs.getByRole("tab", { name: /Transactions Log/i })).toBeVisible();
+    await tabs.getByRole("tab", { name: /Weekly Account Import/i }).click();
     await expect(page.getByRole("heading", { name: /Import Nexo\/RMS Account List/i })).toBeVisible();
     await expect(page.locator('input[type="file"]').first()).toHaveAttribute(
       "accept",

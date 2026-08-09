@@ -186,7 +186,7 @@ test("shared variation drawer keeps item progress visible and supports back/edit
   expect(picker).toContain("setSelections((previous) => previous.slice(0, -1))");
   expect(picker).toContain("onClick={() => editSelection(index)}");
   expect(picker).toContain("Selected options");
-  expect(picker).toContain('"min-h-24 px-4 py-3"');
+  expect(picker).toContain('"min-h-10 px-2 py-0.5"');
   expect(picker).toContain('data-testid="variant-line-discount-percent"');
   expect(picker).toContain("Line discount %");
   expect(picker).toContain('data-testid="variant-final-unit-price"');
