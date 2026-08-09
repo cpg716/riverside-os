@@ -99,8 +99,22 @@ async function mockCustomerSearch(page: Page): Promise<void> {
   });
 }
 
-async function openPosRegisterSurface(page: Page): Promise<void> {
+async function openPosRegisterSurface(
+  page: Page,
+  posAuth?: { sessionId: string; sessionToken: string },
+): Promise<void> {
   await signInToBackOffice(page);
+  if (posAuth) {
+    await page.evaluate(
+      ({ sessionId, sessionToken }) => {
+        sessionStorage.setItem(
+          "ros.posRegisterAuth.v1",
+          JSON.stringify({ sessionId, token: sessionToken }),
+        );
+      },
+      posAuth,
+    );
+  }
   await page
     .getByRole("navigation", { name: "Main Navigation" })
     .getByRole("button", { name: "POS", exact: true })
@@ -273,8 +287,10 @@ async function fetchRefundDue(
 test.describe("operational rollout smoke", () => {
   test("existing balance due payment shows amount, remaining balance, and checkout evidence", async ({
     page,
+    request,
   }) => {
     test.setTimeout(90_000);
+    const posAuth = await ensureSessionAuth(request);
     let checkoutBody: Record<string, unknown> | null = null;
     await page.route("**/api/transactions/checkout", async (route) => {
       checkoutBody = route.request().postDataJSON() as Record<string, unknown>;
@@ -289,7 +305,22 @@ test.describe("operational rollout smoke", () => {
       });
     });
     await mockCustomerSearch(page);
-    await openPosRegisterSurface(page);
+    await openPosRegisterSurface(page, posAuth);
+    await expect
+      .poll(
+        () =>
+          page.evaluate(({ sessionId }) => {
+            const raw = sessionStorage.getItem("ros.posRegisterAuth.v1");
+            if (!raw) return false;
+            const stored = JSON.parse(raw) as { sessionId?: string; token?: string };
+            return stored.sessionId === sessionId && Boolean(stored.token?.trim());
+          }, posAuth),
+        {
+          timeout: 10_000,
+          message: "Register session token was not retained for checkout",
+        },
+      )
+      .toBeTruthy();
     await selectCustomer(page);
 
     await page.route("**/api/transactions?customer_id=*", async (route) => {
