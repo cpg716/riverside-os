@@ -24,8 +24,10 @@ Gift card codes are normalized to uppercase for scanner workflows. Reusing a dep
 
 **Purpose:** Find cards, confirm **balance** and **status** (Active, Depleted, Expired, or Void), and review recent card activity.
 
+The dashboard cards show only **open** cards: active status, a positive balance, and an expiration date still in the future. Loyalty, Donated, and Promo totals therefore reconcile to subsets of the overall Open Cards count. To find historical, expired, depleted, or void cards, clear **Open cards only** and use the status, kind, or card/customer search filters.
+
 1. **Gift Cards** → **Card Inventory**.
-2. Search by **full code**, **last four**, or customer link if the UI exposes it.
+2. Search by **full code**, **last four**, or the linked customer. Counterpoint-originated cards use the source card owner's customer number when it resolves uniquely to a Riverside customer; missing or ambiguous ownership is never guessed.
 3. Select a row to read **initial value**, **remaining balance**, **status**, **customer link**, and **recent activity**.
 4. Use the activity panel to confirm whether the card was **issued**, **loaded**, **used at checkout**, **refunded to card**, or **voided**. ROS-created Loyalty and Donated issue/load events show the acting staff member.
 5. **Void** only with written SOP — it changes **liability** and may need accounting notice.

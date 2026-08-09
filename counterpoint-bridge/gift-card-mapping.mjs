@@ -35,6 +35,8 @@ export function mapCounterpointGiftCardRow(row, historyRows = []) {
       row.original_value ??
       (row.orig_amt != null ? String(row.orig_amt) : undefined),
     reason_cod: counterpointGiftCardReason(row),
+    customer_code:
+      trimmed(row.customer_code ?? row.orig_cust_no ?? row.cust_no) || undefined,
     expires_at: row.expires_at ?? undefined,
     issued_at: isoDate(issueDate),
     events: historyRows.map((history) => ({

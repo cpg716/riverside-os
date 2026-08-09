@@ -176,7 +176,7 @@ Per-customer Transaction Record list (not a directory search). **`WHERE customer
 | `limit` | Default **100**, clamped to **1–200** |
 | `offset` | Default **0**; negative values become **0** |
 
-**Client:** `GiftCardsWorkspace.tsx` requests 100 rows at a time, shows the current range against `total`, resets to page one when a filter changes, and exposes **Previous** / **Next** controls on mobile and desktop. `/api/gift-cards/summary` remains an all-record summary and is not used as a page total.
+**Client:** `GiftCardsWorkspace.tsx` requests 100 rows at a time, shows the current range against `total`, resets to page one when a filter changes, and exposes **Previous** / **Next** controls on mobile and desktop. `/api/gift-cards/summary` is not used as a page total; every headline count and balance uses the same open-card definition: active status, positive balance, and an unexpired date. Historical, expired, depleted, and void cards remain available through the inventory filters and literal search.
 
 ---
 

@@ -206,6 +206,8 @@ struct CubeHealthResponse {
     message: String,
     latency_ms: u64,
     configured: bool,
+    cube_ready: bool,
+    planner_ready: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -1054,17 +1056,14 @@ fn planner_schema(admin: bool, max_rows: i64) -> Value {
     })
 }
 
-fn planner_prompt(previous_spec: Option<&CubeReportSpec>, admin: bool) -> String {
-    let catalog = semantic_catalog(admin, DEFAULT_MAX_ROWS);
-    let catalog_json = serde_json::to_string(&catalog).unwrap_or_else(|_| "{}".to_string());
+fn planner_prompt(previous_spec: Option<&CubeReportSpec>) -> String {
     let previous = previous_spec
         .and_then(|spec| serde_json::to_string(spec).ok())
         .unwrap_or_else(|| "none".to_string());
     format!(
-        "You are the Riverside OS report planner. Build exactly one report by calling build_insights_report. Today is {}. Use one dataset only and only members from that dataset. Booked means demand/activity at checkout; recognized revenue means fulfillment or pickup and must use a recognized dataset. Financial Transaction and logistical Fulfillment Order are distinct. Use ISO YYYY-MM-DD dates. Prefer a useful chart for trends or comparisons and a table for detailed lists. If the operator asks to change, fix, update, or add to the prior report, revise the prior spec instead of starting over. Explain the chosen basis and grouping in plain language. Prior report: {}. Approved catalog: {}",
+        "You are the Riverside OS report planner. Build exactly one report by calling build_insights_report. The tool schema is the complete approved catalog; never invent datasets or members. Today is {}. Use one dataset and members belonging to it. Booked means checkout demand/activity; recognized means fulfillment or pickup and requires a recognized dataset. Financial Transactions and logistical Fulfillment Orders are distinct. Use ISO YYYY-MM-DD dates. Prefer a chart for trends or comparisons and a table for detailed lists. For a requested change, revise the prior report. Explain the business basis and grouping plainly. Prior report: {}.",
         Utc::now().date_naive(),
-        previous,
-        catalog_json
+        previous
     )
 }
 
@@ -1131,7 +1130,7 @@ async fn plan_report(
         "temperature": 0.0,
         "max_tokens": 1400,
         "messages": [
-            { "role": "system", "content": planner_prompt(previous_spec, admin) },
+            { "role": "system", "content": planner_prompt(previous_spec) },
             { "role": "user", "content": question }
         ],
         "tools": [planner_schema(admin, max_rows)],
@@ -1542,47 +1541,77 @@ async fn get_semantic_catalog(
     )))
 }
 
-async fn cube_health(
+fn reporting_health_status(
+    cube_configured: bool,
+    cube_ready: bool,
+    planner_configured: bool,
+    planner_ready: bool,
+) -> &'static str {
+    if !cube_configured || !planner_configured {
+        "needs_configuration"
+    } else if cube_ready && planner_ready {
+        "connected"
+    } else if !cube_ready && !planner_ready {
+        "unreachable"
+    } else {
+        "degraded"
+    }
+}
+
+async fn reporting_health(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<CubeHealthResponse>, CubeInsightsError> {
     require_insights_staff(&state, &headers).await?;
-    let configured = cube_secret().is_ok();
+    let cube_configured = cube_secret().is_ok();
     let start = std::time::Instant::now();
-    match state
+    let cube_probe = state
         .http_client
         .get(format!("{}/readyz", cube_upstream()))
-        .send()
-        .await
-    {
-        Ok(response) if response.status().is_success() => Ok(Json(CubeHealthResponse {
-            status: if configured {
-                "connected"
+        .timeout(std::time::Duration::from_secs(5))
+        .send();
+    let planner_probe = crate::logic::rosie_intelligence::health_check(&state.http_client);
+    let (cube_response, planner) = tokio::join!(cube_probe, planner_probe);
+    let cube_ready = cube_response
+        .as_ref()
+        .is_ok_and(|response| response.status().is_success());
+    let planner_ready = planner.configured && planner.reachable;
+    let status = reporting_health_status(
+        cube_configured,
+        cube_ready,
+        planner.configured,
+        planner_ready,
+    );
+    let message = match status {
+        "connected" => "Cube Core and the ROSIE report planner are ready.".to_string(),
+        "needs_configuration" => {
+            let mut missing = Vec::new();
+            if !cube_configured {
+                missing.push("Cube Core credentials");
+            }
+            if !planner.configured {
+                missing.push("ROSIE report planner");
+            }
+            format!("Reporting setup is incomplete: {}.", missing.join(" and "))
+        }
+        _ => format!(
+            "Cube Core is {}; the ROSIE report planner is {}.",
+            if cube_ready { "ready" } else { "unavailable" },
+            if planner_ready {
+                "ready"
             } else {
-                "needs_configuration"
-            },
-            message: if configured {
-                "Cube Core is ready and ROS can sign governed queries.".to_string()
-            } else {
-                "Cube Core is ready, but the shared API secret is not configured in ROS."
-                    .to_string()
-            },
-            latency_ms: start.elapsed().as_millis() as u64,
-            configured,
-        })),
-        Ok(response) => Ok(Json(CubeHealthResponse {
-            status: "degraded",
-            message: format!("Cube Core readiness returned HTTP {}.", response.status()),
-            latency_ms: start.elapsed().as_millis() as u64,
-            configured,
-        })),
-        Err(_) => Ok(Json(CubeHealthResponse {
-            status: "unreachable",
-            message: "Cube Core is not reachable on this Main Hub.".to_string(),
-            latency_ms: start.elapsed().as_millis() as u64,
-            configured,
-        })),
-    }
+                "unavailable"
+            }
+        ),
+    };
+    Ok(Json(CubeHealthResponse {
+        status,
+        message,
+        latency_ms: start.elapsed().as_millis() as u64,
+        configured: cube_configured && planner.configured,
+        cube_ready,
+        planner_ready,
+    }))
 }
 
 async fn list_favorites(
@@ -1687,7 +1716,8 @@ pub fn router() -> Router<AppState> {
         .route("/reports/history/{id}/archive", post(archive_history))
         .route("/reports/history/{id}/restore", post(restore_history))
         .route("/semantic-catalog", get(get_semantic_catalog))
-        .route("/cube-health", get(cube_health))
+        .route("/health", get(reporting_health))
+        .route("/cube-health", get(reporting_health))
 }
 
 #[cfg(test)]
@@ -1761,5 +1791,27 @@ mod tests {
         spec.limit = 10_000;
         validate_report_spec(&mut spec, false, 250).expect("valid report spec");
         assert_eq!(spec.limit, 250);
+    }
+
+    #[test]
+    fn planner_prompt_does_not_duplicate_the_semantic_catalog() {
+        let prompt = planner_prompt(None);
+        assert!(prompt.len() < 1_500);
+        assert!(!prompt.contains("Approved catalog:"));
+        assert!(!prompt.contains("booked_transactions.gross_sales"));
+    }
+
+    #[test]
+    fn reporting_readiness_requires_cube_and_planner() {
+        assert_eq!(reporting_health_status(true, true, true, true), "connected");
+        assert_eq!(reporting_health_status(true, true, true, false), "degraded");
+        assert_eq!(
+            reporting_health_status(true, false, true, false),
+            "unreachable"
+        );
+        assert_eq!(
+            reporting_health_status(true, true, false, false),
+            "needs_configuration"
+        );
     }
 }

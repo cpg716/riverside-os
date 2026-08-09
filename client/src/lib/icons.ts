@@ -21,6 +21,7 @@ import {
   Settings,
   Shield,
   ShoppingCart,
+  Sparkles,
   Star,
   Store,
   Truck,
@@ -62,7 +63,7 @@ export type AppIconName =
 export const APP_ICONS: Record<AppIconName, LucideIcon> = {
   operations: LayoutGrid,
   dashboard: LayoutDashboard,
-  insights: LayoutDashboard,
+  insights: Sparkles,
   register: ShoppingCart,
   checkout: CreditCard,
   customers: Users,

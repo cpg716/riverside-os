@@ -35,6 +35,7 @@ import { stripYamlFrontMatter } from "../../lib/help/helpFrontMatter";
 import { openPrintableHtml } from "../../lib/browserPrint";
 import {
   askRosieGroundedHelpStream,
+  getRosieLocalRuntimeStatus,
   getRosieVoiceCapabilities,
   loadLocalRosieSettings,
   speakRosieText,
@@ -97,6 +98,7 @@ type RosiChatEntry = {
 };
 
 type DrawerMode = "browse" | "ask" | "conversation";
+type RosieAvailability = "checking" | "ready" | "unavailable" | "off";
 
 export type HelpCenterDrawerMode = DrawerMode;
 
@@ -904,6 +906,8 @@ export default function HelpCenterDrawer({
   const [rosieAttachments, setRosieAttachments] = useState<RosieAttachment[]>([]);
   const [rosieBusy, setRosieBusy] = useState(false);
   const [rosieStatus, setRosieStatus] = useState<string | null>(null);
+  const [rosieAvailability, setRosieAvailability] =
+    useState<RosieAvailability>("checking");
   const [rosieThinkingDots, setRosieThinkingDots] = useState(".");
   const [rosieListening, setRosieListening] = useState(false);
   const [rosieSpeaking, setRosieSpeaking] = useState(false);
@@ -955,6 +959,7 @@ export default function HelpCenterDrawer({
       setRosieConversationQuestion("");
       setRosieBusy(false);
       setRosieStatus(null);
+      setRosieAvailability("checking");
       setRosieThinkingDots(".");
       setRosieChatSpeechEnabled(false);
       voiceCaptureRef.current?.stop();
@@ -1068,6 +1073,34 @@ export default function HelpCenterDrawer({
     setRosieSettings(settings);
     setRosieChatSpeechEnabled(Boolean(settings.voice_enabled && settings.speak_responses));
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!rosieSettings.enabled) {
+      setRosieAvailability("off");
+      return;
+    }
+
+    let cancelled = false;
+    setRosieAvailability("checking");
+    void getRosieLocalRuntimeStatus({
+      headers: apiAuth() as Record<string, string>,
+    })
+      .then((runtime) => {
+        if (cancelled) return;
+        const available =
+          runtime != null &&
+          (runtime.llm.available ??
+            Boolean(runtime.llm.model_present && runtime.llm.running));
+        setRosieAvailability(available ? "ready" : "unavailable");
+      })
+      .catch(() => {
+        if (!cancelled) setRosieAvailability("unavailable");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAuth, isOpen, rosieSettings.enabled]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1794,6 +1827,43 @@ export default function HelpCenterDrawer({
               <RosieIcon size={14} alt="" />
               ROSIE Chat
             </button>
+            {drawerMode !== "browse" ? (
+              <div
+                role="status"
+                aria-live="polite"
+                data-testid="help-center-rosie-availability"
+                className="ml-auto inline-flex items-center gap-2 rounded-full border border-app-border bg-app-surface-2 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                title={
+                  rosieAvailability === "ready"
+                    ? "ROSIE is ready for questions."
+                    : rosieAvailability === "checking"
+                      ? "Riverside is checking the ROSIE host."
+                      : rosieAvailability === "off"
+                        ? "ROSIE is turned off for this station."
+                        : "The ROSIE host is not currently available."
+                }
+              >
+                <span
+                  className={`h-2.5 w-2.5 rounded-full ${
+                    rosieAvailability === "ready"
+                      ? "bg-emerald-500"
+                      : rosieAvailability === "checking"
+                        ? "animate-pulse bg-amber-500"
+                        : rosieAvailability === "off"
+                          ? "bg-amber-500"
+                          : "bg-rose-500"
+                  }`}
+                  aria-hidden
+                />
+                {rosieAvailability === "ready"
+                  ? "ROSIE ready"
+                  : rosieAvailability === "checking"
+                    ? "Checking ROSIE"
+                    : rosieAvailability === "off"
+                      ? "ROSIE off"
+                      : "ROSIE unavailable"}
+              </div>
+            ) : null}
           </div>
           {drawerModeCopy.lead || drawerModeCopy.detail ? (
             <div className="space-y-1">

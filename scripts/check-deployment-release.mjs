@@ -76,6 +76,66 @@ function parsePowerShell(path, source) {
   }
 }
 
+function checkMainHubInstallerRuntimeContracts(path) {
+  const tempDir = mkdtempSync(join(tmpdir(), "ros-main-hub-installer-test-"));
+  const testPath = join(tempDir, "test-installer-contracts.ps1");
+  const installerPath = join(repoRoot, path).replaceAll("'", "''");
+  writeFileSync(
+    testPath,
+    `$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile('${installerPath}', [ref]$tokens, [ref]$errors)
+if ($errors.Count) { throw 'Installer PowerShell did not parse.' }
+foreach ($functionName in @('ConvertTo-DotEnvValue', 'ConvertFrom-DotEnvValue', 'Test-FileReadyForReplacement')) {
+  $functionAst = $ast.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName
+  }, $true)
+  if (-not $functionAst) { throw "Missing installer function: $functionName" }
+  Invoke-Expression $functionAst.Extent.Text
+}
+
+$sample = 'C:\Program Files\Riverside $OS\models\"quoted"\it''s.gguf'
+$encoded = ConvertTo-DotEnvValue $sample
+$decoded = ConvertFrom-DotEnvValue $encoded
+if ($decoded -cne $sample) { throw 'Dotenv value did not survive encode/decode.' }
+if ((ConvertTo-DotEnvValue $decoded) -cne $encoded) { throw 'Dotenv serialization is not stable.' }
+if ((ConvertFrom-DotEnvValue "'$sample'") -cne $sample) { throw 'Legacy single-quoted dotenv values are not readable.' }
+$lineBreakRejected = $false
+try { ConvertTo-DotEnvValue "one\`ntwo" | Out-Null } catch { $lineBreakRejected = $true }
+if (-not $lineBreakRejected) { throw 'Dotenv serializer accepted a multiline value.' }
+
+$lockPath = Join-Path ([System.IO.Path]::GetTempPath()) ("riverside-server-lock-" + [Guid]::NewGuid().ToString('N') + '.exe')
+[System.IO.File]::WriteAllText($lockPath, 'test')
+$lock = $null
+try {
+  $lock = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
+  if (Test-FileReadyForReplacement $lockPath) { throw 'Locked executable was reported replaceable.' }
+  $lock.Dispose()
+  $lock = $null
+  if (-not (Test-FileReadyForReplacement $lockPath)) { throw 'Released executable was reported locked.' }
+} finally {
+  if ($lock) { $lock.Dispose() }
+  Remove-Item $lockPath -Force -ErrorAction SilentlyContinue
+}
+`,
+    "utf8",
+  );
+  const pwsh = spawnSync("pwsh", ["-NoProfile", "-File", testPath], {
+    encoding: "utf8",
+  });
+  rmSync(tempDir, { recursive: true, force: true });
+  if (pwsh.error?.code === "ENOENT") {
+    return;
+  }
+  if (pwsh.status !== 0) {
+    fail(
+      `${path}: installer runtime contract test failed\n${pwsh.stderr || pwsh.stdout}`,
+    );
+  }
+}
+
 function renderMainHubUpdateRunner(source) {
   const match = source.match(
     /let runner_content = format!\(\s*r#"\n?([\s\S]*?)\n\s*"#,/,
@@ -634,6 +694,44 @@ for (const copy of [
 
 const mainHubInstaller = "deployment/windows/install-server.ps1";
 const mainHubInstallerSource = read(mainHubInstaller);
+for (const writer of [
+  mainHubInstaller,
+  "deployment/windows/Install-RosieAiStack.ps1",
+  "deployment/windows/repair-server-credentials-key.ps1",
+]) {
+  assertIncludes(
+    writer,
+    "ConvertTo-DotEnvValue",
+    "installed server environment writers must serialize Windows paths and special characters for dotenvy",
+  );
+}
+for (const reader of [
+  mainHubInstaller,
+  "deployment/windows/Install-RosieAiStack.ps1",
+  "deployment/windows/repair-server-credentials-key.ps1",
+  "deployment/windows/start-riverside-llama.ps1",
+  "deployment/windows/watch-rosie-stack.ps1",
+  "deployment/windows/audit-system.ps1",
+]) {
+  assertIncludes(
+    reader,
+    "ConvertFrom-DotEnvValue",
+    "installed server environment consumers must decode installer-serialized values",
+  );
+}
+for (const guard of [
+  "function Test-FileReadyForReplacement",
+  "[System.IO.FileShare]::None",
+  "Stop-RiversideServer $installedServerExe",
+  "Riverside server stopped and executable handle released.",
+]) {
+  assertIncludes(
+    mainHubInstaller,
+    guard,
+    "Main Hub updates must prove the server executable is unlocked before replacement",
+  );
+}
+checkMainHubInstallerRuntimeContracts(mainHubInstaller);
 for (const copy of [
   "function Ensure-RiversideMeilisearchHost",
   "Riverside OS Meilisearch",
@@ -936,11 +1034,20 @@ const destructiveStopIndex = mainHubInstallerSource.indexOf(
   "Stop-RiversideServer",
   preflightBackupIndex,
 );
+const serverReplacementIndex = mainHubInstallerSource.indexOf(
+  "Copy-Item $packageServerExe $installedServerExe -Force",
+  preflightBackupIndex,
+);
 if (!(
   preflightBackupIndex >= 0 && destructiveStopIndex > preflightBackupIndex
 )) {
   fail(
     `${mainHubInstaller}: pre-update backup must complete before the first destructive server stop`,
+  );
+}
+if (!(destructiveStopIndex >= 0 && serverReplacementIndex > destructiveStopIndex)) {
+  fail(
+    `${mainHubInstaller}: server executable replacement must occur only after the bounded process and handle-release gate`,
   );
 }
 if (!(

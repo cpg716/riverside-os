@@ -1826,7 +1826,8 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const description = pickColumn(gift, ["DESCR"]);
     const original = pickColumn(gift, ["ORIG_AMT"]);
     const issued = pickColumn(gift, ["ORIG_DAT", "ISSUE_DAT"]);
-    sqlMap.gift_cards = `SELECT ${sqlText("g", gift, [giftNo], "gift_cert_no")}, CAST(ISNULL(g.[${giftBal}], 0) AS DECIMAL(18,2)) AS balance${original ? `, CAST(g.[${original}] AS DECIMAL(18,2)) AS orig_amt` : ""}${reason ? `, ${sqlText("g", gift, [reason], "reason_cod")}` : ""}${program ? `, ${sqlText("g", gift, [program], "gfc_cod")}` : ""}${description ? `, ${sqlText("g", gift, [description], "description", 255)}` : ""}${issued ? `, CONVERT(varchar, g.[${issued}], 126) AS issue_dat` : ""} FROM ${giftTable} g WHERE ISNULL(g.[${giftBal}], 0) > 0`;
+    const customer = pickColumn(gift, ["ORIG_CUST_NO", "CUST_NO"]);
+    sqlMap.gift_cards = `SELECT ${sqlText("g", gift, [giftNo], "gift_cert_no")}, CAST(ISNULL(g.[${giftBal}], 0) AS DECIMAL(18,2)) AS balance${original ? `, CAST(g.[${original}] AS DECIMAL(18,2)) AS orig_amt` : ""}${reason ? `, ${sqlText("g", gift, [reason], "reason_cod")}` : ""}${program ? `, ${sqlText("g", gift, [program], "gfc_cod")}` : ""}${description ? `, ${sqlText("g", gift, [description], "description", 255)}` : ""}${issued ? `, CONVERT(varchar, g.[${issued}], 126) AS issue_dat` : ""}${customer ? `, ${sqlText("g", gift, [customer], "customer_code")}` : ""} FROM ${giftTable} g WHERE ISNULL(g.[${giftBal}], 0) > 0`;
     changes.push(`${giftTable} gift cards enabled`);
   }
 
@@ -2323,6 +2324,21 @@ async function rebuildEffectiveSql(pool) {
           "issue_dat",
           "ORIG_DAT",
           "issue_dat|issued_at",
+        );
+      }
+      if (syGfc.has("ORIG_CUST_NO")) {
+        injectGiftCardField(
+          "RTRIM(LTRIM(ORIG_CUST_NO))",
+          "customer_code",
+          "ORIG_CUST_NO",
+          "customer_code|orig_cust_no|cust_no",
+        );
+      } else if (syGfc.has("CUST_NO")) {
+        injectGiftCardField(
+          "RTRIM(LTRIM(CUST_NO))",
+          "customer_code",
+          "CUST_NO",
+          "customer_code|orig_cust_no|cust_no",
         );
       }
     }

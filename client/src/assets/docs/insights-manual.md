@@ -74,7 +74,7 @@ Reports that have not been used within the configured retention period are moved
 
 | Symptom | What to try |
 |---|---|
-| Reporting setup needs attention | Ask IT to run Main Hub Update or Repair. |
+| Reporting setup needs attention or reporting is unavailable | Hover over the reporting status for details. **Reporting ready** requires both Cube Core and the ROSIE report planner. Ask IT to run Main Hub Update or Repair if either service is unavailable. |
 | The report cannot be built | Add a clear period, measure, grouping, and booked or recognized basis. The requested data may not yet be available in Insights. |
 | A report returns no rows | Check the period and filters, then verify whether the requested activity occurred on the selected basis. |
 | Cost or margin is rejected | Sign in with Riverside Admin access or choose a revenue-only measure. |

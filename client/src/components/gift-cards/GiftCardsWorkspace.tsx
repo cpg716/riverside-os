@@ -552,7 +552,7 @@ export default function GiftCardsWorkspace({
             color: "text-sky-500",
             bg: "bg-sky-500/10",
             border: "border-sky-500/20",
-            trend: openOnly ? "Open cards only" : "All visible cards",
+            trend: "Usable balances only",
           },
           {
             label: "Liability",
@@ -561,7 +561,7 @@ export default function GiftCardsWorkspace({
             color: "text-emerald-500",
             bg: "bg-emerald-500/10",
             border: "border-emerald-500/20",
-            trend: "Total active balance",
+            trend: "Purchased open balances",
           },
           {
             label: "Loyalty Cards",
@@ -570,7 +570,7 @@ export default function GiftCardsWorkspace({
             color: "text-amber-500",
             bg: "bg-amber-500/10",
             border: "border-amber-500/20",
-            trend: "Issued as rewards",
+            trend: "Open reward cards",
           },
           {
             label: "Donated Cards",
@@ -579,7 +579,7 @@ export default function GiftCardsWorkspace({
             color: "text-purple-500",
             bg: "bg-purple-500/10",
             border: "border-purple-500/20",
-            trend: "Community cards",
+            trend: "Open community cards",
           },
           {
             label: "Promo Cards",
@@ -588,7 +588,7 @@ export default function GiftCardsWorkspace({
             color: "text-fuchsia-500",
             bg: "bg-fuchsia-500/10",
             border: "border-fuchsia-500/20",
-            trend: "Promotional cards",
+            trend: "Open promotional cards",
           },
         ].map((s, idx) => (
           <div key={idx} className={`group relative flex min-w-[210px] flex-1 items-center gap-4 overflow-hidden rounded-[28px] border ${s.border} ${s.bg} p-5 shadow-sm backdrop-blur-3xl transition-transform duration-500 hover:scale-[1.02] sm:min-w-[240px]`}>

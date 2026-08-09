@@ -117,6 +117,11 @@ for (const viewport of GIFT_CARDS_VIEWPORTS) {
     await expect(page.getByRole("heading", { name: /^gift cards$/i })).toBeVisible({
       timeout: 20_000,
     });
+    await expect(page.getByText("Usable balances only", { exact: true })).toBeVisible();
+    await expect(page.getByText("Purchased open balances", { exact: true })).toBeVisible();
+    await expect(page.getByText("Open reward cards", { exact: true })).toBeVisible();
+    await expect(page.getByText("Open community cards", { exact: true })).toBeVisible();
+    await expect(page.getByText("Open promotional cards", { exact: true })).toBeVisible();
 
     if (viewport.width <= 1023) {
       const cardList = page.getByTestId("gift-cards-card-list");

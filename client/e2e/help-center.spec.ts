@@ -79,6 +79,44 @@ async function openSettingsRosiePanel(
   });
 }
 
+function rosieRuntimeStatus(available: boolean) {
+  return {
+    llm: {
+      runtime_name: "Main Hub Gemma",
+      provider: "llama.cpp",
+      base_url: "http://127.0.0.1:8080",
+      host: "127.0.0.1",
+      port: "8080",
+      model_name: "Gemma 4 E4B",
+      model_present: true,
+      sidecar_binary_present: true,
+      running: available,
+      available,
+    },
+    stt: {
+      engine_name: "SenseVoice",
+      provider: "local",
+      active_engine: available ? "sensevoice" : "unavailable",
+      cli_path: "",
+      cli_present: available,
+      model_name: "SenseVoice",
+      model_present: available,
+      available,
+    },
+    tts: {
+      engine_name: "Kokoro",
+      provider: "local",
+      active_engine: available ? "kokoro" : "unavailable",
+      command_path: "",
+      command_present: available,
+      model_name: "Kokoro",
+      model_present: available,
+      speaking: false,
+      available,
+    },
+  };
+}
+
 test("opens Help from Back Office header", async ({ page }) => {
   await signInToBackOffice(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
@@ -162,6 +200,47 @@ test("help search uses bundled manuals when live search is unavailable", async (
   await expect(page.getByText("Results").first()).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(/bundled on-device manuals/i)).toBeVisible();
   await expect(page.getByTestId("help-center-search-result").first()).toContainText(/register/i);
+});
+
+test("Ask ROSIE and ROSIE Chat show live ROSIE availability", async ({ page }) => {
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/runtime-status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(rosieRuntimeStatus(true)),
+    });
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-ask-rosie-tab").click();
+  await expect(page.getByTestId("help-center-rosie-availability")).toHaveText(
+    "ROSIE ready",
+  );
+
+  await page.getByTestId("help-center-rosie-conversation-tab").click();
+  await expect(page.getByTestId("help-center-rosie-availability")).toHaveText(
+    "ROSIE ready",
+  );
+});
+
+test("ROSIE Chat shows when the ROSIE host is unavailable", async ({ page }) => {
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/runtime-status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(rosieRuntimeStatus(false)),
+    });
+  });
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-rosie-conversation-tab").click();
+  await expect(page.getByTestId("help-center-rosie-availability")).toHaveText(
+    "ROSIE unavailable",
+  );
 });
 
 test("Ask ROSIE sends Help request and renders sources", async ({

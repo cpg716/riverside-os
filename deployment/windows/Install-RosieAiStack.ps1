@@ -65,11 +65,33 @@ if (-not $ServerInstallRoot) {
 }
 $serverEnvPath = Join-Path $ServerInstallRoot "server\.env"
 
+function ConvertTo-DotEnvValue($Value) {
+  $text = if ($null -eq $Value) { "" } else { "$Value" }
+  if ($text -match "[`r`n]") {
+    throw "Server environment values cannot contain line breaks."
+  }
+  $escaped = $text.Replace('\', '\\').Replace('"', '\"').Replace('$', '\$')
+  return '"' + $escaped + '"'
+}
+
+function ConvertFrom-DotEnvValue([string]$Value) {
+  $text = "$Value".Trim()
+  if ($text.Length -lt 2) { return $text }
+  if ($text[0] -eq "'" -and $text[$text.Length - 1] -eq "'") {
+    return $text.Substring(1, $text.Length - 2)
+  }
+  if ($text[0] -eq '"' -and $text[$text.Length - 1] -eq '"') {
+    $inner = $text.Substring(1, $text.Length - 2)
+    return $inner.Replace('\$', '$').Replace('\"', '"').Replace('\\', '\')
+  }
+  return $text
+}
+
 function Read-ServerEnvValue([string]$EnvPath, [string]$Key) {
   if (-not (Test-Path $EnvPath)) { return "" }
   foreach ($line in Get-Content $EnvPath) {
     if ($line -match "^\s*$([regex]::Escape($Key))=(.*)$") {
-      return $Matches[1].Trim().Trim('"')
+      return ConvertFrom-DotEnvValue $Matches[1]
     }
   }
   return ""
@@ -632,12 +654,13 @@ if ($SkipEnvPatch) {
   $envLines = Get-Content $serverEnvPath -Encoding UTF8
 
   function Set-EnvLine([string[]]$Lines, [string]$Key, [string]$Value) {
+    $serialized = ConvertTo-DotEnvValue $Value
     $found = $false
     $out = $Lines | ForEach-Object {
-      if ($_ -match "^$Key=") { $found = $true; "$Key=$Value" }
+      if ($_ -match "^$Key=") { $found = $true; "$Key=$serialized" }
       else { $_ }
     }
-    if (-not $found) { $out += "$Key=$Value" }
+    if (-not $found) { $out += "$Key=$serialized" }
     return $out
   }
 
@@ -648,7 +671,7 @@ if ($SkipEnvPatch) {
   $envLines = Set-EnvLine $envLines "RIVERSIDE_LLAMA_HOST" "127.0.0.1"
   $envLines = Set-EnvLine $envLines "RIVERSIDE_LLAMA_PORT" "8080"
   $envLines = Set-EnvLine $envLines "RIVERSIDE_LLAMA_UPSTREAM" "http://127.0.0.1:8080"
-  $envLines = Set-EnvLine $envLines "RIVERSIDE_LLAMA_CONTEXT_SIZE" "8192"
+  $envLines = Set-EnvLine $envLines "RIVERSIDE_LLAMA_CONTEXT_SIZE" "16384"
   $envLines = Set-EnvLine $envLines "RIVERSIDE_LLAMA_PARALLEL" "2"
   $envLines = Set-EnvLine $envLines "RIVERSIDE_LLAMA_BATCH_SIZE" "512"
   $envLines = Set-EnvLine $envLines "RIVERSIDE_LLAMA_UBATCH_SIZE" "512"

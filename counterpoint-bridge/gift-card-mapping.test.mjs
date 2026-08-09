@@ -23,19 +23,21 @@ test("Counterpoint gift card programs map to explicit ROS reason codes", () => {
   );
 });
 
-test("Counterpoint gift card mapping carries original amount and issue date", () => {
+test("Counterpoint gift card mapping carries value, issue date, and customer", () => {
   const mapped = mapCounterpointGiftCardRow({
     gift_cert_no: " 12345 ",
     balance: "25.00",
     orig_amt: "50.00",
     gfc_cod: "GC DONATE",
     orig_dat: "2025-04-10T00:00:00",
+    orig_cust_no: "  C-1001  ",
   });
 
   assert.equal(mapped.cert_no, "12345");
   assert.equal(mapped.original_value, "50.00");
   assert.equal(mapped.reason_cod, "GC DONATE");
   assert.equal(mapped.issued_at, "2025-04-10T00:00:00.000Z");
+  assert.equal(mapped.customer_code, "C-1001");
 });
 
 test("Counterpoint gift card query carries classification and issue metadata", () => {
@@ -49,6 +51,7 @@ test("Counterpoint gift card query carries classification and issue metadata", (
     '["DESCR"]',
     '["ORIG_AMT"]',
     '["ORIG_DAT", "ISSUE_DAT"]',
+    '["ORIG_CUST_NO", "CUST_NO"]',
   ]) {
     assert.ok(bridgeSource.includes(sourceColumn), `missing ${sourceColumn}`);
   }

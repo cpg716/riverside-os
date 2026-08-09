@@ -51,6 +51,19 @@ function Resolve-DeploymentConfigPath(
     return $PackageConfigPath
 }
 
+function ConvertFrom-DotEnvValue([string]$Value) {
+    $text = "$Value".Trim()
+    if ($text.Length -lt 2) { return $text }
+    if ($text[0] -eq "'" -and $text[$text.Length - 1] -eq "'") {
+        return $text.Substring(1, $text.Length - 2)
+    }
+    if ($text[0] -eq '"' -and $text[$text.Length - 1] -eq '"') {
+        $inner = $text.Substring(1, $text.Length - 2)
+        return $inner.Replace('\$', '$').Replace('\"', '"').Replace('\\', '\')
+    }
+    return $text
+}
+
 function Get-DotEnvValue([string]$Path, [string]$Name) {
     if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path $Path)) {
         return $null
@@ -58,14 +71,7 @@ function Get-DotEnvValue([string]$Path, [string]$Name) {
     $matchedValue = $null
     foreach ($line in @(Get-Content -Path $Path -ErrorAction SilentlyContinue)) {
         if ($line -match "^\s*$([regex]::Escape($Name))\s*=\s*(.*)$") {
-            $matchedValue = "$($Matches[1])".Trim()
-            if ($matchedValue.Length -ge 2) {
-                $first = $matchedValue[0]
-                $last = $matchedValue[$matchedValue.Length - 1]
-                if (($first -eq '"' -and $last -eq '"') -or ($first -eq "'" -and $last -eq "'")) {
-                    $matchedValue = $matchedValue.Substring(1, $matchedValue.Length - 2)
-                }
-            }
+            $matchedValue = ConvertFrom-DotEnvValue $Matches[1]
         }
     }
     return $matchedValue

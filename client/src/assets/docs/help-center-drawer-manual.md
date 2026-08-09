@@ -38,6 +38,8 @@ Select the **Help** icon from the top bar. The drawer opens without leaving the 
 
 Use **Help Library** to read manuals, **Ask ROSIE** for a direct sourced answer, or **ROSIE Chat** when staff need a live back-and-forth conversation.
 
+Ask ROSIE and ROSIE Chat show a status badge beside their tabs. **ROSIE ready** means the configured ROSIE host is available for questions. **Checking ROSIE** is temporary while Riverside verifies the host. **ROSIE unavailable** means staff should use the Help Library and report the Host stack issue. **ROSIE off** means the station setting is disabled.
+
 ## Search Manuals
 
 Type into the search box to find matching help sections. Riverside uses the live Help index when it is healthy and automatically searches the bundled on-device manuals when that service is unavailable. The fallback supports normal phrases, word variants, and common typing mistakes, so staff can continue finding procedures during an indexing outage.

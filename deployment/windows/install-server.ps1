@@ -699,16 +699,59 @@ function Ensure-BootstrapAdmin($PsqlPath, $DatabaseUrl) {
   Invoke-Psql $PsqlPath $DatabaseUrl $sql
 }
 
-function Stop-RiversideServer {
-  Stop-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue
-  Start-Sleep -Seconds 1
-  foreach ($process in Get-Process -Name "riverside-server" -ErrorAction SilentlyContinue) {
-    try {
-      Stop-Process -Id $process.Id -Force -ErrorAction Stop
-    } catch {
-      Write-Warning "Could not stop Riverside server process $($process.Id): $($_.Exception.Message)"
-    }
+function Test-FileReadyForReplacement([string]$Path) {
+  if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path $Path)) {
+    return $true
   }
+
+  $stream = $null
+  try {
+    $stream = [System.IO.File]::Open(
+      $Path,
+      [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::ReadWrite,
+      [System.IO.FileShare]::None
+    )
+    return $true
+  } catch {
+    return $false
+  } finally {
+    if ($stream) { $stream.Dispose() }
+  }
+}
+
+function Stop-RiversideServer([string]$ExecutablePath, [int]$TimeoutSeconds = 30) {
+  Stop-ScheduledTask -TaskName "Riverside OS Server" -ErrorAction SilentlyContinue
+
+  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  do {
+    foreach ($process in Get-Process -Name "riverside-server" -ErrorAction SilentlyContinue) {
+      try {
+        Stop-Process -Id $process.Id -Force -ErrorAction Stop
+      } catch {
+        Write-Warning "Could not stop Riverside server process $($process.Id): $($_.Exception.Message)"
+      }
+    }
+
+    $remainingProcesses = @(Get-Process -Name "riverside-server" -ErrorAction SilentlyContinue)
+    if ($remainingProcesses.Count -eq 0 -and (Test-FileReadyForReplacement $ExecutablePath)) {
+      Write-Host "Riverside server stopped and executable handle released."
+      return
+    }
+
+    Start-Sleep -Milliseconds 250
+  } while ([DateTime]::UtcNow -lt $deadline)
+
+  $remainingProcessIds = @(
+    Get-Process -Name "riverside-server" -ErrorAction SilentlyContinue |
+      Select-Object -ExpandProperty Id
+  )
+  $processDetail = if ($remainingProcessIds.Count -gt 0) {
+    " Remaining process IDs: $($remainingProcessIds -join ',')."
+  } else {
+    ""
+  }
+  throw "Riverside server did not release '$ExecutablePath' within $TimeoutSeconds seconds.$processDetail The installed files were not replaced."
 }
 
 function Stop-PortListeners([int]$Port) {
@@ -930,7 +973,7 @@ function Ensure-RiversideLlamaHost(
   [string]$LlamaHost,
   [int]$LlamaPort,
   [string]$LlamaPerfProfile = "auto",
-  [int]$ContextSize = 8192,
+  [int]$ContextSize = 16384,
   [int]$Parallel = 2,
   [int]$BatchSize = 512,
   [int]$UbatchSize = 512
@@ -1409,7 +1452,7 @@ function Get-DotEnvValue([string]$Path, [string]$Name) {
   if (-not (Test-Path $Path)) { return "" }
   foreach ($line in Get-Content $Path) {
     if ($line -match "^$([regex]::Escape($Name))=(.*)$") {
-      return "$($Matches[1])".Trim()
+      return ConvertFrom-DotEnvValue $Matches[1]
     }
   }
   return ""
@@ -1567,6 +1610,32 @@ function Resolve-ServerEnvironmentMode($Config) {
   return $mode
 }
 
+function ConvertTo-DotEnvValue($Value) {
+  $text = if ($null -eq $Value) { "" } else { "$Value" }
+  if ($text -match "[`r`n]") {
+    throw "Server environment values cannot contain line breaks."
+  }
+  $escaped = $text.Replace('\', '\\').Replace('"', '\"').Replace('$', '\$')
+  return '"' + $escaped + '"'
+}
+
+function ConvertFrom-DotEnvValue([string]$Value) {
+  $text = "$Value".Trim()
+  if ($text.Length -lt 2) { return $text }
+  if ($text[0] -eq "'" -and $text[$text.Length - 1] -eq "'") {
+    return $text.Substring(1, $text.Length - 2)
+  }
+  if ($text[0] -eq '"' -and $text[$text.Length - 1] -eq '"') {
+    $inner = $text.Substring(1, $text.Length - 2)
+    return $inner.Replace('\$', '$').Replace('\"', '"').Replace('\\', '\')
+  }
+  return $text
+}
+
+function Format-DotEnvLine([string]$Name, $Value) {
+  return "$Name=$(ConvertTo-DotEnvValue $Value)"
+}
+
 function Get-PreservedRosieEnvironment([string]$Path) {
   $preserved = @{}
   if (-not (Test-Path $Path)) {
@@ -1575,7 +1644,7 @@ function Get-PreservedRosieEnvironment([string]$Path) {
 
   foreach ($line in @(Get-Content $Path)) {
     if ($line -match '^((?:RIVERSIDE_(?:LLAMA|ROSIE|SHERPA)|ROSIE)_[A-Z0-9_]+)=(.*)$') {
-      $preserved[$Matches[1]] = $Matches[2]
+      $preserved[$Matches[1]] = ConvertFrom-DotEnvValue $Matches[2]
     }
   }
   return $preserved
@@ -1587,7 +1656,7 @@ function Restore-RosieEnvironment([string]$Path, $Environment) {
     $_ -notmatch '^((?:RIVERSIDE_(?:LLAMA|ROSIE|SHERPA)|ROSIE)_[A-Z0-9_]+)='
   }
   foreach ($key in @($Environment.Keys | Sort-Object)) {
-    $lines += "$key=$($Environment[$key])"
+    $lines += Format-DotEnvLine $key $Environment[$key]
   }
   $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
   [System.IO.File]::WriteAllLines($Path, [string[]]$lines, $utf8WithoutBom)
@@ -1644,39 +1713,39 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $BackupDatabaseUrl, $Fron
     }
   }
   $lines = @(
-    "DATABASE_URL=$DatabaseUrl",
-    "RIVERSIDE_BACKUP_DATABASE_URL=$BackupDatabaseUrl",
-    "FRONTEND_DIST=$FrontendDist",
-    "RIVERSIDE_HTTP_BIND=$httpBind",
-    "RIVERSIDE_MODE=$environmentMode",
-    "RIVERSIDE_STRICT_PRODUCTION=$("$([bool]$server.strictProduction)".ToLowerInvariant())",
-    "RIVERSIDE_CORS_ORIGINS=$(($corsOrigins -join ','))",
-    "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET=$($server.storeCustomerJwtSecret)",
-    "RIVERSIDE_CREDENTIALS_KEY=$($server.storeCustomerJwtSecret)"
+    (Format-DotEnvLine "DATABASE_URL" $DatabaseUrl),
+    (Format-DotEnvLine "RIVERSIDE_BACKUP_DATABASE_URL" $BackupDatabaseUrl),
+    (Format-DotEnvLine "FRONTEND_DIST" $FrontendDist),
+    (Format-DotEnvLine "RIVERSIDE_HTTP_BIND" $httpBind),
+    (Format-DotEnvLine "RIVERSIDE_MODE" $environmentMode),
+    (Format-DotEnvLine "RIVERSIDE_STRICT_PRODUCTION" "$([bool]$server.strictProduction)".ToLowerInvariant()),
+    (Format-DotEnvLine "RIVERSIDE_CORS_ORIGINS" ($corsOrigins -join ',')),
+    (Format-DotEnvLine "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET" $server.storeCustomerJwtSecret),
+    (Format-DotEnvLine "RIVERSIDE_CREDENTIALS_KEY" $server.storeCustomerJwtSecret)
   )
 
   # ROSIE local LLM - write model path so the Axum proxy can derive RIVERSIDE_LLAMA_UPSTREAM
   # at startup. Port stays at the default 8080 unless overridden in config.server.environment.
   if ($PreservedRosieEnvironment -and $PreservedRosieEnvironment.Count -gt 0) {
     foreach ($key in @($PreservedRosieEnvironment.Keys | Sort-Object)) {
-      $lines += "$key=$($PreservedRosieEnvironment[$key])"
+      $lines += Format-DotEnvLine $key $PreservedRosieEnvironment[$key]
     }
   } elseif ($RosieModelPath) {
     $rosieMmprojPath = Join-Path (Split-Path -Parent $RosieModelPath) "gemma-4-E4B-it-mmproj.gguf"
-    $lines += "RIVERSIDE_LLAMA_MODEL_PATH=$RosieModelPath"
+    $lines += Format-DotEnvLine "RIVERSIDE_LLAMA_MODEL_PATH" $RosieModelPath
     if (Test-Path $rosieMmprojPath) {
-      $lines += "RIVERSIDE_LLAMA_MMPROJ_PATH=$rosieMmprojPath"
+      $lines += Format-DotEnvLine "RIVERSIDE_LLAMA_MMPROJ_PATH" $rosieMmprojPath
     }
-    $lines += "RIVERSIDE_LLAMA_PORT=8080"
-    $lines += "RIVERSIDE_LLAMA_HOST=127.0.0.1"
-    $lines += "RIVERSIDE_LLAMA_CONTEXT_SIZE=8192"
-    $lines += "RIVERSIDE_LLAMA_PARALLEL=2"
-    $lines += "RIVERSIDE_LLAMA_BATCH_SIZE=512"
-    $lines += "RIVERSIDE_LLAMA_UBATCH_SIZE=512"
-    $lines += "ROSIE_ALLOW_CLOUD_PROVIDERS=false"
-    $lines += "ROSIE_ENABLE_ANALYSIS_REASONING=false"
+    $lines += Format-DotEnvLine "RIVERSIDE_LLAMA_PORT" "8080"
+    $lines += Format-DotEnvLine "RIVERSIDE_LLAMA_HOST" "127.0.0.1"
+    $lines += Format-DotEnvLine "RIVERSIDE_LLAMA_CONTEXT_SIZE" "16384"
+    $lines += Format-DotEnvLine "RIVERSIDE_LLAMA_PARALLEL" "2"
+    $lines += Format-DotEnvLine "RIVERSIDE_LLAMA_BATCH_SIZE" "512"
+    $lines += Format-DotEnvLine "RIVERSIDE_LLAMA_UBATCH_SIZE" "512"
+    $lines += Format-DotEnvLine "ROSIE_ALLOW_CLOUD_PROVIDERS" "false"
+    $lines += Format-DotEnvLine "ROSIE_ENABLE_ANALYSIS_REASONING" "false"
     if (-not $configuredLlamaProfile) {
-      $lines += "RIVERSIDE_LLAMA_PERF_PROFILE=auto"
+      $lines += Format-DotEnvLine "RIVERSIDE_LLAMA_PERF_PROFILE" "auto"
     }
   }
 
@@ -1685,7 +1754,7 @@ function Write-ServerEnv($Path, $Config, $DatabaseUrl, $BackupDatabaseUrl, $Fron
       $isPreservedRosieSetting = $PreservedRosieEnvironment -and $PreservedRosieEnvironment.ContainsKey($prop.Name)
       $isInstallerManagedBackupConnection = $prop.Name -eq "RIVERSIDE_BACKUP_DATABASE_URL"
       if (-not $isPreservedRosieSetting -and -not $isInstallerManagedBackupConnection -and $null -ne $prop.Value -and "$($prop.Value)" -ne "") {
-        $lines += "$($prop.Name)=$($prop.Value)"
+        $lines += Format-DotEnvLine $prop.Name $prop.Value
       }
     }
   }
@@ -1702,12 +1771,12 @@ function Set-ServerDatabaseUrl([string]$Path, [string]$DatabaseUrl) {
   $replaced = $false
   for ($i = 0; $i -lt $lines.Count; $i++) {
     if ($lines[$i] -match '^DATABASE_URL=') {
-      $lines[$i] = "DATABASE_URL=$DatabaseUrl"
+      $lines[$i] = Format-DotEnvLine "DATABASE_URL" $DatabaseUrl
       $replaced = $true
     }
   }
   if (-not $replaced) {
-    $lines = @("DATABASE_URL=$DatabaseUrl") + $lines
+    $lines = @(Format-DotEnvLine "DATABASE_URL" $DatabaseUrl) + $lines
   }
 
   $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
@@ -2289,6 +2358,7 @@ $clientDist = Join-Path $installRoot "client\dist"
 $releaseDir = Join-Path $installRoot "release"
 $backupDir = Join-Path $installRoot "backups"
 $logDir = Join-Path $installRoot "logs"
+$installedServerExe = Join-Path $serverDir "riverside-server.exe"
 $packageServerExe = Join-Path $ScriptRoot "server\riverside-server.exe"
 $packageDist = Join-Path $ScriptRoot "client-dist"
 $packageMigrations = Join-Path $ScriptRoot "migrations"
@@ -2419,10 +2489,10 @@ if ($configModified) {
   Write-Host "Persisted deployment config to $installRootConfigPath." -ForegroundColor Green
 }
 $ConfigPath = $installRootConfigPath
-Stop-RiversideServer
+Stop-RiversideServer $installedServerExe
 Stop-PortListeners $serverPort
 
-Copy-Item $packageServerExe (Join-Path $serverDir "riverside-server.exe") -Force
+Copy-Item $packageServerExe $installedServerExe -Force
 Remove-Item "$clientDist\*" -Recurse -Force -ErrorAction SilentlyContinue
 Copy-Item "$packageDist\*" $clientDist -Recurse -Force
 $expectedGitShort = if ($packageManifest) { $packageManifest.sourceGitShort } else { $null }
@@ -2619,7 +2689,7 @@ Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Pr
 $llamaHost = "127.0.0.1"
 $llamaPort = 8080
 $llamaPerfProfile = "auto"
-$llamaContextSize = 8192
+$llamaContextSize = 16384
 $llamaParallel = 2
 $llamaBatchSize = 512
 $llamaUbatchSize = 512
@@ -2729,7 +2799,7 @@ Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
   $installFailure = $_
   Write-DeploymentStatus "FAILED" $installFailure.Exception.Message
   try {
-    Stop-RiversideServer
+    Stop-RiversideServer $installedServerExe
     Stop-RiversideCubeHost $installRoot
     foreach ($entry in @(
       @{ Target = $serverDir; Name = "server" },

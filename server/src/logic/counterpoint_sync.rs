@@ -11901,6 +11901,9 @@ pub struct CounterpointGiftCardRow {
     /// CP `ISSUE_DAT` — when the card was created/sold.
     #[serde(default)]
     pub issued_at: Option<String>,
+    /// Counterpoint `ORIG_CUST_NO` — resolves to `customers.customer_code`.
+    #[serde(default, alias = "orig_cust_no", alias = "cust_no")]
+    pub customer_code: Option<String>,
     #[serde(default)]
     pub events: Vec<GiftCardEventRow>,
 }
@@ -11937,6 +11940,8 @@ pub struct CounterpointGiftCardMetadataRepairRequest {
     pub mode: CounterpointGiftCardMetadataRepairMode,
     pub source_cards: i32,
     pub source_balance: Decimal,
+    #[serde(default)]
+    pub require_customer_links: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -11952,6 +11957,7 @@ pub struct GiftCardMetadataRepairSummary {
     pub loyalty: i32,
     pub donated: i32,
     pub promo: i32,
+    pub customer_links_resolved: i32,
     pub would_expire_cards: i32,
     pub would_expire_balance: Decimal,
 }
@@ -11962,6 +11968,7 @@ pub struct GiftCardSyncSummary {
     pub updated: i32,
     pub events_created: i32,
     pub skipped: i32,
+    pub customer_links_resolved: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_repair: Option<GiftCardMetadataRepairSummary>,
 }
@@ -12046,6 +12053,103 @@ fn counterpoint_gift_card_dates(
     Ok((issued_at, expires_at))
 }
 
+fn counterpoint_gift_card_customer_code(row: &CounterpointGiftCardRow) -> Option<String> {
+    row.customer_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_uppercase)
+}
+
+async fn build_gift_card_customer_id_map(
+    tx: &mut Transaction<'_, Postgres>,
+    rows: &[CounterpointGiftCardRow],
+    require_customer_links: bool,
+) -> Result<HashMap<String, Uuid>, CounterpointSyncError> {
+    let mut source_codes = HashSet::new();
+    for row in rows {
+        match counterpoint_gift_card_customer_code(row) {
+            Some(code) => {
+                source_codes.insert(code);
+            }
+            None if require_customer_links => {
+                return Err(CounterpointSyncError::InvalidPayload(format!(
+                    "gift card {} is missing its Counterpoint customer number",
+                    gift_card_ops::normalize_gift_card_code(&row.cert_no)
+                )));
+            }
+            None => {}
+        }
+    }
+    if source_codes.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut lookup_codes = HashSet::with_capacity(source_codes.len() * 2);
+    for source_code in &source_codes {
+        lookup_codes.insert(source_code.clone());
+        if let Some(without_prefix) = source_code.strip_prefix("C-") {
+            lookup_codes.insert(without_prefix.to_string());
+        } else {
+            lookup_codes.insert(format!("C-{source_code}"));
+        }
+    }
+    let lookup_codes: Vec<String> = lookup_codes.into_iter().collect();
+    let customer_rows: Vec<(Uuid, String)> = sqlx::query_as(
+        r#"
+        SELECT id, UPPER(BTRIM(customer_code))
+        FROM customers
+        WHERE UPPER(BTRIM(customer_code)) = ANY($1)
+        "#,
+    )
+    .bind(&lookup_codes)
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut customers_by_code: HashMap<String, HashSet<Uuid>> = HashMap::new();
+    for (customer_id, customer_code) in customer_rows {
+        customers_by_code
+            .entry(customer_code)
+            .or_default()
+            .insert(customer_id);
+    }
+
+    let mut resolved = HashMap::with_capacity(source_codes.len());
+    for source_code in source_codes {
+        let alternate = source_code
+            .strip_prefix("C-")
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("C-{source_code}"));
+        let mut matches = HashSet::new();
+        if let Some(ids) = customers_by_code.get(&source_code) {
+            matches.extend(ids.iter().copied());
+        }
+        if let Some(ids) = customers_by_code.get(&alternate) {
+            matches.extend(ids.iter().copied());
+        }
+        match matches.len() {
+            0 => {
+                return Err(CounterpointSyncError::InvalidPayload(format!(
+                    "Counterpoint gift-card customer '{source_code}' was not found in ROS"
+                )));
+            }
+            1 => {
+                resolved.insert(
+                    source_code,
+                    matches.into_iter().next().expect("one customer match"),
+                );
+            }
+            count => {
+                return Err(CounterpointSyncError::InvalidPayload(format!(
+                    "Counterpoint gift-card customer '{source_code}' resolves to {count} ROS customers"
+                )));
+            }
+        }
+    }
+
+    Ok(resolved)
+}
+
 async fn execute_counterpoint_gift_card_metadata_repair(
     pool: &PgPool,
     rows: &[CounterpointGiftCardRow],
@@ -12068,6 +12172,8 @@ async fn execute_counterpoint_gift_card_metadata_repair(
 
     let mode = request.mode;
     let mut tx = pool.begin().await?;
+    let customer_id_map =
+        build_gift_card_customer_id_map(&mut tx, rows, request.require_customer_links).await?;
     let mut repair = GiftCardMetadataRepairSummary {
         mode: match mode {
             CounterpointGiftCardMetadataRepairMode::Preview => "preview",
@@ -12083,6 +12189,7 @@ async fn execute_counterpoint_gift_card_metadata_repair(
         loyalty: 0,
         donated: 0,
         promo: 0,
+        customer_links_resolved: 0,
         would_expire_cards: 0,
         would_expire_balance: Decimal::ZERO,
     };
@@ -12104,6 +12211,11 @@ async fn execute_counterpoint_gift_card_metadata_repair(
         }
         let kind = resolve_gift_card_kind(&mut tx, row.reason_cod.as_deref()).await?;
         let (issued_at, expires_at) = counterpoint_gift_card_dates(row, &kind, true)?;
+        let customer_id = counterpoint_gift_card_customer_code(row)
+            .and_then(|code| customer_id_map.get(&code).copied());
+        if customer_id.is_some() {
+            repair.customer_links_resolved += 1;
+        }
         let issued_at = issued_at.ok_or_else(|| {
             CounterpointSyncError::InvalidPayload(format!(
                 "gift card {code} is missing its Counterpoint issue date"
@@ -12154,7 +12266,8 @@ async fn execute_counterpoint_gift_card_metadata_repair(
                 SET card_kind = $2::gift_card_kind,
                     is_liability = $3,
                     created_at = $4,
-                    expires_at = $5
+                    expires_at = $5,
+                    customer_id = COALESCE($6, customer_id)
                 WHERE id = $1
                 "#,
             )
@@ -12163,6 +12276,7 @@ async fn execute_counterpoint_gift_card_metadata_repair(
             .bind(kind == gift_card_ops::GIFT_CARD_KIND_PURCHASED)
             .bind(issued_at)
             .bind(expires_at)
+            .bind(customer_id)
             .execute(&mut *tx)
             .await?;
             updated += 1;
@@ -12197,6 +12311,7 @@ async fn execute_counterpoint_gift_card_metadata_repair(
         updated,
         events_created: 0,
         skipped,
+        customer_links_resolved: repair.customer_links_resolved,
         metadata_repair: Some(repair),
     })
 }
@@ -12215,11 +12330,13 @@ pub async fn execute_counterpoint_gift_card_batch(
     }
 
     let mut tx = pool.begin().await?;
+    let customer_id_map = build_gift_card_customer_id_map(&mut tx, &payload.rows, false).await?;
     let mut summary = GiftCardSyncSummary {
         created: 0,
         updated: 0,
         events_created: 0,
         skipped: 0,
+        customer_links_resolved: 0,
         metadata_repair: None,
     };
 
@@ -12235,6 +12352,11 @@ pub async fn execute_counterpoint_gift_card_batch(
         let original = row.original_value.unwrap_or(row.balance);
 
         let (issued_at, expires) = counterpoint_gift_card_dates(row, &kind, false)?;
+        let customer_id = counterpoint_gift_card_customer_code(row)
+            .and_then(|code| customer_id_map.get(&code).copied());
+        if customer_id.is_some() {
+            summary.customer_links_resolved += 1;
+        }
 
         let existing: Option<Uuid> =
             sqlx::query_scalar("SELECT id FROM gift_cards WHERE UPPER(BTRIM(code::text)) = $1")
@@ -12250,7 +12372,8 @@ pub async fn execute_counterpoint_gift_card_batch(
                     card_kind = $3::gift_card_kind,
                     is_liability = $4,
                     expires_at = $5,
-                    created_at = COALESCE($6, created_at)
+                    created_at = COALESCE($6, created_at),
+                    customer_id = COALESCE($7, customer_id)
                 WHERE id = $1
                 "#,
             )
@@ -12260,14 +12383,15 @@ pub async fn execute_counterpoint_gift_card_batch(
             .bind(is_liability)
             .bind(expires)
             .bind(issued_at)
+            .bind(customer_id)
             .execute(&mut *tx)
             .await?;
             summary.updated += 1;
         } else {
             sqlx::query(
                 r#"
-                INSERT INTO gift_cards (code, current_balance, original_value, is_liability, card_kind, card_status, expires_at, created_at)
-                VALUES ($1, $2, $3, $4, $5::gift_card_kind, 'active'::gift_card_status, $6, COALESCE($7, CURRENT_TIMESTAMP))
+                INSERT INTO gift_cards (code, current_balance, original_value, is_liability, card_kind, card_status, expires_at, created_at, customer_id)
+                VALUES ($1, $2, $3, $4, $5::gift_card_kind, 'active'::gift_card_status, $6, COALESCE($7, CURRENT_TIMESTAMP), $8)
                 "#,
             )
             .bind(&code)
@@ -12277,6 +12401,7 @@ pub async fn execute_counterpoint_gift_card_batch(
             .bind(&kind)
             .bind(expires)
             .bind(issued_at)
+            .bind(customer_id)
             .execute(&mut *tx)
             .await?;
             summary.created += 1;
@@ -20251,12 +20376,26 @@ mod tests {
         let gift_code = format!("CP-GC-REPAIR-{suffix}");
         let reason_code = format!("GC DONATE {suffix}");
         let gift_card_id = Uuid::new_v4();
+        let customer_id = Uuid::new_v4();
+        let customer_code = format!("CP-GC-CUST-{suffix}");
         let source_balance = Decimal::new(5000, 2);
         let issued_at = Utc
             .with_ymd_and_hms(2020, 4, 10, 12, 0, 0)
             .single()
             .expect("valid issue timestamp");
 
+        sqlx::query(
+            r#"
+            INSERT INTO customers
+                (id, customer_code, first_name, last_name, customer_created_source)
+            VALUES ($1, $2, 'Gift Card', 'Customer', 'counterpoint')
+            "#,
+        )
+        .bind(customer_id)
+        .bind(&customer_code)
+        .execute(&pool)
+        .await
+        .expect("insert gift card customer fixture");
         sqlx::query(
             "INSERT INTO counterpoint_gift_reason_map (cp_reason_cod, ros_card_kind) VALUES ($1, 'donated_giveaway')",
         )
@@ -20300,6 +20439,7 @@ mod tests {
                 reason_cod: Some(reason_code.clone()),
                 expires_at: None,
                 issued_at: Some(issued_at.to_rfc3339()),
+                customer_code: Some(customer_code.clone()),
                 events: Vec::new(),
             }],
             sync: None,
@@ -20307,6 +20447,7 @@ mod tests {
                 mode,
                 source_cards: 1,
                 source_balance: balance,
+                require_customer_links: true,
             }),
         };
 
@@ -20324,6 +20465,7 @@ mod tests {
         assert_eq!(preview_repair.matched, 1);
         assert_eq!(preview_repair.balance_mismatches, 0);
         assert_eq!(preview_repair.donated, 1);
+        assert_eq!(preview_repair.customer_links_resolved, 1);
         assert_eq!(preview_repair.would_expire_cards, 1);
         assert_eq!(preview_repair.would_expire_balance, source_balance);
 
@@ -20358,8 +20500,8 @@ mod tests {
         .await
         .expect("apply gift card metadata repair");
         assert_eq!(applied.updated, 1);
-        let repaired: (String, bool, Decimal, DateTime<Utc>, DateTime<Utc>) = sqlx::query_as(
-            "SELECT card_kind::text, is_liability, current_balance, created_at, expires_at FROM gift_cards WHERE id = $1",
+        let repaired: (String, bool, Decimal, DateTime<Utc>, DateTime<Utc>, Option<Uuid>) = sqlx::query_as(
+            "SELECT card_kind::text, is_liability, current_balance, created_at, expires_at, customer_id FROM gift_cards WHERE id = $1",
         )
         .bind(gift_card_id)
         .fetch_one(&pool)
@@ -20369,6 +20511,7 @@ mod tests {
         assert!(!repaired.1);
         assert_eq!(repaired.2, source_balance);
         assert_eq!(repaired.3, issued_at);
+        assert_eq!(repaired.5, Some(customer_id));
         assert_eq!(
             repaired.4,
             gift_card_ops::gift_card_expiration_from_issue(
@@ -20401,6 +20544,11 @@ mod tests {
             .execute(&pool)
             .await
             .expect("cleanup gift card test mapping");
+        sqlx::query("DELETE FROM customers WHERE id = $1")
+            .bind(customer_id)
+            .execute(&pool)
+            .await
+            .expect("cleanup gift card customer fixture");
     }
 
     #[tokio::test]
@@ -20425,6 +20573,7 @@ mod tests {
                     reason_cod: Some("GC".into()),
                     expires_at: None,
                     issued_at: None,
+                    customer_code: None,
                     events: vec![GiftCardEventRow {
                         event_kind: "redeem".into(),
                         amount: Decimal::new(5000, 2),

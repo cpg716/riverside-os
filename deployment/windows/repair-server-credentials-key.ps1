@@ -38,6 +38,28 @@ function Test-UsableSecret([string]$Value) {
     -and $trimmed -ne "riverside-dev-token-key-change-me"
 }
 
+function ConvertTo-DotEnvValue($Value) {
+  $text = if ($null -eq $Value) { "" } else { "$Value" }
+  if ($text -match "[`r`n]") {
+    throw "Server environment values cannot contain line breaks."
+  }
+  $escaped = $text.Replace('\', '\\').Replace('"', '\"').Replace('$', '\$')
+  return '"' + $escaped + '"'
+}
+
+function ConvertFrom-DotEnvValue([string]$Value) {
+  $text = "$Value".Trim()
+  if ($text.Length -lt 2) { return $text }
+  if ($text[0] -eq "'" -and $text[$text.Length - 1] -eq "'") {
+    return $text.Substring(1, $text.Length - 2)
+  }
+  if ($text[0] -eq '"' -and $text[$text.Length - 1] -eq '"') {
+    $inner = $text.Substring(1, $text.Length - 2)
+    return $inner.Replace('\$', '$').Replace('\"', '"').Replace('\\', '\')
+  }
+  return $text
+}
+
 function Read-EnvMap([string]$Path) {
   $ordered = [ordered]@{}
   if (-not (Test-Path $Path)) {
@@ -52,7 +74,7 @@ function Read-EnvMap([string]$Path) {
       continue
     }
     $name = $line.Substring(0, $idx).Trim()
-    $value = $line.Substring($idx + 1).Trim()
+    $value = ConvertFrom-DotEnvValue $line.Substring($idx + 1)
     if ($name) {
       $ordered[$name] = $value
     }
@@ -63,7 +85,7 @@ function Read-EnvMap([string]$Path) {
 function Write-EnvMap([string]$Path, $Map) {
   $lines = New-Object System.Collections.Generic.List[string]
   foreach ($key in $Map.Keys) {
-    $lines.Add("$key=$($Map[$key])")
+    $lines.Add("$key=$(ConvertTo-DotEnvValue $Map[$key])")
   }
   $utf8NoBom = New-Object System.Text.UTF8Encoding $false
   [System.IO.File]::WriteAllText($Path, (($lines -join "`r`n") + "`r`n"), $utf8NoBom)

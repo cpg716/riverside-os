@@ -55,7 +55,8 @@ All routes are below **`/api/insights`** and require **`insights.view`** through
 | **`POST /reports/history/{id}/archive`** | Archive a history entry. |
 | **`POST /reports/history/{id}/restore`** | Restore a history entry and mark it accessed. |
 | **`GET /semantic-catalog`** | Return the staff-visible governed datasets and members. |
-| **`GET /cube-health`** | Check the configured loopback Cube service without exposing secrets. |
+| **`GET /health`** | Check both the configured loopback Cube service and the selected ROSIE report planner without exposing secrets. |
+| **`GET /cube-health`** | Compatibility alias for the combined reporting health check. |
 
 The server accepts table, bar, line, area, and pie visualization kinds. Limits are clamped to the configured maximum; Settings allows 25–500 rows, with 500 as the default ceiling.
 
@@ -93,11 +94,13 @@ The Windows Main Hub installer keeps migration-owned tables and views under the 
 
 - Cube readiness: **`GET http://127.0.0.1:4000/readyz`** on the Main Hub.
 - Windows supervision: scheduled task **`Riverside OS Cube Core`**; runtime log **`C:\RiversideOS\logs\cube-core.log`**.
-- Staff-safe status: **`GET /api/insights/cube-health`**.
+- Staff-safe status: **`GET /api/insights/health`**. **Reporting ready** requires both Cube Core and the selected ROSIE report planner to be reachable and configured.
 - Settings: **Settings → Integrations → Insights** shows secret/readiness status, maximum rows, archive age, and staff guidance.
 - ROS Dev Center reports Cube upstream and secret readiness without returning either secret.
 
 Policy changes do not restart Cube. Runtime or credential changes are applied through the normal Main Hub update/repair process.
+
+The planner request sends the approved member names once in its constrained tool schema rather than duplicating the complete semantic catalog in the system prompt. Main Hub defaults preserve two concurrent ROSIE slots with a 16,384-token total context, providing an effective 8,192-token budget per slot.
 
 ## Export and print
 

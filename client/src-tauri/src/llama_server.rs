@@ -245,7 +245,7 @@ pub async fn rosie_llama_start(
 
     let host = std::env::var("RIVERSIDE_LLAMA_HOST").unwrap_or_else(|_| "127.0.0.1".into());
     let port = std::env::var("RIVERSIDE_LLAMA_PORT").unwrap_or_else(|_| "8080".into());
-    let context_size = bounded_env_usize("RIVERSIDE_LLAMA_CONTEXT_SIZE", 8192, 2048, 131_072);
+    let context_size = bounded_env_usize("RIVERSIDE_LLAMA_CONTEXT_SIZE", 16384, 2048, 131_072);
     let parallel = bounded_env_usize("RIVERSIDE_LLAMA_PARALLEL", 2, 1, 8);
     let batch_size = bounded_env_usize("RIVERSIDE_LLAMA_BATCH_SIZE", 512, 256, 2048);
     let ubatch_size = bounded_env_usize("RIVERSIDE_LLAMA_UBATCH_SIZE", 512, 256, batch_size);

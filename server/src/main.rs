@@ -84,6 +84,7 @@ mod tests {
 
     static ENV_TEST_LOCK: Mutex<()> = Mutex::new(());
     const TEST_ENV_KEY: &str = "RIVERSIDE_INSTALLED_ENV_PRECEDENCE_TEST";
+    const TEST_WINDOWS_PATH_ENV_KEY: &str = "RIVERSIDE_INSTALLED_ENV_WINDOWS_PATH_TEST";
 
     #[test]
     fn installed_env_overrides_inherited_process_values() {
@@ -115,5 +116,45 @@ mod tests {
 
         result.expect("load installed .env");
         assert_eq!(loaded.as_deref(), Ok("installed"));
+    }
+
+    #[test]
+    fn installed_env_accepts_installer_escaped_windows_paths() {
+        let _guard = ENV_TEST_LOCK.lock().expect("environment test lock");
+        let original = std::env::var_os(TEST_WINDOWS_PATH_ENV_KEY);
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        let test_dir = std::env::temp_dir().join(format!(
+            "riverside-installed-windows-env-{}-{unique}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&test_dir).expect("create installed env test directory");
+        std::fs::write(
+            test_dir.join(".env"),
+            format!(
+                r#"{TEST_WINDOWS_PATH_ENV_KEY}="C:\\Riverside OS\\client\\dist\\\$archive"
+"#,
+            ),
+        )
+        .expect("write installed .env");
+        let executable_path: PathBuf = test_dir.join("riverside-server.exe");
+
+        let result = load_runtime_environment_from(Some(&executable_path));
+        let loaded = std::env::var(TEST_WINDOWS_PATH_ENV_KEY);
+
+        match original {
+            Some(value) => std::env::set_var(TEST_WINDOWS_PATH_ENV_KEY, value),
+            None => std::env::remove_var(TEST_WINDOWS_PATH_ENV_KEY),
+        }
+        std::fs::remove_file(test_dir.join(".env")).expect("remove installed .env");
+        std::fs::remove_dir(test_dir).expect("remove installed env test directory");
+
+        result.expect("load installer-escaped installed .env");
+        assert_eq!(
+            loaded.as_deref(),
+            Ok(r#"C:\Riverside OS\client\dist\$archive"#)
+        );
     }
 }

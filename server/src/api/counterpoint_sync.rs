@@ -1972,6 +1972,8 @@ struct CounterpointGiftCardMetadataRepairSource {
     rows: Vec<CounterpointGiftCardRow>,
     source_cards: i32,
     source_balance: Decimal,
+    #[serde(default)]
+    require_customer_links: bool,
 }
 
 #[derive(Deserialize)]
@@ -1979,6 +1981,8 @@ struct CounterpointGiftCardMetadataRepairApplyBody {
     rows: Vec<CounterpointGiftCardRow>,
     source_cards: i32,
     source_balance: Decimal,
+    #[serde(default)]
+    require_customer_links: bool,
     confirmation_phrase: String,
     reason: String,
 }
@@ -1987,6 +1991,7 @@ fn gift_card_metadata_repair_payload(
     rows: Vec<CounterpointGiftCardRow>,
     source_cards: i32,
     source_balance: Decimal,
+    require_customer_links: bool,
     mode: CounterpointGiftCardMetadataRepairMode,
 ) -> CounterpointGiftCardsPayload {
     CounterpointGiftCardsPayload {
@@ -1996,6 +2001,7 @@ fn gift_card_metadata_repair_payload(
             mode,
             source_cards,
             source_balance,
+            require_customer_links,
         }),
     }
 }
@@ -2016,6 +2022,7 @@ async fn settings_gift_card_metadata_repair_preview(
             body.rows,
             body.source_cards,
             body.source_balance,
+            body.require_customer_links,
             CounterpointGiftCardMetadataRepairMode::Preview,
         ),
     )
@@ -2062,6 +2069,7 @@ async fn settings_gift_card_metadata_repair_apply(
         json!({
             "source_cards": body.source_cards,
             "source_balance": body.source_balance,
+            "require_customer_links": body.require_customer_links,
             "reason": reason,
         }),
     )
@@ -2074,6 +2082,7 @@ async fn settings_gift_card_metadata_repair_apply(
             body.rows,
             body.source_cards,
             body.source_balance,
+            body.require_customer_links,
             CounterpointGiftCardMetadataRepairMode::Apply,
         ),
     )
@@ -2093,6 +2102,7 @@ async fn settings_gift_card_metadata_repair_apply(
             "loyalty": repair.map(|summary| summary.loyalty),
             "donated": repair.map(|summary| summary.donated),
             "promo": repair.map(|summary| summary.promo),
+            "customer_links_resolved": repair.map(|summary| summary.customer_links_resolved),
             "would_expire_cards": repair.map(|summary| summary.would_expire_cards),
             "would_expire_balance": repair.map(|summary| summary.would_expire_balance),
             "reason": reason,

@@ -33,6 +33,15 @@ const WORKSPACE_TABS: Array<
   "inventory",
 ];
 
+test("Insights sidebar uses the same sparkle icon as its workspace", async ({ page }) => {
+  await signInToBackOffice(page);
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+
+  await expect(
+    page.getByTestId("sidebar-nav-dashboard").locator("svg.lucide-sparkles"),
+  ).toBeVisible({ timeout: 20_000 });
+});
+
 for (const viewport of WORKSPACE_VIEWPORTS) {
   test(`Back Office workspace nav smoke ${viewport.label}`, async ({ page }) => {
     test.setTimeout(240_000);

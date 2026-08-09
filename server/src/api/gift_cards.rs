@@ -165,6 +165,8 @@ fn push_gift_card_list_filters(
     if let Some(status) = status {
         if status.eq_ignore_ascii_case("expired") {
             qb.push(" AND gc.card_status = 'active'::gift_card_status AND gc.expires_at <= now() ");
+        } else if status.eq_ignore_ascii_case("active") {
+            qb.push(" AND gc.card_status = 'active'::gift_card_status AND (gc.expires_at IS NULL OR gc.expires_at > now()) ");
         } else {
             qb.push(" AND gc.card_status::text = ");
             qb.push_bind(status.to_string());
@@ -281,9 +283,24 @@ async fn get_gift_card_summary(
                 ),
                 0
             )::numeric(14,2) AS active_liability_balance,
-            COUNT(*) FILTER (WHERE gc.card_kind = 'loyalty_reward'::gift_card_kind)::bigint AS loyalty_cards_count,
-            COUNT(*) FILTER (WHERE gc.card_kind = 'donated_giveaway'::gift_card_kind)::bigint AS donated_cards_count,
-            COUNT(*) FILTER (WHERE gc.card_kind = 'promo_gift_card'::gift_card_kind)::bigint AS promo_cards_count
+            COUNT(*) FILTER (
+                WHERE gc.card_kind = 'loyalty_reward'::gift_card_kind
+                  AND gc.card_status = 'active'::gift_card_status
+                  AND gc.current_balance > 0
+                  AND (gc.expires_at IS NULL OR gc.expires_at > now())
+            )::bigint AS loyalty_cards_count,
+            COUNT(*) FILTER (
+                WHERE gc.card_kind = 'donated_giveaway'::gift_card_kind
+                  AND gc.card_status = 'active'::gift_card_status
+                  AND gc.current_balance > 0
+                  AND (gc.expires_at IS NULL OR gc.expires_at > now())
+            )::bigint AS donated_cards_count,
+            COUNT(*) FILTER (
+                WHERE gc.card_kind = 'promo_gift_card'::gift_card_kind
+                  AND gc.card_status = 'active'::gift_card_status
+                  AND gc.current_balance > 0
+                  AND (gc.expires_at IS NULL OR gc.expires_at > now())
+            )::bigint AS promo_cards_count
         FROM gift_cards gc
         "#,
     )

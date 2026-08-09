@@ -97,6 +97,12 @@ type HistoryEntry = {
 };
 
 type HistoryMode = "recent" | "favorites" | "archive";
+type ReportingHealth = {
+  status: "connected" | "degraded" | "unreachable" | "needs_configuration";
+  message: string;
+  cube_ready: boolean;
+  planner_ready: boolean;
+};
 
 const baseUrl = getBaseUrl();
 const CHART_COLORS = ["#7c3aed", "#2563eb", "#059669", "#d97706", "#dc2626"];
@@ -214,7 +220,7 @@ export default function NativeInsightsWorkspace() {
   const [favoriteToDelete, setFavoriteToDelete] = useState<SavedFavorite | null>(null);
   const [fromDate, setFromDate] = useState(ninetyDaysAgoYmd());
   const [toDate, setToDate] = useState(todayYmd());
-  const [health, setHealth] = useState<"connected" | "degraded" | "unreachable" | "needs_configuration" | null>(null);
+  const [health, setHealth] = useState<ReportingHealth | null>(null);
 
   const headers = useCallback(
     () => backofficeHeaders() as Record<string, string>,
@@ -232,7 +238,7 @@ export default function NativeInsightsWorkspace() {
           fetch(`${baseUrl}/api/insights/reports/history?archived=true`, {
             headers: requestHeaders,
           }),
-          fetch(`${baseUrl}/api/insights/cube-health`, { headers: requestHeaders }),
+          fetch(`${baseUrl}/api/insights/health`, { headers: requestHeaders }),
         ]);
       if (favoritesResponse.ok) {
         const rows = (await favoritesResponse.json()) as SavedFavorite[];
@@ -247,8 +253,14 @@ export default function NativeInsightsWorkspace() {
         setArchive(rows.filter((row) => isReportSpec(row.report_spec)));
       }
       if (healthResponse.ok) {
-        const data = (await healthResponse.json()) as { status?: typeof health };
-        setHealth(data.status ?? null);
+        setHealth((await healthResponse.json()) as ReportingHealth);
+      } else {
+        setHealth({
+          status: "unreachable",
+          message: "Reporting readiness could not be verified.",
+          cube_ready: false,
+          planner_ready: false,
+        });
       }
     } catch {
       toast("Could not refresh report history", "error");
@@ -611,17 +623,26 @@ export default function NativeInsightsWorkspace() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 rounded-full border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            <div
+              className="flex items-center gap-2 rounded-full border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+              title={health?.message ?? "Checking Cube Core and the ROSIE report planner."}
+            >
               <span
                 className={`h-2.5 w-2.5 rounded-full ${
-                  health === "connected"
+                  health?.status === "connected"
                     ? "bg-emerald-500"
-                    : health === "degraded" || health === "needs_configuration"
+                    : health?.status === "degraded" || health?.status === "needs_configuration" || health === null
                       ? "bg-amber-500"
                       : "bg-rose-500"
                 }`}
               />
-              {health === "connected" ? "Reporting ready" : "Check reporting setup"}
+              {health?.status === "connected"
+                ? "Reporting ready"
+                : health === null
+                  ? "Checking reporting"
+                  : health.status === "needs_configuration"
+                    ? "Reporting setup needed"
+                    : "Reporting unavailable"}
             </div>
           </div>
 
