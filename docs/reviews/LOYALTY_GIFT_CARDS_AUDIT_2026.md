@@ -28,19 +28,18 @@ The system's "Accounting Brain" performs a differential ledger mapping during th
 - **Case 3: Donated Giveaway**: Debits the `expense_donated` account (categorizing the promotion as a charitable expense).
 
 ### 3.3 Expiration, Sweep & Breakage Behavior (v0.3.5+)
-The system implements a defensive daily background task to sweep expired gift cards:
+The system performs a defensive sweep before daily QBO journal proposal generation:
 - **Scope**: Only purchased gift cards (`is_liability = TRUE`) are eligible for breakage.
 - **Process**: Active gift cards whose expiration date (`expires_at`) is on or before the current business date are zeroed out (`current_balance = 0.00`) and set to `'depleted'`. A `gift_card_events` row of kind `'expiration_breakage'` is logged, backdated to `23:59:59` of the expiration day.
 - **Accounting**:
   - **Purchased Gift Cards**: The swept amount is recognized as **Breakage Revenue** by debiting `liability_gift_card` (clearing the unredeemed liability) and crediting `income_gift_card_breakage` (or `REVENUE_GIFT_CARD_BREAKAGE` if unmapped).
-  - **Donated & Loyalty Gift Cards**: Since promotional and loyalty cards do not carry initial cash liability (`is_liability = FALSE`), their expiration has no balance sheet impact and generates **no** QBO journal entries. They are simply expired locally to prevent further redemption.
+  - **Donated & Loyalty Gift Cards**: Since promotional and loyalty cards do not carry initial cash liability (`is_liability = FALSE`), expiration has no balance sheet impact and generates **no** purchased-card breakage entry. Checkout rejects them after the saved expiration. Their retained card row remains auditable; if staff later reassign the same matching code, Riverside records closure of any expired balance before issuing the new value.
 
 ## 4. Findings & Recommendations
 1. **Financial Precision**: The differential QBO mapping is a "Best-in-Class" feature that prevents promotional credits from "poisoning" the liability account on the balance sheet.
-2. **Staff Transparency**: The clear UI toggle in the checkout drawer reduces the likelihood of staff mis-categorizing expensive loyalty promotions as regular paid cards.
+2. **Staff Transparency**: Checkout revalidates the scanned card and replaces requested subtype metadata with the card's canonical server classification, preventing a Loyalty or Donated card from being recorded as purchased liability.
 3. **Automated Liability Cleansing**: The background breakage sweep automatically converts abandoned, expired customer liabilities into revenue on QBO, ensuring the balance sheet is not inflated with stale debt.
-4. **Observation**: Currently, `card_kind` is also stored at the card level (`gift_cards.card_kind`). **Recommendation**: Always ensure the `sub_type` selected during checkout matches the `card_kind` on the card to maintain perfect internal consistency (though the system currently allows override for maximum floor flexibility).
+4. **Audit evidence**: ROS-created Loyalty and Donated events retain the acting staff member. Loyalty issuance history also stores the issuer and uses the saved server expiration for letters and reprints.
 
 ## 5. Conclusion
 The Loyalty & Donated gift card system is **architecturally sound and financially accurate**. It provides store owners with the transparency needed to run aggressive marketing campaigns without losing track of their true financial liabilities.
-

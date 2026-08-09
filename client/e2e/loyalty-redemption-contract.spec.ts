@@ -35,6 +35,20 @@ type LoyaltyCustomerSummary = {
 type GiftCardLookup = {
   card_kind: string;
   current_balance: string;
+  is_liability: boolean;
+  expires_at: string;
+};
+
+type LoyaltyIssuance = {
+  id: string;
+  card_id: string;
+  card_code: string;
+  card_kind: string | null;
+  is_liability: boolean | null;
+  expires_at: string | null;
+  issued_by_staff_id: string | null;
+  issued_by_staff_name: string | null;
+  created_at: string;
 };
 
 type CustomerTimelineEvent = {
@@ -54,6 +68,16 @@ type CheckoutResponse = {
 
 function rewardAmountString(value: string | number): string {
   return typeof value === "number" ? value.toFixed(2) : value;
+}
+
+function expectOneCalendarYear(issueValue: string, expirationValue: string) {
+  const issuedAt = new Date(issueValue);
+  const expiresAt = new Date(expirationValue);
+  expect(Number.isNaN(issuedAt.getTime())).toBe(false);
+  expect(Number.isNaN(expiresAt.getTime())).toBe(false);
+  const expected = new Date(issuedAt);
+  expected.setUTCFullYear(expected.getUTCFullYear() + 1);
+  expect(Math.abs(expiresAt.getTime() - expected.getTime())).toBeLessThan(5_000);
 }
 
 async function fetchLoyaltyProgramSummary(
@@ -103,6 +127,17 @@ async function lookupGiftCard(
   });
   expect(res.status()).toBe(200);
   return (await res.json()) as GiftCardLookup;
+}
+
+async function fetchRecentLoyaltyIssuances(
+  request: Parameters<typeof test>[0]["request"],
+): Promise<LoyaltyIssuance[]> {
+  const res = await request.get(`${apiBase()}/api/loyalty/recent-issuances`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  expect(res.status()).toBe(200);
+  return (await res.json()) as LoyaltyIssuance[];
 }
 
 async function fetchLoyaltyLedger(
@@ -270,7 +305,12 @@ test.describe("Loyalty redemption contract", () => {
     const body = (await redeemRes.json()) as {
       applied_to_sale: string | number;
       remainder_loaded: string | number;
-      remainder_card_id?: string | null;
+      remainder_card_id: string;
+      reward_card_code: string;
+      reward_card_issued_at: string;
+      reward_card_expires_at: string;
+      reward_card_kind: string;
+      reward_card_is_liability: boolean;
       new_balance: number;
     };
     expect(Number(body.applied_to_sale)).toBe(0);
@@ -278,10 +318,27 @@ test.describe("Loyalty redemption contract", () => {
       rewardAmountString(summary.loyalty_reward_amount),
     );
     expect(body.remainder_card_id).toBeTruthy();
+    expect(body.reward_card_code).toBe(rewardCode);
+    expect(body.reward_card_kind).toBe("loyalty_reward");
+    expect(body.reward_card_is_liability).toBe(false);
+    expectOneCalendarYear(body.reward_card_issued_at, body.reward_card_expires_at);
 
     const card = await lookupGiftCard(request, rewardCode);
     expect(card.card_kind).toBe("loyalty_reward");
+    expect(card.is_liability).toBe(false);
+    expect(card.expires_at).toBe(body.reward_card_expires_at);
     expect(card.current_balance).toBe(rewardAmountString(summary.loyalty_reward_amount));
+
+    const managerStaffId = await verifyStaffId(request);
+    const issuance = (await fetchRecentLoyaltyIssuances(request)).find(
+      (row) => row.card_id === body.remainder_card_id,
+    );
+    expect(issuance?.card_code).toBe(rewardCode);
+    expect(issuance?.card_kind).toBe("loyalty_reward");
+    expect(issuance?.is_liability).toBe(false);
+    expect(issuance?.expires_at).toBe(body.reward_card_expires_at);
+    expect(issuance?.issued_by_staff_id).toBe(managerStaffId);
+    expect(issuance?.issued_by_staff_name).toBeTruthy();
 
     const ledger = await fetchLoyaltyLedger(request, fixture.customer.id);
     expect(ledger[0]?.reason).toBe("reward_redemption");

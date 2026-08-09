@@ -52,6 +52,7 @@ QBO sales posting is **Daily Staging Journal only**. Checkout and Helcim webhook
 - [ ] Multi-split checkout (multiple tenders)  
 - [ ] Backdated card/cash/check sale: map `BACKDATED_SALE_CLEARING`, verify payment-day and business-day journals balance, then compare QBO sandbox entries to Z-Report and receipt evidence
 - [x] Gift card `sub_type` `paid_liability` vs `loyalty_giveaway` / `donated_giveaway` / `promo_gift_card`
+- [x] Gift card expense split: Loyalty/Promo use `expense_loyalty`; Donated uses separately configured `expense_donated`
 - [x] Gift card breakage sweep: Expired purchased liability cards zeroed out, event logged, debits `liability_gift_card` and credits `income_gift_card_breakage` (or `REVENUE_GIFT_CARD_BREAKAGE`)
 - [x] Gift card breakage bypass: Expired promotional/donated/loyalty cards (`is_liability = false`) are NOT swept, no breakage event generated, no QBO staging journal entry generated
 - [x] Financial invariant release gate: `npm run check:financial-invariants` verifies source formulas, receiving/freight/shipping labels, E2E coverage hooks, and production SQL probes before go-live/retag

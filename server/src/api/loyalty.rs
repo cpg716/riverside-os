@@ -92,11 +92,29 @@ async fn require_loyalty_program_settings(
 async fn require_staff_or_pos_session(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<(), LoyaltyError> {
+) -> Result<middleware::StaffOrPosSession, LoyaltyError> {
     middleware::require_staff_or_pos_register_session(state, headers)
         .await
-        .map(|_| ())
         .map_err(|(st, j)| map_loyalty_perm((st, j)))
+}
+
+async fn loyalty_actor_staff_id(
+    state: &AppState,
+    actor: &middleware::StaffOrPosSession,
+) -> Result<Option<Uuid>, LoyaltyError> {
+    match actor {
+        middleware::StaffOrPosSession::Staff(staff) => Ok(Some(staff.id)),
+        middleware::StaffOrPosSession::PosSession { session_id } => {
+            sqlx::query_scalar(
+                "SELECT COALESCE(shift_primary_staff_id, opened_by) FROM register_sessions WHERE id = $1",
+            )
+            .bind(session_id)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(LoyaltyError::Database)
+            .map(Option::flatten)
+        }
+    }
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -437,8 +455,12 @@ pub struct RedeemRewardResponse {
     /// Always `0.00` in the issuance-only redemption contract.
     pub applied_to_sale: Decimal,
     pub remainder_loaded: Decimal,
-    /// Card ID if a remainder was loaded onto a new/existing card.
-    pub remainder_card_id: Option<Uuid>,
+    pub remainder_card_id: Uuid,
+    pub reward_card_code: String,
+    pub reward_card_issued_at: chrono::DateTime<Utc>,
+    pub reward_card_expires_at: chrono::DateTime<Utc>,
+    pub reward_card_kind: &'static str,
+    pub reward_card_is_liability: bool,
 }
 
 fn masked_loyalty_card_label(code: &str) -> String {
@@ -497,7 +519,8 @@ async fn redeem_reward(
     headers: HeaderMap,
     Json(body): Json<RedeemRewardRequest>,
 ) -> Result<Json<RedeemRewardResponse>, LoyaltyError> {
-    require_staff_or_pos_session(&state, &headers).await?;
+    let actor = require_staff_or_pos_session(&state, &headers).await?;
+    let issued_by_staff_id = loyalty_actor_staff_id(&state, &actor).await?;
 
     // Load settings.
     let (threshold, reward_amount_per_threshold): (i32, Decimal) = sqlx::query_as(
@@ -561,8 +584,8 @@ async fn redeem_reward(
     sqlx::query(
         r#"
         INSERT INTO loyalty_point_ledger
-            (customer_id, delta_points, balance_after, reason, transaction_id, metadata)
-        VALUES ($1, $2, $3, $4, $5, $6)
+            (customer_id, delta_points, balance_after, reason, transaction_id, created_by_staff_id, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
     .bind(effective_customer_id)
@@ -570,6 +593,7 @@ async fn redeem_reward(
     .bind(new_balance)
     .bind("reward_redemption")
     .bind(body.transaction_id)
+    .bind(issued_by_staff_id)
     .bind(json!({
         "reward_amount": reward_amount,
         "reward_amount_per_threshold": reward_amount_per_threshold,
@@ -585,44 +609,48 @@ async fn redeem_reward(
     .execute(&mut *tx)
     .await?;
 
-    // Load remainder onto a loyalty gift card if needed.
-    let mut remainder_card_id: Option<Uuid> = None;
-    if remainder > Decimal::ZERO {
-        let card_id = crate::logic::gift_card_ops::load_non_liability_gift_card_in_tx(
-            &mut tx,
-            crate::logic::gift_card_ops::NonLiabilityGiftCardLoad {
-                card_kind: crate::logic::gift_card_ops::GIFT_CARD_KIND_LOYALTY_REWARD,
-                code: &reward_card_code,
-                amount: remainder,
-                customer_id: Some(effective_customer_id),
-                session_id: body.session_id,
-                transaction_id: body.transaction_id,
-                notes: None,
-                promo_event_name: None,
-            },
-        )
-        .await
-        .map_err(|e| LoyaltyError::InvalidPayload(e.to_string()))?;
+    let loyalty_note =
+        format!("Loyalty reward: {points_to_deduct} points redeemed for ${reward_amount}.");
+    let remainder_card_id = crate::logic::gift_card_ops::load_non_liability_gift_card_in_tx(
+        &mut tx,
+        crate::logic::gift_card_ops::NonLiabilityGiftCardLoad {
+            card_kind: crate::logic::gift_card_ops::GIFT_CARD_KIND_LOYALTY_REWARD,
+            code: &reward_card_code,
+            amount: remainder,
+            customer_id: Some(effective_customer_id),
+            session_id: body.session_id,
+            transaction_id: body.transaction_id,
+            staff_id: issued_by_staff_id,
+            notes: Some(&loyalty_note),
+            promo_event_name: None,
+        },
+    )
+    .await
+    .map_err(|e| LoyaltyError::InvalidPayload(e.to_string()))?;
+    let reward_card_expires_at: chrono::DateTime<Utc> =
+        sqlx::query_scalar("SELECT expires_at FROM gift_cards WHERE id = $1")
+            .bind(remainder_card_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
-        remainder_card_id = Some(card_id);
-
-        // Record in issuances log.
-        sqlx::query(
-            r#"
-            INSERT INTO loyalty_reward_issuances
-                (customer_id, points_deducted, reward_amount, applied_to_sale, remainder_card_id, transaction_id)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            "#,
-        )
-        .bind(effective_customer_id)
-        .bind(points_to_deduct)
-        .bind(reward_amount)
-        .bind(body.apply_to_sale)
-        .bind(card_id)
-        .bind(body.transaction_id)
-        .execute(&mut *tx)
-        .await?;
-    }
+    let reward_card_issued_at: chrono::DateTime<Utc> = sqlx::query_scalar(
+        r#"
+        INSERT INTO loyalty_reward_issuances
+            (customer_id, points_deducted, reward_amount, applied_to_sale, remainder_card_id,
+             transaction_id, issued_by_staff_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING created_at
+        "#,
+    )
+    .bind(effective_customer_id)
+    .bind(points_to_deduct)
+    .bind(reward_amount)
+    .bind(body.apply_to_sale)
+    .bind(remainder_card_id)
+    .bind(body.transaction_id)
+    .bind(issued_by_staff_id)
+    .fetch_one(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 
@@ -633,6 +661,11 @@ async fn redeem_reward(
         applied_to_sale: body.apply_to_sale,
         remainder_loaded: remainder,
         remainder_card_id,
+        reward_card_code,
+        reward_card_issued_at,
+        reward_card_expires_at,
+        reward_card_kind: crate::logic::gift_card_ops::GIFT_CARD_KIND_LOYALTY_REWARD,
+        reward_card_is_liability: false,
     }))
 }
 
@@ -872,6 +905,11 @@ pub struct IssuanceRow {
     pub reward_amount: Decimal,
     pub points_deducted: i32,
     pub applied_to_sale: Decimal,
+    pub card_kind: Option<String>,
+    pub is_liability: Option<bool>,
+    pub expires_at: Option<chrono::DateTime<Utc>>,
+    pub issued_by_staff_id: Option<Uuid>,
+    pub issued_by_staff_name: Option<String>,
     pub created_at: chrono::DateTime<Utc>,
 }
 
@@ -888,10 +926,13 @@ async fn get_recent_issuances(
             gc.code as card_code,
             c.first_name, c.last_name, c.address_line1, c.city, c.state, c.postal_code as zip,
             lri.reward_amount, lri.points_deducted, lri.applied_to_sale,
+            gc.card_kind::text as card_kind, gc.is_liability, gc.expires_at,
+            lri.issued_by_staff_id, s.full_name as issued_by_staff_name,
             lri.created_at
         FROM loyalty_reward_issuances lri
         JOIN customers c ON lri.customer_id = c.id
         LEFT JOIN gift_cards gc ON lri.remainder_card_id = gc.id
+        LEFT JOIN staff s ON lri.issued_by_staff_id = s.id
         ORDER BY lri.created_at DESC
         LIMIT 100
         "#,

@@ -408,6 +408,7 @@ pub struct NonLiabilityGiftCardLoad<'a> {
     pub customer_id: Option<Uuid>,
     pub session_id: Option<Uuid>,
     pub transaction_id: Option<Uuid>,
+    pub staff_id: Option<Uuid>,
     pub notes: Option<&'a str>,
     pub promo_event_name: Option<&'a str>,
 }
@@ -480,8 +481,8 @@ pub async fn load_non_liability_gift_card_in_tx(
             sqlx::query(
                 r#"
                 INSERT INTO gift_card_events
-                    (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id, notes)
-                VALUES ($1, 'loaded', $2, $3, $4, $5, $6)
+                    (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id, staff_id, notes)
+                VALUES ($1, 'loaded', $2, $3, $4, $5, $6, $7)
                 "#,
             )
             .bind(id)
@@ -489,6 +490,7 @@ pub async fn load_non_liability_gift_card_in_tx(
             .bind(new_balance)
             .bind(input.transaction_id)
             .bind(input.session_id)
+            .bind(input.staff_id)
             .bind(input.notes)
             .execute(&mut **tx)
             .await?;
@@ -499,12 +501,13 @@ pub async fn load_non_liability_gift_card_in_tx(
                 sqlx::query(
                     r#"
                     INSERT INTO gift_card_events
-                        (gift_card_id, event_kind, amount, balance_after, notes)
-                    VALUES ($1, 'expired', $2, 0.00, $3)
+                        (gift_card_id, event_kind, amount, balance_after, staff_id, notes)
+                    VALUES ($1, 'expired', $2, 0.00, $3, $4)
                     "#,
                 )
                 .bind(id)
                 .bind(-balance)
+                .bind(input.staff_id)
                 .bind("Expired non-liability card balance closed before reassignment.")
                 .execute(&mut **tx)
                 .await?;
@@ -535,14 +538,15 @@ pub async fn load_non_liability_gift_card_in_tx(
             sqlx::query(
                 r#"
                 INSERT INTO gift_card_events
-                    (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id, notes)
-                VALUES ($1, 'issued', $2, $2, $3, $4, $5)
+                    (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id, staff_id, notes)
+                VALUES ($1, 'issued', $2, $2, $3, $4, $5, $6)
                 "#,
             )
             .bind(id)
             .bind(input.amount)
             .bind(input.transaction_id)
             .bind(input.session_id)
+            .bind(input.staff_id)
             .bind(input.notes)
             .execute(&mut **tx)
             .await?;
@@ -574,14 +578,15 @@ pub async fn load_non_liability_gift_card_in_tx(
         sqlx::query(
             r#"
             INSERT INTO gift_card_events
-                (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id, notes)
-            VALUES ($1, 'issued', $2, $2, $3, $4, $5)
+                (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id, staff_id, notes)
+            VALUES ($1, 'issued', $2, $2, $3, $4, $5, $6)
             "#,
         )
         .bind(new_id)
         .bind(input.amount)
         .bind(input.transaction_id)
         .bind(input.session_id)
+        .bind(input.staff_id)
         .bind(input.notes)
         .execute(&mut **tx)
         .await?;
@@ -1029,6 +1034,7 @@ mod tests {
                 customer_id: None,
                 session_id: None,
                 transaction_id: None,
+                staff_id: None,
                 notes: None,
                 promo_event_name: None,
             },
@@ -1063,6 +1069,7 @@ mod tests {
                 customer_id: None,
                 session_id: None,
                 transaction_id: None,
+                staff_id: None,
                 notes: Some("new donation"),
                 promo_event_name: None,
             },

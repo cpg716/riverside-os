@@ -425,6 +425,7 @@ async function issueGiftCardForQbo(
       code: options.code,
       amount: options.amount,
       event_name: "E2E QBO promo event",
+      notes: "E2E QBO gift card accounting classification",
     },
     failOnStatusCode: false,
   });
@@ -1748,8 +1749,8 @@ test.describe("QBO audit contract", () => {
       {
         code: `GC-DONATED-${suffix}`,
         subType: "donated_giveaway",
-        expectedAccount: "E2E_LOYALTY_EXPENSE",
-        expectedMemo: "Gift card redemption (loyalty/promo expense)",
+        expectedAccount: "E2E_DONATED_EXPENSE",
+        expectedMemo: "Gift card redemption (donated expense)",
       },
       {
         code: `GC-PROMO-${suffix}`,

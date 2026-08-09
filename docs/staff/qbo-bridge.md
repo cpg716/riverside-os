@@ -32,7 +32,7 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 **Purpose:** Map ROS **accounts**, **products**, **tenders**, and **expense** paths to QBO entities.
 
-1. **Mappings** → work tab by tab. Map category revenue/inventory/COGS, Custom garment overrides, tenders, tax, deposit holding, gift card liability, loyalty expense, store credit liability, refund queue clearing, forfeited deposit income, alterations income, customer shipping income, receiving clearing, and supplier inbound freight. Map **Helcim card clearing** once for Helcim card, manual, vault, and web checkout tenders. If your store takes **R2S payment collections** on the register (**PAYMENT** line), ensure **ledger** includes **`RMS_R2S_PAYMENT_CLEARING`** (pass-through) and the **tender** matrix includes **Check** if you use checks — **[`../POS_PARKED_SALES_AND_RMS_CHARGES.md`](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
+1. **Mappings** → work tab by tab. Map category revenue/inventory/COGS, Custom garment overrides, tenders, tax, deposit holding, gift card liability, loyalty/promo expense, **donated gift card expense**, store credit liability, refund queue clearing, forfeited deposit income, alterations income, customer shipping income, receiving clearing, and supplier inbound freight. Map **Helcim card clearing** once for Helcim card, manual, vault, and web checkout tenders. If your store takes **R2S payment collections** on the register (**PAYMENT** line), ensure **ledger** includes **`RMS_R2S_PAYMENT_CLEARING`** (pass-through) and the **tender** matrix includes **Check** if you use checks — **[`../POS_PARKED_SALES_AND_RMS_CHARGES.md`](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
 2. **Save** after each section; screenshot or export **before** large changes.
 3. Use the blank option to clear a wrong mapping, then save. Cleared mappings are removed from ROS and future staging will warn if that account is required.
 4. After mapping change, expect **new** staging rows to reflect the new chart.
@@ -71,6 +71,7 @@ Before pilot accounting relies on QBO posting, run these scenarios in the QBO sa
 | Cash, card, check mix | Tender clearing lines match Register Reports and Z-report evidence. | |
 | Gift card sale/redemption | Liability movement is visible and not treated as normal sales revenue. | |
 | Loyalty reward issued | Loyalty expense / loyalty gift-card handling matches the staged journal. | |
+| Donated gift card redeemed | `expense_donated` records donated-card expense in the account selected in Settings; purchased liability and loyalty/promo expense remain untouched. | |
 | Return/refund day | Contra revenue/tax/refund clearing lines match the return evidence. | |
 | Completed-sale void day | Original sale remains traceable, void record is explainable, refund/reversal evidence clears correctly, and any revision row is reviewed before approval. | |
 | Exchange with replacement sale | Return and replacement effects are understandable and traceable. | |

@@ -63,6 +63,7 @@ For couple-linked customers, Riverside resolves loyalty to the linked primary ac
 ## Issuance History (Fulfillment Tracking)
 
 Switch to the **History** tab to see a record of all recent reward issuances. 
+- History shows the server-saved card expiration and issuing staff member when available.
 - Use the **Print Letter** icon to generate a 8.5x11 "Thank You" letter for the recipient.
 - Use the **Print Label** icon to reprint an address label for that specific issuance.
 

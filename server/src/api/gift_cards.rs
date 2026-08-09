@@ -60,10 +60,9 @@ impl IntoResponse for GiftCardError {
 async fn require_gift_cards_manage(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<(), GiftCardError> {
+) -> Result<crate::auth::pins::AuthenticatedStaff, GiftCardError> {
     middleware::require_staff_with_permission(state, headers, GIFT_CARDS_MANAGE)
         .await
-        .map(|_| ())
         .map_err(map_gc_perm)
 }
 
@@ -128,36 +127,21 @@ pub struct GiftCardSummary {
     pub promo_cards_count: i64,
 }
 
-async fn list_gift_cards(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Query(q): Query<ListGiftCardsQuery>,
-) -> Result<Json<Vec<GiftCardRow>>, GiftCardError> {
-    require_gift_cards_manage(&state, &headers).await?;
-    let limit = q.limit.unwrap_or(100);
-    let offset = q.offset.unwrap_or(0);
-    let search = q.search.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let kind = q.kind.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let status = q.status.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    let open_only = q.open_only.unwrap_or(false);
-    let sort = q.sort.as_deref().unwrap_or("created_desc");
+#[derive(Debug, Serialize)]
+pub struct GiftCardListPage {
+    pub items: Vec<GiftCardRow>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}
 
-    let mut qb = QueryBuilder::<sqlx::Postgres>::new(
-        r#"
-        SELECT
-            gc.id, gc.code, gc.card_kind::text, gc.card_status::text,
-            gc.current_balance, gc.original_value, gc.is_liability,
-            gc.expires_at, gc.customer_id,
-            CASE WHEN c.id IS NOT NULL
-                 THEN TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))
-                 ELSE NULL END AS customer_name,
-            gc.promo_event_name, gc.notes, gc.created_at
-        FROM gift_cards gc
-        LEFT JOIN customers c ON c.id = gc.customer_id
-        WHERE 1=1
-        "#,
-    );
-
+fn push_gift_card_list_filters(
+    qb: &mut QueryBuilder<'_, sqlx::Postgres>,
+    search: Option<&str>,
+    kind: Option<&str>,
+    status: Option<&str>,
+    open_only: bool,
+) {
     if let Some(search) = search {
         let like = crate::logic::search_patterns::literal_contains_pattern(search);
         qb.push(" AND (gc.code ILIKE ");
@@ -175,7 +159,7 @@ async fn list_gift_cards(
 
     if let Some(kind) = kind {
         qb.push(" AND gc.card_kind::text = ");
-        qb.push_bind(kind);
+        qb.push_bind(kind.to_string());
     }
 
     if let Some(status) = status {
@@ -183,13 +167,54 @@ async fn list_gift_cards(
             qb.push(" AND gc.card_status = 'active'::gift_card_status AND gc.expires_at <= now() ");
         } else {
             qb.push(" AND gc.card_status::text = ");
-            qb.push_bind(status);
+            qb.push_bind(status.to_string());
         }
     }
 
     if open_only {
         qb.push(" AND gc.card_status = 'active'::gift_card_status AND gc.current_balance > 0 AND (gc.expires_at IS NULL OR gc.expires_at > now()) ");
     }
+}
+
+async fn load_gift_card_list_page(
+    pool: &sqlx::PgPool,
+    q: &ListGiftCardsQuery,
+) -> Result<GiftCardListPage, GiftCardError> {
+    let limit = q.limit.unwrap_or(100).clamp(1, 200);
+    let offset = q.offset.unwrap_or(0).max(0);
+    let search = q.search.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let kind = q.kind.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let status = q.status.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let open_only = q.open_only.unwrap_or(false);
+    let sort = q.sort.as_deref().unwrap_or("created_desc");
+
+    let mut count_qb = QueryBuilder::<sqlx::Postgres>::new(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM gift_cards gc
+        LEFT JOIN customers c ON c.id = gc.customer_id
+        WHERE 1=1
+        "#,
+    );
+    push_gift_card_list_filters(&mut count_qb, search, kind, status, open_only);
+    let total = count_qb.build_query_scalar::<i64>().fetch_one(pool).await?;
+
+    let mut qb = QueryBuilder::<sqlx::Postgres>::new(
+        r#"
+        SELECT
+            gc.id, gc.code, gc.card_kind::text, gc.card_status::text,
+            gc.current_balance, gc.original_value, gc.is_liability,
+            gc.expires_at, gc.customer_id,
+            CASE WHEN c.id IS NOT NULL
+                 THEN TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))
+                 ELSE NULL END AS customer_name,
+            gc.promo_event_name, gc.notes, gc.created_at
+        FROM gift_cards gc
+        LEFT JOIN customers c ON c.id = gc.customer_id
+        WHERE 1=1
+        "#,
+    );
+    push_gift_card_list_filters(&mut qb, search, kind, status, open_only);
 
     match sort {
         "recent_activity" => {
@@ -206,9 +231,32 @@ async fn list_gift_cards(
     qb.push(" OFFSET ");
     qb.push_bind(offset);
 
-    let rows: Vec<GiftCardRow> = qb.build_query_as().fetch_all(&state.db).await?;
+    let items: Vec<GiftCardRow> = qb.build_query_as().fetch_all(pool).await?;
+    Ok(GiftCardListPage {
+        items,
+        total,
+        limit,
+        offset,
+    })
+}
 
-    Ok(Json(rows))
+async fn list_gift_cards(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ListGiftCardsQuery>,
+) -> Result<Json<Vec<GiftCardRow>>, GiftCardError> {
+    require_gift_cards_manage(&state, &headers).await?;
+    let page = load_gift_card_list_page(&state.db, &q).await?;
+    Ok(Json(page.items))
+}
+
+async fn list_gift_cards_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ListGiftCardsQuery>,
+) -> Result<Json<GiftCardListPage>, GiftCardError> {
+    require_gift_cards_manage(&state, &headers).await?;
+    Ok(Json(load_gift_card_list_page(&state.db, &q).await?))
 }
 
 async fn get_gift_card_summary(
@@ -370,7 +418,7 @@ async fn issue_loyalty_load(
     headers: HeaderMap,
     Json(body): Json<IssueLoyaltyLoadRequest>,
 ) -> Result<Json<GiftCardRow>, GiftCardError> {
-    require_gift_card_lookup(&state, &headers).await?;
+    let staff = require_gift_cards_manage(&state, &headers).await?;
     let code = gift_card_ops::normalize_gift_card_code(&body.code);
     if code.is_empty() {
         return Err(GiftCardError::InvalidPayload(
@@ -380,6 +428,12 @@ async fn issue_loyalty_load(
     if body.amount <= Decimal::ZERO {
         return Err(GiftCardError::InvalidPayload(
             "amount must be positive".to_string(),
+        ));
+    }
+    let reason = body.notes.as_deref().map(str::trim).unwrap_or_default();
+    if reason.len() < 12 {
+        return Err(GiftCardError::InvalidPayload(
+            "reason must be at least 12 characters for a manual loyalty load".to_string(),
         ));
     }
     let mut tx = state.db.begin().await?;
@@ -392,7 +446,8 @@ async fn issue_loyalty_load(
             customer_id: body.customer_id,
             session_id: body.session_id,
             transaction_id: body.transaction_id,
-            notes: body.notes.as_deref(),
+            staff_id: Some(staff.id),
+            notes: Some(reason),
             promo_event_name: None,
         },
     )
@@ -421,7 +476,7 @@ async fn issue_donated(
     headers: HeaderMap,
     Json(body): Json<IssueDonatedRequest>,
 ) -> Result<Json<GiftCardRow>, GiftCardError> {
-    require_gift_cards_manage(&state, &headers).await?;
+    let staff = require_gift_cards_manage(&state, &headers).await?;
     let code = gift_card_ops::normalize_gift_card_code(&body.code);
     if code.is_empty() {
         return Err(GiftCardError::InvalidPayload(
@@ -431,6 +486,12 @@ async fn issue_donated(
     if body.amount <= Decimal::ZERO {
         return Err(GiftCardError::InvalidPayload(
             "amount must be positive".to_string(),
+        ));
+    }
+    let reason = body.notes.as_deref().map(str::trim).unwrap_or_default();
+    if reason.len() < 12 {
+        return Err(GiftCardError::InvalidPayload(
+            "approval or donation reason must be at least 12 characters".to_string(),
         ));
     }
     let mut tx = state.db.begin().await?;
@@ -443,7 +504,8 @@ async fn issue_donated(
             customer_id: body.customer_id,
             session_id: None,
             transaction_id: None,
-            notes: body.notes.as_deref(),
+            staff_id: Some(staff.id),
+            notes: Some(reason),
             promo_event_name: None,
         },
     )
@@ -473,7 +535,7 @@ async fn issue_promo(
     headers: HeaderMap,
     Json(body): Json<IssuePromoRequest>,
 ) -> Result<Json<GiftCardRow>, GiftCardError> {
-    require_gift_cards_manage(&state, &headers).await?;
+    let staff = require_gift_cards_manage(&state, &headers).await?;
     let code = gift_card_ops::normalize_gift_card_code(&body.code);
     let event_name = body.event_name.trim().to_string();
     if code.is_empty() {
@@ -503,6 +565,7 @@ async fn issue_promo(
             customer_id: body.customer_id,
             session_id: None,
             transaction_id: None,
+            staff_id: Some(staff.id),
             notes: body.notes.as_deref().or(Some(promo_note.as_str())),
             promo_event_name: Some(&event_name),
         },
@@ -580,6 +643,8 @@ pub struct GiftCardEvent {
     pub amount: Decimal,
     pub balance_after: Decimal,
     pub transaction_id: Option<Uuid>,
+    pub staff_id: Option<Uuid>,
+    pub staff_name: Option<String>,
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -592,10 +657,13 @@ async fn get_card_events(
     require_gift_cards_manage(&state, &headers).await?;
     let rows = sqlx::query_as::<_, GiftCardEvent>(
         r#"
-        SELECT id, event_kind, amount, balance_after, transaction_id, notes, created_at
-        FROM gift_card_events
-        WHERE gift_card_id = $1
-        ORDER BY created_at DESC
+        SELECT
+            gce.id, gce.event_kind, gce.amount, gce.balance_after, gce.transaction_id,
+            gce.staff_id, s.full_name AS staff_name, gce.notes, gce.created_at
+        FROM gift_card_events gce
+        LEFT JOIN staff s ON s.id = gce.staff_id
+        WHERE gce.gift_card_id = $1
+        ORDER BY gce.created_at DESC
         "#,
     )
     .bind(id)
@@ -620,10 +688,13 @@ async fn get_gift_card_events_by_code(
     };
     let rows = sqlx::query_as::<_, GiftCardEvent>(
         r#"
-        SELECT id, event_kind, amount, balance_after, transaction_id, notes, created_at
-        FROM gift_card_events
-        WHERE gift_card_id = $1
-        ORDER BY created_at DESC
+        SELECT
+            gce.id, gce.event_kind, gce.amount, gce.balance_after, gce.transaction_id,
+            gce.staff_id, s.full_name AS staff_name, gce.notes, gce.created_at
+        FROM gift_card_events gce
+        LEFT JOIN staff s ON s.id = gce.staff_id
+        WHERE gce.gift_card_id = $1
+        ORDER BY gce.created_at DESC
         LIMIT 300
         "#,
     )
@@ -661,6 +732,7 @@ async fn get_card_row(pool: &sqlx::PgPool, id: Uuid) -> Result<Json<GiftCardRow>
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_gift_cards))
+        .route("/page", get(list_gift_cards_page))
         .route("/summary", get(get_gift_card_summary))
         .route("/open", get(list_gift_cards_open))
         .route("/code/{code}/events", get(get_gift_card_events_by_code))

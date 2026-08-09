@@ -5,6 +5,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
+use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -13,6 +14,7 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::SETTINGS_ADMIN;
+use crate::auth::pins::log_staff_access;
 use crate::logic::counterpoint_paid_price_repair::{
     apply_counterpoint_paid_price_repairs, preview_counterpoint_paid_price_repairs,
 };
@@ -49,7 +51,8 @@ use crate::logic::counterpoint_sync::{
     CounterpointBarcodeAliasPreflightPayload, CounterpointCatalogPayload,
     CounterpointCategoryMastersPayload, CounterpointCustomerNotesPayload,
     CounterpointCustomersPayload, CounterpointFidelityDiagnosticPayload,
-    CounterpointGiftCardsPayload, CounterpointImportPreflightPayload,
+    CounterpointGiftCardMetadataRepairMode, CounterpointGiftCardMetadataRepairRequest,
+    CounterpointGiftCardRow, CounterpointGiftCardsPayload, CounterpointImportPreflightPayload,
     CounterpointImportRunCompletePayload, CounterpointImportRunStartPayload,
     CounterpointInventoryPayload, CounterpointLoyaltyHistPayload,
     CounterpointNormalizationPreviewPayload, CounterpointOpenDocsPayload,
@@ -63,6 +66,7 @@ use crate::middleware;
 const STALE_STAGING_APPLY_AFTER_MINUTES: i32 = 15;
 const MAX_COUNTERPOINT_INGEST_BATCH_RECORDS: usize = 2_000;
 const COUNTERPOINT_SYNC_TOKEN_HEADER: &str = "x-ros-sync-token";
+const GIFT_CARD_METADATA_REPAIR_CONFIRMATION: &str = "APPLY COUNTERPOINT GIFT CARD METADATA REPAIR";
 
 const VALID_GIFT_CARD_KINDS: [&str; 4] = [
     "purchased",
@@ -1963,6 +1967,149 @@ async fn settings_transaction_reconciliation_apply(
     Ok(Json(json!(result)))
 }
 
+#[derive(Deserialize)]
+struct CounterpointGiftCardMetadataRepairSource {
+    rows: Vec<CounterpointGiftCardRow>,
+    source_cards: i32,
+    source_balance: Decimal,
+}
+
+#[derive(Deserialize)]
+struct CounterpointGiftCardMetadataRepairApplyBody {
+    rows: Vec<CounterpointGiftCardRow>,
+    source_cards: i32,
+    source_balance: Decimal,
+    confirmation_phrase: String,
+    reason: String,
+}
+
+fn gift_card_metadata_repair_payload(
+    rows: Vec<CounterpointGiftCardRow>,
+    source_cards: i32,
+    source_balance: Decimal,
+    mode: CounterpointGiftCardMetadataRepairMode,
+) -> CounterpointGiftCardsPayload {
+    CounterpointGiftCardsPayload {
+        rows,
+        sync: None,
+        metadata_repair: Some(CounterpointGiftCardMetadataRepairRequest {
+            mode,
+            source_cards,
+            source_balance,
+        }),
+    }
+}
+
+async fn settings_gift_card_metadata_repair_preview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CounterpointGiftCardMetadataRepairSource>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    validate_ingest_batch_size(body.rows.len())?;
+
+    let result = execute_counterpoint_gift_card_batch(
+        &state.db,
+        gift_card_metadata_repair_payload(
+            body.rows,
+            body.source_cards,
+            body.source_balance,
+            CounterpointGiftCardMetadataRepairMode::Preview,
+        ),
+    )
+    .await
+    .map_err(cp_err)?;
+
+    Ok(Json(json!({
+        "summary": result,
+        "confirmation_phrase": GIFT_CARD_METADATA_REPAIR_CONFIRMATION,
+    })))
+}
+
+async fn settings_gift_card_metadata_repair_apply(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CounterpointGiftCardMetadataRepairApplyBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    validate_ingest_batch_size(body.rows.len())?;
+    if body.confirmation_phrase.trim() != GIFT_CARD_METADATA_REPAIR_CONFIRMATION {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!(
+                    "confirmation_phrase must exactly match: {GIFT_CARD_METADATA_REPAIR_CONFIRMATION}"
+                )
+            })),
+        ));
+    }
+    let reason = body.reason.trim();
+    if reason.len() < 12 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "reason must be at least 12 characters" })),
+        ));
+    }
+
+    log_staff_access(
+        &state.db,
+        staff.id,
+        "counterpoint_gift_card_metadata_repair_requested",
+        json!({
+            "source_cards": body.source_cards,
+            "source_balance": body.source_balance,
+            "reason": reason,
+        }),
+    )
+    .await
+    .map_err(|error| cp_err(CounterpointSyncError::Database(error)))?;
+
+    let result = execute_counterpoint_gift_card_batch(
+        &state.db,
+        gift_card_metadata_repair_payload(
+            body.rows,
+            body.source_cards,
+            body.source_balance,
+            CounterpointGiftCardMetadataRepairMode::Apply,
+        ),
+    )
+    .await
+    .map_err(cp_err)?;
+    let repair = result.metadata_repair.as_ref();
+
+    let _ = log_staff_access(
+        &state.db,
+        staff.id,
+        "counterpoint_gift_card_metadata_repair_applied",
+        json!({
+            "source_cards": body.source_cards,
+            "source_balance": body.source_balance,
+            "updated": result.updated,
+            "purchased": repair.map(|summary| summary.purchased),
+            "loyalty": repair.map(|summary| summary.loyalty),
+            "donated": repair.map(|summary| summary.donated),
+            "promo": repair.map(|summary| summary.promo),
+            "would_expire_cards": repair.map(|summary| summary.would_expire_cards),
+            "would_expire_balance": repair.map(|summary| summary.would_expire_balance),
+            "reason": reason,
+        }),
+    )
+    .await;
+    tracing::warn!(
+        staff_id = %staff.id,
+        source_cards = body.source_cards,
+        source_balance = %body.source_balance,
+        updated = result.updated,
+        "reviewed Counterpoint gift-card metadata repair applied"
+    );
+
+    Ok(Json(json!(result)))
+}
+
 async fn settings_open_docs_verification(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2128,6 +2275,14 @@ pub fn settings_router() -> Router<AppState> {
         .route(
             "/transaction-reconciliation/repair",
             post(settings_transaction_reconciliation_apply),
+        )
+        .route(
+            "/gift-card-metadata-repair/preview",
+            post(settings_gift_card_metadata_repair_preview),
+        )
+        .route(
+            "/gift-card-metadata-repair/apply",
+            post(settings_gift_card_metadata_repair_apply),
         )
         .route(
             "/financial-integrity/paid-price-repair-preview",

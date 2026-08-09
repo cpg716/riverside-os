@@ -50,6 +50,8 @@ These are explicit accounts used by global financial logic:
 - **Shipping Expense**: Map to your outbound shipping freight account.
 - **Receiving clearing**: Map `INV_RECEIVING_CLEARING` before relying on receiving or freight journal rows. This is the receiving-clearing role used for same-day received merchandise and inbound freight distributions; inbound freight stays separate and is not added into item cost.
 - **Deposit liability**: Map `liability_deposit` before posting layaway, wedding/order deposit, open-deposit, or fulfillment-release days. Direct layaway cash/card deposits credit this liability on the payment date; fulfillment later debits the same liability when revenue is recognized.
+- **Loyalty / Promo gift card expense**: Map `expense_loyalty` for store-funded loyalty and promotional card redemptions.
+- **Donated gift card expense**: Map `expense_donated` to the account approved in your chart for donated-card expense. Donated cards never use purchased-card liability or the loyalty/promo expense mapping.
 - **Gift Card Breakage Income**: Map expired purchased-card breakage separately from normal sales revenue.
 - **Backdated sale clearing**: Map `BACKDATED_SALE_CLEARING` to a dedicated clearing account before approving a journal containing a manager-approved backdated sale. Do not map it to revenue, a bank account, or merchant fees; Riverside uses it to connect the actual tender day with the backdated business-day revenue or deposit-liability entry.
 

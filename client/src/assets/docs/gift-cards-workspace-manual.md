@@ -27,9 +27,10 @@ Gift Cards Workspace is the Back Office surface for looking up cards, reviewing 
 
 1. Look up the card or choose the approved issue workflow.
 2. Confirm the card subtype before issuing or reviewing activity.
-3. Review balance and history before taking action.
+3. Review balance and history before taking action. ROS-created Loyalty and Donated activity identifies the issuing staff member when that identity is available.
 4. Use checkout for redemption.
 5. Scan card codes where possible; Riverside normalizes scanned codes to uppercase.
+6. Use **Previous** and **Next** beneath Card Inventory to review every matching card. The range above the controls shows the current rows and the complete filtered total.
 
 ## Gift card types
 
@@ -42,11 +43,13 @@ Riverside OS tracks gift card subtype because accounting treatment differs.
 
 Loyalty, Donated, and Promo cards expire one calendar year after issue. The inventory list shows **Expired** when that date has passed, even though the retained audit status remains active until the card is reused, depleted, or voided.
 
+Card Inventory loads 100 records at a time for a responsive workspace. Its total and page controls come from the complete PostgreSQL result set, so a store with more than 100 cards can review every matching page without changing the summary count.
+
 ## Issue a card
 
 Use the correct issue workflow for the card type. Do not use a purchased card path for a donation, loyalty reward, or promotion.
 
-Promo and donated cards should only be issued when the store has approved the reason.
+Promo and donated cards should only be issued when the store has approved the reason. Donated issuance requires the approval or donation reason so the event remains explainable to accounting.
 
 Depleted loyalty, donated, and promo cards can be reused with the matching issue workflow. The card keeps its full event history. If a non-liability card expired with remaining balance, Riverside closes the expired value before assigning the new value.
 
@@ -56,7 +59,7 @@ Gift card redemption happens in checkout. After staff scan or enter the card, Ri
 
 ## QBO evidence
 
-QBO proposals keep gift card subtype evidence clear. Sold / Purchased, Loyalty, Donated, and Promo gift cards follow their intended accounting path.
+QBO proposals keep gift card subtype evidence clear. Sold / Purchased cards relieve gift-card liability, Loyalty and Promo cards use the configured loyalty/promo expense, and Donated cards use the separately configured donated gift-card expense.
 
 ## Operational detail
 

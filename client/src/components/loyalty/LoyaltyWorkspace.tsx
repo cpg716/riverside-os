@@ -54,12 +54,16 @@ function summaryValueSize(value: string): string {
 }
 
 interface RewardFulfillmentRow {
-  reward_id: string;
+  id: string;
   customer_id: string;
-  customer_name: string;
   reward_amount: string;
-  fulfillment_date: string;
+  created_at: string;
   card_code?: string;
+  card_kind?: string;
+  is_liability?: boolean;
+  expires_at?: string;
+  issued_by_staff_id?: string;
+  issued_by_staff_name?: string;
   first_name?: string;
   last_name?: string;
   customer_code?: string;
@@ -68,9 +72,7 @@ interface RewardFulfillmentRow {
   state?: string;
   zip?: string;
   loyalty_points?: number;
-  created_at?: string;
   points_deducted?: number;
-  id?: string;
 }
 
 interface LoyaltyLedgerEntry {
@@ -169,17 +171,13 @@ async function printLoyaltyLetter(
   context: LoyaltyLetterContext = {},
 ): Promise<void> {
   const fallbackIssueDate =
-    "fulfillment_date" in customer && customer.fulfillment_date
-      ? formatLetterDate(new Date(customer.fulfillment_date))
-      : "created_at" in customer && customer.created_at
-        ? formatLetterDate(new Date(customer.created_at))
-        : formatLetterDate(new Date());
+    "created_at" in customer && customer.created_at
+      ? formatLetterDate(new Date(customer.created_at))
+      : formatLetterDate(new Date());
   const fallbackExpirationDate =
-    "fulfillment_date" in customer && customer.fulfillment_date
-      ? formatLetterDate(addOneYear(new Date(customer.fulfillment_date)))
-      : "created_at" in customer && customer.created_at
-        ? formatLetterDate(addOneYear(new Date(customer.created_at)))
-        : formatLetterDate(addOneYear(new Date()));
+    "created_at" in customer && customer.created_at
+      ? formatLetterDate(addOneYear(new Date(customer.created_at)))
+      : formatLetterDate(addOneYear(new Date()));
   const cards =
     context.cards && context.cards.length > 0
       ? context.cards
@@ -784,14 +782,30 @@ function LoyaltyBatchRedeemDialog({
         new_balance?: number;
         points_deducted?: number;
         remainder_loaded?: string | number;
+        reward_card_code?: string;
+        reward_card_issued_at?: string;
+        reward_card_expires_at?: string;
+        reward_card_kind?: string;
+        reward_card_is_liability?: boolean;
       };
       if (!res.ok) {
         throw new Error(data.error ?? "Reward card could not be issued.");
       }
+      if (
+        data.reward_card_code !== cardCode.trim().toUpperCase()
+        || data.reward_card_kind !== "loyalty_reward"
+        || data.reward_card_is_liability !== false
+      ) {
+        throw new Error("The reward card did not retain its required loyalty classification.");
+      }
+      const issuedOn = new Date(data.reward_card_issued_at ?? "");
+      const expiresOn = new Date(data.reward_card_expires_at ?? "");
+      if (Number.isNaN(issuedOn.getTime()) || Number.isNaN(expiresOn.getTime())) {
+        throw new Error("The server did not return the saved reward-card expiration.");
+      }
       const rewardAmount = centsToFixed2(parseMoneyToCents(data.remainder_loaded ?? singleRewardAmount));
-      const issuedOn = new Date();
       const issueDate = formatLetterDate(issuedOn);
-      const expirationDate = formatLetterDate(addOneYear(issuedOn));
+      const expirationDate = formatLetterDate(expiresOn);
       const issuedRow: BatchIssuedReward = {
         customer: current,
         card_code: cardCode.trim().toUpperCase(),
@@ -1427,7 +1441,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
           <div className="flex flex-col gap-3">
             {issuances.map(row => (
               <div
-                key={row.reward_id}
+                key={row.id}
                 data-testid="loyalty-history-row"
                 className="group flex flex-col gap-4 rounded-[24px] border border-app-border bg-app-surface p-5 transition-all duration-500 hover:border-app-accent/20 hover:shadow-[0_16px_32px_rgba(15,23,42,0.08),0_4px_10px_rgba(15,23,42,0.05)] lg:flex-row lg:items-center lg:gap-0"
               >
@@ -1442,7 +1456,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                            {row.first_name} {row.last_name}
                          </span>
 	                         <span className="mt-0.5 text-xs font-semibold text-app-text-muted opacity-70">
-                            {row.fulfillment_date ? new Date(row.fulfillment_date).toLocaleDateString() : 'N/A'} at {row.fulfillment_date ? new Date(row.fulfillment_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                            {new Date(row.created_at).toLocaleDateString()} at {new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                          </span>
                       </div>
                     </div>
@@ -1468,7 +1482,10 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                             {row.card_code}
                           </code>
                        </div>
-	                       <span className="ml-6 text-xs font-semibold text-app-text-muted opacity-70">Reward card issued</span>
+	                       <span className="ml-6 text-xs font-semibold text-app-text-muted opacity-70">
+                          Expires {row.expires_at ? new Date(row.expires_at).toLocaleDateString() : "not recorded"}
+                          {row.issued_by_staff_name ? ` · ${row.issued_by_staff_name}` : ""}
+                        </span>
                     </div>
                   ) : (
                     <div className="flex flex-col gap-1">
@@ -1490,7 +1507,20 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                      {row.card_code && (
                        <button
                          type="button"
-                         onClick={() => { if (template) void printLoyaltyLetter(row, template, centsToFixed2(parseMoneyToCents(row.reward_amount))); }}
+                         onClick={() => {
+                           if (!template) return;
+                           void printLoyaltyLetter(
+                             row,
+                             template,
+                             centsToFixed2(parseMoneyToCents(row.reward_amount)),
+                             {
+                               issueDate: formatLetterDate(new Date(row.created_at)),
+                               expirationDate: row.expires_at
+                                 ? formatLetterDate(new Date(row.expires_at))
+                                 : undefined,
+                             },
+                           );
+                         }}
                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-surface-2 border border-app-border text-purple-600 hover:border-purple-300 hover:shadow-lg transition-all"
                          title="Print Award Letter"
                        >

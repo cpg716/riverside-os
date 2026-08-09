@@ -166,6 +166,20 @@ Per-customer Transaction Record list (not a directory search). **`WHERE customer
 
 ---
 
+## Gift Cards — complete filtered inventory
+
+`GET /api/gift-cards/page` applies card kind, status, open-only, and literal search filters in PostgreSQL before returning a bounded page and the complete filtered total. The legacy `GET /api/gift-cards` array response remains available for compatible callers.
+
+| Param | Notes |
+|-------|--------|
+| `search`, `kind`, `status`, `open_only`, `sort` | Same SQL-backed filters and stable ordering as the legacy Gift Card inventory endpoint |
+| `limit` | Default **100**, clamped to **1–200** |
+| `offset` | Default **0**; negative values become **0** |
+
+**Client:** `GiftCardsWorkspace.tsx` requests 100 rows at a time, shows the current range against `total`, resets to page one when a filter changes, and exposes **Previous** / **Next** controls on mobile and desktop. `/api/gift-cards/summary` remains an all-record summary and is not used as a page total.
+
+---
+
 ## Implementation pointers
 
 | Area | Server | Client |
@@ -176,6 +190,7 @@ Per-customer Transaction Record list (not a directory search). **`WHERE customer
 | Wedding party directory | `server/src/logic/wedding_queries.rs`, `server/src/api/weddings.rs` | Embedded Wedding Manager + APIs using party list **`search`** |
 | Orders and Transaction Records list (BO) | `server/src/logic/transaction_list.rs`, `server/src/api/transactions.rs` | `OrdersWorkspace.tsx` |
 | RMS charge list | `server/src/api/customers.rs` — RMS charge handler + optional **`q`** | `RmsChargeAdminSection.tsx` |
+| Gift Card inventory | `server/src/api/gift_cards.rs` — `list_gift_cards_page` | `GiftCardsWorkspace.tsx` |
 | Meilisearch ops | `logic/meilisearch_sync.rs` — `reindex_all_meilisearch`; **`GET`/`POST /api/settings/meilisearch/*`** — `settings.rs` | **Settings → Integrations → Meilisearch**; **`scripts/ros-meilisearch-reindex-local.sh`** |
 | Customer transaction history | `server/src/logic/customer_transaction_history.rs`, `customers.rs` — `get_customer_transaction_history` (**`orders.view`** or POS session) | `CustomerRelationshipHubDrawer.tsx` (**Transactions** tab) |
 

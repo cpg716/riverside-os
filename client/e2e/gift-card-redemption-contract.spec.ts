@@ -7,6 +7,9 @@ type GiftCardLookup = {
   code: string;
   card_kind: string;
   current_balance: string;
+  is_liability: boolean;
+  expires_at: string;
+  created_at: string;
 };
 
 type CheckoutResponse = {
@@ -20,6 +23,8 @@ type TransactionDetail = {
 type GiftCardEvent = {
   event_kind: string;
   balance_after: string;
+  staff_id: string | null;
+  staff_name: string | null;
 };
 
 type ControlBoardRow = {
@@ -64,7 +69,7 @@ async function issueGiftCard(
   kind: "purchased" | "donated",
   code: string,
   amount: string,
-) {
+): Promise<GiftCardLookup> {
   const endpoint = kind === "purchased" ? "pos-load-purchased" : "issue-donated";
   const res = await request.post(`${apiBase()}/api/gift-cards/${endpoint}`, {
     headers: {
@@ -75,10 +80,12 @@ async function issueGiftCard(
     data: {
       code,
       amount,
+      notes: kind === "donated" ? "Approved donation for E2E accounting test" : undefined,
     },
     failOnStatusCode: false,
   });
   expect(res.status()).toBe(200);
+  return (await res.json()) as GiftCardLookup;
 }
 
 async function lookupGiftCard(
@@ -254,7 +261,19 @@ test.describe("Gift card redemption accounting contract", () => {
     const fixture = await seedRmsFixture(request, "single_valid", "Gift Card Donated");
     const redeemCode = `GC-DONATED-${Date.now()}`;
 
-    await issueGiftCard(request, "donated", redeemCode, "500.00");
+    const issuedCard = await issueGiftCard(request, "donated", redeemCode, "500.00");
+    expect(issuedCard.card_kind).toBe("donated_giveaway");
+    expect(issuedCard.is_liability).toBe(false);
+    const expectedExpiration = new Date(issuedCard.created_at);
+    expectedExpiration.setUTCFullYear(expectedExpiration.getUTCFullYear() + 1);
+    expect(
+      Math.abs(new Date(issuedCard.expires_at).getTime() - expectedExpiration.getTime()),
+    ).toBeLessThan(5_000);
+
+    const issueEvents = await lookupGiftCardEvents(request, redeemCode);
+    expect(issueEvents[0]?.event_kind).toBe("issued");
+    expect(issueEvents[0]?.staff_id).toBe(operatorStaffId);
+    expect(issueEvents[0]?.staff_name).toBeTruthy();
 
     const checkoutRes = await checkoutGiftCardRedemption(
       request,

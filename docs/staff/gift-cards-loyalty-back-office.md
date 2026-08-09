@@ -27,15 +27,16 @@ Gift card codes are normalized to uppercase for scanner workflows. Reusing a dep
 1. **Gift Cards** → **Card Inventory**.
 2. Search by **full code**, **last four**, or customer link if the UI exposes it.
 3. Select a row to read **initial value**, **remaining balance**, **status**, **customer link**, and **recent activity**.
-4. Use the activity panel to confirm whether the card was **issued**, **loaded**, **used at checkout**, **refunded to card**, or **voided**.
+4. Use the activity panel to confirm whether the card was **issued**, **loaded**, **used at checkout**, **refunded to card**, or **voided**. ROS-created Loyalty and Donated issue/load events show the acting staff member.
 5. **Void** only with written SOP — it changes **liability** and may need accounting notice.
+6. Use **Previous** and **Next** beneath the inventory to review every matching card. Riverside shows 100 cards per page and displays the complete filtered total, so the summary and inventory range remain reconcilable.
 
 ### Issue Donated
 
 **Purpose:** Marketing or charity issuance — usually manager-approved.
 
 1. **Gift Cards** → **Issue Donated**.
-2. Complete fields; add **reason** in notes if the form supports it.
+2. Complete fields and enter the required **approval / donation reason** (at least 12 characters).
 3. File any **paper approval** your finance team requires.
 4. If the code was previously depleted, Riverside reactivates the same card record and keeps prior history. If it had an expired non-liability balance, Riverside closes the expired balance before loading the new approved value.
 
@@ -63,7 +64,7 @@ Gift card codes are normalized to uppercase for scanner workflows. Reusing a dep
 3. Confirm each row's visible reward count, dollar value, and points-per-reward threshold before starting fulfillment.
 4. Click **Start Batch**.
 5. For each customer, scan one loyalty gift card per reward block. With the standard 5,000-point / $50 program, a customer with 15,000 points gets three separate $50 gift cards.
-6. ROS prints one award letter after the customer has no more reward blocks available. The letter can include the issue date, one-year expiration date, card count, card codes, and card table from the template.
+6. ROS prints one award letter after the customer has no more reward blocks available. The issue and one-year expiration dates come from the saved server card record; the letter can include those dates, card count, card codes, and card table from the template.
 7. When the batch is complete, print the mailing labels for the completed customers.
 8. Open **Reward History** if you need to reprint an award letter or an individual mailing label.
 
@@ -94,7 +95,7 @@ Gift card codes are normalized to uppercase for scanner workflows. Reusing a dep
 
 If POS cannot verify a gift card, check the card record in Back Office first. Sold / Purchased cards are purchased or reloaded from **Register**. Loyalty, Donated, and Promo cards keep their own classification, expiration, reporting, and accounting evidence when redeemed.
 
-Expired purchased-card balances post to gift card breakage during QBO proposal generation. Loyalty, donated, and promo cards expire after one year but do not create purchased-card breakage because they are not customer-paid liabilities.
+Expired purchased-card balances post to gift card breakage during QBO proposal generation. Loyalty, donated, and promo cards expire after one year but do not create purchased-card breakage because they are not customer-paid liabilities. Loyalty/Promo redemptions use `expense_loyalty`; Donated redemptions use the separately configured `expense_donated` account.
 
 ## Helping a coworker
 

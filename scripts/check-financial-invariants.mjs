@@ -451,6 +451,8 @@ function checkLiabilityAndRecognitionSource() {
     "Purchased gift card liability issued",
     "Gift card redemption (liability)",
     "Gift card redemption (loyalty/promo expense)",
+    "Gift card redemption (donated expense)",
+    '"expense_donated"',
     "Store credit redemption (liability)",
     "Open deposit redemption (liability)",
     "Deposit release —",

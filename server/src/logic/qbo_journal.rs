@@ -48,8 +48,12 @@ fn tender_relieves_refund_liability(amount: Decimal, rms_collection: Option<bool
 fn gift_card_uses_loyalty_expense(sub_type: Option<&str>) -> bool {
     matches!(
         sub_type.map(str::trim),
-        Some("loyalty_giveaway") | Some("donated_giveaway") | Some("promo_gift_card")
+        Some("loyalty_giveaway") | Some("promo_gift_card")
     )
+}
+
+fn gift_card_uses_donated_expense(sub_type: Option<&str>) -> bool {
+    matches!(sub_type.map(str::trim), Some("donated_giveaway"))
 }
 
 fn gift_card_uses_liability_relief(sub_type: Option<&str>) -> bool {
@@ -60,12 +64,15 @@ fn gift_card_uses_liability_relief(sub_type: Option<&str>) -> bool {
 enum GiftCardAccountingRoute {
     LiabilityRelief,
     LoyaltyExpense,
+    DonatedExpense,
     MissingOrUnknown,
 }
 
 fn gift_card_accounting_route(sub_type: Option<&str>) -> GiftCardAccountingRoute {
     if gift_card_uses_liability_relief(sub_type) {
         GiftCardAccountingRoute::LiabilityRelief
+    } else if gift_card_uses_donated_expense(sub_type) {
+        GiftCardAccountingRoute::DonatedExpense
     } else if gift_card_uses_loyalty_expense(sub_type) {
         GiftCardAccountingRoute::LoyaltyExpense
     } else {
@@ -322,7 +329,7 @@ pub async fn propose_daily_journal(
             .await?;
     let mut warnings: Vec<String> = vec![
         format!("Journal uses recognized fulfillment activity on store-local business date {activity_date} ({business_timezone}); shipped orders recognize at label purchase / in-transit / delivered events. Deposit release posts from checkout deposit evidence, including held wedding-deposit redemptions; verify `liability_deposit` + revenue mappings before sync."),
-        "Gift card: purchased-card sales credit `liability_gift_card` / default, purchased-card redemptions debit that liability, and loyalty/donated redemptions debit `expense_loyalty` / default when checkout stores canonical gift card metadata. Unmapped cases fall back to tender mapping.".to_string(),
+        "Gift card: purchased-card sales credit `liability_gift_card` / default, purchased-card redemptions debit that liability, loyalty/promo redemptions debit `expense_loyalty` / default, and donated-card redemptions debit `expense_donated` / default when checkout stores canonical gift card metadata. Missing mappings block that gift-card accounting line for review.".to_string(),
         "Store credit redemptions post as liability relief when mapped. Held wedding deposits remain in deposit liability until the linked sale is fulfilled, then release to revenue; neither is cash/card tender revenue.".to_string(),
         "Customer-charged shipping posts as fulfillment-day shipping income when `income_shipping` / default or `REVENUE_SHIPPING` is mapped.".to_string(),
         "Revenue/COGS/tax for recognized transactions use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate recognition-day nets.".to_string(),
@@ -1045,6 +1052,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         let is_paid_liability_gc =
             gift_card_route == Some(GiftCardAccountingRoute::LiabilityRelief);
         let is_loyalty_gc = gift_card_route == Some(GiftCardAccountingRoute::LoyaltyExpense);
+        let is_donated_gc = gift_card_route == Some(GiftCardAccountingRoute::DonatedExpense);
         let is_rms_financing = is_rms_financing_tender(sid, t.tender_family.as_deref());
         let is_staff_account = is_staff_account_tender(sid, t.tender_family.as_deref());
         let is_rms_collection = rms_payment_collection_flag(t.rms_charge_collection);
@@ -1078,6 +1086,8 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             .await?
         } else if is_loyalty_gc {
             qbo_map_with_default_mapping(pool, "expense_loyalty", "default", None).await?
+        } else if is_donated_gc {
+            qbo_map_with_default_mapping(pool, "expense_donated", "default", None).await?
         } else if is_paid_liability_gc {
             qbo_map_with_default_mapping(pool, "liability_gift_card", "default", None).await?
         } else {
@@ -1114,6 +1124,10 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
                     warnings.push(
                         "Gift card loyalty/promo redemption uses tender mapping — set `expense_loyalty` / default for expense recognition.".to_string(),
                     );
+                } else if is_donated_gc && liability_mapped.is_none() {
+                    warnings.push(
+                        "Donated gift card redemption uses tender mapping — set `expense_donated` / default for donated-card expense recognition.".to_string(),
+                    );
                 } else if is_paid_liability_gc && liability_mapped.is_none() {
                     warnings.push(
                         "Gift card tender uses `tender`/`gift_card` account — set `liability_gift_card` / default for liability relief.".to_string(),
@@ -1125,6 +1139,11 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
                 if is_gift_card && is_loyalty_gc {
                     warnings.push(
                         "Gift card loyalty/promo redemption detected but no `expense_loyalty` / default mapping exists; expense recognition omitted."
+                            .to_string(),
+                    );
+                } else if is_gift_card && is_donated_gc {
+                    warnings.push(
+                        "Donated gift card redemption detected but no `expense_donated` / default mapping exists; donated-card expense recognition omitted."
                             .to_string(),
                     );
                 } else if is_gift_card && is_paid_liability_gc {
@@ -1168,6 +1187,8 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
                 "Store credit redemption reversal (liability)".to_string()
             } else if is_loyalty_gc && liability_mapped.is_some() {
                 "Gift card (refund / reversal) — loyalty/promo expense".to_string()
+            } else if is_donated_gc && liability_mapped.is_some() {
+                "Gift card (refund / reversal) — donated expense".to_string()
             } else if is_paid_liability_gc && liability_mapped.is_some() {
                 "Gift card (refund / reversal) — liability".to_string()
             } else if is_rms_financing {
@@ -1185,6 +1206,8 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             "Store credit redemption (liability)".to_string()
         } else if is_loyalty_gc && liability_mapped.is_some() {
             "Gift card redemption (loyalty/promo expense)".to_string()
+        } else if is_donated_gc && liability_mapped.is_some() {
+            "Gift card redemption (donated expense)".to_string()
         } else if is_paid_liability_gc && liability_mapped.is_some() {
             "Gift card redemption (liability)".to_string()
         } else if is_rms_financing {
@@ -1206,6 +1229,12 @@ AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
                 "payment_method": sid,
                 "source_payment_methods": t.source_payment_methods,
                 "sub_type": t.sub_type,
+                "gift_card_accounting_route": match gift_card_route {
+                    Some(GiftCardAccountingRoute::LiabilityRelief) => Some("liability_relief"),
+                    Some(GiftCardAccountingRoute::LoyaltyExpense) => Some("loyalty_or_promo_expense"),
+                    Some(GiftCardAccountingRoute::DonatedExpense) => Some("donated_expense"),
+                    Some(GiftCardAccountingRoute::MissingOrUnknown) | None => None,
+                },
                 "tender_family": t.tender_family,
                 "rms_charge_collection": t.rms_charge_collection,
                 "liability_relief": (is_open_deposit || is_store_credit || is_paid_liability_gc) && liability_mapped.is_some(),
@@ -2751,10 +2780,12 @@ mod tests {
         assert!(gift_card_uses_liability_relief(Some("paid_liability")));
         assert!(!gift_card_uses_liability_relief(Some("loyalty_giveaway")));
         assert!(gift_card_uses_loyalty_expense(Some("loyalty_giveaway")));
-        assert!(gift_card_uses_loyalty_expense(Some("donated_giveaway")));
+        assert!(!gift_card_uses_loyalty_expense(Some("donated_giveaway")));
         assert!(gift_card_uses_loyalty_expense(Some("promo_gift_card")));
         assert!(!gift_card_uses_loyalty_expense(Some("paid_liability")));
         assert!(!gift_card_uses_loyalty_expense(None));
+        assert!(gift_card_uses_donated_expense(Some("donated_giveaway")));
+        assert!(!gift_card_uses_donated_expense(Some("loyalty_giveaway")));
     }
 
     #[test]
@@ -2769,7 +2800,7 @@ mod tests {
         );
         assert_eq!(
             gift_card_accounting_route(Some("donated_giveaway")),
-            GiftCardAccountingRoute::LoyaltyExpense
+            GiftCardAccountingRoute::DonatedExpense
         );
         assert_eq!(
             gift_card_accounting_route(Some("promo_gift_card")),

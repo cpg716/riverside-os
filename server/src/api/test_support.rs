@@ -1310,6 +1310,7 @@ async fn post_seed_qbo_tax_mapping(
             ('E2E_STORE_CREDIT_LIABILITY', 'E2E Store Credit Liability', 'Other Current Liability', 'E2E-2300', true),
             ('E2E_GIFT_CARD_LIABILITY', 'E2E Gift Card Liability', 'Other Current Liability', 'E2E-2400', true),
             ('E2E_LOYALTY_EXPENSE', 'E2E Loyalty and Promotion Expense', 'Expense', 'E2E-5100', true),
+            ('E2E_DONATED_EXPENSE', 'E2E Donated Gift Card Expense', 'Expense', 'E2E-5110', true),
             ('E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', 'Income', 'E2E-4050', true),
             ('E2E_REFUND_LIABILITY_CLEARING', 'E2E Refund Liability Clearing', 'Other Current Liability', 'E2E-2500', true)
         ON CONFLICT (id) DO UPDATE
@@ -1334,6 +1335,7 @@ async fn post_seed_qbo_tax_mapping(
             ('liability_store_credit', 'default', 'E2E_STORE_CREDIT_LIABILITY', 'E2E Store Credit Liability', CURRENT_TIMESTAMP),
             ('liability_gift_card', 'default', 'E2E_GIFT_CARD_LIABILITY', 'E2E Gift Card Liability', CURRENT_TIMESTAMP),
             ('expense_loyalty', 'default', 'E2E_LOYALTY_EXPENSE', 'E2E Loyalty and Promotion Expense', CURRENT_TIMESTAMP),
+            ('expense_donated', 'default', 'E2E_DONATED_EXPENSE', 'E2E Donated Gift Card Expense', CURRENT_TIMESTAMP),
             ('income_forfeited_deposit', 'default', 'E2E_FORFEITED_DEPOSIT', 'E2E Forfeited Deposit Income', CURRENT_TIMESTAMP),
             ('liability_refund_queue', 'default', 'E2E_REFUND_LIABILITY_CLEARING', 'E2E Refund Liability Clearing', CURRENT_TIMESTAMP)
         ON CONFLICT (source_type, source_id) DO UPDATE

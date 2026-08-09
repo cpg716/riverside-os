@@ -26,7 +26,7 @@ This document is the source policy for release-gated financial checks. If a work
 5. Tender and liability movement are separate from revenue.
    - Cash, check, cards, store credit, open deposit, RMS, and gift card tenders are payment movement.
    - Purchased gift-card sales create liability, not revenue.
-   - Paid gift-card redemption relieves liability. Loyalty, donated, or promo gift-card redemption posts to the configured promotional expense path.
+   - Paid gift-card redemption relieves liability. Loyalty/Promo redemption posts to configured `expense_loyalty`; Donated redemption posts to separately configured `expense_donated`.
    - Store credit and open deposit redemption relieve their liabilities, not cash/card tender revenue.
 
 6. Wedding program economics must remain auditable.

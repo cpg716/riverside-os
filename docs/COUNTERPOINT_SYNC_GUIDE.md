@@ -423,6 +423,8 @@ Loyalty, Donated, and Promo cards always use one calendar year from `ORIG_DAT`; 
 
 **Imported-card metadata repair:** The repair endpoint has separate `preview` and `apply` modes. Each request declares the complete ROS-matched Counterpoint repair-scope count and balance; zero-balance source rows that were never imported stay outside that scope. Apply runs in one database transaction and aborts if a scoped code is duplicated or missing, a balance changed, or the verified totals differ. It updates only `card_kind`, liability classification, issue date, and expiration; it never changes `current_balance`, `original_value`, status, or `gift_card_events`.
 
+For attended Main Hub maintenance, use the staff-authorized `POST /api/settings/counterpoint-sync/gift-card-metadata-repair/preview` and `/apply` routes. They accept the directly queried Counterpoint source rows and do not depend on the bridge process or its machine token. Apply additionally requires the confirmation phrase returned by preview and a written reason, and records the requesting staff member. The machine-authenticated `/api/sync/counterpoint/gift-cards` route remains for unattended bridge imports.
+
 **Gift card history:** Historical gift card activity is not imported for cutover. If ticket gift rows are separately enabled later for tender visibility through an expert override, ROS still treats gift cards as current balance snapshots and does not decrement `gift_cards.current_balance`.
 
 **Cutover proof:** After the gift-card runtime mapping posts card masters, the bridge sends the Counterpoint source card count and current-balance sum to ROS. **Landing Verification** compares those source values to `gift_cards` count and `gift_cards.current_balance` sum and shows pass/fail.

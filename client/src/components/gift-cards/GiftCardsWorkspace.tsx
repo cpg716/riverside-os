@@ -9,6 +9,7 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 const BASE = getBaseUrl();
+const GIFT_CARD_PAGE_SIZE = 100;
 
 function summaryValueSize(value: string): string {
   if (value.length >= 10) return "text-[1.2rem] sm:text-[1.4rem] xl:text-[1.6rem]";
@@ -40,12 +41,21 @@ interface GiftCardSummary {
   promo_cards_count: number;
 }
 
+interface GiftCardListPage {
+  items: GiftCardRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 interface GiftCardEventRow {
   id: string;
   event_kind: string;
   amount: string;
   balance_after: string;
   transaction_id: string | null;
+  staff_id: string | null;
+  staff_name: string | null;
   notes: string | null;
   created_at: string;
 }
@@ -202,6 +212,7 @@ function SelectedCardPanel({
                     <p className="mt-1 text-[10px] text-app-text-muted">
                       {fmtDateTime(event.created_at)}
                       {event.transaction_id ? ` · sale ${event.transaction_id.slice(0, 8)}…` : ""}
+                      {event.staff_name ? ` · ${event.staff_name}` : ""}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
@@ -251,6 +262,10 @@ function IssueForm({ mode, onDone }: IssueFormProps) {
     if (isPromo && !eventName.trim()) { setErr("Event name is required."); return; }
     const amtCents = parseMoneyToCents(amount);
     if (amtCents <= 0) { setErr("Enter a positive amount."); return; }
+    if (!isPromo && notes.trim().length < 12) {
+      setErr("Enter the approval or donation reason (at least 12 characters).");
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch(`${BASE}/api/gift-cards/${isPromo ? "issue-promo" : "issue-donated"}`, {
@@ -268,7 +283,20 @@ function IssueForm({ mode, onDone }: IssueFormProps) {
         const b = (await res.json()) as { error?: string };
         throw new Error(b.error ?? "Failed to issue card");
       }
-      toast(`${isPromo ? "Promo gift card" : "Gift card"} ${normalizedCode} issued successfully.`, "success");
+      const issuedCard = (await res.json()) as GiftCardRow;
+      const expectedKind = isPromo ? "promo_gift_card" : "donated_giveaway";
+      if (issuedCard.card_kind !== expectedKind || issuedCard.is_liability) {
+        throw new Error("The issued card did not retain its required financial classification.");
+      }
+      const expiresAt = issuedCard.expires_at ? new Date(issuedCard.expires_at) : null;
+      if (!expiresAt || Number.isNaN(expiresAt.getTime())) {
+        throw new Error("The server did not return the saved gift-card expiration.");
+      }
+      const expiresOn = expiresAt.toLocaleDateString();
+      toast(
+        `${isPromo ? "Promo" : "Donated"} gift card ${normalizedCode} issued · expires ${expiresOn}.`,
+        "success",
+      );
       onDone();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
@@ -312,10 +340,14 @@ function IssueForm({ mode, onDone }: IssueFormProps) {
         )}
       </div>
       <label className="block">
-        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Notes (optional)</span>
+        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">
+          {isPromo ? "Notes (optional)" : "Approval / donation reason"}
+        </span>
         <input value={notes} onChange={e => setNotes(e.target.value)} className="ui-input mt-1 w-full" />
       </label>
-      <p className="text-xs text-app-text-muted">1-year expiry · No liability until redeemed.</p>
+      <p className="text-xs text-app-text-muted">
+        1-year expiry · Store-funded, never purchased-card liability · Expense recognized when redeemed.
+      </p>
       <button onClick={submit} disabled={busy} className="ui-btn-primary w-full">
         {busy ? "Issuing…" : "Issue card"}
       </button>
@@ -335,6 +367,8 @@ export default function GiftCardsWorkspace({
   const [cards, setCards] = useState<GiftCardRow[]>([]);
   const [summary, setSummary] = useState<GiftCardSummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const [filterKind, setFilterKind] = useState("");
   const [filterStatus, setFilterStatus] = useState("active");
   /** Matches POS “open” list: positive balance, not expired. */
@@ -362,23 +396,32 @@ export default function GiftCardsWorkspace({
     setLoading(true);
     try {
       const params = new URLSearchParams();
+      params.set("limit", String(GIFT_CARD_PAGE_SIZE));
+      params.set("offset", String(page * GIFT_CARD_PAGE_SIZE));
       if (filterKind) params.set("kind", filterKind);
       if (filterStatus) params.set("status", filterStatus);
       if (openOnly) {
         params.set("open_only", "true");
         params.set("sort", "recent_activity");
       }
-      const res = await fetch(`${BASE}/api/gift-cards?${params}`, {
+      const res = await fetch(`${BASE}/api/gift-cards/page?${params}`, {
         headers: backofficeHeaders(),
       });
-      if (res.ok) setCards((await res.json()) as GiftCardRow[]);
+      if (!res.ok) throw new Error("Gift cards could not be loaded.");
+      const data = (await res.json()) as GiftCardListPage;
+      setCards(data.items);
+      setTotalCount(data.total);
+      if (data.total > 0 && data.items.length === 0 && page > 0) {
+        setPage(Math.max(0, Math.ceil(data.total / GIFT_CARD_PAGE_SIZE) - 1));
+      }
     } catch {
       // Keep workspace mounted during transient API outages.
       setCards([]);
+      setTotalCount(0);
     } finally {
       setLoading(false);
     }
-  }, [filterKind, filterStatus, openOnly, backofficeHeaders]);
+  }, [filterKind, filterStatus, openOnly, page, backofficeHeaders]);
 
   const loadSummary = useCallback(async () => {
     try {
@@ -486,6 +529,9 @@ export default function GiftCardsWorkspace({
     scannedCard?.id === selectedCardId
       ? scannedCard
       : cards.find((card) => card.id === selectedCardId) ?? null;
+  const totalPages = Math.max(1, Math.ceil(totalCount / GIFT_CARD_PAGE_SIZE));
+  const firstShown = totalCount === 0 ? 0 : page * GIFT_CARD_PAGE_SIZE + 1;
+  const lastShown = Math.min(totalCount, page * GIFT_CARD_PAGE_SIZE + cards.length);
 
   if (activeSection === "issue-donated" || activeSection === "issue-promo") {
     return (
@@ -574,7 +620,7 @@ export default function GiftCardsWorkspace({
                 <div>
                   <h1 className="text-base font-black tracking-tight text-app-text">Gift Cards</h1>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted mt-1">
-                    {cards.length} cards shown
+                    Showing {firstShown}–{lastShown} of {totalCount} matching cards
                     {openOnly && filterStatus === "active"
                       ? " · open only · newest activity first"
                       : ""}
@@ -587,7 +633,14 @@ export default function GiftCardsWorkspace({
               </button>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              <select value={filterKind} onChange={e => setFilterKind(e.target.value)} className="ui-input text-xs px-2 py-1.5">
+              <select
+                value={filterKind}
+                onChange={(event) => {
+                  setPage(0);
+                  setFilterKind(event.target.value);
+                }}
+                className="ui-input text-xs px-2 py-1.5"
+              >
                 <option value="">All kinds</option>
                 <option value="purchased">Sold / Purchased</option>
                 <option value="loyalty_reward">Loyalty</option>
@@ -598,6 +651,7 @@ export default function GiftCardsWorkspace({
                 value={filterStatus}
                 onChange={(event) => {
                   const status = event.target.value;
+                  setPage(0);
                   setFilterStatus(status);
                   if (status !== "active") setOpenOnly(false);
                 }}
@@ -616,6 +670,7 @@ export default function GiftCardsWorkspace({
                   checked={openOnly}
                   onChange={(event) => {
                     const checked = event.target.checked;
+                    setPage(0);
                     setOpenOnly(checked);
                     if (checked) setFilterStatus("active");
                   }}
@@ -824,6 +879,37 @@ export default function GiftCardsWorkspace({
           )}
           </div>
         )}
+        {totalCount > 0 ? (
+          <div
+            data-testid="gift-cards-pagination"
+            className="mt-4 flex flex-col gap-3 border-t border-app-border pt-4 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <p className="text-xs font-bold text-app-text-muted">
+              Showing {firstShown}–{lastShown} of {totalCount} matching cards
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="ui-btn-secondary min-h-9 px-3 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={page === 0 || loading}
+                onClick={() => setPage((current) => Math.max(0, current - 1))}
+              >
+                Previous
+              </button>
+              <span className="text-xs font-black text-app-text-muted">
+                Page {page + 1} of {totalPages}
+              </span>
+              <button
+                type="button"
+                className="ui-btn-secondary min-h-9 px-3 text-xs disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={page + 1 >= totalPages || loading}
+                onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
         </div>
       </div>

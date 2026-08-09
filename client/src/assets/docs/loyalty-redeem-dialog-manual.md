@@ -39,6 +39,8 @@ Open this dialog only after the customer appears in the eligible pool and you ar
 4. **Communication**: Select "SMS" or "Email" to automatically notify the customer of their new reward via Podium.
 5. **Finalize**: Click **Issue Loyalty Card**.
 
+Riverside stores the card as **Loyalty**, marks it as non-liability, and sets expiration to one calendar year from the server-recorded issue time. Printed letters and History use that saved expiration rather than recalculating it in the browser.
+
 ## Detailed Field Guide
 
 | Field | Purpose |
@@ -53,7 +55,7 @@ Open this dialog only after the customer appears in the eligible pool and you ar
 - **Couple-linked customers**: If the customer is linked as a couple, the reward is deducted from the shared primary loyalty account and the dialog uses that shared balance.
 
 > [!TIP]
-> After a successful redemption, the customer drops out of the eligible list. Use the **History** tab to confirm the reward card code, then use **Loyalty Activity** if you need to explain the point deduction.
+> After a successful redemption, the customer drops out of the eligible list. Use the **History** tab to confirm the reward card code, expiration, and issuing staff member, then use **Loyalty Activity** if you need to explain the point deduction.
 
 ## What happens next
 

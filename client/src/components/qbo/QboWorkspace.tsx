@@ -150,6 +150,8 @@ function getResolvableMappingKeys(message: string): { key: string; label: string
         results.push({ key, label: "Store Credit Liability", type: "granular", source_type: "liability_store_credit", source_id: "default" });
       } else if (key === "expense_loyalty") {
         results.push({ key, label: "Loyalty/Promo Gift Card Expense", type: "granular", source_type: "expense_loyalty", source_id: "default" });
+      } else if (key === "expense_donated") {
+        results.push({ key, label: "Donated Gift Card Expense", type: "granular", source_type: "expense_donated", source_id: "default" });
       } else if (key === "income_shipping") {
         results.push({ key, label: "Shipping Income (Fulfillment)", type: "granular", source_type: "income_shipping", source_id: "default" });
       } else if (key === "income_forfeited_deposit") {

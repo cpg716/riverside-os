@@ -80,6 +80,9 @@ export function matrixKeyToGranular(
   if (key === "gc_marketing") {
     return { source_type: "expense_loyalty", source_id: "default" };
   }
+  if (key === "gc_donated") {
+    return { source_type: "expense_donated", source_id: "default" };
+  }
   if (key === "deposit_holding") {
     return { source_type: "liability_deposit", source_id: "default" };
   }
@@ -147,6 +150,8 @@ export function granularToMatrixKey(
       return source_id === "default" ? "gc_liability" : null;
     case "expense_loyalty":
       return source_id === "default" ? "gc_marketing" : null;
+    case "expense_donated":
+      return source_id === "default" ? "gc_donated" : null;
     case "liability_deposit":
       return source_id === "default" ? "deposit_holding" : null;
     case "expense_merchant_fee":

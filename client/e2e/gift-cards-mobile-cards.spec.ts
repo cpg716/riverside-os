@@ -29,44 +29,69 @@ for (const viewport of GIFT_CARDS_VIEWPORTS) {
           active_liability_balance: "150.00",
           loyalty_cards_count: 1,
           donated_cards_count: 1,
+          promo_cards_count: 0,
         }),
       });
     });
 
-    await page.route("**/api/gift-cards?**", async (route) => {
+    await page.route("**/api/gift-cards/page?**", async (route) => {
+      const requestUrl = new URL(route.request().url());
+      expect(requestUrl.searchParams.get("limit")).toBe("100");
+      const offset = Number(requestUrl.searchParams.get("offset") ?? "0");
+      const items = offset === 0
+        ? [
+            {
+              id: "gc-1",
+              code: "RW-1001",
+              card_kind: "purchased",
+              card_status: "active",
+              current_balance: "100.00",
+              original_value: "100.00",
+              is_liability: true,
+              expires_at: "2025-01-01",
+              customer_id: "cust-1",
+              customer_name: "Alex Rivera",
+              promo_event_name: null,
+              notes: "Primary card",
+              created_at: "2026-04-26T12:00:00.000Z",
+            },
+            {
+              id: "gc-2",
+              code: "RW-1002",
+              card_kind: "donated_giveaway",
+              card_status: "active",
+              current_balance: "50.00",
+              original_value: "50.00",
+              is_liability: false,
+              expires_at: null,
+              customer_id: null,
+              customer_name: null,
+              promo_event_name: null,
+              notes: null,
+              created_at: "2026-04-26T12:02:00.000Z",
+            },
+          ]
+        : [
+            {
+              id: "gc-101",
+              code: "RW-1101",
+              card_kind: "loyalty_reward",
+              card_status: "active",
+              current_balance: "50.00",
+              original_value: "50.00",
+              is_liability: false,
+              expires_at: "2027-04-26T12:02:00.000Z",
+              customer_id: null,
+              customer_name: null,
+              promo_event_name: null,
+              notes: null,
+              created_at: "2026-04-26T12:02:00.000Z",
+            },
+          ];
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify([
-          {
-            id: "gc-1",
-            code: "RW-1001",
-            card_kind: "purchased",
-            card_status: "active",
-            current_balance: "100.00",
-            original_value: "100.00",
-            is_liability: true,
-            expires_at: "2025-01-01",
-            customer_id: "cust-1",
-            customer_name: "Alex Rivera",
-            notes: "Primary card",
-            created_at: "2026-04-26T12:00:00.000Z",
-          },
-          {
-            id: "gc-2",
-            code: "RW-1002",
-            card_kind: "donated_giveaway",
-            card_status: "active",
-            current_balance: "50.00",
-            original_value: "50.00",
-            is_liability: false,
-            expires_at: null,
-            customer_id: null,
-            customer_name: null,
-            notes: null,
-            created_at: "2026-04-26T12:02:00.000Z",
-          },
-        ]),
+        body: JSON.stringify({ items, total: 101, limit: 100, offset }),
       });
     });
 
@@ -106,5 +131,12 @@ for (const viewport of GIFT_CARDS_VIEWPORTS) {
       await expect(cardTable.getByText("Expired", { exact: true })).toBeVisible();
       await expect(page.getByTestId("gift-cards-card-list")).toHaveCount(0);
     }
+
+    const pagination = page.getByTestId("gift-cards-pagination");
+    await expect(pagination).toContainText("Showing 1–2 of 101 matching cards");
+    await pagination.getByRole("button", { name: "Next" }).click();
+    await expect(page.getByText("RW-1101", { exact: true })).toBeVisible();
+    await expect(pagination).toContainText("Showing 101–101 of 101 matching cards");
+    await expect(pagination).toContainText("Page 2 of 2");
   });
 }
