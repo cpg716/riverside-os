@@ -52,7 +52,7 @@ export default function PosSidebar({
       { id: "payments",     label: "Payments",    icon: getAppIcon(APP_NAV_ICON_NAMES.payments) },
       { id: "reports",      label: "Reports",     icon: getAppIcon(APP_NAV_ICON_NAMES.reports),           permission: "insights.view" },
       { id: "gift-cards",   label: "Gift Cards",  icon: getAppIcon(APP_NAV_ICON_NAMES["gift-cards"]),    permission: "gift_cards.manage" },
-      { id: "loyalty",      label: "Loyalty",     icon: getAppIcon(APP_NAV_ICON_NAMES.loyalty),           permissionsAny: ["loyalty.program_settings", "loyalty.adjust_points"] },
+      { id: "loyalty",      label: "Loyalty",     icon: getAppIcon(APP_NAV_ICON_NAMES.loyalty),           permission: "loyalty.program_settings" },
       { id: "layaways",     label: "Layaways",    icon: getAppIcon(APP_NAV_ICON_NAMES.layaways) },
       { id: "shipping",     label: "Shipping",    icon: getAppIcon(APP_NAV_ICON_NAMES.shipping),          permission: "shipments.view" },
       { id: "settings",     label: "Settings",    icon: getAppIcon(APP_NAV_ICON_NAMES.settings) },

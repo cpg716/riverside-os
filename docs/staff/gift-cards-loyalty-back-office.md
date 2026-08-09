@@ -66,9 +66,11 @@ The dashboard cards show only **open** cards: active status, a positive balance,
 3. Confirm each row's visible reward count, dollar value, and points-per-reward threshold before starting fulfillment.
 4. Click **Start Batch**.
 5. For each customer, scan one loyalty gift card per reward block. With the standard 5,000-point / $50 program, a customer with 15,000 points gets three separate $50 gift cards.
-6. ROS prints one award letter after the customer has no more reward blocks available. The issue and one-year expiration dates come from the saved server card record; the letter can include those dates, card count, card codes, and card table from the template.
-7. When the batch is complete, print the mailing labels for the completed customers.
-8. Open **Reward History** if you need to reprint an award letter or an individual mailing label.
+6. After the cards are issued, use **Print letter** for one customer or **Print all letters** when the batch is complete. A bulk print creates one print job with one letter per customer. Each letter can include the server-saved issue and one-year expiration dates, card count, card codes, and card table.
+7. Use **Print labels** for the completed customers. Riverside removes duplicate customers so a person with multiple reward cards receives one mailing label.
+8. Open **Reward History** to reprint one letter/label, or select multiple issuance rows and use **Print Letters** / **Print Labels** for a group. Selected cards for the same customer are combined into one letter.
+
+If you close a batch after issuing one or more cards, Riverside refreshes eligibility and totals before returning to the workspace. Reopening or retrying the same in-progress card request does not deduct the points or load the card a second time.
 
 ### Adjust Points
 

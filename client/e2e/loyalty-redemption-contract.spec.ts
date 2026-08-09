@@ -11,6 +11,7 @@ import {
 type LoyaltyProgramSummary = {
   loyalty_point_threshold: number;
   loyalty_reward_amount: string | number;
+  points_per_dollar: number;
 };
 
 type LoyaltyLedgerRow = {
@@ -280,6 +281,7 @@ test.describe("Loyalty redemption contract", () => {
     const fixture = await seedRmsFixture(request, "single_valid", "Loyalty Reward");
     const summary = await fetchLoyaltyProgramSummary(request);
     const rewardCode = `LOY-${Date.now()}`;
+    const redemptionRequestId = crypto.randomUUID();
 
     await adjustPoints(
       request,
@@ -288,17 +290,20 @@ test.describe("Loyalty redemption contract", () => {
       "E2E loyalty reward issue",
     );
 
+    const redemptionPayload = {
+      redemption_request_id: redemptionRequestId,
+      customer_id: fixture.customer.id,
+      points_to_redeem: summary.loyalty_point_threshold,
+      apply_to_sale: "0.00",
+      remainder_card_code: rewardCode,
+    };
     const redeemRes = await request.post(`${apiBase()}/api/loyalty/redeem-reward`, {
       headers: {
         "Content-Type": "application/json",
       "x-riverside-station-key": "station-e2e",
         ...staffHeaders(),
       },
-      data: {
-        customer_id: fixture.customer.id,
-        apply_to_sale: "0.00",
-        remainder_card_code: rewardCode,
-      },
+      data: redemptionPayload,
       failOnStatusCode: false,
     });
     expect(redeemRes.status()).toBe(200);
@@ -323,6 +328,18 @@ test.describe("Loyalty redemption contract", () => {
     expect(body.reward_card_is_liability).toBe(false);
     expectOneCalendarYear(body.reward_card_issued_at, body.reward_card_expires_at);
 
+    const retryRes = await request.post(`${apiBase()}/api/loyalty/redeem-reward`, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+        ...staffHeaders(),
+      },
+      data: redemptionPayload,
+      failOnStatusCode: false,
+    });
+    expect(retryRes.status()).toBe(200);
+    expect(await retryRes.json()).toEqual(body);
+
     const card = await lookupGiftCard(request, rewardCode);
     expect(card.card_kind).toBe("loyalty_reward");
     expect(card.is_liability).toBe(false);
@@ -346,6 +363,7 @@ test.describe("Loyalty redemption contract", () => {
     expect(ledger[0]?.activity_detail).toContain("loyalty card");
     expect(ledger[0]?.activity_detail).toContain("••••");
     expect(ledger[0]?.delta_points).toBe(-summary.loyalty_point_threshold);
+    expect(ledger.filter((row) => row.reason === "reward_redemption")).toHaveLength(1);
   });
 
   test("manual loyalty adjustments return operator-friendly history detail", async ({
@@ -369,6 +387,47 @@ test.describe("Loyalty redemption contract", () => {
     expect(ledger[0]?.delta_points).toBe(125);
   });
 
+  test("manual point adjustments require an authenticated loyalty operator", async ({
+    request,
+  }) => {
+    const fixture = await seedRmsFixture(request, "single_valid", "Loyalty Adjust Auth");
+    const managerStaffId = await verifyStaffId(request);
+    const res = await request.post(`${apiBase()}/api/loyalty/adjust-points`, {
+      headers: { "Content-Type": "application/json" },
+      data: {
+        customer_id: fixture.customer.id,
+        delta_points: 25,
+        reason: "E2E unauthenticated loyalty adjustment",
+        manager_staff_id: managerStaffId,
+        manager_pin: "1234",
+      },
+      failOnStatusCode: false,
+    });
+    expect(res.status()).toBe(401);
+  });
+
+  test("fulfilled takeaway checkout accrues the configured loyalty points", async ({
+    request,
+  }) => {
+    const fixture = await seedRmsFixture(request, "single_valid", "Loyalty Accrual");
+    const program = await fetchLoyaltyProgramSummary(request);
+    const before = await fetchLoyaltyCustomerSummary(request, fixture.customer.id);
+    const checkout = await checkoutFixtureSale(request, fixture, fixture.customer.id);
+    const expectedEarned = Math.trunc(Number(fixture.product.unit_price)) * program.points_per_dollar;
+
+    expect(expectedEarned).toBeGreaterThan(0);
+    await expect.poll(
+      async () => (await fetchLoyaltyCustomerSummary(request, fixture.customer.id)).loyalty_points,
+      { timeout: 20_000 },
+    ).toBe(before.loyalty_points + expectedEarned);
+
+    const ledger = await fetchLoyaltyLedger(request, fixture.customer.id);
+    const earn = ledger.find((row) => row.transaction_display_id === checkout.transaction_display_id);
+    expect(earn?.reason).toBe("order_earn");
+    expect(earn?.delta_points).toBe(expectedEarned);
+    expect(earn?.activity_label).toBe("Points earned");
+  });
+
   test("immediate-use amounts are blocked because loyalty redemption is issuance-only", async ({
     request,
   }) => {
@@ -389,6 +448,7 @@ test.describe("Loyalty redemption contract", () => {
         ...staffHeaders(),
       },
       data: {
+        redemption_request_id: crypto.randomUUID(),
         customer_id: fixture.customer.id,
         apply_to_sale: "10.00",
         remainder_card_code: `LOY-BLOCK-${Date.now()}`,
@@ -435,6 +495,7 @@ test.describe("Loyalty redemption contract", () => {
         ...staffHeaders(),
       },
       data: {
+        redemption_request_id: crypto.randomUUID(),
         customer_id: fixture.customer.id,
         apply_to_sale: "0.00",
         remainder_card_code: wrongCardCode,
@@ -471,7 +532,9 @@ test.describe("Loyalty redemption contract", () => {
         ...staffHeaders(),
       },
       data: {
+        redemption_request_id: crypto.randomUUID(),
         customer_id: partner.customer.id,
+        points_to_redeem: summary.loyalty_point_threshold,
         apply_to_sale: "0.00",
         remainder_card_code: rewardCode,
       },

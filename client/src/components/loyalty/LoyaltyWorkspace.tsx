@@ -22,6 +22,7 @@ import {
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { openPrintableHtml } from "../../lib/browserPrint";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import {
   type LoyaltyEligibleCustomer,
   loyaltyEligibleDisplayName,
@@ -30,6 +31,7 @@ import {
 import type { Customer } from "../pos/CustomerSelector";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import WorkspaceMetricCard from "../ui/WorkspaceMetricCard";
+import { useToast } from "../ui/ToastProviderLogic";
 
 interface LoyaltyPipelineStats {
   total_points_liability: number;
@@ -80,27 +82,39 @@ interface LoyaltyLedgerEntry {
   activity_detail: string;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function printableCustomerName(customer: LoyaltyEligibleCustomer | RewardFulfillmentRow): string {
+  return [customer.first_name, customer.last_name].filter(Boolean).join(" ")
+    || customer.customer_code
+    || "Customer";
+}
+
 async function printMailingLabels(customers: (LoyaltyEligibleCustomer | RewardFulfillmentRow)[]): Promise<void> {
-  const labels = customers
+  const uniqueCustomers = Array.from(
+    new Map(customers.map((customer) => [
+      "customer_id" in customer ? customer.customer_id : customer.id,
+      customer,
+    ])).values(),
+  );
+  const labels = uniqueCustomers
     .map(c => {
-      const name = c.first_name && c.last_name ? `${c.first_name} ${c.last_name}` : (('customer_code' in c ? c.customer_code : null) || "Customer");
-      const street = 'address_line1' in c ? c.address_line1 : null;
-      const cityStateZip = [
-        'city' in c ? c.city : null,
-        'state' in c ? c.state : null,
-        'zip' in c ? c.zip : null
-      ].filter(Boolean).join(", ");
-      const fallback = [
-        'address_line1' in c ? c.address_line1 : null,
-        'city' in c ? c.city : null,
-        'state' in c ? c.state : null,
-        'zip' in c ? c.zip : null
-      ].filter(Boolean).join(", ");
+      const name = printableCustomerName(c);
+      const street = c.address_line1;
+      const cityState = [c.city, c.state].filter(Boolean).join(", ");
+      const cityStateZip = [cityState, c.zip].filter(Boolean).join(" ");
       return `
         <div class="label">
-          <p class="name">${name}</p>
-          ${street ? `<p>${street}</p>` : ""}
-          ${cityStateZip ? `<p>${cityStateZip}</p>` : fallback ? `<p>${fallback}</p>` : ""}
+          <p class="name">${escapeHtml(name)}</p>
+          ${street ? `<p>${escapeHtml(street)}</p>` : ""}
+          ${cityStateZip ? `<p>${escapeHtml(cityStateZip)}</p>` : ""}
         </div>`;
     })
     .join("");
@@ -134,6 +148,12 @@ interface LoyaltyLetterContext {
   totalRewardAmount?: string;
 }
 
+interface LoyaltyLetterPacket {
+  customer: LoyaltyEligibleCustomer | RewardFulfillmentRow;
+  rewardAmount: string;
+  context?: LoyaltyLetterContext;
+}
+
 function addOneYear(date: Date): Date {
   const next = new Date(date);
   next.setFullYear(next.getFullYear() + 1);
@@ -158,12 +178,12 @@ function renderCardsTable(cards: LoyaltyLetterCard[]): string {
     .join("\n");
 }
 
-async function printLoyaltyLetter(
+function renderLoyaltyLetterContent(
   customer: LoyaltyEligibleCustomer | RewardFulfillmentRow,
   template: string,
   rewardAmount: string,
   context: LoyaltyLetterContext = {},
-): Promise<void> {
+): string {
   const fallbackIssueDate =
     "created_at" in customer && customer.created_at
       ? formatLetterDate(new Date(customer.created_at))
@@ -189,7 +209,7 @@ async function printLoyaltyLetter(
     context.totalRewardAmount ??
     centsToFixed2(cards.reduce((sum, card) => sum + parseMoneyToCents(card.reward_amount), 0));
 
-  const content = template
+  return template
     .replace(/\{\{first_name\}\}/g, customer.first_name || "")
     .replace(/\{\{last_name\}\}/g, customer.last_name || "")
     .replace(/\{\{reward_amount\}\}/g, rewardAmount)
@@ -203,20 +223,39 @@ async function printLoyaltyLetter(
       context.expirationDate ?? cards[0]?.expiration_date ?? fallbackExpirationDate,
     )
     .replace(/\{\{cards_table\}\}/g, renderCardsTable(cards));
+}
+
+async function printLoyaltyLetters(
+  packets: LoyaltyLetterPacket[],
+  template: string,
+): Promise<void> {
+  if (packets.length === 0) return;
+  const letters = packets.map((packet) => {
+    const content = renderLoyaltyLetterContent(
+      packet.customer,
+      template,
+      packet.rewardAmount,
+      packet.context,
+    );
+    return `<section class="letter">
+      <div class="header"><h1>Riverside</h1></div>
+      <div class="letter-contents">${escapeHtml(content)}</div>
+      <div class="footer">Riverside OS Loyalty Fulfillment System</div>
+    </section>`;
+  }).join("");
 
   await openPrintableHtml(`<!DOCTYPE html><html><head><title>Loyalty Reward Letter</title>
   <style>
-    body { font-family: 'Times New Roman', serif; margin: 0; padding: 1in; line-height: 1.6; color: #333; }
+    @page { size: letter; margin: 0.5in; }
+    body { font-family: 'Times New Roman', serif; margin: 0; line-height: 1.6; color: #333; }
+    .letter { box-sizing: border-box; min-height: 10in; padding: 0.5in; break-after: page; page-break-after: always; }
+    .letter:last-child { break-after: auto; page-break-after: auto; }
     .letter-contents { max-width: 6.5in; margin: 0 auto; white-space: pre-wrap; font-size: 14pt; }
     .header { text-align: center; margin-bottom: 50pt; border-bottom: 2pt solid #eee; padding-bottom: 20pt; }
     .header h1 { font-size: 24pt; margin: 0; text-transform: uppercase; letter-spacing: 0.2em; color: #111; }
     .footer { margin-top: 50pt; text-align: center; font-size: 10pt; color: #999; border-top: 1pt solid #eee; padding-top: 10pt; }
-    @media print { body { padding: 0.5in; } .header { border-bottom: 1pt solid #ddd; } }
-  </style></head><body>
-    <div class="header"><h1>Riverside</h1></div>
-    <div class="letter-contents">${content}</div>
-    <div class="footer">Riverside OS Loyalty Fulfillment System</div>
-    </body></html>`, "Loyalty Reward Letter", {
+    @media print { .header { border-bottom: 1pt solid #ddd; } }
+  </style></head><body>${letters}</body></html>`, "Loyalty Reward Letters", {
     filename: "riverside-loyalty-reward-letter.html",
     width: 800,
     height: 900,
@@ -414,7 +453,7 @@ function SettingsPanel({
              className="h-full w-full resize-none bg-transparent p-4 text-sm font-mono leading-relaxed text-app-text placeholder:opacity-20 tabular-nums focus:outline-none sm:p-6 lg:p-8"
            />
            <div className="absolute bottom-6 right-6 flex items-center gap-2">
-              <span className="text-xs font-semibold text-app-text-muted opacity-70">Markdown supported</span>
+              <span className="text-xs font-semibold text-app-text-muted opacity-70">Plain text with saved tags</span>
               <FileText size={12} className="text-app-text-muted opacity-20" />
            </div>
         </div>
@@ -661,6 +700,7 @@ function LoyaltyBatchRedeemDialog({
   onClose: () => void;
   onFinished: () => void;
 }) {
+  const { toast } = useToast();
   const [customerIndex, setCustomerIndex] = useState(0);
   const [balances, setBalances] = useState<Record<string, number>>({});
   const [cardCode, setCardCode] = useState("");
@@ -668,6 +708,17 @@ function LoyaltyBatchRedeemDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cardInputRef = useRef<HTMLInputElement>(null);
+  const redemptionRequestRef = useRef<{ key: string; id: string } | null>(null);
+
+  const closeDialog = useCallback(() => {
+    if (issued.length > 0) onFinished();
+    onClose();
+  }, [issued.length, onClose, onFinished]);
+  const { dialogRef, titleId } = useDialogAccessibility(isOpen, {
+    onEscape: closeDialog,
+    closeOnEscape: !busy,
+    initialFocusRef: cardInputRef,
+  });
 
   const threshold = settings.loyalty_point_threshold || 5000;
   const rewardCents = parseMoneyToCents(settings.loyalty_reward_amount);
@@ -685,12 +736,14 @@ function LoyaltyBatchRedeemDialog({
     setIssued([]);
     setBusy(false);
     setError(null);
+    redemptionRequestRef.current = null;
   }, [customers, isOpen, settings.loyalty_point_threshold]);
 
   useEffect(() => {
     if (!isOpen || !current) return;
     setCardCode("");
     setError(null);
+    redemptionRequestRef.current = null;
     window.setTimeout(() => cardInputRef.current?.focus(), 50);
   }, [current, isOpen, maxUnits, threshold]);
 
@@ -705,11 +758,11 @@ function LoyaltyBatchRedeemDialog({
   const issuedForCustomer = (customer: LoyaltyEligibleCustomer) =>
     issued.filter((row) => row.customer.id === customer.id);
 
-  const printBatchLetterForCustomer = (
+  const letterPacketForCustomer = (
     customer: LoyaltyEligibleCustomer,
     cards: BatchIssuedReward[],
-  ) => {
-    if (cards.length === 0) return;
+  ): LoyaltyLetterPacket | null => {
+    if (cards.length === 0) return null;
     const letterCards = cards.map((card) => ({
       card_code: card.card_code,
       reward_amount: card.reward_amount,
@@ -722,18 +775,46 @@ function LoyaltyBatchRedeemDialog({
         0,
       ),
     );
-    void printLoyaltyLetter(customer, settings.loyalty_letter_template || "", totalRewardAmount, {
-      cards: letterCards,
-      issueDate: letterCards[0]?.issue_date,
-      expirationDate: letterCards[0]?.expiration_date,
-      totalRewardAmount,
-    });
+    return {
+      customer,
+      rewardAmount: totalRewardAmount,
+      context: {
+        cards: letterCards,
+        issueDate: letterCards[0]?.issue_date,
+        expirationDate: letterCards[0]?.expiration_date,
+        totalRewardAmount,
+      },
+    };
   };
 
-  const printLettersForIssuedCustomers = () => {
-    uniqueIssuedCustomers.forEach((customer) => {
-      void printBatchLetterForCustomer(customer, issuedForCustomer(customer));
-    });
+  const printLettersForIssuedCustomers = async () => {
+    const packets = uniqueIssuedCustomers
+      .map((customer) => letterPacketForCustomer(customer, issuedForCustomer(customer)))
+      .filter((packet): packet is LoyaltyLetterPacket => packet != null);
+    await printLoyaltyLetters(packets, settings.loyalty_letter_template || "");
+  };
+
+  const printLetterForCustomer = async (
+    customer: LoyaltyEligibleCustomer,
+    cards: BatchIssuedReward[],
+  ) => {
+    const packet = letterPacketForCustomer(customer, cards);
+    if (packet) {
+      await printLoyaltyLetters([packet], settings.loyalty_letter_template || "");
+    }
+  };
+
+  const runPrint = async (printAction: () => Promise<void>) => {
+    setError(null);
+    try {
+      await printAction();
+    } catch (printError) {
+      const message = printError instanceof Error
+        ? printError.message
+        : "The print preview could not be opened.";
+      setError(message);
+      toast(message, "error");
+    }
   };
 
   const currentIssuedRows = current ? issuedForCustomer(current) : [];
@@ -743,6 +824,7 @@ function LoyaltyBatchRedeemDialog({
     setCustomerIndex(nextIndex);
     setCardCode("");
     setError(null);
+    redemptionRequestRef.current = null;
   };
 
   const issueCurrentCard = async () => {
@@ -758,6 +840,12 @@ function LoyaltyBatchRedeemDialog({
     }
     setBusy(true);
     try {
+      const normalizedCardCode = cardCode.trim().toUpperCase();
+      const requestKey = `${current.id}:${normalizedCardCode}:${threshold}`;
+      if (redemptionRequestRef.current?.key !== requestKey) {
+        redemptionRequestRef.current = { key: requestKey, id: crypto.randomUUID() };
+      }
+      const redemptionRequestId = redemptionRequestRef.current.id;
       const res = await fetch(`${BASE}/api/loyalty/redeem-reward`, {
         method: "POST",
         headers: {
@@ -765,10 +853,11 @@ function LoyaltyBatchRedeemDialog({
           ...getAuthHeaders(),
         },
         body: JSON.stringify({
+          redemption_request_id: redemptionRequestId,
           customer_id: current.id,
           points_to_redeem: threshold,
           apply_to_sale: centsToFixed2(0),
-          remainder_card_code: cardCode.trim().toUpperCase(),
+          remainder_card_code: normalizedCardCode,
         }),
       });
       const data = (await res.json()) as {
@@ -786,7 +875,7 @@ function LoyaltyBatchRedeemDialog({
         throw new Error(data.error ?? "Reward card could not be issued.");
       }
       if (
-        data.reward_card_code !== cardCode.trim().toUpperCase()
+        data.reward_card_code !== normalizedCardCode
         || data.reward_card_kind !== "loyalty_reward"
         || data.reward_card_is_liability !== false
       ) {
@@ -802,22 +891,21 @@ function LoyaltyBatchRedeemDialog({
       const expirationDate = formatLetterDate(expiresOn);
       const issuedRow: BatchIssuedReward = {
         customer: current,
-        card_code: cardCode.trim().toUpperCase(),
+        card_code: normalizedCardCode,
         points_deducted: data.points_deducted ?? threshold,
         reward_amount: rewardAmount,
         issue_date: issueDate,
         expiration_date: expirationDate,
       };
       setIssued((rows) => [...rows, issuedRow]);
+      redemptionRequestRef.current = null;
       setBalances((currentBalances) => ({
         ...currentBalances,
         [current.id]: data.new_balance ?? Math.max(0, currentBalance - threshold),
       }));
-      const cardsForLetter = [...issuedForCustomer(current), issuedRow];
       setCardCode("");
       const nextBalance = data.new_balance ?? Math.max(0, currentBalance - threshold);
       if (nextBalance < threshold) {
-        void printBatchLetterForCustomer(current, cardsForLetter);
         moveNext();
       } else {
         window.setTimeout(() => cardInputRef.current?.focus(), 50);
@@ -830,29 +918,35 @@ function LoyaltyBatchRedeemDialog({
   };
 
   const finish = () => {
-    onFinished();
-    onClose();
+    closeDialog();
   };
 
   return createPortal(
     <div className="ui-overlay-backdrop animate-in fade-in duration-300">
-      <div className="relative flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[32px] border border-app-border bg-app-surface shadow-[0_32px_128px_rgba(0,0,0,0.55)]">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="relative flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[32px] border border-app-border bg-app-surface shadow-[0_32px_128px_rgba(0,0,0,0.55)]"
+      >
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-app-border bg-app-surface-2 px-6 py-5">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.25em] text-app-text-muted">
               Loyalty reward batch
             </p>
-            <h2 className="mt-1 text-2xl font-black tracking-tight text-app-text">
-              Issue cards, print customer letters, then print labels
+            <h2 id={titleId} className="mt-1 text-2xl font-black tracking-tight text-app-text">
+              Issue cards, then print letters and labels
             </h2>
             <p className="mt-1 max-w-3xl text-xs font-semibold leading-5 text-app-text-muted">
-              Each scanned card issues one configured reward. ROS prints one customer letter after all reward cards for that customer are issued.
+              Each scanned card issues one configured reward. Print one combined letter per customer after the cards are issued.
             </p>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeDialog}
             disabled={busy}
+            aria-label="Close loyalty reward batch"
             className="flex h-11 w-11 items-center justify-center rounded-2xl border border-app-border bg-app-surface text-app-text-muted hover:text-app-text disabled:opacity-50"
           >
             <X className="h-5 w-5" aria-hidden />
@@ -906,21 +1000,21 @@ function LoyaltyBatchRedeemDialog({
                 </p>
                 <button
                   type="button"
-                  onClick={() => void printMailingLabels(uniqueIssuedCustomers)}
+                  onClick={() => void runPrint(printLettersForIssuedCustomers)}
                   disabled={uniqueIssuedCustomers.length === 0}
                   className="ui-btn-primary mt-6 inline-flex items-center gap-2 px-6 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                 >
-                  <Printer className="h-4 w-4" aria-hidden />
-                  Print mailing labels
+                  <FileText className="h-4 w-4" aria-hidden />
+                  Print all letters
                 </button>
                 <button
                   type="button"
-                  onClick={printLettersForIssuedCustomers}
+                  onClick={() => void runPrint(() => printMailingLabels(uniqueIssuedCustomers))}
                   disabled={uniqueIssuedCustomers.length === 0}
                   className="ui-btn-secondary mt-3 inline-flex items-center gap-2 px-5 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                 >
-                  <FileText className="h-4 w-4" aria-hidden />
-                  Reprint letters
+                  <Printer className="h-4 w-4" aria-hidden />
+                  Print mailing labels
                 </button>
                 <button
                   type="button"
@@ -998,13 +1092,13 @@ function LoyaltyBatchRedeemDialog({
                       This card will load ${singleRewardAmount}
                     </p>
                     <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                      Letters print when each customer is completed. Print labels after one or more customers have issued cards.
+                      Print one letter for this customer, or print all letters and labels when the batch is complete.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => void printBatchLetterForCustomer(current, currentIssuedRows)}
+                      onClick={() => void runPrint(() => printLetterForCustomer(current, currentIssuedRows))}
                       disabled={busy || currentIssuedRows.length === 0}
                       className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                     >
@@ -1013,7 +1107,7 @@ function LoyaltyBatchRedeemDialog({
                     </button>
                     <button
                       type="button"
-                      onClick={() => void printMailingLabels(uniqueIssuedCustomers)}
+                      onClick={() => void runPrint(() => printMailingLabels(uniqueIssuedCustomers))}
                       disabled={busy || uniqueIssuedCustomers.length === 0}
                       className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                     >
@@ -1086,24 +1180,29 @@ function EligibleList({
   const [singleBatchCustomer, setSingleBatchCustomer] = useState<LoyaltyEligibleCustomer | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchOpen, setBatchOpen] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadPage = useCallback(async (nextPage: number) => {
     const normalizedPage = Math.max(0, nextPage);
     setLoading(true);
+    setLoadError(null);
     try {
       const offset = normalizedPage * ELIGIBLE_PAGE_SIZE;
       const res = await fetch(`${BASE}/api/loyalty/monthly-eligible?limit=${ELIGIBLE_PAGE_SIZE}&offset=${offset}`, {
         headers: backofficeHeaders(),
       });
-      if (res.ok) {
-        const rows = (await res.json()) as LoyaltyEligibleCustomer[];
-        setCustomers(rows);
-        setPage(normalizedPage);
-        setSelectedIds((current) => {
-          const valid = new Set(rows.map((customer) => customer.id));
-          return new Set(Array.from(current).filter((id) => valid.has(id)));
-        });
+      if (!res.ok) {
+        throw new Error("Eligible customers could not be loaded.");
       }
+      const rows = (await res.json()) as LoyaltyEligibleCustomer[];
+      setCustomers(rows);
+      setPage(normalizedPage);
+      setSelectedIds((current) => {
+        const valid = new Set(rows.map((customer) => customer.id));
+        return new Set(Array.from(current).filter((id) => valid.has(id)));
+      });
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Eligible customers could not be loaded.");
     } finally {
       setLoading(false);
     }
@@ -1221,7 +1320,12 @@ function EligibleList({
         </div>
       </div>
       <div className="p-4 sm:p-6">
-        {loading ? (
+        {loadError ? (
+          <div className="flex items-center gap-3 rounded-2xl border border-app-danger/25 bg-app-danger/10 px-4 py-3 text-sm font-bold text-app-danger">
+            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+            {loadError}
+          </div>
+        ) : loading ? (
           <div className="flex flex-col items-center justify-center py-32 space-y-4">
              <div className="h-10 w-10 border-b-2 border-app-accent rounded-full animate-spin" />
 	             <p className="text-sm font-semibold text-app-text-muted">Loading eligible customers...</p>
@@ -1378,17 +1482,31 @@ function EligibleList({
 }
 
 function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
+  const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
   const [issuances, setIssuances] = useState<RewardFulfillmentRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const res = await fetch(`${BASE}/api/loyalty/recent-issuances`, {
         headers: backofficeHeaders(),
       });
-      if (res.ok) setIssuances((await res.json()) as RewardFulfillmentRow[]);
+      if (!res.ok) {
+        throw new Error("Reward card history could not be loaded.");
+      }
+      const rows = (await res.json()) as RewardFulfillmentRow[];
+      setIssuances(rows);
+      setSelectedIds((current) => {
+        const available = new Set(rows.map((row) => row.id));
+        return new Set(Array.from(current).filter((id) => available.has(id)));
+      });
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Reward card history could not be loaded.");
     } finally {
       setLoading(false);
     }
@@ -1399,6 +1517,69 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
   }, [load]);
 
   const template = settings?.loyalty_letter_template;
+  const selectedIssuances = issuances.filter((row) => selectedIds.has(row.id));
+  const allSelected = issuances.length > 0 && issuances.every((row) => selectedIds.has(row.id));
+
+  const toggleSelected = (issuanceId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(issuanceId)) next.delete(issuanceId);
+      else next.add(issuanceId);
+      return next;
+    });
+  };
+
+  const printRowsAsLetters = async (rows: RewardFulfillmentRow[]) => {
+    if (!template) {
+      throw new Error("Save a reward letter template before printing letters.");
+    }
+    const grouped = Array.from(
+      rows.reduce((groups, row) => {
+        const customerRows = groups.get(row.customer_id) ?? [];
+        customerRows.push(row);
+        groups.set(row.customer_id, customerRows);
+        return groups;
+      }, new Map<string, RewardFulfillmentRow[]>()),
+    );
+    const packets = grouped.map(([, customerRows]) => {
+      const customer = customerRows[0];
+      const cards = customerRows
+        .filter((row): row is RewardFulfillmentRow & { card_code: string } => Boolean(row.card_code))
+        .map((row) => ({
+          card_code: row.card_code,
+          reward_amount: centsToFixed2(parseMoneyToCents(row.reward_amount)),
+          issue_date: formatLetterDate(new Date(row.created_at)),
+          expiration_date: row.expires_at
+            ? formatLetterDate(new Date(row.expires_at))
+            : formatLetterDate(addOneYear(new Date(row.created_at))),
+        }));
+      const totalRewardAmount = centsToFixed2(
+        cards.reduce((sum, card) => sum + parseMoneyToCents(card.reward_amount), 0),
+      );
+      return {
+        customer,
+        rewardAmount: totalRewardAmount,
+        context: {
+          cards,
+          issueDate: cards[0]?.issue_date,
+          expirationDate: cards[0]?.expiration_date,
+          totalRewardAmount,
+        },
+      } satisfies LoyaltyLetterPacket;
+    });
+    await printLoyaltyLetters(packets, template);
+  };
+
+  const runPrint = async (printAction: () => Promise<void>) => {
+    try {
+      await printAction();
+    } catch (error) {
+      toast(
+        error instanceof Error ? error.message : "The print preview could not be opened.",
+        "error",
+      );
+    }
+  };
 
   return (
     <div className="flex flex-1 flex-col bg-app-surface scale-in-center">
@@ -1410,18 +1591,52 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
               Recent loyalty reward cards issued to customers
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void load()}
-	            className="group flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-app-border/50 bg-app-surface px-4 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-surface-2 sm:w-auto"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-purple-500" : "text-app-text-muted group-hover:text-purple-500"}`} />
-            Refresh History
-          </button>
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+            <button
+              type="button"
+              onClick={() => void load()}
+	              className="group flex min-h-11 items-center justify-center gap-2 rounded-xl border border-app-border/50 bg-app-surface px-4 py-2 text-sm font-bold shadow-sm transition-all hover:bg-app-surface-2"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-purple-500" : "text-app-text-muted group-hover:text-purple-500"}`} />
+              Refresh History
+            </button>
+            {issuances.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setSelectedIds(allSelected ? new Set() : new Set(issuances.map((row) => row.id)))}
+                className="ui-btn-secondary min-h-11 px-4 py-2 text-sm font-bold"
+              >
+                {allSelected ? "Clear Selection" : "Select All"}
+              </button>
+            ) : null}
+            {selectedIssuances.length > 0 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void runPrint(() => printRowsAsLetters(selectedIssuances))}
+                  className="ui-btn-primary min-h-11 px-4 py-2 text-sm font-bold"
+                >
+                  Print Letters ({selectedIssuances.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void runPrint(() => printMailingLabels(selectedIssuances))}
+                  className="ui-btn-secondary min-h-11 px-4 py-2 text-sm font-bold"
+                >
+                  Print Labels
+                </button>
+              </>
+            ) : null}
+          </div>
         </div>
       </div>
       <div className="p-4 sm:p-6">
-        {loading ? (
+        {loadError ? (
+          <div className="flex items-center gap-3 rounded-2xl border border-app-danger/25 bg-app-danger/10 px-4 py-3 text-sm font-bold text-app-danger">
+            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+            {loadError}
+          </div>
+        ) : loading ? (
           <div className="flex flex-col items-center justify-center py-32 space-y-4">
              <div className="h-12 w-12 border-b-2 border-purple-500 rounded-full animate-spin" />
 	             <p className="text-sm font-semibold text-app-text-muted">Loading reward history...</p>
@@ -1442,6 +1657,15 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                   {/* ID & Basic Info */}
                   <div className="lg:w-[1fr] lg:flex-1">
                     <div className="flex items-center gap-4">
+                      <label className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(row.id)}
+                          onChange={() => toggleSelected(row.id)}
+                          className="h-4 w-4 accent-app-accent"
+                          aria-label={`Select reward card ${row.card_code || row.id} for printing`}
+                        />
+                      </label>
                       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-app-accent/10 text-app-accent font-black text-[12px] shadow-inner border border-app-accent/10">
                          {row.first_name?.[0] || '?'}{row.last_name?.[0] || '?'}
                       </div>
@@ -1502,18 +1726,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                        <button
                          type="button"
                          onClick={() => {
-                           if (!template) return;
-                           void printLoyaltyLetter(
-                             row,
-                             template,
-                             centsToFixed2(parseMoneyToCents(row.reward_amount)),
-                             {
-                               issueDate: formatLetterDate(new Date(row.created_at)),
-                               expirationDate: row.expires_at
-                                 ? formatLetterDate(new Date(row.expires_at))
-                                 : undefined,
-                             },
-                           );
+                           void runPrint(() => printRowsAsLetters([row]));
                          }}
                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-surface-2 border border-app-border text-purple-600 hover:border-purple-300 hover:shadow-lg transition-all"
                          title="Print Award Letter"
@@ -1523,7 +1736,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                      )}
                      <button
                        type="button"
-                       onClick={() => void printMailingLabels([row])}
+                       onClick={() => void runPrint(() => printMailingLabels([row]))}
                        className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-surface-2 border border-app-border text-app-text-muted hover:text-app-text hover:border-app-accent hover:shadow-lg transition-all"
                        title="Print Label"
                      >
@@ -1552,21 +1765,30 @@ export default function LoyaltyWorkspace({
   const [stats, setStats] = useState<LoyaltyPipelineStats | null>(null);
   const [settings, setSettings] = useState<LoyaltySettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const loadData = useCallback(async () => {
+    setLoadError(null);
     try {
       const h = backofficeHeaders();
+      const settingsPath = posSurface ? "program-summary" : "settings";
       const [statsRes, setRes] = await Promise.all([
         fetch(`${BASE}/api/loyalty/pipeline-stats`, { headers: h }),
-        fetch(`${BASE}/api/loyalty/settings`, { headers: h }),
+        fetch(`${BASE}/api/loyalty/${settingsPath}`, { headers: h }),
       ]);
       if (statsRes.ok) setStats((await statsRes.json()) as LoyaltyPipelineStats);
-      if (setRes.ok) setSettings((await setRes.json()) as LoyaltySettings);
-    } catch {
-      /* ignore */
+      if (!setRes.ok) {
+        throw new Error("Loyalty program settings could not be loaded.");
+      }
+      setSettings((await setRes.json()) as LoyaltySettings);
+      if (!statsRes.ok) {
+        setLoadError("Loyalty summary totals are unavailable. Reward fulfillment remains available.");
+      }
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "The Loyalty workspace could not be loaded.");
     } finally {
       setLoading(false);
     }
-  }, [backofficeHeaders]);
+  }, [backofficeHeaders, posSurface]);
 
   useEffect(() => {
     void loadData();
@@ -1587,6 +1809,12 @@ export default function LoyaltyWorkspace({
 
   return (
     <div className="flex flex-1 flex-col bg-transparent">
+      {loadError ? (
+        <div className="mx-4 mt-4 flex items-center gap-3 rounded-2xl border border-app-danger/25 bg-app-danger/10 px-4 py-3 text-sm font-bold text-app-danger sm:mx-6">
+          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+          {loadError}
+        </div>
+      ) : null}
       {/* Executive summaries stay in Back Office; POS opens the active task. */}
       {!posSurface ? <div className="ui-workspace-summary">
         {([

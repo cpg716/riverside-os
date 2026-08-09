@@ -24,7 +24,7 @@ use uuid::Uuid;
 use crate::api::AppState;
 use crate::auth::permissions::{
     effective_permissions_for_staff, staff_can_approve_manager_access, staff_has_permission,
-    LOYALTY_PROGRAM_SETTINGS,
+    LOYALTY_ADJUST_POINTS, LOYALTY_PROGRAM_SETTINGS,
 };
 use crate::auth::pins::{self, log_staff_access};
 use crate::middleware;
@@ -181,10 +181,6 @@ async fn patch_settings(
                 "loyalty_point_threshold must be at least {LOYALTY_REWARD_MINIMUM_POINTS}"
             )));
         }
-        sqlx::query("UPDATE store_settings SET loyalty_point_threshold = $1 WHERE id = 1")
-            .bind(t)
-            .execute(&state.db)
-            .await?;
     }
     if let Some(a) = body.loyalty_reward_amount {
         if a <= Decimal::ZERO {
@@ -192,18 +188,24 @@ async fn patch_settings(
                 "loyalty_reward_amount must be positive".to_string(),
             ));
         }
-        sqlx::query("UPDATE store_settings SET loyalty_reward_amount = $1 WHERE id = 1")
-            .bind(a)
-            .execute(&state.db)
-            .await?;
     }
-    if let Some(template) = body.loyalty_letter_template {
-        sqlx::query("UPDATE store_settings SET loyalty_letter_template = $1 WHERE id = 1")
-            .bind(template.trim())
-            .execute(&state.db)
-            .await?;
-    }
-    get_settings(State(state), headers).await
+
+    sqlx::query(
+        r#"
+        UPDATE store_settings
+        SET loyalty_point_threshold = COALESCE($1, loyalty_point_threshold),
+            loyalty_reward_amount = COALESCE($2, loyalty_reward_amount),
+            loyalty_letter_template = COALESCE($3, loyalty_letter_template)
+        WHERE id = 1
+        "#,
+    )
+    .bind(body.loyalty_point_threshold)
+    .bind(body.loyalty_reward_amount)
+    .bind(body.loyalty_letter_template.as_deref().map(str::trim))
+    .execute(&state.db)
+    .await?;
+
+    loyalty_settings_from_db(&state).await
 }
 
 // ── Monthly eligible ──────────────────────────────────────────────────────────
@@ -223,6 +225,7 @@ pub struct MonthlyEligibleQuery {
 #[derive(Debug, Serialize, FromRow)]
 pub struct EligibleCustomerRow {
     pub id: Uuid,
+    pub customer_code: Option<String>,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
     pub email: Option<String>,
@@ -256,7 +259,7 @@ async fn monthly_eligible(
         sqlx::query_as::<_, EligibleCustomerRow>(
             r#"
             SELECT
-                c.id, c.first_name, c.last_name, c.email, c.phone,
+                c.id, c.customer_code, c.first_name, c.last_name, c.email, c.phone,
                 c.address_line1, c.city, c.state, c.postal_code AS zip,
                 c.loyalty_points
             FROM customers c
@@ -284,7 +287,7 @@ async fn monthly_eligible(
         sqlx::query_as::<_, EligibleCustomerRow>(
             r#"
             SELECT
-                id, first_name, last_name, email, phone,
+                id, customer_code, first_name, last_name, email, phone,
                 address_line1, city, state, postal_code AS zip,
                 loyalty_points
             FROM customers
@@ -324,8 +327,13 @@ pub struct AdjustPointsResponse {
 
 async fn adjust_points(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<AdjustPointsRequest>,
 ) -> Result<Json<AdjustPointsResponse>, LoyaltyError> {
+    middleware::require_staff_with_permission(&state, &headers, LOYALTY_ADJUST_POINTS)
+        .await
+        .map_err(map_loyalty_perm)?;
+
     if body.reason.trim().is_empty() {
         return Err(LoyaltyError::InvalidPayload(
             "reason is required".to_string(),
@@ -425,6 +433,10 @@ async fn adjust_points(
 
 #[derive(Debug, Deserialize)]
 pub struct RedeemRewardRequest {
+    /// Stable client-generated key. Current clients always send it; omission remains accepted
+    /// during staged desktop/server upgrades and receives a server-generated one-time key.
+    #[serde(default)]
+    pub redemption_request_id: Option<Uuid>,
     pub customer_id: Uuid,
     /// Optional override for batch fulfillment. Defaults to one configured reward threshold.
     /// Must be a positive multiple of the configured threshold.
@@ -521,6 +533,7 @@ async fn redeem_reward(
 ) -> Result<Json<RedeemRewardResponse>, LoyaltyError> {
     let actor = require_staff_or_pos_session(&state, &headers).await?;
     let issued_by_staff_id = loyalty_actor_staff_id(&state, &actor).await?;
+    let redemption_request_id = body.redemption_request_id.unwrap_or_else(Uuid::new_v4);
 
     // Load settings.
     let (threshold, reward_amount_per_threshold): (i32, Decimal) = sqlx::query_as(
@@ -558,9 +571,101 @@ async fn redeem_reward(
 
     let mut tx = state.db.begin().await?;
 
+    // Serialize retries for the same logical redemption before checking its saved result.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(redemption_request_id.to_string())
+        .fetch_one(&mut *tx)
+        .await?;
+
     let effective_customer_id =
         crate::logic::customer_couple::resolve_effective_customer_id_tx(&mut tx, body.customer_id)
             .await?;
+
+    let existing: Option<(
+        Uuid,
+        i32,
+        Decimal,
+        Decimal,
+        Uuid,
+        chrono::DateTime<Utc>,
+        chrono::DateTime<Utc>,
+        String,
+        String,
+        bool,
+        i32,
+    )> = sqlx::query_as(
+        r#"
+        SELECT
+            lri.customer_id,
+            lri.points_deducted,
+            lri.reward_amount,
+            lri.applied_to_sale,
+            lri.remainder_card_id,
+            lri.created_at,
+            gc.expires_at,
+            gc.code,
+            gc.card_kind::text,
+            gc.is_liability,
+            lri.balance_after
+        FROM loyalty_reward_issuances lri
+        JOIN gift_cards gc ON gc.id = lri.remainder_card_id
+        WHERE lri.redemption_request_id = $1
+        "#,
+    )
+    .bind(redemption_request_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if let Some((
+        saved_customer_id,
+        saved_points,
+        saved_reward_amount,
+        saved_applied_to_sale,
+        saved_card_id,
+        saved_issued_at,
+        saved_expires_at,
+        saved_card_code,
+        saved_card_kind,
+        saved_is_liability,
+        saved_balance_after,
+    )) = existing
+    {
+        let mut saved_applied_to_sale = saved_applied_to_sale;
+        saved_applied_to_sale.rescale(2);
+        if saved_customer_id != effective_customer_id
+            || saved_points != points_to_deduct
+            || saved_applied_to_sale != body.apply_to_sale
+            || !saved_card_code.eq_ignore_ascii_case(&reward_card_code)
+        {
+            return Err(LoyaltyError::InvalidPayload(
+                "redemption_request_id was already used for a different reward issuance"
+                    .to_string(),
+            ));
+        }
+        if saved_card_kind != crate::logic::gift_card_ops::GIFT_CARD_KIND_LOYALTY_REWARD
+            || saved_is_liability
+        {
+            return Err(LoyaltyError::InvalidPayload(
+                "The saved reward card no longer has the required loyalty classification."
+                    .to_string(),
+            ));
+        }
+
+        tx.commit().await?;
+        return Ok(Json(RedeemRewardResponse {
+            points_deducted: saved_points,
+            new_balance: saved_balance_after,
+            effective_customer_id,
+            applied_to_sale: saved_applied_to_sale,
+            remainder_loaded: saved_reward_amount,
+            remainder_card_id: saved_card_id,
+            reward_card_code: saved_card_code,
+            reward_card_issued_at: saved_issued_at,
+            reward_card_expires_at: saved_expires_at,
+            reward_card_kind: crate::logic::gift_card_ops::GIFT_CARD_KIND_LOYALTY_REWARD,
+            reward_card_is_liability: false,
+        }));
+    }
 
     // Verify and deduct points atomically.
     let new_balance: i32 = sqlx::query_scalar(
@@ -598,6 +703,7 @@ async fn redeem_reward(
         "reward_amount": reward_amount,
         "reward_amount_per_threshold": reward_amount_per_threshold,
         "reward_units": reward_units,
+        "redemption_request_id": redemption_request_id,
         "applied_to_sale": body.apply_to_sale,
         "remainder": remainder,
         "remainder_card_code": reward_card_code,
@@ -637,8 +743,8 @@ async fn redeem_reward(
         r#"
         INSERT INTO loyalty_reward_issuances
             (customer_id, points_deducted, reward_amount, applied_to_sale, remainder_card_id,
-             transaction_id, issued_by_staff_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+             transaction_id, issued_by_staff_id, redemption_request_id, balance_after)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING created_at
         "#,
     )
@@ -649,6 +755,8 @@ async fn redeem_reward(
     .bind(remainder_card_id)
     .bind(body.transaction_id)
     .bind(issued_by_staff_id)
+    .bind(redemption_request_id)
+    .bind(new_balance)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -894,6 +1002,7 @@ async fn customer_ledger(
 pub struct IssuanceRow {
     pub id: Uuid,
     pub customer_id: Uuid,
+    pub customer_code: Option<String>,
     pub card_id: Option<Uuid>,
     pub card_code: Option<String>,
     pub first_name: Option<String>,
@@ -924,7 +1033,7 @@ async fn get_recent_issuances(
         SELECT
             lri.id, lri.customer_id, lri.remainder_card_id as card_id,
             gc.code as card_code,
-            c.first_name, c.last_name, c.address_line1, c.city, c.state, c.postal_code as zip,
+            c.customer_code, c.first_name, c.last_name, c.address_line1, c.city, c.state, c.postal_code as zip,
             lri.reward_amount, lri.points_deducted, lri.applied_to_sale,
             gc.card_kind::text as card_kind, gc.is_liability, gc.expires_at,
             lri.issued_by_staff_id, s.full_name as issued_by_staff_name,

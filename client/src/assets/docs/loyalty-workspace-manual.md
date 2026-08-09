@@ -12,11 +12,11 @@ tags: loyalty, rewards, fulfillment, analytics
 
 ## Screenshots
 
-![Monthly loyalty eligibility](../images/help/loyalty-workspace/workflow-1.png)
+![Customers ready for a loyalty reward](../images/help/loyalty-workspace/eligible.png)
 
-![Adjust loyalty points](../images/help/loyalty-workspace/workflow-2.png)
+![Adjust loyalty points and review activity](../images/help/loyalty-workspace/adjust-points.png)
 
-![Checkout drawer](../images/help/loyalty-workspace/workflow-3.png)
+![Loyalty reward issuance history](../images/help/loyalty-workspace/history.png)
 
 The Loyalty Management Hub is where store staff manage the Elite Rewards program. Use it to identify reward-eligible customers, issue reward cards, and track loyalty history.
 
@@ -47,7 +47,9 @@ This is the primary operational list. It shows customers who have reached the re
 1. **Refresh Eligible Customers**: Use the refresh button to pull the latest balances.
 2. Use **Previous** and **Next** when the eligible pool spans more than one page.
 3. **Redeem Reward**: Each row shows the number and dollar value of rewards ready plus the current points threshold. Click **Redeem Reward** to open the redemption dialog. This deducts the points and issues the selected reward value to a loyalty gift card.
-4. **Page selection and labels**: **Select Page** and **Print Page Labels** apply to the currently visible eligible customers. Select individual customers before starting a batch when you do not want the whole page.
+4. **Single fulfillment**: Use a row's **Redeem Reward** button to issue one customer's available reward cards.
+5. **Group fulfillment**: Select multiple customers, then use **Start Batch**. Scan one card per reward block for each customer. Closing a partially completed batch refreshes balances and eligibility.
+6. **Letters and labels**: Use **Print letter** for one customer. At batch completion, **Print all letters** creates one print job with one letter per customer, and **Print mailing labels** creates one label per customer. **Select Page** and **Print Page Labels** apply to the current page.
 
 ## Loyalty Activity
 
@@ -64,8 +66,9 @@ For couple-linked customers, Riverside resolves loyalty to the linked primary ac
 
 Switch to the **History** tab to see a record of all recent reward issuances. 
 - History shows the server-saved card expiration and issuing staff member when available.
-- Use the **Print Letter** icon to generate a 8.5x11 "Thank You" letter for the recipient.
+- Use the **Print Letter** icon to generate an 8.5x11 "Thank You" letter for one recipient.
 - Use the **Print Label** icon to reprint an address label for that specific issuance.
+- Select multiple history rows to print a group of letters or labels. Multiple selected cards for the same customer are combined into one letter and one label.
 
 ## Program Settings & Letter Templates
 
@@ -76,7 +79,10 @@ You can edit the "Thank You" letter text directly in the **Program Settings** ta
 - `{{first_name}}`: Recipient's first name.
 - `{{last_name}}`: Recipient's last name.
 - `{{reward_amount}}`: The dollar value of the reward (e.g., $50.00).
+- `{{total_reward_amount}}`: The combined dollar value of the cards on the letter.
 - `{{card_code}}`: The unique Gift Card code generated during redemption.
+- `{{card_codes}}`, `{{card_count}}`, and `{{cards_table}}`: Bulk fulfillment details for all cards on that customer's letter.
+- `{{issue_date}}` and `{{expiration_date}}`: Dates saved by the server for the issued reward card.
 
 #### Fulfillment Workflow
 1. **Redeem**: Points are deducted and the full reward is issued to a loyalty gift card.
@@ -89,7 +95,7 @@ You can edit the "Thank You" letter text directly in the **Program Settings** ta
 - **Dynamic Thresholds**: Reward thresholds and amounts are global; changing them in settings will immediately update the Elite Pool registry.
 
 > [!IMPORTANT]
-> Printing letters requires a PDF-capable browser. Ensure pop-ups are allowed for `riverside-os` to enable the print preview window.
+> Browser printing requires pop-ups to be allowed for Riverside. The desktop app opens the operating-system print preview. If the preview cannot open, Riverside reports the error without repeating the card issuance.
 
 ## What happens next
 

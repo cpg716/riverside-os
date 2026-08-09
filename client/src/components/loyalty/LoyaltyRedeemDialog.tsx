@@ -42,6 +42,7 @@ export function LoyaltyRedeemDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cardInputRef = useRef<HTMLInputElement>(null);
+  const redemptionRequestRef = useRef<{ key: string; id: string } | null>(null);
 
   const { dialogRef, titleId } = useDialogAccessibility(isOpen, {
     onEscape: onClose,
@@ -53,6 +54,7 @@ export function LoyaltyRedeemDialog({
     if (!isOpen || !customer) return;
     setCardCode("");
     setError(null);
+    redemptionRequestRef.current = null;
   }, [isOpen, customer]);
 
   if (!isOpen || !customer) return null;
@@ -69,6 +71,11 @@ export function LoyaltyRedeemDialog({
     }
     setBusy(true);
     try {
+      const normalizedCardCode = cardCode.trim().toUpperCase();
+      const requestKey = `${customer.id}:${normalizedCardCode}:${pointThreshold}`;
+      if (redemptionRequestRef.current?.key !== requestKey) {
+        redemptionRequestRef.current = { key: requestKey, id: crypto.randomUUID() };
+      }
       const res = await fetch(`${BASE}/api/loyalty/redeem-reward`, {
         method: "POST",
         headers: {
@@ -76,9 +83,11 @@ export function LoyaltyRedeemDialog({
           ...getAuthHeaders(),
         },
         body: JSON.stringify({
+          redemption_request_id: redemptionRequestRef.current.id,
           customer_id: customer.id,
+          points_to_redeem: pointThreshold,
           apply_to_sale: centsToFixed2(0),
-          remainder_card_code: cardCode.trim().toUpperCase(),
+          remainder_card_code: normalizedCardCode,
           notify_customer_sms: false,
           notify_customer_email: false,
           ...(registerSessionId ? { session_id: registerSessionId } : {}),
@@ -92,6 +101,7 @@ export function LoyaltyRedeemDialog({
         `Reward card issued for ${loyaltyEligibleDisplayName(customer)}. New balance: ${data.new_balance?.toLocaleString() ?? "—"} pts.`,
         "success",
       );
+      redemptionRequestRef.current = null;
       onSuccess();
       onClose();
     } catch (e) {
