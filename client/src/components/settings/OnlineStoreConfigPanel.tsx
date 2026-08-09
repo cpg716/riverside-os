@@ -1,4 +1,7 @@
+import PodiumWebChatSettingsCard from "./PodiumWebChatSettingsCard";
+
 interface OnlineStoreConfigPanelProps {
+  baseUrl: string;
   onOpenOnlineStore?: () => void;
 }
 
@@ -27,6 +30,7 @@ const configRows = [
 ];
 
 export default function OnlineStoreConfigPanel({
+  baseUrl,
   onOpenOnlineStore,
 }: OnlineStoreConfigPanelProps) {
   return (
@@ -76,6 +80,8 @@ export default function OnlineStoreConfigPanel({
           </button>
         ) : null}
       </section>
+
+      <PodiumWebChatSettingsCard baseUrl={baseUrl} />
     </div>
   );
 }

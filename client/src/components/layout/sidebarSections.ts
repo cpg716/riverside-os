@@ -130,6 +130,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "profile", label: "Profile" },
     { id: "staff-access-defaults", label: "Staff Access Defaults" },
     { id: "online-store", label: "Online Store" },
+    { id: "reviews", label: "Customer Reviews" },
     { id: "tag-designer", label: "Tag Designer" },
     { id: "settings-group-register-setup", label: "Register Setup", kind: "group" },
     { id: "printing", label: "Printers & Scanners" },

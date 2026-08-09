@@ -38,10 +38,12 @@ use crate::logic::nuorder::{NuorderClient, NuorderCredentials};
 use crate::logic::nuorder_sync;
 use crate::logic::podium::{
     build_podium_oauth_authorize_url_for_base, exchange_podium_oauth_authorization_code,
+    fetch_podium_locations, fetch_podium_webhooks, podium_api_version,
     podium_effective_rest_api_base, podium_oauth_app_credential_status, podium_oauth_client_id,
     validate_podium_oauth_redirect_uri, validate_podium_oauth_state, validate_podium_service_url,
-    PodiumEnvCredentials, PodiumOAuthAppCredentials, PodiumSmsSettingsResponse,
-    StorePodiumSmsConfig,
+    PodiumEnvCredentials, PodiumLocationSummary, PodiumOAuthAppCredentials,
+    PodiumSmsSettingsResponse, PodiumWebhookSummary, StorePodiumSmsConfig,
+    PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES,
 };
 use crate::logic::podium_reviews::{self, StoreReviewPolicy};
 use crate::logic::podium_webhook::{
@@ -3287,8 +3289,10 @@ struct PodiumSmsReadinessResponse {
     webhook_secret_configured: bool,
     allow_unsigned_webhook: bool,
     inbound_inbox_preview_enabled: bool,
+    inbound_ingest_enabled: bool,
     /// Effective REST API base (env `RIVERSIDE_PODIUM_API_BASE` or default).
     api_base: String,
+    api_version: String,
     sms_send_enabled: bool,
     location_uid_configured: bool,
     widget_embed_enabled: bool,
@@ -3312,11 +3316,178 @@ async fn get_podium_sms_readiness(
         webhook_secret_configured: podium_webhook_secret_from_env().is_some(),
         allow_unsigned_webhook: allow_unsigned_podium_webhook(),
         inbound_inbox_preview_enabled: podium_inbound_inbox_enabled(),
+        inbound_ingest_enabled: podium_inbound_inbox_enabled(),
         api_base: podium_effective_rest_api_base(&state.db).await,
+        api_version: podium_api_version(),
         sms_send_enabled: cfg.sms_send_enabled,
         location_uid_configured: !cfg.location_uid.trim().is_empty(),
         widget_embed_enabled: cfg.widget_embed_enabled,
     }))
+}
+
+#[derive(Debug, Serialize)]
+struct PodiumProviderSetupResponse {
+    locations: Vec<PodiumLocationSummary>,
+    configured_location_uid: String,
+    webhook_url: Option<String>,
+    required_event_types: &'static [&'static str],
+    matching_webhook: Option<PodiumWebhookSummary>,
+    webhook_status: String,
+    message: String,
+}
+
+fn podium_provider_setup_response(
+    locations: Vec<PodiumLocationSummary>,
+    webhooks: Vec<PodiumWebhookSummary>,
+    configured_location_uid: String,
+) -> PodiumProviderSetupResponse {
+    let webhook_url = nonempty_env("RIVERSIDE_PUBLIC_BASE_URL").and_then(|base| {
+        url::Url::parse(&base)
+            .ok()
+            .filter(|url| url.scheme() == "https")
+            .map(|_| format!("{}/api/webhooks/podium", base.trim_end_matches('/')))
+    });
+    let matching_webhook = webhook_url.as_deref().and_then(|expected_url| {
+        webhooks.into_iter().find(|webhook| {
+            webhook.url == expected_url
+                && webhook.location_uid.as_deref() == Some(configured_location_uid.as_str())
+        })
+    });
+    let has_required_events = matching_webhook.as_ref().is_some_and(|webhook| {
+        PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES
+            .iter()
+            .all(|required| webhook.event_types.iter().any(|actual| actual == required))
+    });
+    let (webhook_status, message) = if configured_location_uid.trim().is_empty() {
+        (
+            "location_required",
+            "Select and save the Podium location before registering webhooks.",
+        )
+    } else if webhook_url.is_none() {
+        (
+            "public_url_required",
+            "Configure Riverside's public HTTPS base URL before registering Podium webhooks.",
+        )
+    } else if podium_webhook_secret_from_env().is_none() {
+        (
+            "secret_required",
+            "Save a Podium webhook signing secret before registering the subscription.",
+        )
+    } else if matching_webhook.is_none() {
+        (
+            "not_registered",
+            "No Podium webhook subscription matches this Riverside URL and location.",
+        )
+    } else if matching_webhook
+        .as_ref()
+        .is_some_and(|webhook| webhook.disabled)
+        || !has_required_events
+    {
+        (
+            "needs_update",
+            "The matching Podium webhook is disabled or missing required event types.",
+        )
+    } else {
+        (
+            "ready",
+            "Podium has an enabled subscription for Riverside's required message, contact, and review-link events.",
+        )
+    };
+    PodiumProviderSetupResponse {
+        locations,
+        configured_location_uid,
+        webhook_url,
+        required_event_types: PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES,
+        matching_webhook,
+        webhook_status: webhook_status.to_string(),
+        message: message.to_string(),
+    }
+}
+
+async fn get_podium_provider_setup(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<PodiumProviderSetupResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let cfg = crate::logic::podium::load_store_podium_config(&state.db).await?;
+    let locations =
+        fetch_podium_locations(&state.db, &state.http_client, &state.podium_token_cache)
+            .await
+            .map_err(|error| SettingsError::InvalidPayload(error.to_string()))?;
+    let webhooks = fetch_podium_webhooks(&state.db, &state.http_client, &state.podium_token_cache)
+        .await
+        .map_err(|error| SettingsError::InvalidPayload(error.to_string()))?;
+    Ok(Json(podium_provider_setup_response(
+        locations,
+        webhooks,
+        cfg.location_uid,
+    )))
+}
+
+async fn post_podium_webhook_ensure(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<PodiumProviderSetupResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let cfg = crate::logic::podium::load_store_podium_config(&state.db).await?;
+    let location_uid = cfg.location_uid.trim();
+    if location_uid.is_empty() {
+        return Err(SettingsError::InvalidPayload(
+            "Select and save a Podium location first.".to_string(),
+        ));
+    }
+    let public_base_url = nonempty_env("RIVERSIDE_PUBLIC_BASE_URL").ok_or_else(|| {
+        SettingsError::InvalidPayload(
+            "Configure Riverside's public HTTPS base URL first.".to_string(),
+        )
+    })?;
+    let parsed_url = url::Url::parse(&public_base_url).map_err(|_| {
+        SettingsError::InvalidPayload("The public base URL is invalid.".to_string())
+    })?;
+    if parsed_url.scheme() != "https" {
+        return Err(SettingsError::InvalidPayload(
+            "Podium webhooks require a public HTTPS base URL.".to_string(),
+        ));
+    }
+    let secret = podium_webhook_secret_from_env().ok_or_else(|| {
+        SettingsError::InvalidPayload("Save a Podium webhook signing secret first.".to_string())
+    })?;
+    let locations =
+        fetch_podium_locations(&state.db, &state.http_client, &state.podium_token_cache)
+            .await
+            .map_err(|error| SettingsError::InvalidPayload(error.to_string()))?;
+    if !locations
+        .iter()
+        .any(|location| location.uid == location_uid && !location.archived)
+    {
+        return Err(SettingsError::InvalidPayload(
+            "The saved Podium location is unavailable or archived. Select an active location."
+                .to_string(),
+        ));
+    }
+    let webhook_url = format!(
+        "{}/api/webhooks/podium",
+        public_base_url.trim_end_matches('/')
+    );
+    crate::logic::podium::ensure_podium_webhook(
+        &state.db,
+        &state.http_client,
+        &state.podium_token_cache,
+        location_uid,
+        &webhook_url,
+        &secret,
+    )
+    .await
+    .map_err(|error| SettingsError::InvalidPayload(error.to_string()))?;
+
+    let webhooks = fetch_podium_webhooks(&state.db, &state.http_client, &state.podium_token_cache)
+        .await
+        .map_err(|error| SettingsError::InvalidPayload(error.to_string()))?;
+    Ok(Json(podium_provider_setup_response(
+        locations,
+        webhooks,
+        cfg.location_uid,
+    )))
 }
 
 #[derive(Debug, Deserialize)]
@@ -3917,16 +4088,29 @@ pub fn router() -> Router<AppState> {
             get(get_podium_sms_settings).patch(patch_podium_sms_settings),
         )
         .route(
+            "/customer-communications",
+            get(get_podium_sms_settings).patch(patch_podium_sms_settings),
+        )
+        .route(
             "/email",
             get(get_email_settings).patch(patch_email_settings),
         )
         .route("/podium-sms/readiness", get(get_podium_sms_readiness))
+        .route("/podium/readiness", get(get_podium_sms_readiness))
         .route("/podium-health", get(get_podium_health))
+        .route("/podium/health", get(get_podium_health))
+        .route("/podium/provider-setup", get(get_podium_provider_setup))
+        .route("/podium/webhook", post(post_podium_webhook_ensure))
         .route(
             "/podium-oauth/authorize-url",
             get(get_podium_oauth_authorize_url),
         )
         .route("/podium-oauth/exchange", post(post_podium_oauth_exchange))
+        .route(
+            "/podium/oauth/authorize-url",
+            get(get_podium_oauth_authorize_url),
+        )
+        .route("/podium/oauth/exchange", post(post_podium_oauth_exchange))
         .route("/staff-sop", get(get_staff_sop).put(put_staff_sop))
         .route("/meilisearch/status", get(get_meilisearch_status))
         .route("/meilisearch/reindex", post(post_meilisearch_reindex))

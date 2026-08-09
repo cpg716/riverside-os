@@ -36,6 +36,7 @@ import {
   ShieldAlert,
   Save,
   SlidersHorizontal,
+  Star,
   Store,
   Tags,
   UserCircle,
@@ -61,6 +62,7 @@ import NuorderSettingsPanel from "./NuorderSettingsPanel";
 import GeoapifySettingsPanel from "./GeoapifySettingsPanel";
 import WeatherSettingsPanel from "./WeatherSettingsPanel";
 import PodiumSettingsPanel from "./PodiumSettingsPanel";
+import ReviewInvitesSettingsCard from "./ReviewInvitesSettingsCard";
 import EmailSettingsPanel from "./EmailSettingsPanel";
 import MeilisearchSettingsPanel from "./MeilisearchSettingsPanel";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
@@ -180,6 +182,7 @@ const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
   profile: "Your staff profile, contact details, Access PIN, and notification preferences.",
   "staff-access-defaults": "Role templates, default access, and discount caps.",
   "online-store": "Storefront publishing, product exposure, and customer checkout setup.",
+  reviews: "Post-sale review policy, scheduling defaults, and Podium request wording.",
   printing: "Printers, scanners, labels, test tools, and workstation hardware.",
   "receipt-builder": "Receipt layout, branding, barcode, and delivery settings.",
   "tag-designer": "Merchandise tag layout and printing templates.",
@@ -234,6 +237,7 @@ const SETTINGS_HUB_ICONS: Record<string, LucideIcon> = {
   profile: UserCircle,
   "staff-access-defaults": ShieldCheck,
   "online-store": Store,
+  reviews: Star,
   printing: Printer,
   "receipt-builder": ReceiptText,
   "tag-designer": Tags,
@@ -1420,7 +1424,11 @@ export default function SettingsWorkspace({
             )}
 
             {activeTab === "online-store" && (
-              <OnlineStoreConfigPanel onOpenOnlineStore={onOpenOnlineStore} />
+              <OnlineStoreConfigPanel baseUrl={baseUrl} onOpenOnlineStore={onOpenOnlineStore} />
+            )}
+
+            {activeTab === "reviews" && hasPermission("settings.admin") && (
+              <ReviewInvitesSettingsCard baseUrl={baseUrl} />
             )}
 
             {activeTab === "rosie" && <RosieSettingsPanel />}

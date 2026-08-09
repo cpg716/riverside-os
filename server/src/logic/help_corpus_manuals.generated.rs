@@ -210,7 +210,6 @@ pub const ROSIE_APPROVED_BUNDLED_MARKDOWN: &[(&str, &str)] = &[
     ("docs/staff/FAQ.md", include_str!("../../../docs/staff/FAQ.md")),
     ("docs/staff/GLOSSARY.md", include_str!("../../../docs/staff/GLOSSARY.md")),
     ("docs/staff/PII-AND-CUSTOMER-DATA.md", include_str!("../../../docs/staff/PII-AND-CUSTOMER-DATA.md")),
-    ("docs/staff/Podium_Integration_Manual.md", include_str!("../../../docs/staff/Podium_Integration_Manual.md")),
     ("docs/staff/README.md", include_str!("../../../docs/staff/README.md")),
     ("docs/staff/STORE-SOP-TEMPLATE.md", include_str!("../../../docs/staff/STORE-SOP-TEMPLATE.md")),
     ("docs/staff/abstracts/returns-refunds-exchanges.md", include_str!("../../../docs/staff/abstracts/returns-refunds-exchanges.md")),

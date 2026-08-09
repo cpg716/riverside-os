@@ -1,18 +1,18 @@
 # Audit Report: Podium Integration (2026)
 **Date:** 2026-08-06
-**Status:** Corrective implementation complete locally — production deployment and provider re-enable pending
+**Status:** Corrective source implementation updated 2026-08-09 — production deployment and live provider proof pending
 
 > **Current delivery boundary:** Podium owns SMS/MMS, inbox sync, contacts, and both SMS/email delivery of review requests. Other customer operational email and email receipts use the first-party Store Email mailbox.
 
 ## 1. Executive Summary
-The August 2026 audit found and corrected API-contract, delivery-truth, pagination, retry, and webhook-durability defects. Current source now follows Podium's documented contact and assignee payloads, creates and then delivers review links, records the channels that actually succeeded, and durably queues verified webhook JSON before returning `200`. These are local/source claims only: the Podium webhook remains provider-disabled, and the deployed Main Hub build must be replaced and publicly tested before inbound messaging is production-ready.
+The August 2026 audit found and corrected API-contract, delivery-truth, pagination, retry, and webhook-durability defects. Current source also reads Podium locations and webhook subscriptions, creates or updates Riverside's exact selected-location subscription, exposes the pinned API version, and enforces Podium's 30 MB attachment cap. These are local/source claims only: the deployed Main Hub build and live Podium account must still be publicly tested before inbound messaging is production-ready.
 
 ## 2. Technical Architecture
 
 ### 2.1 Multichannel Engine (`podium.rs`)
 - **Transport**: Supports `SMS` (text), `MMS` (PNG attachments via multipart/form-data), and `Email` (HTML bodies).
 - **Auth Strategy**: OAuth 2.0 with automatic token refresh logic. The server uses the Settings-managed encrypted refresh token to maintain a long-lived `PodiumTokenCache`.
-- **Scopes**: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `write_contacts`.
+- **Scopes**: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `read_contacts`, `write_contacts`.
 
 ### 2.2 Inbound Webhook Ecosystem (`podium_webhook.rs`)
 - **Security**: Mandatory HMAC-SHA256 signature verification and timestamp skew checks (<5 minutes).
@@ -24,7 +24,7 @@ The August 2026 audit found and corrected API-contract, delivery-truth, paginati
 - **Order Pickup**: Triggered asynchronously upon order fulfillment (`DbOrderStatus::Fulfilled`).
 - **Alteration Ready**: Triggered when a work order is marked as ready.
 - **Appointment Confirmations**: Automated emails sent upon creation of wedding/store appointments.
-- **Loyalty Rewards**: SMS/Email notifications for reward issuance.
+- **Loyalty Rewards**: No automated Podium/Store Email send; customer notice remains the physical loyalty-letter workflow.
 
 ### 3.2 CRM & Relationship Hub (`podium_inbound.rs`)
 - **Customer Matching**: Matches by E.164 phone tail or normalized email.
@@ -60,6 +60,7 @@ The August 2026 audit found and corrected API-contract, delivery-truth, paginati
 - **Customer Hub → Communication Preferences**: Review requests opt-out checkbox.
 - **Staff → Edit**: Podium user dropdown for identity linking.
 - **POS Receipt Summary**: Review invite controls honoring customer opt-out.
+- **Settings ownership**: Podium owns connection/location/webhooks/SMS; Email owns operational email wording; Customer Reviews owns review policy/wording; Receipt Settings owns delivery captions/subjects; Online Store owns web chat.
 
 ## 5. Security & RBAC
 - **`NOTIFICATIONS_VIEW`**: Required for inbound message alerts.
@@ -73,12 +74,14 @@ The August 2026 audit found and corrected API-contract, delivery-truth, paginati
 | Endpoint | Method | Feature |
 |---|---|---|
 | `/v4/users` | GET, cursor-paged | Staff-to-Podium user matching |
+| `/v4/locations` | GET, cursor-paged | Provider-backed location selection |
+| `/v4/webhooks` | GET / POST | Inspect and create the Riverside subscription |
+| `/v4/webhooks/{uid}` | PUT | Enable/update the exact URL/location subscription |
 | `/v4/messages` | POST | Outbound SMS and review-link delivery |
 | `/v4/messages/attachment` | POST | Image attachments |
 | `/v4/reviews/invites` | POST / GET, cursor-paged | Create review links and synchronize delivery state |
 | `/v4/conversations` | GET | Inbox conversation list |
 | `/v4/conversations/{uid}/messages` | GET, cursor-paged | Thread message history |
-| `/v4/conversations/{uid}/read` | POST | Mark conversation as read |
 | `/v4/conversations/{uid}/assignees` | GET / PUT | Show and update assignees |
 | `/v4/contacts` | POST | Create Podium contact |
 | `/v4/contacts/{identifier}` | PATCH | Update Podium contact |
@@ -86,11 +89,11 @@ The August 2026 audit found and corrected API-contract, delivery-truth, paginati
 ## 7. Hardening (v0.70.x)
 
 - **Retry Logic**: Safe reads retry network failures and HTTP 5xx. Reads and mutations honor HTTP 429/`Retry-After`, and a 401 invalidates the cached access token once. Mutating POSTs do not blindly retry ambiguous network/5xx outcomes, avoiding duplicate customer messages.
-- **Health Check**: `GET /api/settings/podium-health` refreshes real OAuth credentials and checks the required `read_locations`, `read_messages`, `read_reviews`, and `read_users` surfaces. Delivery toggles and webhook processing remain separate readiness signals.
+- **Health Check**: `GET /api/settings/podium/health` refreshes real OAuth credentials and checks the required `read_locations`, `read_messages`, `read_reviews`, `read_users`, and `read_contacts` surfaces. Delivery toggles and webhook processing remain separate readiness signals.
 - **Endpoint Safety**: Settings accepts only official HTTPS `podium.com` service hosts; HTTP is restricted to loopback development.
 - **Operational delivery truth**: Scheduled pickup/alteration work records `sms`, `email`, `both`, or `none` from actual successes. A provider failure no longer becomes a false delivered/both result.
 
 ## 8. Conclusion
-The audited source defects are repaired and covered by targeted tests. Production is still gated on migration `183_podium_webhook_processing_queue.sql`, an exact-build deployment, a successful signed Podium test delivery, and provider-side webhook re-enable. The Podium developer app should also be reduced from its currently enabled broad scope set to the seven scopes ROS requests, after the deployed feature smoke test confirms the required grant.
+The audited source defects are repaired and covered by targeted tests. Production remains gated on an exact-build deployment, the provider-side registration action, successful signed Podium deliveries, and real send/receive/contact/review smoke tests. The Podium developer app should be limited to the eight scopes ROS requests after the deployed feature smoke test confirms the grant.
 
-**Last reviewed:** 2026-08-06
+**Last reviewed:** 2026-08-09

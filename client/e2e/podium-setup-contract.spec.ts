@@ -12,6 +12,21 @@ function repoFile(relativePath: string): string {
 const panel = repoFile(
   "client/src/components/settings/PodiumSettingsPanel.tsx",
 );
+const smsSettings = repoFile(
+  "client/src/components/settings/PodiumSmsSettingsCard.tsx",
+);
+const emailTemplates = repoFile(
+  "client/src/components/settings/OperationalEmailTemplatesCard.tsx",
+);
+const reviewSettings = repoFile(
+  "client/src/components/settings/ReviewInvitesSettingsCard.tsx",
+);
+const receiptDelivery = repoFile(
+  "client/src/components/settings/ReceiptDeliverySettingsCard.tsx",
+);
+const webChatSettings = repoFile(
+  "client/src/components/settings/PodiumWebChatSettingsCard.tsx",
+);
 const callback = repoFile(
   "client/src/components/settings/PodiumOAuthCallback.tsx",
 );
@@ -58,18 +73,30 @@ test("Podium callback shows the provider exchange error", () => {
 test("Podium SMS workflows have independent enablement controls", () => {
   for (const feature of [
     "staff_messages",
-    "receipts",
     "ready_for_pickup",
     "alteration_ready",
     "appointment_confirmation",
     "appointment_reminder",
     "unknown_sender_welcome",
   ]) {
-    expect(panel).toContain(feature);
+    expect(smsSettings).toContain(feature);
     expect(podiumLogic).toContain(feature);
   }
-  expect(panel).toContain("Text receipts enabled");
+  expect(receiptDelivery).toContain("receipts");
+  expect(receiptDelivery).toContain("Text receipts enabled");
   expect(panel).not.toContain('label: "SMS Active"');
+});
+
+test("communication settings are owned by their feature pages", () => {
+  expect(panel).not.toContain("Operational Email Templates");
+  expect(panel).not.toContain("Review Request Messages");
+  expect(panel).not.toContain("Receipt Delivery Messages");
+  expect(panel).not.toContain("Web Chat Storefront Widget");
+  expect(emailTemplates).toContain("Automated email wording");
+  expect(reviewSettings).toContain("Review request wording");
+  expect(receiptDelivery).toContain("Digital receipt delivery");
+  expect(webChatSettings).toContain("Podium web chat");
+  expect(settingsApi).toContain('"/customer-communications"');
 });
 
 test("Podium provider contracts and webhook processing stay hardened", () => {
@@ -77,8 +104,15 @@ test("Podium provider contracts and webhook processing stay hardened", () => {
   expect(podiumLogic).toContain('"locations"');
   expect(podiumLogic).toContain('json!({ "assigneeUids": assignee_uids })');
   expect(podiumLogic).toContain("http.put(&url)");
+  expect(podiumLogic).toContain("/v4/webhooks");
+  expect(podiumLogic).toContain("PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES");
+  expect(settingsApi).toContain('"/podium/provider-setup"');
+  expect(settingsApi).toContain('"/podium/webhook"');
+  expect(panel).toContain("Register Podium webhook?");
   expect(podiumLogic).toContain("StatusCode::TOO_MANY_REQUESTS");
   expect(podiumLogic).toContain("invalidate_podium_access_token");
+  expect(podiumLogic).toContain("PODIUM_MAX_ATTACHMENT_BYTES");
+  expect(podiumLogic).not.toContain("#![allow(clippy::all)]");
   expect(podiumReviews).toContain("deliver_review_invite_link");
   expect(podiumReviews).toContain("process_due_review_invites");
   expect(podiumReviews).toContain("send_podium_sms_message_tracked");

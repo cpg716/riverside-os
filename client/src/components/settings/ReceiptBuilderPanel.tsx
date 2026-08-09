@@ -18,6 +18,7 @@ import {
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
 import { duplicateReceiptTokens } from "./receiptTemplateValidation";
+import ReceiptDeliverySettingsCard from "./ReceiptDeliverySettingsCard";
 
 const EPSON_RECEIPT_CPL = 48;
 const EPSON_RECEIPT_PAPER = "80mm";
@@ -1357,6 +1358,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
           </section>
         </div>
       </div>
+      <ReceiptDeliverySettingsCard baseUrl={baseUrl} />
     </div>
   );
 }

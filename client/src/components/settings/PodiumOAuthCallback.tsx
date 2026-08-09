@@ -89,7 +89,7 @@ export default function PodiumOAuthCallback() {
           ...stationKeyHeader(),
         };
 
-        const res = await fetch(`${apiBase}/api/settings/podium-oauth/exchange`, {
+        const res = await fetch(`${apiBase}/api/settings/podium/oauth/exchange`, {
           method: "POST",
           headers,
           body: JSON.stringify({ code, redirect_uri: redirectUri }),

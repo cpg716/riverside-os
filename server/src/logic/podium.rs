@@ -1,4 +1,3 @@
-#![allow(clippy::all)]
 //! Podium API: OAuth refresh-token flow and outbound SMS via `POST /v4/messages`.
 //! Operator setup: https://docs.podium.com/docs/getting-started
 //! Send payload shape: https://github.com/podium/podium-api-sample-messages
@@ -17,6 +16,20 @@ use uuid::Uuid;
 
 const PODIUM_MAX_RETRIES: u32 = 3;
 const PODIUM_BASE_RETRY_DELAY_MS: u64 = 500;
+const PODIUM_MAX_ATTACHMENT_BYTES: usize = 30 * 1024 * 1024;
+
+pub const PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES: &[&str] = &[
+    "message.failed",
+    "message.received",
+    "message.sent",
+    "contact.created",
+    "contact.deleted",
+    "contact.merged",
+    "contact.unchanged",
+    "contact.updated",
+    "review.invite_link_created",
+    "review.invite_link_updated",
+];
 
 fn podium_retry_delay(attempt: u32) -> StdDuration {
     StdDuration::from_millis(PODIUM_BASE_RETRY_DELAY_MS * 2_u64.pow(attempt))
@@ -843,6 +856,22 @@ fn podium_contacts_url(base_url: &str) -> String {
     format!("{}/v4/contacts", base_url.trim_end_matches('/'))
 }
 
+fn podium_locations_url(base_url: &str) -> String {
+    format!("{}/v4/locations", base_url.trim_end_matches('/'))
+}
+
+fn podium_webhooks_url(base_url: &str) -> String {
+    format!("{}/v4/webhooks", base_url.trim_end_matches('/'))
+}
+
+fn podium_webhook_url(base_url: &str, webhook_uid: &str) -> String {
+    format!(
+        "{}/v4/webhooks/{}",
+        base_url.trim_end_matches('/'),
+        urlencoding::encode(webhook_uid)
+    )
+}
+
 fn podium_contact_url(base_url: &str, identifier: &str) -> String {
     format!(
         "{}/v4/contacts/{}",
@@ -1281,6 +1310,219 @@ fn next_cursor_from_collection(value: &Value) -> Option<String> {
     )
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PodiumLocationSummary {
+    pub uid: String,
+    pub name: String,
+    pub display_name: Option<String>,
+    pub archived: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct PodiumWebhookSummary {
+    pub uid: String,
+    pub location_uid: Option<String>,
+    pub organization_uid: Option<String>,
+    pub url: String,
+    pub disabled: bool,
+    pub event_types: Vec<String>,
+}
+
+fn parse_podium_locations(value: Value) -> Result<Vec<PodiumLocationSummary>, PodiumError> {
+    if !is_collection_response(&value) {
+        return Err(PodiumError::SendHttp(502));
+    }
+    Ok(values_from_collection(value)
+        .into_iter()
+        .filter_map(|location| {
+            let uid = first_string_at(&location, &["/uid", "/id"])?;
+            let name = first_string_at(&location, &["/name", "/displayName"])
+                .unwrap_or_else(|| uid.clone());
+            Some(PodiumLocationSummary {
+                uid,
+                name,
+                display_name: first_string_at(&location, &["/displayName"]),
+                archived: location
+                    .get("archived")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect())
+}
+
+fn parse_podium_webhooks(value: Value) -> Result<Vec<PodiumWebhookSummary>, PodiumError> {
+    if !is_collection_response(&value) {
+        return Err(PodiumError::SendHttp(502));
+    }
+    Ok(values_from_collection(value)
+        .into_iter()
+        .filter_map(|webhook| {
+            Some(PodiumWebhookSummary {
+                uid: first_string_at(&webhook, &["/uid", "/id"])?,
+                location_uid: first_string_at(&webhook, &["/locationUid"]),
+                organization_uid: first_string_at(&webhook, &["/organizationUid"]),
+                url: first_string_at(&webhook, &["/url"]).unwrap_or_default(),
+                disabled: webhook
+                    .get("disabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                event_types: webhook
+                    .get("eventTypes")
+                    .and_then(Value::as_array)
+                    .map(|values| {
+                        values
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(ToOwned::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })
+        })
+        .collect())
+}
+
+pub async fn fetch_podium_locations(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+) -> Result<Vec<PodiumLocationSummary>, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let url = podium_locations_url(&creds.api_base_url);
+    let mut cursor: Option<String> = None;
+    let mut locations = Vec::new();
+    loop {
+        let page_cursor = cursor.clone();
+        let response = send_authenticated_podium_request(
+            http,
+            token_cache,
+            &creds,
+            PodiumRequestSafety::SafeRead,
+            PodiumHttpErrorKind::General,
+            &[],
+            |token| {
+                if let Some(cursor) = page_cursor.as_deref() {
+                    add_podium_headers(http.get(&url), Some(token)).query(&[("cursor", cursor)])
+                } else {
+                    add_podium_headers(http.get(&url), Some(token)).query(&[("limit", 100_u8)])
+                }
+            },
+        )
+        .await?;
+        let value = response.json::<Value>().await.unwrap_or_else(|_| json!({}));
+        locations.extend(parse_podium_locations(value.clone())?);
+        let Some(next_cursor) = next_cursor_from_collection(&value) else {
+            break;
+        };
+        if cursor.as_deref() == Some(next_cursor.as_str()) {
+            return Err(PodiumError::SendHttp(502));
+        }
+        cursor = Some(next_cursor);
+    }
+    Ok(locations)
+}
+
+pub async fn fetch_podium_webhooks(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+) -> Result<Vec<PodiumWebhookSummary>, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let response = send_authenticated_podium_request(
+        http,
+        token_cache,
+        &creds,
+        PodiumRequestSafety::SafeRead,
+        PodiumHttpErrorKind::General,
+        &[],
+        |token| {
+            add_podium_headers(
+                http.get(podium_webhooks_url(&creds.api_base_url)),
+                Some(token),
+            )
+        },
+    )
+    .await?;
+    let value = response.json::<Value>().await.unwrap_or_else(|_| json!({}));
+    parse_podium_webhooks(value)
+}
+
+pub async fn ensure_podium_webhook(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    location_uid: &str,
+    webhook_url: &str,
+    secret: &str,
+) -> Result<PodiumWebhookSummary, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let existing = fetch_podium_webhooks(pool, http, token_cache)
+        .await?
+        .into_iter()
+        .find(|webhook| {
+            webhook.url == webhook_url && webhook.location_uid.as_deref() == Some(location_uid)
+        });
+    let event_types = PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES.to_vec();
+    let payload = json!({
+        "disabled": false,
+        "eventTypes": event_types,
+        "secret": secret,
+        "url": webhook_url,
+    });
+    let response = if let Some(webhook) = existing {
+        let url = podium_webhook_url(&creds.api_base_url, &webhook.uid);
+        send_authenticated_podium_request(
+            http,
+            token_cache,
+            &creds,
+            PodiumRequestSafety::Mutation,
+            PodiumHttpErrorKind::General,
+            &[],
+            |token| {
+                add_podium_headers(http.put(&url), Some(token))
+                    .header("Content-Type", "application/json")
+                    .json(&payload)
+            },
+        )
+        .await?
+    } else {
+        let url = podium_webhooks_url(&creds.api_base_url);
+        let create_payload = json!({
+            "eventTypes": PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES,
+            "locationUid": location_uid,
+            "secret": secret,
+            "url": webhook_url,
+        });
+        send_authenticated_podium_request(
+            http,
+            token_cache,
+            &creds,
+            PodiumRequestSafety::Mutation,
+            PodiumHttpErrorKind::General,
+            &[],
+            |token| {
+                add_podium_headers(http.post(&url), Some(token))
+                    .header("Content-Type", "application/json")
+                    .json(&create_payload)
+            },
+        )
+        .await?
+    };
+    let value = response.json::<Value>().await.unwrap_or_else(|_| json!({}));
+    let webhook_value = value.get("data").cloned().unwrap_or(value);
+    parse_podium_webhooks(json!({ "data": [webhook_value] }))?
+        .into_iter()
+        .next()
+        .ok_or(PodiumError::SendHttp(502))
+}
+
 pub async fn fetch_podium_conversations(
     pool: &PgPool,
     http: &reqwest::Client,
@@ -1471,12 +1713,11 @@ pub async fn fetch_all_podium_contacts(
             PodiumHttpErrorKind::General,
             &[],
             |token| {
-                let mut request =
-                    add_podium_headers(http.get(&url), Some(token)).query(&[("limit", 100_u8)]);
                 if let Some(cursor) = page_cursor.as_deref() {
-                    request = request.query(&[("cursor", cursor)]);
+                    add_podium_headers(http.get(&url), Some(token)).query(&[("cursor", cursor)])
+                } else {
+                    add_podium_headers(http.get(&url), Some(token)).query(&[("limit", 100_u8)])
                 }
-                request
             },
         )
         .await?;
@@ -1714,6 +1955,9 @@ pub async fn send_podium_phone_message_with_attachment_tracked(
         || attachment_content_type.trim().is_empty()
     {
         return Err(PodiumError::NotConfigured);
+    }
+    if attachment_bytes.len() > PODIUM_MAX_ATTACHMENT_BYTES {
+        return Err(PodiumError::SendHttp(413));
     }
     let Some(e164) = normalize_phone_e164(to_phone_raw) else {
         return Err(PodiumError::NotConfigured);
@@ -2871,5 +3115,55 @@ mod tests {
         )
         .await;
         assert!(r.is_ok(), "{r:?}");
+    }
+
+    #[test]
+    fn parses_documented_location_and_webhook_objects() {
+        let locations = parse_podium_locations(json!({
+            "data": [{
+                "uid": "location-1",
+                "name": "Riverside",
+                "displayName": "Riverside Men's Shop",
+                "archived": false
+            }],
+            "metadata": { "nextCursor": null }
+        }))
+        .expect("locations");
+        assert_eq!(locations[0].uid, "location-1");
+        assert_eq!(
+            locations[0].display_name.as_deref(),
+            Some("Riverside Men's Shop")
+        );
+
+        let webhooks = parse_podium_webhooks(json!({
+            "data": [{
+                "uid": "webhook-1",
+                "locationUid": "location-1",
+                "url": "https://ros.example/api/webhooks/podium",
+                "disabled": false,
+                "eventTypes": ["message.received", "contact.updated"]
+            }]
+        }))
+        .expect("webhooks");
+        assert_eq!(webhooks[0].location_uid.as_deref(), Some("location-1"));
+        assert_eq!(webhooks[0].event_types.len(), 2);
+    }
+
+    #[test]
+    fn webhook_subscription_covers_every_processed_provider_event() {
+        for event_type in [
+            "message.failed",
+            "message.received",
+            "message.sent",
+            "contact.created",
+            "contact.deleted",
+            "contact.merged",
+            "contact.unchanged",
+            "contact.updated",
+            "review.invite_link_created",
+            "review.invite_link_updated",
+        ] {
+            assert!(PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES.contains(&event_type));
+        }
     }
 }

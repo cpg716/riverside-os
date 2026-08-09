@@ -47,6 +47,7 @@ export const SIDEBAR_SUB_SECTION_PERMISSION: Record<string, string> = {
   "home:inbox": "customers.hub_view",
   "settings:help-center": "help.manage",
   "settings:online-store": "settings.admin",
+  "settings:reviews": "settings.admin",
   "settings:ros-operations-center": "ops.dev_center.view",
   "settings:ros-dev-center": "ops.dev_center.view",
   "settings:constant-contact": "constant_contact.manage",

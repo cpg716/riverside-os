@@ -87,8 +87,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | In-app Help: Reports + Insights manuals | [`../../client/src/assets/docs/reports-manual.md`](../../client/src/assets/docs/reports-manual.md), [`../../client/src/assets/docs/insights-manual.md`](../../client/src/assets/docs/insights-manual.md) (Help Center; see [../MANUAL_CREATION.md](../MANUAL_CREATION.md)) |
 | Settings (BO) | [settings-back-office.md](settings-back-office.md) |
 | ROS Dev Center (admin ops) | [../ROS_DEV_CENTER.md](../ROS_DEV_CENTER.md), [settings-back-office.md](settings-back-office.md) |
-| Podium integration (staff SOP) | [podium-integration-staff-manual.md](podium-integration-staff-manual.md) |
-| Podium integration (full reference) | [Podium_Integration_Manual.md](Podium_Integration_Manual.md) |
+| Podium integration | [podium-integration-staff-manual.md](podium-integration-staff-manual.md) |
 | NuORDER integration (wholesale sync) | [../NUORDER_INTEGRATION.md](../NUORDER_INTEGRATION.md) |
 | Bug reports — **submit** (any staff) | [bug-reports-submit-manual.md](bug-reports-submit-manual.md) |
 | Bug reports — **admin triage** | [bug-reports-admin-manual.md](bug-reports-admin-manual.md) |

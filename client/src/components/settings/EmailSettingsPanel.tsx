@@ -3,6 +3,7 @@ import { CheckCircle2, Mail, RefreshCw, Save, Send, TriangleAlert } from "lucide
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
+import OperationalEmailTemplatesCard from "./OperationalEmailTemplatesCard";
 
 type EmailSettings = {
   enabled: boolean;
@@ -390,6 +391,8 @@ export default function EmailSettingsPanel({ baseUrl }: EmailSettingsPanelProps)
         ]}
         onSaved={loadSettings}
       />
+
+      <OperationalEmailTemplatesCard baseUrl={baseUrl} />
 
       <section className="ui-card max-w-5xl p-6">
         <div className="mb-4 flex items-start gap-3">

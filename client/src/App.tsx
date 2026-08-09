@@ -652,6 +652,7 @@ function App() {
           "rosie",
           "updates",
           "online-store",
+          "reviews",
           "help-center",
           "backups",
           "meilisearch",

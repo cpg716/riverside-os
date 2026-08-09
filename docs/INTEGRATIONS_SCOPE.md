@@ -36,7 +36,7 @@
 | Helcim Payments Operations | [`HELCIM.md`](./HELCIM.md), [`staff/payments-operations.md`](./staff/payments-operations.md), [`SCHEMA_CONTRACT_AND_MIGRATIONS.md`](./SCHEMA_CONTRACT_AND_MIGRATIONS.md) |
 | NuORDER (wholesale catalog, media, and order sync) | [`NUORDER_INTEGRATION.md`](./NUORDER_INTEGRATION.md) |
 | Optional Meilisearch (reindex) | [`SEARCH_AND_PAGINATION.md`](./SEARCH_AND_PAGINATION.md), [`STORE_DEPLOYMENT_GUIDE.md`](./STORE_DEPLOYMENT_GUIDE.md) |
-| Podium SMS, widget, OAuth callback, webhook, transactional paths | [`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md), [`staff/Podium_Integration_Manual.md`](./staff/Podium_Integration_Manual.md) |
+| Podium SMS, widget, OAuth callback, webhook, transactional paths | [`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md), [`staff/podium-integration-staff-manual.md`](./staff/podium-integration-staff-manual.md) |
 | Shippo rates, shipments hub, POS/store shipping | [`SHIPPING_AND_SHIPMENTS_HUB.md`](./SHIPPING_AND_SHIPMENTS_HUB.md) (shipped baseline), [`PLAN_SHIPPO_SHIPPING.md`](./PLAN_SHIPPO_SHIPPING.md) (roadmap) |
 | E-commerce module (catalog, checkout, phases) | [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md); shipped APIs + `/shop`: [`ONLINE_STORE.md`](./ONLINE_STORE.md) |
 | Marketing lists / outbound campaigns | [`PLAN_CONSTANT_CONTACT_INTEGRATION.md`](./PLAN_CONSTANT_CONTACT_INTEGRATION.md) |
