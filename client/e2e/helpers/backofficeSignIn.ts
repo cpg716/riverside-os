@@ -199,7 +199,7 @@ export async function openBackofficeSidebarTab(
   }
   if (tabId === "settings") {
     await expect(
-      mainNav.getByRole("button", { name: /^help center$/i }),
+      mainNav.getByRole("button", { name: /^settings hub$/i }),
     ).toBeVisible({ timeout: 20_000 });
   } else {
     for (let attempt = 0; attempt < 3; attempt += 1) {

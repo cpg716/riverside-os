@@ -177,17 +177,45 @@ test("Settings sidebar groups stay compact, complete, and ordered", async ({ pag
   expectTextOrder(navText.replace(/\s+/g, " "), SETTINGS_ORDER);
 });
 
-test("Settings Hub search opens the matching setting", async ({ page }) => {
+test("Settings Hub category flow and search open the matching setting", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openSettings(page);
 
-  await page.getByRole("searchbox", { name: "Search settings" }).fill("receipt");
+  const settingsHub = page.getByTestId("settings-workspace-content");
+  const categoryNav = settingsHub.getByRole("navigation", {
+    name: "Settings categories",
+  });
   await expect(
-    page.getByRole("button", { name: /Receipt Settings/ }),
+    categoryNav.getByRole("button", { name: /^Store & Staff/ }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    settingsHub.getByRole("button", { name: /^Online Store/ }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Profile/ })).toHaveCount(0);
+  await expect(
+    settingsHub.getByRole("button", { name: /^Podium/ }),
+  ).toHaveCount(0);
 
-  await page.getByRole("button", { name: /Receipt Settings/ }).click();
+  await categoryNav
+    .getByRole("button", { name: /^Connected Services/ })
+    .click();
+  await expect(
+    settingsHub.getByRole("button", { name: /^Podium/ }),
+  ).toBeVisible();
+  await expect(
+    settingsHub.getByRole("button", { name: /^Online Store/ }),
+  ).toHaveCount(0);
+
+  await settingsHub
+    .getByRole("searchbox", { name: "Search settings" })
+    .fill("receipt");
+  await expect(
+    settingsHub.getByRole("button", { name: /Receipt Settings/ }),
+  ).toBeVisible();
+  await expect(
+    settingsHub.getByRole("button", { name: /^Profile/ }),
+  ).toHaveCount(0);
+
+  await settingsHub.getByRole("button", { name: /Receipt Settings/ }).click();
   await expect(
     page.getByRole("heading", { name: "Receipt Settings" }),
   ).toBeVisible({ timeout: 20_000 });

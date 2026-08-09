@@ -166,6 +166,8 @@ type SettingsHubLink = {
 type SettingsHubGroup = {
   id: string;
   label: string;
+  description: string;
+  icon: LucideIcon;
   links: SettingsHubLink[];
 };
 
@@ -208,6 +210,32 @@ const SETTINGS_HUB_GROUP_ORDER = [
   "settings-group-integrations",
   "settings-group-system-support",
 ];
+
+const SETTINGS_HUB_GROUP_PRESENTATION: Record<
+  string,
+  { description: string; icon: LucideIcon }
+> = {
+  "settings-group-store-setup": {
+    description: "People, storefront, and customer-facing defaults.",
+    icon: Store,
+  },
+  "settings-group-register-setup": {
+    description: "Receipts, tags, hardware, and lane behavior.",
+    icon: Printer,
+  },
+  "settings-group-maintenance": {
+    description: "Backups, reporting, and data safeguards.",
+    icon: Database,
+  },
+  "settings-group-integrations": {
+    description: "Providers, search, and connected data services.",
+    icon: Plug,
+  },
+  "settings-group-system-support": {
+    description: "Support, manuals, ROSIE, and system tools.",
+    icon: ShieldCheck,
+  },
+};
 
 const SETTINGS_HUB_INTEGRATION_BRANDS: Partial<
   Record<string, IntegrationBrand>
@@ -305,6 +333,9 @@ export default function SettingsWorkspace({
   const [backupCfg, setBackupCfg] = useState<BackupSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [settingsQuery, setSettingsQuery] = useState("");
+  const [settingsGroupId, setSettingsGroupId] = useState(
+    "settings-group-store-setup",
+  );
 
   // Database State
   const [backups, setBackups] = useState<BackupFile[]>([]);
@@ -329,7 +360,14 @@ export default function SettingsWorkspace({
 
     for (const section of SIDEBAR_SUB_SECTIONS.settings) {
       if (section.kind === "group") {
-        currentGroup = { id: section.id, label: section.label, links: [] };
+        const presentation = SETTINGS_HUB_GROUP_PRESENTATION[section.id];
+        currentGroup = {
+          id: section.id,
+          label: section.label,
+          description: presentation?.description ?? "Store configuration.",
+          icon: presentation?.icon ?? SlidersHorizontal,
+          links: [],
+        };
         groups.push(currentGroup);
         continue;
       }
@@ -351,6 +389,8 @@ export default function SettingsWorkspace({
         currentGroup = {
           id: "settings-group-general",
           label: "Settings",
+          description: "Store configuration.",
+          icon: SlidersHorizontal,
           links: [],
         };
         groups.push(currentGroup);
@@ -391,7 +431,20 @@ export default function SettingsWorkspace({
       .filter((group) => group.links.length > 0);
   }, [settingsHubGroups, settingsQuery]);
 
-  const visibleSettingsCount = filteredSettingsHubGroups.reduce(
+  const settingsSearchActive = settingsQuery.trim().length > 0;
+  const selectedSettingsHubGroup =
+    settingsHubGroups.find((group) => group.id === settingsGroupId) ??
+    settingsHubGroups[0];
+  const displayedSettingsHubGroups = settingsSearchActive
+    ? filteredSettingsHubGroups
+    : selectedSettingsHubGroup
+      ? [selectedSettingsHubGroup]
+      : [];
+  const visibleSettingsCount = displayedSettingsHubGroups.reduce(
+    (total, group) => total + group.links.length,
+    0,
+  );
+  const totalSettingsCount = settingsHubGroups.reduce(
     (total, group) => total + group.links.length,
     0,
   );
@@ -644,113 +697,200 @@ export default function SettingsWorkspace({
                   </div>
                 </header>
 
-                <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                  {filteredSettingsHubGroups.map((group) => {
-                    const isIntegrationsGroup =
-                      group.id === "settings-group-integrations";
-
-                    return (
-                      <section
-                        key={group.id}
-                        className={`ui-card p-5 sm:p-6 ${
-                          isIntegrationsGroup ? "xl:col-span-2" : ""
-                        }`}
+                <section className="ui-card overflow-hidden">
+                  <div className="grid grid-cols-1 lg:grid-cols-[17rem_minmax(0,1fr)]">
+                    <aside className="border-b border-app-border bg-app-bg/45 p-4 sm:p-5 lg:border-b-0 lg:border-r">
+                      <div className="mb-4 px-2">
+                        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
+                          Browse by area
+                        </p>
+                        <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                          {totalSettingsCount} settings available
+                        </p>
+                      </div>
+                      <nav
+                        aria-label="Settings categories"
+                        className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1"
                       >
-                        <div className="mb-4 flex items-center justify-between gap-3 border-b border-app-border pb-4">
-                          <h3 className="text-lg font-black tracking-tight text-app-text">
-                            {group.label}
-                          </h3>
-                          <span className="rounded-full border border-app-border bg-app-bg px-2.5 py-1 text-[10px] font-black tabular-nums text-app-text-muted">
-                            {group.links.length}
-                          </span>
-                        </div>
-
-                        <div
-                          className={`grid grid-cols-1 gap-3 ${
-                            isIntegrationsGroup
-                              ? "md:grid-cols-2 xl:grid-cols-3"
-                              : ""
-                          }`}
-                        >
-                          {group.links.map((link) => (
+                        {settingsHubGroups.map((group) => {
+                          const isSelected =
+                            !settingsSearchActive &&
+                            selectedSettingsHubGroup?.id === group.id;
+                          return (
                             <button
-                              key={link.id}
+                              key={group.id}
                               type="button"
-                              onClick={() => navigateToTab?.(link.id)}
-                              className="group flex min-h-20 w-full items-center gap-3 rounded-xl border border-app-border bg-app-surface/60 p-3.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:bg-app-surface hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
+                              aria-pressed={isSelected}
+                              onClick={() => {
+                                setSettingsGroupId(group.id);
+                                setSettingsQuery("");
+                              }}
+                              className={`group flex min-h-14 w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${
+                                isSelected
+                                  ? "border-app-accent/40 bg-app-accent/10 text-app-text shadow-sm"
+                                  : "border-transparent text-app-text-muted hover:border-app-border hover:bg-app-surface hover:text-app-text"
+                              }`}
                             >
                               <span
-                                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border text-xs font-black uppercase text-app-accent ${
-                                  link.brand ? "bg-app-surface p-1.5" : "bg-app-bg"
-                                } ${link.brand === "helcim" ? "overflow-hidden" : ""}`}
+                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${
+                                  isSelected
+                                    ? "border-app-accent/30 bg-app-surface text-app-accent"
+                                    : "border-app-border bg-app-surface/70 text-app-text-muted group-hover:text-app-accent"
+                                }`}
                               >
-                                {link.brand ? (
-                                  <IntegrationBrandLogo
-                                    brand={link.brand}
-                                    kind="icon"
-                                    alt={link.label}
-                                    className="inline-flex h-full w-full items-center justify-center"
-                                    imageClassName={
-                                      link.brand === "helcim"
-                                        ? "h-full w-auto max-w-none rounded-md object-cover"
-                                        : "max-h-full max-w-full rounded-md object-contain"
-                                    }
-                                  />
-                                ) : link.id === "rosie" || link.id === "fal" ? (
-                                  <RosieIcon size={22} alt="" />
-                                ) : (
-                                  createElement(link.icon, {
-                                    size: 20,
-                                    strokeWidth: 2.25,
-                                    "aria-hidden": true,
-                                  })
-                                )}
+                                {createElement(group.icon, {
+                                  size: 18,
+                                  strokeWidth: 2.25,
+                                  "aria-hidden": true,
+                                })}
                               </span>
                               <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-black text-app-text">
-                                  {link.label}
+                                <span className="block truncate text-xs font-black">
+                                  {group.label}
                                 </span>
-                                <span className="mt-0.5 block text-xs font-medium leading-snug text-app-text-muted">
-                                  {link.description}
+                                <span className="mt-0.5 block text-[10px] font-semibold text-app-text-muted">
+                                  {group.links.length} settings
                                 </span>
                               </span>
                               <ChevronRight
-                                className="shrink-0 text-app-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-app-accent"
-                                size={18}
+                                size={15}
                                 aria-hidden
+                                className={`shrink-0 transition-transform group-hover:translate-x-0.5 ${
+                                  isSelected
+                                    ? "text-app-accent"
+                                    : "text-app-text-muted"
+                                }`}
                               />
                             </button>
-                          ))}
+                          );
+                        })}
+                      </nav>
+                    </aside>
+
+                    <div className="min-w-0 p-5 sm:p-6">
+                      <div className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-app-border pb-5">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-app-accent/25 bg-app-accent/10 text-app-accent">
+                            {createElement(
+                              settingsSearchActive
+                                ? Search
+                                : (selectedSettingsHubGroup?.icon ??
+                                    SlidersHorizontal),
+                              {
+                                size: 21,
+                                strokeWidth: 2.25,
+                                "aria-hidden": true,
+                              },
+                            )}
+                          </span>
+                          <div className="min-w-0">
+                            <h3 className="text-xl font-black tracking-tight text-app-text">
+                              {settingsSearchActive
+                                ? "Search results"
+                                : selectedSettingsHubGroup?.label}
+                            </h3>
+                            <p className="mt-1 text-sm font-medium text-app-text-muted">
+                              {settingsSearchActive
+                                ? `Matches for “${settingsQuery.trim()}” across every settings area.`
+                                : selectedSettingsHubGroup?.description}
+                            </p>
+                          </div>
                         </div>
-                      </section>
-                    );
-                  })}
-                </div>
+                        <span className="rounded-full border border-app-border bg-app-bg px-3 py-1.5 text-[10px] font-black tabular-nums text-app-text-muted">
+                          {visibleSettingsCount}{" "}
+                          {visibleSettingsCount === 1 ? "setting" : "settings"}
+                        </span>
+                      </div>
 
-                {filteredSettingsHubGroups.length === 0 && (
-                  <div className="ui-card flex min-h-48 flex-col items-center justify-center gap-3 p-8 text-center">
-                    <Search size={24} className="text-app-text-muted" aria-hidden />
-                    <div>
-                      <h3 className="font-black text-app-text">
-                        No settings found
-                      </h3>
-                      <p className="mt-1 text-sm text-app-text-muted">
-                        Try a service name, device, or staff task.
-                      </p>
+                      {displayedSettingsHubGroups.length > 0 ? (
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                          {displayedSettingsHubGroups.flatMap((group) =>
+                            group.links.map((link) => (
+                              <button
+                                key={`${group.id}:${link.id}`}
+                                type="button"
+                                onClick={() => navigateToTab?.(link.id)}
+                                className="group flex min-h-20 w-full items-center gap-3 rounded-xl border border-app-border bg-app-surface/60 p-3.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-app-accent/35 hover:bg-app-surface hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
+                              >
+                                <span
+                                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border text-xs font-black uppercase text-app-accent ${
+                                    link.brand
+                                      ? "bg-app-surface p-1.5"
+                                      : "bg-app-bg"
+                                  } ${link.brand === "helcim" ? "overflow-hidden" : ""}`}
+                                >
+                                  {link.brand ? (
+                                    <IntegrationBrandLogo
+                                      brand={link.brand}
+                                      kind="icon"
+                                      alt={link.label}
+                                      className="inline-flex h-full w-full items-center justify-center"
+                                      imageClassName={
+                                        link.brand === "helcim"
+                                          ? "h-full w-auto max-w-none rounded-md object-cover"
+                                          : "max-h-full max-w-full rounded-md object-contain"
+                                      }
+                                    />
+                                  ) : link.id === "rosie" ||
+                                    link.id === "fal" ? (
+                                    <RosieIcon size={22} alt="" />
+                                  ) : (
+                                    createElement(link.icon, {
+                                      size: 20,
+                                      strokeWidth: 2.25,
+                                      "aria-hidden": true,
+                                    })
+                                  )}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  {settingsSearchActive && (
+                                    <span className="mb-0.5 block truncate text-[9px] font-black uppercase tracking-[0.12em] text-app-accent">
+                                      {group.label}
+                                    </span>
+                                  )}
+                                  <span className="block text-sm font-black text-app-text">
+                                    {link.label}
+                                  </span>
+                                  <span className="mt-0.5 block text-xs font-medium leading-snug text-app-text-muted">
+                                    {link.description}
+                                  </span>
+                                </span>
+                                <ChevronRight
+                                  className="shrink-0 text-app-text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-app-accent"
+                                  size={18}
+                                  aria-hidden
+                                />
+                              </button>
+                            )),
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex min-h-52 flex-col items-center justify-center gap-3 text-center">
+                          <Search
+                            size={24}
+                            className="text-app-text-muted"
+                            aria-hidden
+                          />
+                          <div>
+                            <h3 className="font-black text-app-text">
+                              No settings found
+                            </h3>
+                            <p className="mt-1 text-sm text-app-text-muted">
+                              Try a service name, device, or staff task.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setSettingsQuery("")}
+                            className="ui-btn-secondary min-h-11 px-4"
+                          >
+                            Clear search
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSettingsQuery("")}
-                      className="ui-btn-secondary min-h-11 px-4"
-                    >
-                      Clear search
-                    </button>
                   </div>
-                )}
-
-                <p className="text-center text-xs font-semibold text-app-text-muted">
-                  {visibleSettingsCount} {visibleSettingsCount === 1 ? "setting" : "settings"}
-                </p>
+                </section>
               </div>
             )}
 

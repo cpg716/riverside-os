@@ -10,7 +10,7 @@
 
 ## How to use this area
 
-Use **Settings Hub** when you are not sure where to start. Search by task, provider, or device, then open the matching card. **Profile** changes **you**. **Store & Staff** owns store-facing and staff defaults. **Register & Printing** keeps workstation hardware, receipts, tags, and lane preferences together. **Connected Services** owns each provider directly; the former duplicate **Integrations Overview** route now opens Settings Hub without removing any provider page. **Help & System** contains remote access, manuals and the store playbook, ROSIE, operational support, updates, bug review, and developer tools.
+Use **Settings Hub** when you are not sure where to start. Choose one area from the category navigator to keep the workspace focused, or search by task, provider, or device across every area. **Profile** changes **you**. **Store & Staff** owns store-facing and staff defaults. **Register & Printing** keeps workstation hardware, receipts, tags, and lane preferences together. **Connected Services** owns each provider directly; the former duplicate **Integrations Overview** route now opens Settings Hub without removing any provider page. **Help & System** contains remote access, manuals and the store playbook, ROSIE, operational support, updates, bug review, and developer tools.
 
 ## Sidebar order
 
