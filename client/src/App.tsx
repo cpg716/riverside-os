@@ -19,7 +19,9 @@ import { TopBarProvider } from "./context/TopBarContext";
 import type { BreadcrumbSegment } from "./components/layout/GlobalTopBar";
 const PosShell = lazy(() => import("./components/layout/PosShell"));
 const WeddingShell = lazy(() => import("./components/layout/WeddingShell"));
-const InsightsShell = lazy(() => import("./components/layout/InsightsShell"));
+const NativeInsightsWorkspace = lazy(
+  () => import("./components/insights/NativeInsightsWorkspace"),
+);
 const GlobalSearchDrawerHost = lazy(
   () => import("./components/layout/GlobalSearchDrawers"),
 );
@@ -166,7 +168,6 @@ function App() {
   const [posMode, setPosMode] = useState(false);
   const [weddingMode, setWeddingMode] = useState(false);
   const [weddingReturnTarget, setWeddingReturnTarget] = useState<"backoffice" | "pos">("backoffice");
-  const [insightsMode, setInsightsMode] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeSubSection, setActiveSubSection] = useState<string>(
     () => SIDEBAR_SUB_SECTIONS["home"][0].id,
@@ -267,7 +268,6 @@ function App() {
       setActiveTab("orders");
       setActiveSubSection("all");
       setWeddingMode(false);
-      setInsightsMode(false);
       setPosMode(false);
     };
     window.addEventListener(ROS_OPEN_TRANSACTION_FROM_WM, handler as EventListener);
@@ -280,7 +280,6 @@ function App() {
       setPosMode(false);
       setWeddingMode(false);
       setWeddingReturnTarget("backoffice");
-      setInsightsMode(false);
       setActiveTab(tab);
       if (section) {
         setActiveSubSection(section);
@@ -291,10 +290,9 @@ function App() {
     [],
   );
 
-  const enterInsightsShell = useCallback(() => {
+  const openInsightsWorkspace = useCallback(() => {
     setPosMode(false);
     setWeddingMode(false);
-    setInsightsMode(true);
     setActiveTab("dashboard");
   }, []);
 
@@ -346,7 +344,6 @@ function App() {
       setWeddingReturnTarget("backoffice");
       setWeddingMode(true);
       setPosMode(false);
-      setInsightsMode(false);
       setPendingWmPartyId(wp);
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -386,7 +383,6 @@ function App() {
 
     if (path === "/pos") {
       setPosMode(true);
-      setInsightsMode(false);
       setActiveTab("register");
     } else {
       if (posMode) {
@@ -463,7 +459,6 @@ function App() {
     }
 
     setWeddingMode(false);
-    setInsightsMode(false);
     const savedTab = sessionStorage.getItem("ros.pos.active_tab") as SidebarTabId | null;
     setActiveTab(savedTab || "register");
     sessionStorage.removeItem("ros.pos.active_tab");
@@ -535,7 +530,6 @@ function App() {
   const navigateRegister = useCallback(() => {
     setActiveTab("register");
     setWeddingMode(false);
-    setInsightsMode(false);
     setPosMode(true);
   }, []);
 
@@ -548,13 +542,12 @@ function App() {
       setPosMode(false);
       setActiveTab("weddings");
       setWeddingMode(true);
-      setInsightsMode(false);
     }
   }, [posMode]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
-  }, [activeTab, activeSubSection, insightsMode, posMode, weddingMode]);
+  }, [activeTab, activeSubSection, posMode, weddingMode]);
 
   const clearPendingWmPartyId = useCallback(() => {
     setPendingWmPartyId(null);
@@ -576,7 +569,6 @@ function App() {
       console.log("[App] handleNotificationNavigate:", link);
       const t = link.type;
 
-      setInsightsMode(false);
       setPosMode(false);
       setWeddingMode(false);
 
@@ -901,7 +893,6 @@ function App() {
   const navigateDashboard = useCallback(() => {
     setPosMode(false);
     setWeddingMode(false);
-    setInsightsMode(false);
     setActiveTab("home");
     const path = window.location.pathname.replace(/\/+$/, "") || "/";
     if (path === "/pos") {
@@ -1042,8 +1033,8 @@ function App() {
   }, [enterBackofficeShell]);
 
   const onOpenInsights = useCallback(() => {
-    enterInsightsShell();
-  }, [enterInsightsShell]);
+    openInsightsWorkspace();
+  }, [openInsightsWorkspace]);
 
   const onNavigateRegisterReports = useCallback(
     (transactionId?: string) => {
@@ -1091,11 +1082,6 @@ function App() {
         <NotificationCenterProvider onNavigate={handleNotificationNavigate}>
           <StaffBirthdayGreetingModal />
           <WeddingManagerAuthBridge />
-          <InsightsAccessSync
-            insightsMode={insightsMode}
-            setInsightsMode={setInsightsMode}
-            setActiveTab={setActiveTab}
-          />
           <AppShell
             activeTab={activeTab}
             setActiveTab={setActiveTab}
@@ -1105,8 +1091,6 @@ function App() {
             setWeddingMode={setWeddingMode}
             weddingReturnTarget={weddingReturnTarget}
             setWeddingReturnTarget={setWeddingReturnTarget}
-            insightsMode={insightsMode}
-            setInsightsMode={setInsightsMode}
             sidebarCollapsed={sidebarCollapsed}
             setSidebarCollapsed={setSidebarCollapsed}
             activeSubSection={activeSubSection}
@@ -1128,7 +1112,7 @@ function App() {
             navigateDashboard={navigateDashboard}
             navigateWedding={navigateWedding}
             enterBackofficeShell={enterBackofficeShell}
-            enterInsightsShell={enterInsightsShell}
+            openInsightsWorkspace={openInsightsWorkspace}
             pendingWmPartyId={pendingWmPartyId}
             onClearPendingWmPartyId={clearPendingWmPartyId}
             handleSessionOpened={handleSessionOpened}
@@ -1222,8 +1206,6 @@ interface AppShellProps {
   setWeddingMode: (v: boolean) => void;
   weddingReturnTarget: "backoffice" | "pos";
   setWeddingReturnTarget: (v: "backoffice" | "pos") => void;
-  insightsMode: boolean;
-  setInsightsMode: (v: boolean) => void;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (v: boolean) => void;
   activeSubSection: string;
@@ -1245,7 +1227,7 @@ interface AppShellProps {
   navigateDashboard: () => void;
   navigateWedding: (partyId?: string | null) => void;
   enterBackofficeShell: (tab: SidebarTabId, section?: string) => void;
-  enterInsightsShell: () => void;
+  openInsightsWorkspace: () => void;
   pendingWmPartyId: string | null;
   onClearPendingWmPartyId: () => void;
   handleSessionOpened: (p: PosSessionInfo) => void;
@@ -1366,7 +1348,7 @@ function AppShell({
   navigateRegister,
   navigateWedding,
   enterBackofficeShell,
-  enterInsightsShell,
+  openInsightsWorkspace,
   pendingWmPartyId,
   onClearPendingWmPartyId,
   handleSessionOpened,
@@ -1418,8 +1400,6 @@ function AppShell({
   setWeddingMode,
   weddingReturnTarget,
   setWeddingReturnTarget,
-  insightsMode,
-  setInsightsMode,
 }: AppShellProps) {
   const { staffCode, staffDisplayName, permissionsLoaded, permissions } = useBackofficeAuth();
   const [helpDrawerMode, setHelpDrawerMode] =
@@ -1472,20 +1452,11 @@ function AppShell({
     }
     if (!posMode && !weddingMode && activeTab === "weddings") {
       setPosMode(false);
-      setInsightsMode(false);
       setWeddingMode(true);
-      return;
-    }
-    if (!insightsMode && activeTab === "dashboard") {
-      setPosMode(false);
-      setWeddingMode(false);
-      setInsightsMode(true);
     }
   }, [
     activeTab,
-    insightsMode,
     posMode,
-    setInsightsMode,
     setPosMode,
     setWeddingMode,
     weddingMode,
@@ -1505,13 +1476,6 @@ function AppShell({
     setSidebarCollapsed(false);
     triggerDashboardRefresh();
   }, [clearPendingPosCustomer, navigateDashboard, setSidebarCollapsed, triggerDashboardRefresh]);
-
-  const handleExitInsightsMode = useCallback(() => {
-    setInsightsMode(false);
-    setSidebarCollapsed(false);
-    setActiveTab("home");
-    triggerDashboardRefresh();
-  }, [setActiveTab, setInsightsMode, setSidebarCollapsed, triggerDashboardRefresh]);
 
   const handleExitWeddingMode = useCallback(() => {
     setWeddingMode(false);
@@ -1535,23 +1499,19 @@ function AppShell({
     weddingReturnTarget,
   ]);
 
-  const shellReturnLabel = insightsMode
-    ? "Back to Back Office"
-    : weddingMode
-      ? weddingReturnTarget === "pos"
-        ? "Return to POS"
-        : "Back to Back Office"
-      : posMode
-        ? "Back to Back Office"
-        : undefined;
+  const shellReturnLabel = weddingMode
+    ? weddingReturnTarget === "pos"
+      ? "Return to POS"
+      : "Back to Back Office"
+    : posMode
+      ? "Back to Back Office"
+      : undefined;
 
-  const onShellReturn = insightsMode
-    ? handleExitInsightsMode
-    : weddingMode
-      ? handleExitWeddingMode
-      : posMode
-        ? handleExitPosMode
-        : undefined;
+  const onShellReturn = weddingMode
+    ? handleExitWeddingMode
+    : posMode
+      ? handleExitPosMode
+      : undefined;
 
   const content = (
     <BackofficeSignInGate>
@@ -1600,11 +1560,6 @@ function AppShell({
             onClearPendingWmPartyId={onClearPendingWmPartyId}
             refreshSignal={refreshSignal}
           />
-
-        ) : insightsMode ? (
-          <InsightsShell
-            onExitInsightsMode={handleExitInsightsMode}
-          />
         ) : weddingMode ? (
           <WeddingShell
             actorLabel={weddingActorName}
@@ -1622,20 +1577,13 @@ function AppShell({
                 if (tab === "register") {
                   setPosMode(true);
                   setWeddingMode(false);
-                  setInsightsMode(false);
                 } else if (tab === "weddings") {
                   setPosMode(false);
                   setWeddingReturnTarget("backoffice");
                   setWeddingMode(true);
-                  setInsightsMode(false);
-                } else if (tab === "dashboard") {
-                  setInsightsMode(true);
-                  setPosMode(false);
-                  setWeddingMode(false);
                 } else {
                   setPosMode(false);
                   setWeddingMode(false);
-                  setInsightsMode(false);
                 }
                 setActiveTab(tab);
                 if (tab === "inventory") {
@@ -1690,7 +1638,6 @@ function AppShell({
                 globalSearchDrawer={globalSearchDrawer}
                 cashierName={cashierName}
                 setPosMode={setPosMode}
-                setInsightsMode={setInsightsMode}
                 isRegisterOpen={isRegisterOpen}
                 refreshSignal={refreshSignal}
                 alterationsDeepLinkId={alterationsDeepLinkId}
@@ -1741,7 +1688,7 @@ function AppShell({
           active_sub_section: activeSubSection,
           pos_mode: posMode,
           wedding_mode: weddingMode,
-          insights_mode: insightsMode,
+          insights_mode: activeTab === "dashboard",
           register_session_id: sessionId,
         }}
       />
@@ -1803,7 +1750,6 @@ function AppShell({
         }
         onSearchOpenWeddingParty={(partyId: string) => {
           setPosMode(false);
-          setInsightsMode(false);
           navigateWedding(partyId);
         }}
         onSearchOpenAlteration={(alterationId: string) => {
@@ -1833,7 +1779,7 @@ function AppShell({
         onOpenBugReport={() => setBugReportOpen(true)}
         onNavigateToTab={(tab, section) => {
           if (tab === "dashboard") {
-            enterInsightsShell();
+            openInsightsWorkspace();
             if (section) {
               setActiveSubSection(section);
             }
@@ -1842,7 +1788,6 @@ function AppShell({
           if (tab === "weddings") {
             setPosMode(false);
             setWeddingMode(true);
-            setInsightsMode(false);
             setActiveTab("weddings");
             if (section) {
               setActiveSubSection(section);
@@ -1878,32 +1823,6 @@ function AppShell({
   );
 }
 
-function InsightsAccessSync({
-  insightsMode,
-  setInsightsMode,
-  setActiveTab,
-}: {
-  insightsMode: boolean;
-  setInsightsMode: (v: boolean) => void;
-  setActiveTab: (t: SidebarTabId) => void;
-}) {
-  const { hasPermission, permissionsLoaded } = useBackofficeAuth();
-  useEffect(() => {
-    if (!permissionsLoaded) return;
-    if (insightsMode && !hasPermission("insights.view")) {
-      setInsightsMode(false);
-      setActiveTab("home");
-    }
-  }, [
-    insightsMode,
-    permissionsLoaded,
-    hasPermission,
-    setInsightsMode,
-    setActiveTab,
-  ]);
-  return null;
-}
-
 type AppMainColumnProps = {
   activeTab: SidebarTabId;
   setActiveTab: (t: SidebarTabId) => void;
@@ -1926,7 +1845,6 @@ type AppMainColumnProps = {
   globalSearchDrawer: GlobalSearchDrawerState | null;
   cashierName: string | null;
   setPosMode: (v: boolean) => void;
-  setInsightsMode: (v: boolean) => void;
   isRegisterOpen: boolean;
   refreshSignal: number;
   alterationsDeepLinkId: string | null;
@@ -1977,7 +1895,6 @@ function AppMainColumn({
   globalSearchDrawer,
   cashierName,
   setPosMode,
-  setInsightsMode,
   isRegisterOpen,
   refreshSignal,
   alterationsDeepLinkId,
@@ -2019,16 +1936,9 @@ function AppMainColumn({
     }
     const req = SIDEBAR_TAB_PERMISSION[activeTab];
     if (req && !hasPermission(req)) {
-      if (activeTab === "dashboard") setInsightsMode(false);
       setActiveTab("home");
     }
-  }, [
-    activeTab,
-    hasPermission,
-    permissionsLoaded,
-    setActiveTab,
-    setInsightsMode,
-  ]);
+  }, [activeTab, hasPermission, permissionsLoaded, setActiveTab]);
 
   useEffect(() => {
     if (!permissionsLoaded) return;
@@ -2307,11 +2217,7 @@ function AppMainColumn({
                   return <CommissionManagerWorkspace />;
                 }
                 if (activeTab === "dashboard") {
-                  return (
-                    <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-app-text-muted">
-                      <p>Loading data insights...</p>
-                    </div>
-                  );
+                  return <NativeInsightsWorkspace />;
                 }
                 if (activeTab === "staff")
                   return (

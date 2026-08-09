@@ -625,7 +625,15 @@ export default function NativeInsightsWorkspace() {
             </div>
             <div
               className="flex items-center gap-2 rounded-full border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
-              title={health?.message ?? "Checking Cube Core and the ROSIE report planner."}
+              title={
+                health?.status === "connected"
+                  ? "Reporting is ready."
+                  : health === null
+                    ? "Checking reporting readiness."
+                    : health.status === "needs_configuration"
+                      ? "Reporting setup needs attention."
+                      : "Reporting is currently unavailable."
+              }
             >
               <span
                 className={`h-2.5 w-2.5 rounded-full ${
@@ -815,7 +823,7 @@ export default function NativeInsightsWorkspace() {
                           {result.spec.dataset.replaceAll("_", " ")}
                         </span>
                         <span className="text-[10px] font-bold text-app-text-muted">
-                          {result.row_count.toLocaleString()} rows · {result.engine}
+                          {result.row_count.toLocaleString()} rows
                         </span>
                       </div>
                       <h2 className="mt-3 text-2xl font-black tracking-tight text-app-text">

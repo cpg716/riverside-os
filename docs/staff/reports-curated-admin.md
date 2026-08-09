@@ -11,7 +11,7 @@
 ## Product shape
 
 - **Reports** = fixed tile grid + detail pane + client-side search index. Available tiles map to **one** HTTP surface (mostly **`GET /api/insights/*`**, plus **`GET /api/customers/rms-charge/records`** for the CRM-shaped tile). Planned tiles are catalog-only and do not call the server. Catalog lives in **`client/src/lib/reportsCatalog.ts`**.
-- **Insights** = **`InsightsShell`** + native ROSIE/Cube workspace; exploratory analytics governed by Riverside RBAC and a server-validated semantic catalog.
+- **Insights** = **`NativeInsightsWorkspace`** in the standard Back Office shell; exploratory analytics governed by Riverside RBAC and a server-validated semantic catalog.
 - **Non-goals:** No second SPA; commission reporting stays under **Staff → Commissions → Reports** for staff-level review.
 
 ## Search metadata

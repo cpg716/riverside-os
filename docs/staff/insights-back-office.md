@@ -8,7 +8,7 @@
 - **Back Office → Insights** builds custom Riverside reports from plain-language requests.
 - **Back Office → Staff → Commissions → Reports** provides payroll-oriented commission review.
 
-All three surfaces use Riverside authentication. There is no separate analytics login.
+Insights remains inside the standard Back Office workspace, with the left navigation available while staff build and review reports. All three surfaces use Riverside authentication. There is no separate analytics login.
 
 ## Permissions
 
@@ -72,4 +72,4 @@ If fulfilled reports, receipt loyalty, commissions, QBO staging, or tax totals d
 - [../AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)
 - [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)
 
-**Last reviewed:** 2026-08-07
+**Last reviewed:** 2026-08-09

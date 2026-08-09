@@ -33,13 +33,31 @@ const WORKSPACE_TABS: Array<
   "inventory",
 ];
 
-test("Insights sidebar uses the same sparkle icon as its workspace", async ({ page }) => {
+test("Insights stays in the standard Back Office workspace shell", async ({ page }) => {
   await signInToBackOffice(page);
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
-  await expect(
-    page.getByTestId("sidebar-nav-dashboard").locator("svg.lucide-sparkles"),
-  ).toBeVisible({ timeout: 20_000 });
+  const navigation = page.getByRole("navigation", { name: "Main Navigation" });
+  const insightsNav = page.getByTestId("sidebar-nav-dashboard");
+  await expect(insightsNav.locator("svg.lucide-sparkles")).toBeVisible({
+    timeout: 20_000,
+  });
+
+  await openBackofficeSidebarTab(page, "dashboard");
+
+  await expect(navigation).toBeVisible();
+  await expect(page.getByTestId("app-shell-state")).toHaveAttribute(
+    "data-active-tab",
+    "dashboard",
+  );
+  await expect(page.getByTestId("backoffice-workspace-root")).toHaveAttribute(
+    "data-workspace-section",
+    "dashboard",
+  );
+  await expect(page.getByRole("heading", { name: /^insights$/i })).toBeVisible({
+    timeout: 25_000,
+  });
+  await expect(page.getByRole("button", { name: "Back to Back Office" })).toHaveCount(0);
 });
 
 for (const viewport of WORKSPACE_VIEWPORTS) {

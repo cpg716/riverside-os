@@ -2,8 +2,8 @@
 id: insights
 title: "Insights — conversational reporting"
 order: 15
-summary: "Ask ROSIE for governed reports, refine them in plain language, export or print every result, and reuse favorites and report history."
-tags: insights, rosie, cube, reports, analytics, favorites, history, export, print
+summary: "Build governed reports in plain language, refine them, export or print every result, and reuse favorites and report history."
+tags: insights, reports, analytics, favorites, history, export, print
 ---
 
 # Insights — conversational reporting
@@ -16,7 +16,7 @@ tags: insights, rosie, cube, reports, analytics, favorites, history, export, pri
 
 ## What this is
 
-**Back Office → Insights** is Riverside's custom reporting workspace. Describe the report you need in plain language, then select **Build report**. Each request uses approved Riverside reporting data and follows the signed-in staff member's permissions.
+**Back Office → Insights** is Riverside's custom reporting workspace. It stays inside the standard Back Office layout, so the left navigation remains available while you work. Describe the report you need in plain language, then select **Build report**. Each request uses approved Riverside reporting data and follows the signed-in staff member's permissions.
 
 There is no separate reporting login. Riverside staff access and permissions apply throughout the workspace. Cost and margin measures remain Admin-only.
 
@@ -74,7 +74,7 @@ Reports that have not been used within the configured retention period are moved
 
 | Symptom | What to try |
 |---|---|
-| Reporting setup needs attention or reporting is unavailable | Hover over the reporting status for details. **Reporting ready** requires both Cube Core and the ROSIE report planner. Ask IT to run Main Hub Update or Repair if either service is unavailable. |
+| Reporting setup needs attention or reporting is unavailable | Hover over the reporting status for details. Ask IT to run Main Hub Update or Repair if reporting remains unavailable. |
 | The report cannot be built | Add a clear period, measure, grouping, and booked or recognized basis. The requested data may not yet be available in Insights. |
 | A report returns no rows | Check the period and filters, then verify whether the requested activity occurred on the selected basis. |
 | Cost or margin is rejected | Sign in with Riverside Admin access or choose a revenue-only measure. |

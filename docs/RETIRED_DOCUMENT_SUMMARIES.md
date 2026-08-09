@@ -52,8 +52,8 @@ When a Markdown file is **removed** from this repository, add an entry here **be
 |-------|---------|
 | **Former path** | `client/src/components/insights/InsightsWorkspace.tsx`, `HistoricalReporting.tsx` (entire directory removed) |
 | **Date retired** | 2026-04-06 |
-| **Why removed** | Superseded by **Metabase** in same-origin **Insights** (`InsightsShell` + `/metabase/` proxy). Commission finalize UI moved to **Staff → Commission payouts** (`CommissionPayoutsPanel`). |
-| **Where content lives now** | [`docs/PLAN_METABASE_INSIGHTS_EMBED.md`](PLAN_METABASE_INSIGHTS_EMBED.md), [`docs/METABASE_REPORTING.md`](METABASE_REPORTING.md), [`DEVELOPER.md`](../DEVELOPER.md) §3c, [`client/src/components/layout/InsightsShell.tsx`](../client/src/components/layout/InsightsShell.tsx), [`client/src/components/staff/CommissionPayoutsPanel.tsx`](../client/src/components/staff/CommissionPayoutsPanel.tsx), in-app [`client/src/assets/docs/insights-manual.md`](../client/src/assets/docs/insights-manual.md) |
+| **Why removed** | Superseded by the former same-origin Metabase Insights surface. Commission finalize UI moved to **Staff → Commission payouts** (`CommissionPayoutsPanel`). |
+| **Where content lives now** | [`docs/PLAN_METABASE_INSIGHTS_EMBED.md`](PLAN_METABASE_INSIGHTS_EMBED.md), [`docs/METABASE_REPORTING.md`](METABASE_REPORTING.md), [`DEVELOPER.md`](../DEVELOPER.md) §3c, [`client/src/components/insights/NativeInsightsWorkspace.tsx`](../client/src/components/insights/NativeInsightsWorkspace.tsx), [`client/src/components/staff/CommissionPayoutsPanel.tsx`](../client/src/components/staff/CommissionPayoutsPanel.tsx), in-app [`client/src/assets/docs/insights-manual.md`](../client/src/assets/docs/insights-manual.md) |
 | **Summary** | Legacy Back Office **Insights** tab rendered native React pivot/reporting. Replaced with a full **Metabase** embed for exploratory analytics while **`/api/insights/*`** remains for operational flows (e.g. commission ledger APIs). |
 
 ### `Final_AI_integration_plan.md` (repository root)

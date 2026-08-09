@@ -21,7 +21,7 @@ Generated for the phased UI sweep. Source: [`src/App.tsx`](src/App.tsx), [`src/c
 | `qbo` | connection, mappings, staging, history | `QboWorkspace` |
 | `appointments` | scheduler, conflicts | `SchedulerWorkspace` |
 | `reports` | (none) | `ReportsWorkspace` — curated `/api/insights/*` (+ CRM RMS list) library; **`insights.view`** tab; Admin-only margin pivot |
-| `dashboard` | (none; Insights opens `InsightsShell` + Metabase iframe) | — |
+| `dashboard` | (none) | `NativeInsightsWorkspace` — standard Back Office delivery plane with persistent sidebar and top bar |
 | `settings` | searchable Settings Hub plus collapsible **Store & Staff**, **Register & Printing**, **Data & Maintenance**, **Connected Services**, and **Help & System** groups; provider pages remain direct routes, while support owns bug review and updates | `SettingsWorkspace` |
 
 Shared chrome: `Sidebar`, `Header` (optional **Report a bug** opens **`BugReportFlow`** via `App.tsx`), `GlobalSearchDrawerHost`, `CloseRegisterModal` (when session open).
@@ -52,7 +52,7 @@ Modals: `CloseRegisterModal`, `RegisterShiftHandoffModal`.
 
 ## Code splitting (`App.tsx`)
 
-Lazy-loaded (Suspense): Inventory, QBO, Wedding Manager (Back Office tab), Orders, Alterations (Back Office path + **POS `PosShell` → Alterations tab**), Staff, Gift Cards, Loyalty, Settings, Scheduler. **Insights** uses **`InsightsShell`** (not lazy `InsightsWorkspace`).  
+Lazy-loaded (Suspense): Inventory, QBO, Wedding Manager (Back Office tab), Orders, Alterations (Back Office path + **POS `PosShell` → Alterations tab**), Staff, Gift Cards, Loyalty, Settings, Scheduler, and `NativeInsightsWorkspace`.
 `WeddingManagerApp` remains in the main chunk when pulled in by **`WeddingShell`** unless that path is also code-split.
 
 ## Full sweep (round 2) — overlay / drawer a11y
