@@ -1253,8 +1253,51 @@ pub struct InventoryReconciliationFinding {
 #[derive(Debug, Serialize)]
 pub struct InventoryReconciliationResponse {
     pub generated_at: DateTime<Utc>,
-    pub total_findings: usize,
+    pub total_findings: i64,
+    pub filtered_findings: i64,
+    pub issue_counts: HashMap<String, i64>,
+    pub limit: i64,
+    pub offset: i64,
     pub findings: Vec<InventoryReconciliationFinding>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct InventoryReconciliationQuery {
+    pub issue_kind: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+const INVENTORY_RECONCILIATION_ISSUE_KINDS: [&str; 4] = [
+    "negative_available_stock",
+    "inactive_product_with_inventory",
+    "manual_movement_missing_note",
+    "counterpoint_stock_without_ledger",
+];
+const INVENTORY_RECONCILIATION_DEFAULT_LIMIT: i64 = 100;
+const INVENTORY_RECONCILIATION_MAX_LIMIT: i64 = 250;
+
+fn normalize_inventory_reconciliation_query(
+    query: InventoryReconciliationQuery,
+) -> Result<(Option<String>, i64, i64), ProductError> {
+    let issue_kind = query
+        .issue_kind
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty());
+    if issue_kind
+        .as_deref()
+        .is_some_and(|value| !INVENTORY_RECONCILIATION_ISSUE_KINDS.contains(&value))
+    {
+        return Err(ProductError::InvalidPayload(
+            "Unsupported inventory reconciliation finding type.".to_string(),
+        ));
+    }
+    let limit = query
+        .limit
+        .unwrap_or(INVENTORY_RECONCILIATION_DEFAULT_LIMIT)
+        .clamp(1, INVENTORY_RECONCILIATION_MAX_LIMIT);
+    let offset = query.offset.unwrap_or(0).max(0);
+    Ok((issue_kind, limit, offset))
 }
 
 #[derive(Debug, Deserialize)]
@@ -4830,14 +4873,7 @@ async fn get_maintenance_ledger(
     Ok(Json(rows))
 }
 
-async fn get_inventory_reconciliation(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<InventoryReconciliationResponse>, ProductError> {
-    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
-
-    let findings = sqlx::query_as::<_, InventoryReconciliationFinding>(
-        r#"
+const INVENTORY_RECONCILIATION_CTE: &str = r#"
         WITH negative_available AS (
             SELECT
                 'negative_available_stock'::text AS issue_kind,
@@ -4858,8 +4894,6 @@ async fn get_inventory_reconciliation(
             INNER JOIN products p ON p.id = pv.product_id
             WHERE (pv.stock_on_hand - pv.reserved_stock - pv.on_layaway) < 0
               AND COALESCE(p.pos_line_kind, '') = ''
-            ORDER BY available_stock ASC, pv.sku
-            LIMIT 100
         ),
         inactive_commitments AS (
             SELECT
@@ -4884,8 +4918,6 @@ async fn get_inventory_reconciliation(
             HAVING COALESCE(SUM(pv.stock_on_hand), 0) <> 0
                 OR COALESCE(SUM(pv.reserved_stock), 0) <> 0
                 OR COALESCE(SUM(pv.on_layaway), 0) <> 0
-            ORDER BY p.name
-            LIMIT 100
         ),
         manual_missing_notes AS (
             SELECT
@@ -4908,8 +4940,6 @@ async fn get_inventory_reconciliation(
             INNER JOIN products p ON p.id = pv.product_id
             WHERE it.tx_type::text IN ('adjustment', 'damaged', 'return_to_vendor')
               AND NULLIF(TRIM(COALESCE(it.notes, '')), '') IS NULL
-            ORDER BY it.created_at DESC
-            LIMIT 100
         ),
         counterpoint_without_ledger AS (
             SELECT
@@ -4937,8 +4967,6 @@ async fn get_inventory_reconciliation(
                   WHERE it.variant_id = pv.id
               )
               AND COALESCE(p.pos_line_kind, '') = ''
-            ORDER BY pv.sku
-            LIMIT 100
         ),
         all_findings AS (
             SELECT * FROM negative_available
@@ -4949,20 +4977,61 @@ async fn get_inventory_reconciliation(
             UNION ALL
             SELECT * FROM counterpoint_without_ledger
         )
+"#;
+
+async fn get_inventory_reconciliation(
+    State(state): State<AppState>,
+    Query(query): Query<InventoryReconciliationQuery>,
+    headers: HeaderMap,
+) -> Result<Json<InventoryReconciliationResponse>, ProductError> {
+    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
+    let (issue_kind, limit, offset) = normalize_inventory_reconciliation_query(query)?;
+
+    let count_sql = format!(
+        "{INVENTORY_RECONCILIATION_CTE}\nSELECT issue_kind, COUNT(*)::bigint FROM all_findings GROUP BY issue_kind"
+    );
+    let count_rows = sqlx::query_as::<_, (String, i64)>(&count_sql)
+        .fetch_all(&state.db)
+        .await?;
+    let mut issue_counts = INVENTORY_RECONCILIATION_ISSUE_KINDS
+        .into_iter()
+        .map(|key| (key.to_string(), 0_i64))
+        .collect::<HashMap<_, _>>();
+    for (key, count) in count_rows {
+        issue_counts.insert(key, count);
+    }
+    let total_findings = issue_counts.values().sum();
+    let filtered_findings = issue_kind
+        .as_ref()
+        .and_then(|key| issue_counts.get(key))
+        .copied()
+        .unwrap_or(total_findings);
+
+    let findings_sql = format!(
+        r#"{INVENTORY_RECONCILIATION_CTE}
         SELECT * FROM all_findings
+        WHERE ($1::text IS NULL OR issue_kind = $1)
         ORDER BY
             CASE severity WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
             issue_kind,
             product_name NULLS LAST,
             sku NULLS LAST
-        "#,
-    )
-    .fetch_all(&state.db)
-    .await?;
+        LIMIT $2 OFFSET $3"#
+    );
+    let findings = sqlx::query_as::<_, InventoryReconciliationFinding>(&findings_sql)
+        .bind(issue_kind.as_deref())
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&state.db)
+        .await?;
 
     Ok(Json(InventoryReconciliationResponse {
         generated_at: Utc::now(),
-        total_findings: findings.len(),
+        total_findings,
+        filtered_findings,
+        issue_counts,
+        limit,
+        offset,
         findings,
     }))
 }
@@ -5227,9 +5296,10 @@ async fn delete_product_web_image(
 mod tests {
     use super::{
         ensure_skus_do_not_exist, gruppo_bravo_vest_display_label,
-        load_product_normalization_review, patch_product_model, patch_variant_pricing,
-        pos_parent_search_term_groups, validate_create_product_payload, CreateProductRequest,
-        CreateVariantInput, PatchProductModelRequest, ProductError, VariantPricingPatch,
+        load_product_normalization_review, normalize_inventory_reconciliation_query,
+        patch_product_model, patch_variant_pricing, pos_parent_search_term_groups,
+        validate_create_product_payload, CreateProductRequest, CreateVariantInput,
+        InventoryReconciliationQuery, PatchProductModelRequest, ProductError, VariantPricingPatch,
     };
     use crate::api::{store_account_rate::StoreAccountRateState, AppState};
     use crate::auth::permissions::CATALOG_EDIT;
@@ -5276,6 +5346,35 @@ mod tests {
                 track_low_stock: false,
             }],
         }
+    }
+
+    #[test]
+    fn inventory_reconciliation_query_defaults_and_clamps_paging() {
+        assert_eq!(
+            normalize_inventory_reconciliation_query(InventoryReconciliationQuery::default())
+                .expect("default reconciliation query"),
+            (None, 100, 0)
+        );
+        assert_eq!(
+            normalize_inventory_reconciliation_query(InventoryReconciliationQuery {
+                issue_kind: Some(" Negative_Available_Stock ".to_string()),
+                limit: Some(5_000),
+                offset: Some(-10),
+            })
+            .expect("normalized reconciliation query"),
+            (Some("negative_available_stock".to_string()), 250, 0)
+        );
+    }
+
+    #[test]
+    fn inventory_reconciliation_query_rejects_unknown_finding_type() {
+        let error = normalize_inventory_reconciliation_query(InventoryReconciliationQuery {
+            issue_kind: Some("not-a-real-finding".to_string()),
+            limit: None,
+            offset: None,
+        })
+        .expect_err("unknown finding type should fail");
+        assert!(matches!(error, ProductError::InvalidPayload(_)));
     }
 
     #[test]

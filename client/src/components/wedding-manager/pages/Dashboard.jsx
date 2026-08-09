@@ -274,7 +274,6 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
     // Handlers
     const handlePartyClick = (party) => {
-        console.log("Party clicked:", party);
         setSelectedParty(party);
     };
 

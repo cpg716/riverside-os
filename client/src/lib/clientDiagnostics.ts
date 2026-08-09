@@ -14,6 +14,10 @@ const recentUnhandledEventKeys = new Map<string, number>();
 
 const SENSITIVE_KEY_RE =
   /(^|[_-])(authorization|cookie|password|passwd|pwd|secret|token|api[_-]?key|session|pin|staff[_-]?pin|access[_-]?pin|pos[_-]?session)([_-]|$)/i;
+const PRIVATE_CUSTOMER_KEY_RE =
+  /^(?:email|emailaddress|phone|phonenumber|mobile|mobilenumber|firstname|lastname|fullname|displayname|name|street|street1|street2|address|address1|address2|city|state|postalcode|zipcode)$/i;
+const CUSTOMER_EMAIL_RE =
+  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const JWT_RE = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g;
 const BEARER_RE = /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/gi;
 const AUTH_HEADER_RE =
@@ -26,7 +30,35 @@ export function redactDiagnosticText(value: string): string {
     .replace(JWT_RE, REDACTED)
     .replace(BEARER_RE, `Bearer ${REDACTED}`)
     .replace(AUTH_HEADER_RE, (_match, key: string) => `${key}: ${REDACTED}`)
-    .replace(SENSITIVE_ASSIGNMENT_RE, (_match, key: string) => `${key}: ${REDACTED}`);
+    .replace(SENSITIVE_ASSIGNMENT_RE, (_match, key: string) => `${key}: ${REDACTED}`)
+    .replace(CUSTOMER_EMAIL_RE, REDACTED);
+}
+
+export function redactDiagnosticUrl(value: string): string {
+  const redacted = redactDiagnosticText(value);
+  try {
+    const absolute = /^[a-z][a-z\d+.-]*:/i.test(redacted);
+    const parsed = new URL(redacted, "https://diagnostic.invalid");
+    for (const key of [...parsed.searchParams.keys()]) {
+      parsed.searchParams.set(key, REDACTED);
+    }
+    if (parsed.hash) parsed.hash = `#${REDACTED}`;
+    return absolute
+      ? parsed.toString()
+      : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return redacted;
+  }
+}
+
+function isPrivateDiagnosticKey(key: string): boolean {
+  const normalized = key.replace(/[_-]/g, "");
+  if (PRIVATE_CUSTOMER_KEY_RE.test(normalized)) return true;
+  const unscoped = normalized.replace(
+    /^(?:customer|member|party|groom|bride|partner|contact)/i,
+    "",
+  );
+  return unscoped !== normalized && PRIVATE_CUSTOMER_KEY_RE.test(unscoped);
 }
 
 export function redactDiagnosticValue(value: unknown): unknown {
@@ -40,7 +72,9 @@ export function redactDiagnosticValue(value: unknown): unknown {
   }
   const out: Record<string, unknown> = {};
   for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    out[key] = SENSITIVE_KEY_RE.test(key) ? REDACTED : redactDiagnosticValue(raw);
+    out[key] = SENSITIVE_KEY_RE.test(key) || isPrivateDiagnosticKey(key)
+      ? REDACTED
+      : redactDiagnosticValue(raw);
   }
   return out;
 }
@@ -176,7 +210,10 @@ export function getClientMetaSnapshot(
     typeof screen !== "undefined" ? (screen.orientation?.type ?? null) : null;
 
   return {
-    href: typeof window !== "undefined" ? window.location.href : "",
+    href:
+      typeof window !== "undefined"
+        ? redactDiagnosticUrl(window.location.href)
+        : "",
     pathname: typeof window !== "undefined" ? window.location.pathname : "",
     user_agent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     language: typeof navigator !== "undefined" ? navigator.language : "",
@@ -227,9 +264,10 @@ export interface ErrorCapturePayloadOptions {
 export async function buildClientErrorCaptureMeta(
   options: ErrorCapturePayloadOptions,
 ): Promise<Record<string, unknown>> {
-  const route =
+  const route = redactDiagnosticUrl(
     options.route ??
-    `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      `${window.location.pathname}${window.location.search}${window.location.hash}`,
+  );
   const capture = redactDiagnosticValue({
     capture_type: options.captureType,
     captured_at: new Date().toISOString(),
@@ -263,7 +301,7 @@ export async function submitClientErrorEvent(options: {
   const headers = sessionPollAuthHeaders();
   if (!headers["x-riverside-staff-code"]) return false;
 
-  const route = redactDiagnosticText(
+  const route = redactDiagnosticUrl(
     options.route ??
       `${window.location.pathname}${window.location.search}${window.location.hash}`,
   );
@@ -310,7 +348,7 @@ async function recordUnhandledClientErrorEvent(
 
   const headers = sessionPollAuthHeaders();
   if (!headers["x-riverside-staff-code"]) return;
-  const route = redactDiagnosticText(
+  const route = redactDiagnosticUrl(
     `${window.location.pathname}${window.location.search}${window.location.hash}`,
   );
 

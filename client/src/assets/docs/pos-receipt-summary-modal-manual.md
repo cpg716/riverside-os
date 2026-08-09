@@ -25,7 +25,7 @@ The receipt preview shows the customer receipt after checkout or when reopening 
 
 Each merchandise line shows its saved tax as one smaller secondary line without recalculating from the displayed price: **4.75%: $0.00 4.00%: $0.00 Total Tax: $0.00**. Zero components remain visible, so clothing below the state threshold shows $0.00 for 4.00%, full-tax merchandise shows both component amounts, and non-taxable merchandise shows $0.00 for all three values. The financial summary still shows the authoritative total sales tax for the Transaction Record.
 
-When a completed sale includes wedding deposits for other party members, Sale Complete and the payer receipt list every beneficiary, party, amount, and destination. The receipt says whether money was held for that member's future order or applied to an exact Transaction Record. These amounts stay separate from the payer's merchandise total while still explaining the full tender collected. When the held deposit later funds the member's order, that member receipt identifies the original payer and wedding party.
+When a completed sale includes wedding deposits for other party members, Sale Complete and the payer receipt list every beneficiary, party, amount, and destination. The receipt says whether money was held for that member's future order or applied to an exact Transaction Record. These amounts stay separate from the payer's merchandise total while still explaining the full tender collected. A Deposit Only receipt remains printable even when the payer Transaction has no merchandise lines. When the held deposit later funds the member's order, that member receipt identifies the original payer and wedding party.
 
 ## How to use it
 

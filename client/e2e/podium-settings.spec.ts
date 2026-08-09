@@ -83,8 +83,11 @@ test.describe("Settings Podium integration", () => {
       .first();
     await expect(podiumCard).toBeEnabled();
     await podiumCard.click();
+    await page
+      .getByText("Diagnostics and contact maintenance", { exact: true })
+      .click();
     await expect(
-      page.getByRole("button", { name: /check podium health/i }),
+      page.getByRole("button", { name: /^check health$/i }),
     ).toBeVisible({ timeout: 20_000 });
     await expect(
       page.getByRole("button", { name: /reconcile contacts/i }),

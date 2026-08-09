@@ -66,7 +66,7 @@ Use the download option when support asks for a local copy or when the workstati
 
 ## Privacy notes
 
-Riverside OS removes obvious Authorization headers, bearer tokens, JWT-looking strings, cookies, session values, PIN-like fields, passwords, secrets, token fields, and API key fields from diagnostic payloads.
+Riverside OS removes obvious Authorization headers, bearer tokens, JWT-looking strings, cookies, session values, PIN-like fields, passwords, secrets, token fields, API key fields, customer contact fields, and URL query values from diagnostic payloads.
 
 If a sensitive value was typed into a normal description field, remove it before submitting.
 

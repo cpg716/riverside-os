@@ -1967,7 +1967,7 @@ export default function NexoCheckoutDrawer({
             attempt.status === "expired"
               ? HELCIM_UNVERIFIED_OUTCOME_MESSAGE
               : attempt.error_message ?? "Card attempt was not approved.",
-            attempt.status === "canceled" ? "info" : "error",
+            attempt.status === "canceled" ? "info" : "warning",
           );
         }
         finishPosJourneyTiming("tender_confirmed", false);
@@ -2120,7 +2120,7 @@ export default function NexoCheckoutDrawer({
             setHelcimUnverifiedNotice(HELCIM_UNVERIFIED_OUTCOME_MESSAGE);
           }
           if (!options.quietStaleSession && !options.importOnlyIfCurrentCheckout) {
-            toast(HELCIM_UNVERIFIED_OUTCOME_MESSAGE, "error");
+            toast(HELCIM_UNVERIFIED_OUTCOME_MESSAGE, "warning");
           }
           return null;
         }
@@ -2269,7 +2269,7 @@ export default function NexoCheckoutDrawer({
           });
           if (finalized && ["failed", "canceled"].includes(finalized.status)) {
             if (data.outcome === "failed") {
-              toast("Card declined. The payment ledger is ready to retry.", "error");
+              toast("Card declined. The payment ledger is ready to retry.", "warning");
             }
             return;
           }
@@ -2633,7 +2633,7 @@ export default function NexoCheckoutDrawer({
           pendingHelcimCentsRef.current = amtCents;
           addApprovedHelcimAttempt(body, "card_saved", "HELCIM VAULT");
         } else {
-          toast(body.error_message ?? "Helcim saved card was not approved.", "error");
+          toast(body.error_message ?? "Helcim saved card was not approved.", "warning");
           finishPosJourneyTiming("tender_confirmed", false);
         }
       } catch (error) {

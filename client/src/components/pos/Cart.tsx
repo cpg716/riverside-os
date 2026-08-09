@@ -1691,7 +1691,7 @@ export default function Cart({
     if (!selectedCustomer) {
       toast(
         "Select the wedding member who is paying before adding a wedding deposit.",
-        "error",
+        "warning",
       );
       return;
     }
@@ -1707,7 +1707,7 @@ export default function Cart({
     ) {
       toast(
         "Select the salesperson responsible for the payer's merchandise before opening Wedding Deposit.",
-        "error",
+        "warning",
       );
       return;
     }
@@ -2656,7 +2656,7 @@ export default function Cart({
     if (disbursementMembers.length > 0 && !weddingDepositSalespersonId.trim()) {
       toast(
         "Select the salesperson responsible for this wedding deposit before applying payment.",
-        "error",
+        "warning",
       );
       return false;
     }
@@ -5775,7 +5775,7 @@ export default function Cart({
                    if (approvedProviderPaymentInCheckout) {
                       toast(
                         "This sale has an approved card payment. Record the sale before parking it.",
-                        "error",
+                        "warning",
                       );
                      return;
                    }
@@ -6845,7 +6845,7 @@ export default function Cart({
                  if (!hasSalespersonAttribution()) {
                    toast(
                      "Select a salesperson for this sale, or assign one on a line, so commissions can be calculated.",
-                     "error",
+                     "warning",
                    );
                    return;
                  }
@@ -7573,7 +7573,7 @@ export default function Cart({
           ) {
             toast(
               "Select a salesperson for this sale, or assign one on a line, so commissions can be calculated.",
-              "error",
+              "warning",
             );
             return;
           }
@@ -9365,7 +9365,7 @@ export default function Cart({
               ) {
                 toast(
                   "Select a salesperson for this sale, or assign one on a line, so commissions can be calculated.",
-                  "error",
+                  "warning",
                 );
                 return;
               }

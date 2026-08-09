@@ -7,6 +7,8 @@ type CredentialStatusResponse = {
   integration_key: string;
   supported_keys: string[];
   configured: Record<string, boolean>;
+  restart_required?: boolean;
+  activation_message?: string | null;
 };
 
 export type IntegrationCredentialField = {
@@ -42,6 +44,9 @@ export default function IntegrationCredentialsCard({
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [clearConfirmKey, setClearConfirmKey] = useState<string | null>(null);
+  const [activationMessage, setActivationMessage] = useState<string | null>(
+    null,
+  );
 
   const configured = status?.configured ?? {};
   const hasDraft = useMemo(
@@ -98,10 +103,19 @@ export default function IntegrationCredentialsCard({
         toast(j.error ?? "Could not save credentials", "error");
         return;
       }
-      setStatus((await res.json()) as CredentialStatusResponse);
+      const nextStatus = (await res.json()) as CredentialStatusResponse;
+      setStatus(nextStatus);
+      setActivationMessage(
+        nextStatus.restart_required ? nextStatus.activation_message ?? null : null,
+      );
       setDraft({});
       await onSaved?.();
-      toast(`${title} credentials saved`, "success");
+      toast(
+        nextStatus.restart_required
+          ? `${title} credentials saved. Restart Main Hub to activate them.`
+          : `${title} credentials saved`,
+        nextStatus.restart_required ? "warning" : "success",
+      );
     } catch {
       toast("Credential settings are unavailable right now.", "error");
     } finally {
@@ -133,7 +147,14 @@ export default function IntegrationCredentialsCard({
         }
         nextStatus = (await res.json()) as CredentialStatusResponse;
       }
-      if (nextStatus) setStatus(nextStatus);
+      if (nextStatus) {
+        setStatus(nextStatus);
+        setActivationMessage(
+          nextStatus.restart_required
+            ? nextStatus.activation_message ?? null
+            : null,
+        );
+      }
       setDraft((current) => ({ ...current, [field.key]: "" }));
       setClearConfirmKey(null);
       await onSaved?.();
@@ -254,6 +275,15 @@ export default function IntegrationCredentialsCard({
           );
         })}
       </div>
+
+      {activationMessage ? (
+        <div className="ui-panel ui-tint-warning mt-4 px-4 py-3 text-xs font-semibold leading-5 text-app-text-muted">
+          <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
+            Main Hub restart required
+          </p>
+          {activationMessage}
+        </div>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-4">
         <p className="text-xs font-semibold leading-5 text-app-text-muted">

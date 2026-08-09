@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, FileText, Printer, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, Download, FileText, Printer, RefreshCw, Search } from "lucide-react";
 import { getBaseUrl } from "../../lib/apiConfig";
 import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 import ReceivingReport from "./ReceivingReport";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { downloadTextFile } from "../../lib/desktopFileBridge";
 
 const baseUrl = getBaseUrl();
+const RECONCILIATION_PAGE_SIZE = 100;
+const RECONCILIATION_EXPORT_PAGE_SIZE = 250;
+const RECONCILIATION_ISSUE_KINDS = [
+  "negative_available_stock",
+  "inactive_product_with_inventory",
+  "manual_movement_missing_note",
+  "counterpoint_stock_without_ledger",
+] as const;
 
 interface Vendor {
   id: string;
@@ -46,6 +56,10 @@ interface ReconciliationFinding {
 interface ReconciliationResponse {
   generated_at: string;
   total_findings: number;
+  filtered_findings: number;
+  issue_counts: Record<string, number>;
+  limit: number;
+  offset: number;
   findings: ReconciliationFinding[];
 }
 
@@ -86,6 +100,7 @@ function severityClass(severity: string): string {
 
 export default function InventoryReportsPanel() {
   const { backofficeHeaders } = useBackofficeAuth();
+  const { toast } = useToast();
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [vendorId, setVendorId] = useState("");
   const [query, setQuery] = useState("");
@@ -97,6 +112,9 @@ export default function InventoryReportsPanel() {
   const [activeReportId, setActiveReportId] = useState<string | null>(null);
   const [reconciliation, setReconciliation] = useState<ReconciliationResponse | null>(null);
   const [reconciliationLoading, setReconciliationLoading] = useState(false);
+  const [reconciliationIssueKind, setReconciliationIssueKind] = useState("");
+  const [reconciliationOffset, setReconciliationOffset] = useState(0);
+  const [reconciliationExporting, setReconciliationExporting] = useState(false);
 
   const loadReports = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -121,14 +139,82 @@ export default function InventoryReportsPanel() {
   const loadReconciliation = useCallback(async () => {
     setReconciliationLoading(true);
     try {
-      const res = await fetch(apiUrl(baseUrl, "/api/products/reconciliation"), {
+      const params = new URLSearchParams({
+        limit: String(RECONCILIATION_PAGE_SIZE),
+        offset: String(reconciliationOffset),
+      });
+      if (reconciliationIssueKind) params.set("issue_kind", reconciliationIssueKind);
+      const res = await fetch(apiUrl(baseUrl, `/api/products/reconciliation?${params}`), {
         headers: backofficeHeaders() as Record<string, string>,
       });
       setReconciliation(res.ok ? ((await res.json()) as ReconciliationResponse) : null);
     } finally {
       setReconciliationLoading(false);
     }
-  }, [backofficeHeaders]);
+  }, [backofficeHeaders, reconciliationIssueKind, reconciliationOffset]);
+
+  const exportReconciliation = useCallback(async () => {
+    setReconciliationExporting(true);
+    try {
+      const exported: ReconciliationFinding[] = [];
+      let offset = 0;
+      let expected = 0;
+      do {
+        const params = new URLSearchParams({
+          limit: String(RECONCILIATION_EXPORT_PAGE_SIZE),
+          offset: String(offset),
+        });
+        if (reconciliationIssueKind) params.set("issue_kind", reconciliationIssueKind);
+        const res = await fetch(apiUrl(baseUrl, `/api/products/reconciliation?${params}`), {
+          headers: backofficeHeaders() as Record<string, string>,
+        });
+        if (!res.ok) throw new Error("Inventory reconciliation export failed");
+        const page = (await res.json()) as ReconciliationResponse;
+        expected = page.filtered_findings;
+        exported.push(...page.findings);
+        offset += page.findings.length;
+        if (page.findings.length === 0 && offset < expected) {
+          throw new Error(
+            "Complete export stopped before every finding was received",
+          );
+        }
+      } while (offset < expected);
+
+      const csvCell = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+      const columns: Array<[string, keyof ReconciliationFinding]> = [
+        ["Finding", "issue_kind"],
+        ["Severity", "severity"],
+        ["SKU", "sku"],
+        ["Product", "product_name"],
+        ["On Hand", "stock_on_hand"],
+        ["Reserved", "reserved_stock"],
+        ["Layaway", "on_layaway"],
+        ["Available", "available_stock"],
+        ["Movement", "tx_type"],
+        ["Quantity Delta", "quantity_delta"],
+        ["Created At", "created_at"],
+        ["Detail", "detail"],
+      ];
+      const csv = [
+        columns.map(([label]) => csvCell(label)).join(","),
+        ...exported.map((finding) =>
+          columns.map(([, key]) => csvCell(finding[key])).join(","),
+        ),
+      ].join("\n");
+      const suffix = reconciliationIssueKind || "all-findings";
+      const saved = await downloadTextFile(
+        `inventory-reconciliation-${suffix}.csv`,
+        csv,
+        "text/csv;charset=utf-8",
+        [{ name: "CSV", extensions: ["csv"] }],
+      );
+      if (saved) toast(`Exported ${exported.length} reconciliation findings.`, "success");
+    } catch {
+      toast("Could not export the complete inventory reconciliation queue.", "error");
+    } finally {
+      setReconciliationExporting(false);
+    }
+  }, [backofficeHeaders, reconciliationIssueKind, toast]);
 
   useEffect(() => {
     fetch(apiUrl(baseUrl, "/api/vendors"), {
@@ -174,18 +260,29 @@ export default function InventoryReportsPanel() {
               Review cross-catalog inventory risks that Product Hub shows only one item at a time.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void loadReconciliation()}
-            className="inline-flex h-11 items-center gap-2 rounded-2xl border border-app-border bg-app-surface px-4 text-[10px] font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:text-app-accent active:scale-95"
-          >
-            <RefreshCw size={14} /> Refresh Checks
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void exportReconciliation()}
+              disabled={reconciliationExporting || reconciliationLoading}
+              className="inline-flex h-11 items-center gap-2 rounded-2xl border border-app-border bg-app-surface px-4 text-[10px] font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:text-app-accent active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download size={14} /> {reconciliationExporting ? "Exporting All..." : "Export Complete Queue"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadReconciliation()}
+              disabled={reconciliationLoading}
+              className="inline-flex h-11 items-center gap-2 rounded-2xl border border-app-border bg-app-surface px-4 text-[10px] font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:text-app-accent active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCw size={14} /> Refresh Checks
+            </button>
+          </div>
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-4">
-          {["negative_available_stock", "inactive_product_with_inventory", "manual_movement_missing_note", "counterpoint_stock_without_ledger"].map((kind) => {
-            const count = reconciliation?.findings.filter((finding) => finding.issue_kind === kind).length ?? 0;
+          {RECONCILIATION_ISSUE_KINDS.map((kind) => {
+            const count = reconciliation?.issue_counts[kind] ?? 0;
             const severity = kind === "negative_available_stock" ? "high" : "medium";
             return (
               <div key={kind} className={`rounded-2xl border px-4 py-3 ${severityClass(severity)}`}>
@@ -196,6 +293,31 @@ export default function InventoryReportsPanel() {
               </div>
             );
           })}
+        </div>
+
+        <div className="mt-5 flex flex-wrap items-end justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-4 py-3">
+          <label className="min-w-64 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+            Finding type
+            <select
+              value={reconciliationIssueKind}
+              onChange={(event) => {
+                setReconciliationOffset(0);
+                setReconciliationIssueKind(event.target.value);
+              }}
+              className="ui-input mt-2 h-10 w-full text-xs font-bold normal-case tracking-normal"
+            >
+              <option value="">All findings</option>
+              {RECONCILIATION_ISSUE_KINDS.map((kind) => (
+                <option key={kind} value={kind}>{issueLabel(kind)}</option>
+              ))}
+            </select>
+          </label>
+          <p className="text-xs font-bold text-app-text-muted">
+            Showing {reconciliation?.filtered_findings === 0 ? 0 : reconciliationOffset + 1}–{Math.min(
+              reconciliationOffset + (reconciliation?.findings.length ?? 0),
+              reconciliation?.filtered_findings ?? 0,
+            )} of {reconciliation?.filtered_findings ?? 0} filtered findings; {reconciliation?.total_findings ?? 0} total.
+          </p>
         </div>
 
         <div className="mt-5 overflow-hidden rounded-2xl border border-app-border bg-app-surface">
@@ -251,6 +373,29 @@ export default function InventoryReportsPanel() {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            disabled={reconciliationLoading || reconciliationOffset === 0}
+            onClick={() => setReconciliationOffset((current) => Math.max(0, current - RECONCILIATION_PAGE_SIZE))}
+            className="h-9 rounded-xl border border-app-border bg-app-surface px-3 text-[9px] font-black uppercase tracking-widest text-app-text disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Previous
+          </button>
+          <button
+            type="button"
+            disabled={
+              reconciliationLoading ||
+              reconciliationOffset + (reconciliation?.findings.length ?? 0) >=
+                (reconciliation?.filtered_findings ?? 0)
+            }
+            onClick={() => setReconciliationOffset((current) => current + RECONCILIATION_PAGE_SIZE)}
+            className="h-9 rounded-xl border border-app-border bg-app-surface px-3 text-[9px] font-black uppercase tracking-widest text-app-text disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Next
+          </button>
         </div>
 
         <p className="mt-3 text-[10px] font-bold text-app-text-muted">

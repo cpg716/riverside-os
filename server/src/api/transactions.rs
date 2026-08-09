@@ -738,7 +738,10 @@ impl TransactionDetailResponse {
                 local_tax_amount: Some(Decimal::ZERO),
             });
         }
-        if receipt_items.is_empty() && !payment_only {
+        let wedding_deposit_only = receipt_items.is_empty()
+            && self.wedding_deposit_amount > Decimal::ZERO
+            && !self.wedding_deposits.is_empty();
+        if receipt_items.is_empty() && !payment_only && !wedding_deposit_only {
             return Err(TransactionError::InvalidPayload(
                 "No order lines matched this receipt request.".to_string(),
             ));
@@ -1337,6 +1340,42 @@ mod tests {
             .expect("shipping fee is present");
         assert_eq!(shipping.product_name, "SHIPPING FEE");
         assert_eq!(shipping.unit_price, Decimal::new(1250, 2));
+    }
+
+    #[test]
+    fn wedding_deposit_only_transaction_builds_a_receipt_without_merchandise_lines() {
+        let mut detail = sample_transaction_detail(Vec::new());
+        detail.total_price = Decimal::ZERO;
+        detail.amount_paid = Decimal::ZERO;
+        detail.wedding_deposit_amount = Decimal::new(5000, 2);
+        detail.wedding_deposits = vec![receipt_shared::ReceiptWeddingPartyDeposit {
+            party_name: "Sample Wedding".to_string(),
+            beneficiary_name: Some("Wedding Member".to_string()),
+            destination_label: Some("Held for future order".to_string()),
+            amount: Decimal::new(5000, 2),
+        }];
+        detail.payments = vec![TransactionDetailedPayment {
+            date: Utc::now(),
+            method: "CC".to_string(),
+            amount: Decimal::new(5000, 2),
+            cash_tendered: None,
+            change_due: None,
+            gift_card_balance_after: None,
+        }];
+
+        let receipt = detail
+            .build_receipt_data(None)
+            .expect("wedding deposit receipt builds");
+
+        assert!(receipt.items.is_empty());
+        assert_eq!(receipt.total_price, Decimal::ZERO);
+        assert_eq!(receipt.amount_paid, Decimal::new(5000, 2));
+        assert_eq!(receipt.wedding_deposit_amount, Decimal::new(5000, 2));
+        let text = crate::logic::receipt_plain_text::format_pos_receipt_text_message(
+            &receipt,
+            &crate::api::settings::ReceiptConfig::default(),
+        );
+        assert!(text.contains("Wedding Party Deposit for Wedding Member (Sample Wedding): $50.00"));
     }
 
     #[test]

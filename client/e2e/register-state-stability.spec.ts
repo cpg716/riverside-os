@@ -390,6 +390,47 @@ test.describe("register state stability", () => {
     );
   });
 
+  test("hidden browser tabs do not report a false Main Hub outage", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "hidden",
+      });
+    });
+    await seedBackofficeSession(page, "Register #1", { posSession: true });
+    await installApiMocks(page, {
+      staffCurrentSessionStatus: 200,
+      liveStatus: 503,
+    });
+
+    await page.goto("/pos", { waitUntil: "domcontentloaded" });
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event("offline"));
+      window.dispatchEvent(new Event("online"));
+    });
+    await expect(page.getByTestId("server-connection-lost-banner")).toHaveCount(0);
+
+    const firstVisibleProbe = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/live",
+    );
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "visible",
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await firstVisibleProbe;
+    const secondVisibleProbe = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/live",
+    );
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    await secondVisibleProbe;
+    await expect(page.getByTestId("server-connection-lost-banner")).toBeVisible();
+  });
+
   test("Register #1 open during Main Hub outage keeps operator on the recovery screen", async ({
     page,
   }) => {

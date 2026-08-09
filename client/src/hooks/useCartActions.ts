@@ -13,6 +13,7 @@ import {
 } from "../components/pos/types";
 import { type Customer } from "../components/pos/CustomerSelector";
 import { type WeddingMember } from "../components/pos/WeddingLookupDrawer";
+import type { ToastType } from "../components/ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../lib/money";
 import { calculateNysErieTaxStringsForUnit } from "../lib/tax";
 import {
@@ -167,7 +168,7 @@ interface UseCartActionsProps {
   activeWeddingMember: WeddingMember | null;
   selectedCustomer: Customer | null;
   setSelectedCustomer: (v: Customer | null) => void;
-  toast: (msg: string, type?: "success" | "error" | "info") => void;
+  toast: (msg: string, type?: ToastType) => void;
   setSearch: (v: string) => void;
   setSearchResults: (v: SearchResult[]) => void;
   setActiveWeddingMember: (v: WeddingMember | null) => void;
@@ -834,8 +835,8 @@ export function useCartActions({
       }
 
       const pct = parseFloat(keypadBuffer);
-      if (isNaN(pct) || pct <= 0) {
-        toast("Invalid discount percentage", "error");
+      if (!Number.isFinite(pct) || pct <= 0 || pct > 100) {
+        toast("Enter a discount from 0.01% to 100%.", "warning");
         return;
       }
 

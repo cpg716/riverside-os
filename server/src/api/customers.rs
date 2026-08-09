@@ -246,6 +246,7 @@ const ADDRESS_LOOKUP_STORE_LAT: &str = "42.9056";
 const ADDRESS_LOOKUP_STORE_LON: &str = "-78.7048";
 const GEOAPIFY_ADDRESS_LOOKUP_URL: &str = "https://api.geoapify.com/v1/geocode/autocomplete";
 const ADDRESS_LOOKUP_USER_AGENT: &str = "RiversideOS/0.2.1 customer-address-autocomplete";
+const ADDRESS_LOOKUP_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 #[derive(Debug, Deserialize)]
 struct AddressSuggestionQuery {
@@ -1631,16 +1632,31 @@ async fn get_address_suggestions(
             ("bias", bias.as_str()),
             ("apiKey", api_key.as_str()),
         ])
-        .timeout(std::time::Duration::from_secs(6))
+        .timeout(ADDRESS_LOOKUP_REQUEST_TIMEOUT)
         .send()
         .await;
 
-    let Ok(res) = res else {
-        tracing::warn!("customer Geoapify address lookup request failed");
-        return Err(CustomerError::ExternalUnavailable(
-            "Address lookup is temporarily unavailable. Manual entry is still available."
-                .to_string(),
-        ));
+    let res = match res {
+        Ok(res) => res,
+        Err(error) => {
+            let error_kind = if error.is_timeout() {
+                "timeout"
+            } else if error.is_connect() {
+                "connect"
+            } else if error.is_request() {
+                "request"
+            } else {
+                "unknown"
+            };
+            tracing::warn!(
+                error_kind,
+                "customer Geoapify address lookup request failed"
+            );
+            return Err(CustomerError::ExternalUnavailable(
+                "Address lookup is temporarily unavailable. Manual entry is still available."
+                    .to_string(),
+            ));
+        }
     };
     if !res.status().is_success() {
         tracing::warn!(
@@ -8457,6 +8473,7 @@ mod customer_timeline_tests {
         build_customer_timeline, literal_ilike_pattern, literal_ilike_prefix_pattern,
         map_geoapify_result, open_deposit_timeline_summary,
         wedding_deposit_contribution_timeline_summary, GeoapifyAddressResult,
+        ADDRESS_LOOKUP_REQUEST_TIMEOUT,
     };
     use rust_decimal::Decimal;
 
@@ -8485,6 +8502,14 @@ mod customer_timeline_tests {
     fn customer_sql_search_treats_wildcards_as_literal_text() {
         assert_eq!(literal_ilike_pattern(r"A%_B\C"), r"%A\%\_B\\C%");
         assert_eq!(literal_ilike_prefix_pattern(r"A%_B\C"), r"A\%\_B\\C%");
+    }
+
+    #[test]
+    fn geoapify_address_lookup_has_a_bounded_request_timeout() {
+        assert_eq!(
+            ADDRESS_LOOKUP_REQUEST_TIMEOUT,
+            std::time::Duration::from_secs(10)
+        );
     }
 
     #[test]

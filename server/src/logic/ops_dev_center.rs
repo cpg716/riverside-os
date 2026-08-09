@@ -3744,6 +3744,7 @@ pub async fn execute_audit_probes(
             FROM transaction_lines tl
             JOIN transactions t ON t.id = tl.transaction_id
             WHERE t.status::text <> 'cancelled'
+              AND lower(COALESCE(tl.size_specs->>'line_type', '')) <> 'alteration_service'
               AND (
                   tl.size_specs ? 'discount_event_label'
                   OR tl.size_specs ? 'discount_event_id'
@@ -4287,6 +4288,20 @@ mod tests {
         assert!(alert_flow.contains("audit_probe:current"));
         assert!(alert_flow.contains("resolve_rule_alerts"));
         assert!(!alert_flow.contains("audit_probe:run:{run_id}"));
+    }
+
+    #[test]
+    fn discount_evidence_probe_excludes_alteration_service_lines() {
+        let source = include_str!("ops_dev_center.rs");
+        let probe = source
+            .split_once("\"discount_missing_override_evidence\"")
+            .expect("discount evidence probe")
+            .1
+            .split_once("\"discount_usage_missing\"")
+            .expect("end of discount evidence probe")
+            .0;
+
+        assert!(probe.contains("line_type', '')) <> 'alteration_service'"));
     }
 
     #[test]

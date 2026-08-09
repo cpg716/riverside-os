@@ -49,6 +49,8 @@ Settings appears in these sidebar groups:
 11. **Insights**
 12. **Meilisearch**
 
+When Meilisearch credentials are saved or cleared, Settings shows **Main Hub restart required**. The encrypted value is saved immediately, but application search does not fully activate the changed credential until the Main Hub process restarts.
+
 **System & Support**
 1. **Help Center**
 2. **ROSIE**

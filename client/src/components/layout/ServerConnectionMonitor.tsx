@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, RefreshCw, WifiOff } from "lucide-react";
 import { getBaseUrl, getBaseUrlDiagnostics } from "../../lib/apiConfig";
 import {
-  redactDiagnosticText,
+  redactDiagnosticUrl,
   submitClientErrorEvent,
 } from "../../lib/clientDiagnostics";
 import { dispatchAppToast } from "../ui/ToastProviderLogic";
@@ -28,7 +28,7 @@ const REQUIRED_FAILED_PROBES = 2;
 
 function safeRoute(): string {
   if (typeof window === "undefined") return "/";
-  return redactDiagnosticText(
+  return redactDiagnosticUrl(
     `${window.location.pathname}${window.location.search}${window.location.hash}`,
   );
 }
@@ -160,6 +160,10 @@ export default function ServerConnectionMonitor() {
   const serverLabel = useMemo(() => getBaseUrlDiagnostics().resolved, []);
 
   const runProbe = useCallback(async () => {
+    if (document.visibilityState !== "visible") {
+      failedProbeCountRef.current = 0;
+      return;
+    }
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     try {
@@ -186,7 +190,7 @@ export default function ServerConnectionMonitor() {
         queueServerConnectionEvent(result.reason);
         dispatchAppToast(
           "Connection to the Main Hub server has been lost. ROS will retry automatically.",
-          "error",
+          "info",
         );
         setLastOfflineAt(new Date().toLocaleTimeString());
       }
@@ -211,13 +215,22 @@ export default function ServerConnectionMonitor() {
     const handleOffline = () => {
       void runProbe();
     };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void runProbe();
+      } else {
+        failedProbeCountRef.current = 0;
+      }
+    };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [runProbe, state]);
 

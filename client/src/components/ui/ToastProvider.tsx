@@ -172,7 +172,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       const detail = (event as CustomEvent<AppToastEventDetail>).detail;
       if (!detail?.message) return;
       const type =
-        detail.type === "success" || detail.type === "error" || detail.type === "info"
+        detail.type === "success" ||
+        detail.type === "error" ||
+        detail.type === "info" ||
+        detail.type === "warning"
           ? detail.type
           : "info";
       toast(detail.message, type);
@@ -193,6 +196,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           >
             {t.type === "success" && <CheckCircle2 className="h-5 w-5 shrink-0 text-app-success" />}
             {t.type === "error" && <AlertTriangle className="h-5 w-5 shrink-0 text-app-danger" />}
+            {t.type === "warning" && <AlertTriangle className="h-5 w-5 shrink-0 text-app-warning" />}
             {t.type === "info" && <Info className="h-5 w-5 shrink-0 text-app-accent" />}
             
             <p className="flex-1 text-sm font-medium text-app-text">

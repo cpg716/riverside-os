@@ -353,7 +353,7 @@ export default function PosAlterationIntakeModal({
     }
 
     if (!dueAt) {
-      toast("Choose a due-by date before saving this alteration intake.", "error");
+      toast("Choose a due-by date before saving this alteration intake.", "warning");
       return;
     }
 

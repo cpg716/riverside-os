@@ -13803,16 +13803,17 @@ pub async fn execute_counterpoint_ticket_batch(
             if !cp_gift_hist_row_is_redemption(ga.action.as_deref()) {
                 continue;
             }
-            let cert = ga.gift_cert_no.trim();
+            let cert = gift_card_ops::normalize_gift_card_code(&ga.gift_cert_no);
             if cert.is_empty() || ga.amount <= Decimal::ZERO {
                 summary.skipped += 1;
                 continue;
             }
-            let gift_card_exists: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM gift_cards WHERE code = $1)")
-                    .bind(cert)
-                    .fetch_one(&mut *tx)
-                    .await?;
+            let gift_card_exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM gift_cards WHERE UPPER(BTRIM(code::text)) = $1)",
+            )
+            .bind(&cert)
+            .fetch_one(&mut *tx)
+            .await?;
             if !gift_card_exists {
                 record_sync_issue(
                     pool,
@@ -13847,7 +13848,7 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(redeem)
             .bind(booked_at)
             .bind(ticket_ref)
-            .bind(cert)
+            .bind(&cert)
             .fetch_one(&mut *tx)
             .await?;
 
@@ -20510,12 +20511,13 @@ mod tests {
         .await
         .expect("import historical ticket with gift application");
 
-        let balance: Decimal =
-            sqlx::query_scalar("SELECT current_balance FROM gift_cards WHERE code = $1")
-                .bind(&gift_code)
-                .fetch_one(&pool)
-                .await
-                .expect("load gift card balance");
+        let balance: Decimal = sqlx::query_scalar(
+            "SELECT current_balance FROM gift_cards WHERE UPPER(BTRIM(code::text)) = $1",
+        )
+        .bind(gift_card_ops::normalize_gift_card_code(&gift_code))
+        .fetch_one(&pool)
+        .await
+        .expect("load gift card balance");
         assert_eq!(balance, Decimal::new(10000, 2));
 
         let event_count: i64 = sqlx::query_scalar(
@@ -20587,8 +20589,8 @@ mod tests {
             .execute(&pool)
             .await
             .expect("cleanup payment transactions");
-        sqlx::query("DELETE FROM gift_cards WHERE code = $1")
-            .bind(&gift_code)
+        sqlx::query("DELETE FROM gift_cards WHERE UPPER(BTRIM(code::text)) = $1")
+            .bind(gift_card_ops::normalize_gift_card_code(&gift_code))
             .execute(&pool)
             .await
             .expect("cleanup gift card");

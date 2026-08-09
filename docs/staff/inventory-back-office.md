@@ -198,7 +198,7 @@ Variation rows use the same order as Register: ordinary text alphabetically, num
 
 Use **Reports** for store-wide inventory proof that is larger than one Product Hub record:
 
-- **Inventory Reconciliation** shows negative available stock, inactive products that still carry stock or commitments, manual inventory movements missing notes, and Counterpoint-linked SKUs that have stock without movement-ledger proof.
+- **Inventory Reconciliation** shows negative available stock, inactive products that still carry stock or commitments, manual inventory movements missing notes, and Counterpoint-linked SKUs that have stock without movement-ledger proof. Its cards show full store-wide totals; use the finding-type filter and page controls for review, or **Export Complete Queue** to save every row in the selected filter as CSV.
 - **PO, Invoice & Receiving History** searches posted receiving paperwork by vendor, invoice, PO, item, SKU, or received date.
 
 The reconciliation checks are read-only. Fix the underlying item from **Find Item → Product Hub**, **Receive Stock**, or **Physical Inventory**, depending on the issue.

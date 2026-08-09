@@ -7557,6 +7557,8 @@ mod tests {
     use tokio::sync::Mutex;
     use uuid::Uuid;
 
+    static WEDDING_GROUP_PAY_CHECKOUT_TEST_LOCK: Mutex<()> = Mutex::const_new(());
+
     fn checkout_item_with_client_line(client_line_id: Option<&str>) -> CheckoutItem {
         CheckoutItem {
             client_line_id: client_line_id.map(str::to_string),
@@ -10235,6 +10237,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_checkout_completes_mixed_employee_merchandise_and_wedding_group_pay() {
+        let _guard = WEDDING_GROUP_PAY_CHECKOUT_TEST_LOCK.lock().await;
         let Ok(database_url) = std::env::var("DATABASE_URL") else {
             return;
         };
@@ -10485,7 +10488,7 @@ mod tests {
             wedding_member_id: Some(member_id),
             payment_method: "cash".to_string(),
             total_price: Decimal::new(10000, 2),
-            amount_paid: Decimal::ZERO,
+            amount_paid: Decimal::new(2500, 2),
             items: vec![CheckoutItem {
                 client_line_id: Some("wedding-order-line-1".to_string()),
                 line_type: None,
@@ -10513,7 +10516,15 @@ mod tests {
             }],
             alteration_intakes: vec![],
             actor_name: Some("Wedding Group Pay Test".to_string()),
-            payment_splits: Some(vec![]),
+            payment_splits: Some(vec![CheckoutPaymentSplit {
+                payment_method: "cash".to_string(),
+                amount: Decimal::new(2500, 2),
+                sub_type: None,
+                applied_deposit_amount: None,
+                gift_card_code: None,
+                check_number: None,
+                metadata: None,
+            }]),
             wedding_disbursements: None,
             wedding_member_order_drafts: vec![],
             order_payments: vec![],
@@ -10680,8 +10691,8 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("fetch beneficiary transaction totals");
-        assert_eq!(amount_paid, Decimal::new(5000, 2));
-        assert_eq!(balance_due, Decimal::new(5000, 2));
+        assert_eq!(amount_paid, Decimal::new(7500, 2));
+        assert_eq!(balance_due, Decimal::new(2500, 2));
 
         let (allocated, applied_deposit): (Option<Decimal>, Option<Decimal>) = sqlx::query_as(
             r#"
@@ -10696,10 +10707,10 @@ mod tests {
         .fetch_one(&pool)
         .await
         .expect("fetch beneficiary payment allocation totals");
-        assert_eq!(allocated.unwrap_or(Decimal::ZERO), Decimal::new(5000, 2));
+        assert_eq!(allocated.unwrap_or(Decimal::ZERO), Decimal::new(7500, 2));
         assert_eq!(
             applied_deposit.unwrap_or(Decimal::ZERO),
-            Decimal::new(5000, 2)
+            Decimal::new(7500, 2)
         );
         let direct_source: (Uuid, Decimal, Option<Uuid>) = sqlx::query_as(
             r#"
@@ -10914,6 +10925,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_checkout_preserves_open_deposit_group_pay_tender_sources() {
+        let _guard = WEDDING_GROUP_PAY_CHECKOUT_TEST_LOCK.lock().await;
         let Ok(database_url) = std::env::var("DATABASE_URL") else {
             return;
         };

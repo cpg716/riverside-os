@@ -8,6 +8,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { copyTextToClipboard } from "../../lib/clipboard";
 import {
   getPodiumOAuthRedirectUri,
   isPodiumOAuthBrowserOriginReady,
@@ -230,10 +231,9 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
 
   const copyRedirectUri = async () => {
     if (!redirectUri) return;
-    try {
-      await navigator.clipboard.writeText(redirectUri);
+    if (await copyTextToClipboard(redirectUri)) {
       toast("Podium callback URL copied.", "success");
-    } catch {
+    } else {
       toast("Could not copy the callback URL.", "error");
     }
   };

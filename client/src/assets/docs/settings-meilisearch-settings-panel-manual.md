@@ -50,7 +50,7 @@ Use this panel when inventory, customer, wedding, order, transaction, alteration
 - Meilisearch does not update itself directly from PostgreSQL. ROS updates search through server write hooks after records are saved.
 - Refresh only reloads this dashboard. It does not push new data into Meilisearch.
 - Rebuild all indices pushes PostgreSQL records into Meilisearch and refreshes row counts.
-- If the panel says the saved API key was rejected, enter the current Meilisearch API key and save credentials. Restart the API if the rejection remains after saving.
+- If the panel says the saved API key was rejected, enter the current Meilisearch API key and save credentials. The Settings response then shows **Main Hub restart required** because application search keeps its startup client until the Main Hub is restarted; do not treat a successful save or health check as full activation.
 - If the panel says **Search runtime update required**, the self-hosted Meilisearch version does not match the version packaged for this Riverside build. Update the Main Hub search runtime before rebuilding; a rebuild does not repair a version mismatch.
 - **Search ready** means the search service is reachable on the Riverside-pinned runtime version, no index job is still running, the latest full rebuild is no more than 36 hours old, and the live document count matches the PostgreSQL count captured by that rebuild.
 - The daily rebuild worker checks immediately when the Main Hub starts. If today's rebuild is due and the scheduled local hour has already passed, it begins in the background instead of leaving search in SQL fallback until the next hourly check.

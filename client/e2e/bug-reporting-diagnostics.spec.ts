@@ -11,6 +11,9 @@ const SENSITIVE_JWT =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyaXZlcnNpZGUtc3RhZmYifQ.sensitiveSignature";
 const SENSITIVE_COOKIE = "ros_session=very-secret-cookie";
 const SENSITIVE_SECRET = "secret-value-123";
+const PRIVATE_CUSTOMER_EMAIL = "private-customer@example.test";
+const PRIVATE_CUSTOMER_PHONE = "716-555-0109";
+const PRIVATE_CUSTOMER_NAME = "Private Customer";
 const REDACTED = "[redacted]";
 
 async function openSettingsSubItem(page: Page, label: RegExp): Promise<void> {
@@ -34,7 +37,16 @@ function expectNoSecrets(payload: unknown) {
   expect(text).toContain(REDACTED);
 }
 
+function expectNoPrivateCustomerData(payload: unknown) {
+  const text = typeof payload === "string" ? payload : JSON.stringify(payload);
+  expect(text).not.toContain(PRIVATE_CUSTOMER_EMAIL);
+  expect(text).not.toContain(PRIVATE_CUSTOMER_PHONE);
+  expect(text).not.toContain(PRIVATE_CUSTOMER_NAME);
+}
+
 test.describe("bug reporting diagnostics hardening", () => {
+  test.setTimeout(60_000);
+
   test("manual bug reports redact diagnostic secrets before submit", async ({
     page,
   }) => {
@@ -57,21 +69,32 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await page.evaluate(
-      ({ jwt, cookie, secret }) => {
+      ({ jwt, cookie, secret, email, phone, customerName }) => {
         console.error(
           `Authorization: Bearer ${jwt}; cookie=${cookie}; staff_pin=1234`,
           {
             api_key: secret,
             password: secret,
             session_id: "session-secret-456",
-            nested: { token: jwt },
+            customer_email: email,
+            phone,
+            full_name: customerName,
+            nested: { token: jwt, customerEmail: email },
           },
+        );
+        window.history.replaceState(
+          null,
+          "",
+          `/settings?customer=${encodeURIComponent(email)}#${encodeURIComponent(customerName)}`,
         );
       },
       {
         jwt: SENSITIVE_JWT,
         cookie: SENSITIVE_COOKIE,
         secret: SENSITIVE_SECRET,
+        email: PRIVATE_CUSTOMER_EMAIL,
+        phone: PRIVATE_CUSTOMER_PHONE,
+        customerName: PRIVATE_CUSTOMER_NAME,
       },
     );
 
@@ -94,6 +117,7 @@ test.describe("bug reporting diagnostics hardening", () => {
       })
       .not.toBeNull();
     expectNoSecrets(submittedBody);
+    expectNoPrivateCustomerData(submittedBody);
     const body = submittedBody as Record<string, unknown>;
     expect(body.client_meta).toEqual(
       expect.objectContaining({
@@ -263,6 +287,43 @@ test.describe("bug reporting diagnostics hardening", () => {
         }),
       }),
     );
+  });
+
+  test("workflow warning toasts do not create developer error events", async ({
+    page,
+  }) => {
+    const errorEventPayloads: unknown[] = [];
+    await page.route("**/api/bug-reports/error-events", async (route) => {
+      errorEventPayloads.push(route.request().postDataJSON());
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ id: "event-1" }),
+      });
+    });
+    await signInToBackOffice(page, { persistSession: true });
+
+    const message = "Choose a due-by date before saving this alteration intake.";
+    await page.evaluate((warningMessage) => {
+      window.dispatchEvent(
+        new CustomEvent("ros-app-toast", {
+          detail: { message: warningMessage, type: "warning" },
+        }),
+      );
+    }, message);
+
+    await expect(page.getByText(message)).toBeVisible();
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }),
+    );
+    expect(
+      errorEventPayloads.filter(
+        (payload) => (payload as { message?: unknown }).message === message,
+      ),
+    ).toHaveLength(0);
   });
 
   test("server error events surface in bug report triage", async ({ page }) => {

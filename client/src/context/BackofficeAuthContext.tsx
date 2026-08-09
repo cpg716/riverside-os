@@ -187,10 +187,12 @@ export function BackofficeAuthProvider({
   useEffect(() => {
     if (!staffCode.trim() || (!staffSessionToken.trim() && !staffPin.trim())) return;
 
+    let heartbeatRejected = false;
     const sendHeartbeat = async () => {
+      if (heartbeatRejected) return;
       try {
         const updateTelemetry = await readAppUpdateTelemetry();
-        await fetch(`${getBaseUrl()}/api/ops/stations/heartbeat`, {
+        const response = await fetch(`${getBaseUrl()}/api/ops/stations/heartbeat`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -220,6 +222,12 @@ export function BackofficeAuthProvider({
             },
           }),
         });
+        if (response.status === 403) {
+          heartbeatRejected = true;
+          console.info(
+            "Station heartbeat disabled because this browser connection is not on an approved private network.",
+          );
+        }
       } catch {
         // Ignore transient failures; heartbeat should not affect staff session behavior.
       }

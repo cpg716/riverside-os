@@ -56,7 +56,7 @@ Use this panel when:
 
 ## Privacy behavior
 
-Diagnostics are redacted before they are submitted or downloaded. Authorization headers, bearer tokens, JWT-looking strings, cookies, session values, Access PIN-like fields, passwords, secrets, token fields, and API key fields should not appear in report evidence.
+Diagnostics are redacted before they are submitted or downloaded. Authorization headers, bearer tokens, JWT-looking strings, cookies, session values, Access PIN-like fields, passwords, secrets, token fields, API key fields, obvious customer contact fields, and URL query values should not appear in report evidence.
 
 If a report includes sensitive text typed by a person into a description, treat it as private and remove or replace it before sharing.
 

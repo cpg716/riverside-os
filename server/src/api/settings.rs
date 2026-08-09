@@ -1209,6 +1209,8 @@ struct IntegrationCredentialsStatusResponse {
     integration_key: String,
     supported_keys: Vec<String>,
     configured: HashMap<String, bool>,
+    restart_required: bool,
+    activation_message: Option<&'static str>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1312,7 +1314,15 @@ async fn integration_credentials_status(
             .into_iter()
             .map(|key| (key.to_string(), configured.contains(key)))
             .collect(),
+        restart_required: false,
+        activation_message: None,
     })
+}
+
+fn integration_credentials_activation_message(integration_key: &str) -> Option<&'static str> {
+    (integration_key == "meilisearch").then_some(
+        "Restart Main Hub to activate the saved Meilisearch credentials for application search. Settings health checks and rebuilds may continue to use the credentials loaded for the current process until restart.",
+    )
 }
 
 async fn get_integration_credentials_status(
@@ -1385,9 +1395,10 @@ async fn patch_integration_credentials(
         .await
         .map_err(map_credential_settings_error)?;
 
-    Ok(Json(
-        integration_credentials_status(&state, &integration_key).await?,
-    ))
+    let mut status = integration_credentials_status(&state, &integration_key).await?;
+    status.activation_message = integration_credentials_activation_message(&integration_key);
+    status.restart_required = status.activation_message.is_some();
+    Ok(Json(status))
 }
 
 async fn delete_integration_credential(
@@ -1405,9 +1416,10 @@ async fn delete_integration_credential(
     )
     .await
     .map_err(map_credential_settings_error)?;
-    Ok(Json(
-        integration_credentials_status(&state, &integration_key).await?,
-    ))
+    let mut status = integration_credentials_status(&state, &integration_key).await?;
+    status.activation_message = integration_credentials_activation_message(&integration_key);
+    status.restart_required = status.activation_message.is_some();
+    Ok(Json(status))
 }
 
 async fn get_backup_settings(
@@ -4443,7 +4455,8 @@ async fn get_fal_usage(
 #[cfg(test)]
 mod tests {
     use super::{
-        clean_integration_credential_value_for_integration, require_template_token,
+        clean_integration_credential_value_for_integration,
+        integration_credentials_activation_message, require_template_token,
         validate_restore_catalog_membership, validate_restore_confirmation,
         validate_restore_environment, validate_restore_register_blocker, SettingsError,
     };
@@ -4542,5 +4555,13 @@ mod tests {
         )
         .expect_err("credential-bearing endpoint must be rejected");
         assert!(err_message(unsafe_url).contains("Helcim API host"));
+    }
+
+    #[test]
+    fn meilisearch_credential_changes_require_main_hub_restart() {
+        let message = integration_credentials_activation_message("meilisearch")
+            .expect("Meilisearch credential changes need a restart notice");
+        assert!(message.contains("Restart Main Hub"));
+        assert!(integration_credentials_activation_message("podium").is_none());
     }
 }

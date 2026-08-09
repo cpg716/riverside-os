@@ -58,7 +58,7 @@ Each subsection is job-based:
 
 Use Inventory List for search, review, and triage. Use Product Hub for item-level cleanup, Receive Stock for inbound quantity changes, and Physical Inventory for count reconciliation. If search returns no rows during a known outage or stale-index warning, treat it as a lookup problem, not proof that the SKU does not exist.
 
-Inventory Reports includes a read-only reconciliation section for cross-catalog findings that Product Hub shows only one item at a time, such as negative available stock, inactive products with inventory commitments, manual movements missing notes, and Counterpoint-linked stock without movement-ledger proof.
+Inventory Reports includes a read-only reconciliation section for cross-catalog findings that Product Hub shows only one item at a time, such as negative available stock, inactive products with inventory commitments, manual movements missing notes, and Counterpoint-linked stock without movement-ledger proof. The four summary cards show complete store-wide counts. Filter and page through one finding type at a time, or use **Export Complete Queue** to save every row in the current filter as CSV before beginning physical counts or ledger research.
 
 
 ## Tips
