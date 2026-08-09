@@ -5,11 +5,10 @@
 ## Where in ROS
 
 - **Back Office → Reports** provides fixed, curated operational reports backed by Riverside APIs.
-- **Back Office → Insights** provides native conversational reporting through ROSIE and Cube Core.
+- **Back Office → Insights** builds custom Riverside reports from plain-language requests.
 - **Back Office → Staff → Commissions → Reports** provides payroll-oriented commission review.
 
 All three surfaces use Riverside authentication. There is no separate analytics login.
-The Main Hub installs and maintains Cube automatically with normal Riverside updates; staff should not install Docker, Node, Cube, or a separate reporting database.
 
 ## Permissions
 
@@ -28,7 +27,7 @@ The Main Hub installs and maintains Cube automatically with normal Riverside upd
 
 **Booked** measures a Transaction when it is created. **Recognized** measures qualifying fulfillment or pickup. These are deliberately separate datasets; do not silently substitute one for the other.
 
-ROSIE never sends arbitrary SQL. It proposes a constrained report definition, the Riverside server validates it against the governed catalog and staff permissions, and Cube runs it through the read-only **`cube_ro`** role.
+Insights validates each request against approved reporting data and staff permissions. Reports are read-only; any business correction still uses the normal Riverside workflow.
 
 ## Favorites, history, and archive
 
@@ -58,7 +57,7 @@ Operational RMS charge and payment lines remain under **Customers → RMS charge
 | Symptom | First check |
 |---|---|
 | No Insights tab | Role has **insights.view**. |
-| Cube unavailable | Cube Core service, API secret, and **`cube_ro`** database connection. |
+| Reporting unavailable | Ask IT to run Main Hub Update or Repair. |
 | Report cannot be generated | Ask for a supported measure, grouping, period, and booked or recognized basis. |
 | No margin or cost option | Riverside Admin access is required. |
 | Unexpected total | Verify the date range, filters, and booked versus recognized basis before escalating. |
@@ -69,7 +68,6 @@ If fulfilled reports, receipt loyalty, commissions, QBO staging, or tax totals d
 
 - [reports-curated-manual.md](reports-curated-manual.md)
 - [reports-curated-admin.md](reports-curated-admin.md)
-- [../CUBE_INSIGHTS_REPORTING.md](../CUBE_INSIGHTS_REPORTING.md)
 - [../REPORTING_BOOKED_AND_FULFILLED.md](../REPORTING_BOOKED_AND_FULFILLED.md)
 - [../AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)
 - [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)

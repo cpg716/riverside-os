@@ -16,16 +16,15 @@ tags: insights, rosie, cube, reports, analytics, favorites, history, export, pri
 
 ## What this is
 
-**Back Office → Insights** is Riverside's native report builder. Ask for a report in plain language and ROSIE converts the request into a validated report definition. Cube Core runs that definition against read-only **`reporting.*`** data. ROSIE cannot submit arbitrary SQL.
+**Back Office → Insights** is Riverside's custom reporting workspace. Describe the report you need in plain language, then select **Build report**. Each request uses approved Riverside reporting data and follows the signed-in staff member's permissions.
 
 There is no separate reporting login. Riverside staff access and permissions apply throughout the workspace. Cost and margin measures remain Admin-only.
-The Main Hub installs and maintains Cube with normal Riverside updates. Staff do not install Docker, Node, Cube, or a separate reporting database.
 
 ## Ask for a report
 
 1. Open **Insights** in the left rail.
 2. Describe the result you need, including the business basis and period when they matter. For example: **“Show recognized revenue by category for the last 90 days as a bar chart.”**
-3. Select **Generate report**.
+3. Select **Build report**.
 4. Review the title, business-basis explanation, date range, chart, and table before using the result.
 
 Use **booked** for activity measured when a Transaction was created. Use **recognized** for revenue measured when qualifying fulfillment or pickup occurred. If that distinction is unclear, state which business event you mean.
@@ -39,7 +38,7 @@ Keep the current result open and type the change you want, such as:
 - **Use the prior quarter and show a line chart.**
 - **Remove canceled Fulfillment Orders.**
 
-ROSIE receives the current validated definition as context and returns a replacement definition. Each successful version is recorded in report history.
+Insights uses the current report as context when applying the change. Each successful version is recorded in report history.
 
 ## Change the period
 
@@ -68,16 +67,15 @@ Reports that have not been used within the configured retention period are moved
 
 - **insights.view** is required to open Insights and run reports.
 - Cost and margin measures require Riverside Admin access.
-- Cube can read only the governed reporting schema through the dedicated **`cube_ro`** database role.
-- ROSIE builds a constrained report definition; the server validates datasets, measures, filters, dates, row limits, and visualization before Cube runs it.
+- Riverside validates the requested data, filters, dates, row limits, visualization, and staff permissions before running a report.
 - Report results are read-only. Any business correction still uses the normal Riverside workflow and confirmation rules.
 
 ## Troubleshooting
 
 | Symptom | What to try |
 |---|---|
-| Cube status is unavailable | Ask IT to run Main Hub Update or Repair and check the **Riverside OS Cube Core** task; do not install a separate Cube or Docker service. |
-| ROSIE cannot build the report | Add a clear period, measure, grouping, and booked or recognized basis. The requested data may not yet be in the governed catalog. |
+| Reporting setup needs attention | Ask IT to run Main Hub Update or Repair. |
+| The report cannot be built | Add a clear period, measure, grouping, and booked or recognized basis. The requested data may not yet be available in Insights. |
 | A report returns no rows | Check the period and filters, then verify whether the requested activity occurred on the selected basis. |
 | Cost or margin is rejected | Sign in with Riverside Admin access or choose a revenue-only measure. |
 | Insights is missing | Ask an Admin to verify **insights.view** for your role. |
@@ -87,4 +85,4 @@ Reports that have not been used within the configured retention period are moved
 - [Reports (curated)](manual:reports)
 - [Staff Commissions](manual:staff-commission-manager-workspace)
 
-For operational and deployment detail, see **`docs/CUBE_INSIGHTS_REPORTING.md`** and **`docs/REPORTING_BOOKED_AND_FULFILLED.md`**.
+For booked and recognized reporting definitions, see **`docs/REPORTING_BOOKED_AND_FULFILLED.md`**.

@@ -143,10 +143,12 @@ test.describe("PWA layout — tablet (iPad Pro 11 preset)", () => {
       .getByRole("navigation", { name: "Main Navigation" })
       .getByRole("button", { name: /^insights(\s+bo)?$/i })
       .click();
+    await expect(page.getByRole("heading", { name: /^insights$/i })).toBeVisible({
+      timeout: 25_000,
+    });
     await expect(
-      page.getByRole("heading", { name: /ask riverside anything reportable/i }),
-    ).toBeVisible({ timeout: 25_000 });
-    await expect(page.getByText(/rosie \+ cube core/i)).toBeVisible();
+      page.getByText(/describe the report you need in plain language, then select build report/i),
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: /^history$/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /^favorites$/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /^archive$/i })).toBeVisible();

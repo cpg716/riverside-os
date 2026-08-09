@@ -605,15 +605,9 @@ export default function NativeInsightsWorkspace() {
                 <Sparkles className="h-7 w-7" aria-hidden />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-violet-600">
-                  ROSIE + Cube Core
-                </p>
-                <h1 className="mt-1 text-3xl font-black tracking-tight text-app-text">
-                  Ask Riverside anything reportable
-                </h1>
-                <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
-                  Gemma builds a validated semantic report. Cube queries governed reporting views,
-                  and Riverside renders the chart, table, printout, and export without a second login.
+                <h1 className="text-3xl font-black tracking-tight text-app-text">Insights</h1>
+                <p className="mt-2 text-sm font-medium text-app-text-muted">
+                  Describe the report you need in plain language, then select Build Report.
                 </p>
               </div>
             </div>
@@ -632,7 +626,7 @@ export default function NativeInsightsWorkspace() {
           </div>
 
           <form
-            className="mt-6 flex flex-col gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/[0.04] p-4 lg:flex-row"
+            className="mt-5 flex flex-col gap-3 rounded-2xl border border-violet-500/20 bg-violet-500/[0.04] p-4 lg:flex-row"
             onSubmit={(event) => {
               event.preventDefault();
               void ask();
@@ -955,9 +949,8 @@ export default function NativeInsightsWorkspace() {
                     <Sparkles className="h-8 w-8" />
                   </div>
                   <h2 className="mt-5 text-2xl font-black text-app-text">Your report will appear here</h2>
-                  <p className="mt-2 text-sm font-medium leading-relaxed text-app-text-muted">
-                    Ask a question above, or reopen any report from history. Every successful report is
-                    saved automatically; unused history moves to the archive after the configured period.
+                  <p className="mt-2 text-sm font-medium text-app-text-muted">
+                    Enter a request above or open a saved report from History.
                   </p>
                 </div>
               </section>
