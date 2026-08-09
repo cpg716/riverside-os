@@ -41,7 +41,14 @@ async function addMinimalGiftCardLine(
   page: Parameters<typeof test>[0]["page"],
   codeSeed: string,
 ): Promise<void> {
-  await page.getByTestId("pos-action-gift-card").click();
+  const moreActions = page
+    .getByRole("toolbar", { name: "Cart actions" })
+    .getByRole("button", { name: "More Actions", exact: true });
+  await moreActions.evaluate((button: HTMLButtonElement) => button.click());
+  await page
+    .getByRole("dialog", { name: "More sale actions" })
+    .getByTestId("pos-action-gift-card")
+    .click();
   const dialog = page.getByRole("dialog", { name: /gift card/i });
   await expect(dialog).toBeVisible({ timeout: 10_000 });
   await dialog.getByRole("button", { name: "5", exact: true }).click();

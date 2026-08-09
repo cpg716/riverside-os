@@ -260,7 +260,7 @@ export default function VariantSelectionModal({
           <section
             data-testid="variant-item-to-build"
             className={`shrink-0 rounded-2xl border-2 border-app-accent/30 bg-app-accent/5 shadow-sm ${
-              isSelectionComplete ? "mb-3 p-4" : "mb-4 p-4"
+              isSelectionComplete ? "mb-1 p-1" : "mb-4 p-4"
             }`}
           >
             {!isSelectionComplete ? (
@@ -293,7 +293,7 @@ export default function VariantSelectionModal({
 
             <div
               className={`grid gap-2 ${
-                isSelectionComplete ? "mt-2 grid-cols-3" : "mt-4 sm:grid-cols-2"
+                isSelectionComplete ? "mt-0.5 grid-cols-3" : "mt-4 sm:grid-cols-2"
               }`}
             >
               {attributeSteps.map((step, index) => {
@@ -306,7 +306,7 @@ export default function VariantSelectionModal({
                     disabled={!selection}
                     onClick={() => editSelection(index)}
                     className={`rounded-xl border text-left transition-colors ${
-                      isSelectionComplete ? "min-h-24 px-4 py-3" : "px-3 py-2"
+                      isSelectionComplete ? "min-h-10 px-2 py-0.5" : "px-3 py-2"
                     } ${
                       selection
                         ? "border-app-accent/30 bg-app-surface hover:border-app-accent"
@@ -322,16 +322,12 @@ export default function VariantSelectionModal({
                   >
                     <span
                       className={`block font-black uppercase tracking-widest text-app-text-muted ${
-                        isSelectionComplete ? "text-[10px]" : "text-[9px]"
+                        isSelectionComplete ? "text-[8px]" : "text-[9px]"
                       }`}
                     >
                       {step}
                     </span>
-                    <span
-                      className={`mt-1 flex items-center justify-between gap-2 font-black uppercase tracking-wide text-app-text ${
-                        isSelectionComplete ? "text-sm" : "text-xs"
-                      }`}
-                    >
+                    <span className="mt-0.5 flex items-center justify-between gap-2 text-xs font-black uppercase tracking-wide text-app-text">
                       <span>
                         {selection
                           ? variantSelectionChoiceLabel(selection)
@@ -396,7 +392,7 @@ export default function VariantSelectionModal({
           ) : (
             <div className="mt-auto shrink-0 animate-in zoom-in-95 duration-500">
               {allowPriceOverride ? (
-                <div className="space-y-2 rounded-t-2xl border border-b-0 border-app-border bg-app-surface-2 p-3">
+                <div className="space-y-1 rounded-t-2xl border border-b-0 border-app-border bg-app-surface-2 p-1">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-app-text">
                       <CircleDollarSign size={14} />
@@ -417,7 +413,7 @@ export default function VariantSelectionModal({
 
                   <div className="grid grid-cols-3 gap-2">
                     {priceOverride ? (
-                      <div className="rounded-xl border border-app-border bg-app-surface p-3">
+                      <div className="rounded-xl border border-app-border bg-app-surface p-1">
                         <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                           Regular unit price
                         </span>
@@ -432,7 +428,7 @@ export default function VariantSelectionModal({
                       </div>
                     ) : null}
                     <label
-                      className={`rounded-xl border border-app-border bg-app-surface p-3 ${
+                      className={`rounded-xl border border-app-border bg-app-surface p-1 ${
                         priceOverride ? "" : "col-span-2"
                       }`}
                     >
@@ -459,7 +455,7 @@ export default function VariantSelectionModal({
                         Manager Access above your limit.
                       </span>
                     </label>
-                    <div className="rounded-xl border border-app-border bg-app-surface p-3 text-center">
+                    <div className="rounded-xl border border-app-border bg-app-surface p-1 text-center">
                       <span className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                         {priceOverride ? "Final unit price" : "Unit price"}
                       </span>

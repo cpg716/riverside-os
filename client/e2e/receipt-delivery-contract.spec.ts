@@ -49,15 +49,17 @@ test("Sale Complete sends email through Store Email and text through Podium", ()
   expect(saleComplete).toContain("receiptHtmlToPngBase64");
   expect(saleComplete).toContain("payload.png_base64 = pngBase64");
   expect(transactionsApi).toContain("store_email::send_email(");
-  expect(transactionsApi).toContain('format!("Receipt — {order_ref}")');
-  expect(transactionsApi).toContain('format!("Gift receipt — {order_ref}")');
+  expect(transactionsApi).toContain("podium::apply_template_placeholders(");
+  expect(transactionsApi).toContain("&message_templates.email_subject");
+  expect(transactionsApi).toContain("&message_templates.gift_email_subject");
+  expect(transactionsApi).toContain('"Gift receipt"');
   expect(transactionsApi).toContain(
     "wrap_receipt_fragment_for_podium_email_inline",
   );
   expect(transactionsApi).toContain(
     "send_podium_phone_message_with_png_attachment",
   );
-  expect(transactionsApi).toContain("send_podium_sms_message(");
+  expect(transactionsApi).toContain("send_podium_sms_message_tracked(");
   expect(transactionsApi).toContain(
     'json!({ "status": "sent", "mode": "mms_attachment" })',
   );

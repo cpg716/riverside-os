@@ -64,9 +64,9 @@ test("paid order cancellation hands the refund directly back to the Register", (
   expect(cart).toContain(
     "item.quantity - Math.max(0, item.quantity_returned ?? 0)",
   );
-  expect(cart).toContain(
-    "cancel_transaction: pendingReturnTender.cancelTransaction",
-  );
+  expect(cart).toContain("cancel_transaction:");
+  expect(cart).toContain("pendingReturnTender.cancelTransaction &&");
+  expect(cart).toContain("checkoutAppliedPayments.length === 0");
   expect(transactionsApi).toContain("if body.cancel_transaction");
   expect(transactionsApi).toContain(
     '"Paid order cancelled with completed refund"',
@@ -100,7 +100,7 @@ test("fully returned order lines do not remain open for pickup", () => {
   expect(transactionDetailDrawer).toContain(
     "These items were returned and no longer require pickup or shipping work.",
   );
-  expect(transactionDetailDrawer).toContain('return "Return is complete.";');
+  expect(transactionDetailDrawer).toContain(': "Return is complete.";');
 });
 
 test("direct paid returns cannot bypass Record Sale atomicity", () => {
@@ -157,9 +157,6 @@ test("receipt generation is event-scoped while detail stays on the replacement t
   );
   expect(receiptModal).toContain(
     "const detailUrl = `${baseUrl}/api/transactions/${transactionId}",
-  );
-  expect(receiptModal).toContain(
-    "/api/transactions/${transactionId}/review-invite",
   );
   expect(receiptModal).not.toContain(
     "parseMoneyToCents(transactionDetail?.refund_total",

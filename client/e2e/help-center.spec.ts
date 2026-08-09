@@ -530,7 +530,7 @@ test("Ask ROSIE voice input reuses the normal text flow and plays speech on the 
       voice?: string;
     };
     expect(body.text).toContain("Open the register reports workflow");
-    expect(body.voice).toBe("5");
+    expect(body.voice).toBe("0");
     await route.fulfill({
       status: 200,
       contentType: "application/json",

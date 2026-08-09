@@ -303,6 +303,17 @@ test.describe("register state stability", () => {
     await page.goto("/pos", { waitUntil: "domcontentloaded" });
     await page.getByRole("button", { name: /go to register/i }).click();
 
+    const accessDialog = page.getByRole("dialog", {
+      name: "Staff Access for this sale",
+    });
+    await expect(accessDialog).toBeVisible({ timeout: 20_000 });
+    await accessDialog.getByTestId("staff-selector-button").click();
+    await accessDialog.getByTestId("staff-identity-selector-1").click();
+    for (const digit of ["1", "2", "3", "4"]) {
+      await accessDialog.getByTestId(`pin-key-${digit}`).click();
+    }
+    await expect(accessDialog).toHaveCount(0);
+
     const registerPanel = page.getByTestId("pos-register-panel");
     await expect(registerPanel).toHaveAttribute(
       "data-register-state",
@@ -320,7 +331,7 @@ test.describe("register state stability", () => {
       "data-register-session-ready",
       "true",
     );
-    await expect(page.getByText(/Register #1/i).first()).toBeVisible();
+    await expect(page.getByText("Till Open").first()).toBeVisible();
     await expect(page.getByText(/already has an open session/i)).toHaveCount(0);
   });
 

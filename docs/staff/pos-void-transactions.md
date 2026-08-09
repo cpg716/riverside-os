@@ -34,6 +34,8 @@ When you click **Void** on the POS UI, the system executes these three phases:
 
 To ensure financial auditability, initiating a void automatically opens the **Register Overlay** to manage the tender reversal (Credit Card release, Cash out, or Check cancellation). This guarantees that drawer totals and register sessions reconcile perfectly at the end of the day.
 
+When the original sale used split tender, complete each original refund source shown by Register. Riverside keeps one durable obligation for the full original paid amount until every source is recorded. A safe retry of a source that already succeeded does not duplicate that refund and does not close the remaining amount owed through another source.
+
 ## Before approving
 
 Manager confirms:
@@ -64,4 +66,4 @@ Manager confirms:
 - [qbo-bridge.md](qbo-bridge.md)
 - [../TRANSACTION_RETURNS_EXCHANGES.md](../TRANSACTION_RETURNS_EXCHANGES.md)
 
-**Last reviewed:** 2026-06-03
+**Last reviewed:** 2026-08-08

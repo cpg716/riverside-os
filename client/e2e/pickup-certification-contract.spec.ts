@@ -4,6 +4,7 @@ import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
 import {
   apiBase,
   ensureSessionAuth,
+  seedRmsFixture,
   staffCode,
   staffHeaders,
   verifyStaffId,
@@ -71,12 +72,51 @@ async function checkoutSpecialOrder(
     sessionToken: string;
     operatorStaffId: string;
     salespersonId: string;
+    customerId?: string;
     amountPaid?: string;
   },
 ): Promise<CheckoutResponse> {
   const tax = lineTax();
   const total = transactionTotal(options.products.length);
   const amountPaid = options.amountPaid ?? total;
+  const checkoutClientId = crypto.randomUUID();
+  const minimumDepositCents = Math.ceil(parseMoneyToCents(total) / 4);
+  let orderDepositOverride:
+    | { manager_staff_id: string; manager_approval_reference: string }
+    | undefined;
+  if (parseMoneyToCents(amountPaid) < minimumDepositCents) {
+    expect(options.customerId, "below-minimum Order fixture requires a customer").toBeTruthy();
+    const approvalRes = await request.post(`${apiBase()}/api/staff/verify-pin`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        staff_id: options.operatorStaffId,
+        pin: staffCode(),
+        authorize_action: "pos_order_deposit_override",
+        authorize_metadata: {
+          register_session_id: options.sessionId,
+          checkout_client_id: checkoutClientId,
+          customer_id: options.customerId,
+          transaction_total: total,
+          amount_paid: amountPaid,
+          minimum_deposit: centsToFixed2(minimumDepositCents),
+        },
+      },
+      failOnStatusCode: false,
+    });
+    const approvalBody = (await approvalRes.json()) as {
+      manager_approval_reference?: string;
+    };
+    expect(approvalRes.status(), JSON.stringify(approvalBody)).toBe(200);
+    expect(approvalBody.manager_approval_reference).toBeTruthy();
+    orderDepositOverride = {
+      manager_staff_id: options.operatorStaffId,
+      manager_approval_reference: approvalBody.manager_approval_reference!,
+    };
+  }
   const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
     headers: {
       ...staffHeaders(),
@@ -89,11 +129,12 @@ async function checkoutSpecialOrder(
       session_id: options.sessionId,
       operator_staff_id: options.operatorStaffId,
       primary_salesperson_id: options.salespersonId,
-      customer_id: null,
+      customer_id: options.customerId ?? null,
       payment_method: "cash",
       total_price: total,
       amount_paid: amountPaid,
-      checkout_client_id: crypto.randomUUID(),
+      checkout_client_id: checkoutClientId,
+      order_deposit_override: orderDepositOverride,
       items: options.products.map((product) => ({
         product_id: product.productId,
         variant_id: product.variantId,
@@ -266,6 +307,11 @@ test.describe("pickup launch certification contract", () => {
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
     const salespersonId = await createSalespersonStaff(request);
+    const depositOverrideCustomer = await seedRmsFixture(
+      request,
+      "single_valid",
+      "Pickup Deposit Override",
+    );
 
     const unpaidPickupProduct = await createSingleVariantProduct(request, uniqueSuffix("pickup-unpaid"), {
       stockOnHand: 1,
@@ -283,6 +329,7 @@ test.describe("pickup launch certification contract", () => {
       sessionToken,
       operatorStaffId,
       salespersonId,
+      customerId: depositOverrideCustomer.customer.id,
       amountPaid: "0.00",
     });
     const unpaidDetail = await fetchTransactionDetail(

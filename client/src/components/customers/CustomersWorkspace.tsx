@@ -993,14 +993,41 @@ export default function CustomersWorkspace({
       );
     }
     return (
-      <RmsChargeAdminSection
-        surface={surface}
-        onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
-        onOpenCustomer={(customer) => {
-          setHubInitialTab("profile");
-          setPicked(customer);
-        }}
-      />
+      <>
+        <RmsChargeAdminSection
+          surface={surface}
+          onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+          onOpenCustomer={(customer) => {
+            setHubInitialTab("profile");
+            setPicked(customer);
+          }}
+        />
+        {picked ? (
+          <CustomerRelationshipHubDrawer
+            customer={picked}
+            open
+            initialHubTab={hubInitialTab ?? undefined}
+            onClose={() => {
+              setPicked(null);
+              setHubInitialTab(null);
+            }}
+            onOpenWeddingParty={onOpenWeddingParty}
+            onStartSale={onStartSaleInPos}
+            onNavigateRegister={onNavigateRegister}
+            navigateAfterStartSale
+            onAddToWedding={onAddToWedding}
+            onBookAppointment={onBookAppointment}
+            onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+            onSwitchCustomer={(nextCustomer) => {
+              setHubInitialTab("profile");
+              setPicked(nextCustomer);
+            }}
+            onCustomerUpdated={updateVisibleCustomerSnapshot}
+            onRefresh={() => void refresh()}
+            baseUrl={baseUrl}
+          />
+        ) : null}
+      </>
     );
   }
 

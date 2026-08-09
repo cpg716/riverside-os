@@ -135,6 +135,11 @@ pub async fn recalc_transaction_totals(
             closed_at = CASE WHEN $3 THEN NULL ELSE CURRENT_TIMESTAMP END
         WHERE transaction_id = $1
           AND is_open = TRUE
+          AND NOT EXISTS (
+              SELECT 1
+              FROM transaction_void_records void_record
+              WHERE void_record.transaction_id = $1
+          )
         "#,
     )
     .bind(transaction_id)

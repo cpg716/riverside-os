@@ -408,7 +408,7 @@ test("selecting a wedding member offers the reusable exact-variation order flow"
   expect(cartSource).toContain("visibleWeddingChecklistMemberships.map");
   expect(cartSource).toContain("activeWeddingPurchaseMembership.wedding_party_id");
   expect(cartSource).toContain('data-testid="pos-register-keypad"');
-  expect(cartSource).toContain("h-[22rem] min-h-[22rem] shrink-0");
+  expect(cartSource).toContain("h-[24rem] min-h-[24rem] shrink-0");
   expect(cartSource).not.toContain(
     "{activeWeddingMember ||\n            parkedRows.length > 0 ||",
   );

@@ -62,7 +62,14 @@ async function addGiftCardLoadLine(
   codeSeed: string,
 ): Promise<void> {
   const uniqueCode = `E2E-MODAL-${codeSeed}-${Date.now()}`;
-  await page.getByTestId("pos-action-gift-card").click();
+  const moreActions = page
+    .getByRole("toolbar", { name: "Cart actions" })
+    .getByRole("button", { name: "More Actions", exact: true });
+  await moreActions.evaluate((button: HTMLButtonElement) => button.click());
+  await page
+    .getByRole("dialog", { name: "More sale actions" })
+    .getByTestId("pos-action-gift-card")
+    .click();
   const giftDialog = page.getByRole("dialog", { name: /gift card/i });
   await expect(giftDialog).toBeVisible({ timeout: 10_000 });
   await giftDialog.getByRole("button", { name: "5", exact: true }).click();
@@ -159,7 +166,14 @@ test("POS Custom button opens canonical custom-order families", async ({ page })
     email: `e2e-custom-${Date.now()}@example.com`,
   });
 
-  await page.getByTestId("pos-action-custom-order").click();
+  await page
+    .getByRole("toolbar", { name: "Cart actions" })
+    .getByRole("button", { name: "More Actions", exact: true })
+    .click();
+  await page
+    .getByRole("dialog", { name: "More sale actions" })
+    .getByTestId("pos-action-custom-order")
+    .click();
   const customDialog = page.getByRole("dialog", { name: /custom order/i });
   await expect(customDialog).toBeVisible({ timeout: 10_000 });
 

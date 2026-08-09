@@ -22,6 +22,6 @@ test("keeps the full-size keypad and payment action in a fixed bottom dock", () 
   expect(checkoutDock).toBeGreaterThan(scrollRegion);
   expect(keypad).toBeGreaterThan(checkoutDock);
   expect(paymentAction).toBeGreaterThan(keypad);
-  expect(cartSource).toContain("h-[22rem] min-h-[22rem]");
-  expect(cartSource).toContain("h-[5.125rem] min-h-[5.125rem]");
+  expect(cartSource).toContain("h-[24rem] min-h-[24rem]");
+  expect(cartSource).toContain("h-[5.75rem] min-h-[5.75rem]");
 });

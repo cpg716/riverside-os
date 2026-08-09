@@ -534,7 +534,9 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
   expect(profilePatch?.tax_exempt).toBeUndefined();
 
   await dialog.getByRole("tab", { name: /^History$/i }).click();
-    await expect(dialog.getByText(/customer notes, visits, and past purchases/i)).toBeVisible();
+  await expect(
+    dialog.getByText(/customer notes, visits, and every completed receipt event/i),
+  ).toBeVisible();
   await expect(dialog.getByText(/Purchased 2 items/i)).toBeVisible();
   await expect(dialog.getByText(/TXN-9012/i)).toBeVisible();
 

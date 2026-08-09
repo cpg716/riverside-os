@@ -170,10 +170,15 @@ test.describe("POS alteration intake", () => {
   }) => {
     const alteration = page.getByTestId("pos-alteration-intake-trigger");
     const exchange = page.getByTestId("pos-exchange-wizard-trigger");
-    const layaway = page.getByRole("button", { name: /^Layaway$/i });
 
     await expect(alteration).toBeVisible();
     await expect(exchange).toBeVisible();
+    await page
+      .getByRole("toolbar", { name: "Cart actions" })
+      .getByRole("button", { name: "More Actions", exact: true })
+      .click();
+    const moreActions = page.getByRole("dialog", { name: "More sale actions" });
+    const layaway = moreActions.getByRole("button", { name: /^Layaway$/i });
     await expect(layaway).toBeVisible();
     await expect(exchange).toHaveCount(1);
     await expect(layaway).toHaveCount(1);

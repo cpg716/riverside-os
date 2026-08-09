@@ -163,6 +163,8 @@ For a mixed exchange, Riverside combines today's negative return lines with toda
 
 Refunds use the same split-payment screen as sales. Divide the refund among any valid sources needed—for example **Original Card** plus **Store Credit**—until the payment status reaches **Ready**. Riverside records every source under one return event and will resume a retry without duplicating a source that already succeeded. During an exchange, you may also add a payment to an existing Transaction Record; the return credit is applied through the normal Transaction payment allocation and remains visible on that Transaction Record, the current receipt, Daily Sales, and the Z-Report.
 
+For a completed-sale void that was paid with split tender, finish every original refund source shown by the Register. Riverside keeps the full original paid amount open until all sources are recorded. Retrying a source that already succeeded does not duplicate it and does not remove the amount still owed through another source.
+
 The replacement checkout and its exchange-settlement recovery marker save together. If the return settlement is interrupted, Riverside restores the checkout identity, tender ledger, and staged return lines so staff can finish the original exchange. The recovery marker remains visible through Z-close until the original Transaction Record, replacement Transaction Record, returned quantities, inventory movement, and refund tender are linked and settled.
 
 When you load a return or exchange, Riverside automatically selects the

@@ -143,11 +143,10 @@ async function openPosRegisterSurface(page: Page): Promise<void> {
 
 async function ensureCartScrollable(page: Page): Promise<void> {
   const toolbar = page.getByRole("toolbar", { name: "Cart actions" });
-  if (await page.getByTestId("pos-action-gift-card").count() === 0) {
-    await toolbar.getByRole("button", { name: "More Actions", exact: true }).click();
-  }
   for (let i = 0; i < 6; i += 1) {
-    await page.getByTestId("pos-action-gift-card").click();
+    await toolbar.getByRole("button", { name: "More Actions", exact: true }).click();
+    const moreActions = page.getByRole("dialog", { name: "More sale actions" });
+    await moreActions.getByTestId("pos-action-gift-card").click();
     const dialog = page.getByRole("dialog", { name: /gift card/i });
     await expect(dialog).toBeVisible({ timeout: 10_000 });
     await dialog.getByRole("button", { name: "5", exact: true }).click();

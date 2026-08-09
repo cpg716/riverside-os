@@ -62,12 +62,15 @@ test.describe("Back Office RMS Charge workspace", () => {
 
     await signInToBackOffice(page);
     await openCustomersRmsWorkspace(page);
+    const tabs = page.getByRole("tablist", {
+      name: "RMS Charge workspace sections",
+    });
     await expect(page.getByRole("heading", { name: /RMS Charge Workspace/i })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByRole("button", { name: /Transactions Log/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Customers$/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /Weekly Account Import/i })).toBeVisible();
+    await expect(tabs.getByRole("tab", { name: /Transactions Log/i })).toBeVisible();
+    await expect(tabs.getByRole("tab", { name: /^Customers$/i })).toBeVisible();
+    await expect(tabs.getByRole("tab", { name: /Weekly Account Import/i })).toBeVisible();
 
     await page.getByPlaceholder("Customer, ref, account…").fill("REF-RMS-WORKSPACE-001");
     await expect(page.getByText("REF-RMS-WORKSPACE-001").first()).toBeVisible({ timeout: 15_000 });
@@ -97,7 +100,10 @@ test.describe("Back Office RMS Charge workspace", () => {
 
     await signInToBackOffice(page);
     await openCustomersRmsWorkspace(page);
-    await page.getByRole("button", { name: /^Customers$/i }).click();
+    await page
+      .getByRole("tablist", { name: "RMS Charge workspace sections" })
+      .getByRole("tab", { name: /^Customers$/i })
+      .click();
     await page
       .getByPlaceholder("Name, customer code, phone, email, account…")
       .fill(fixture.customer.customer_code);
@@ -115,7 +121,10 @@ test.describe("Back Office RMS Charge workspace", () => {
     await signInToBackOffice(page);
     await openCustomersRmsWorkspace(page);
 
-    await page.getByRole("button", { name: /Weekly Account Import/i }).click();
+    await page
+      .getByRole("tablist", { name: "RMS Charge workspace sections" })
+      .getByRole("tab", { name: /Weekly Account Import/i })
+      .click();
     await expect(page.getByRole("heading", { name: /Import Nexo\/RMS Account List/i })).toBeVisible({
       timeout: 15_000,
     });

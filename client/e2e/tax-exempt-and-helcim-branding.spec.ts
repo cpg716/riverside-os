@@ -41,13 +41,20 @@ async function openPosRegisterSurface(
   await ensurePosSaleCashierSignedIn(page);
 
   await expect(productSearch).toBeVisible({ timeout: 30_000 });
-  await expect(giftCardAction).toBeVisible({ timeout: 30_000 });
+  await expect(giftCardAction).toHaveCount(0);
 }
 
 async function addDummyItem(page: Parameters<typeof test>[0]["page"]): Promise<void> {
   // Add an internal gift-card load line so cart has payable amount (avoids inventory dependency)
   // Use specific testid to avoid sidebar Gift Cards tab
-  await page.getByTestId("pos-action-gift-card").click();
+  await page
+    .getByRole("toolbar", { name: "Cart actions" })
+    .getByRole("button", { name: "More Actions", exact: true })
+    .click();
+  await page
+    .getByRole("dialog", { name: "More sale actions" })
+    .getByTestId("pos-action-gift-card")
+    .click();
   const dialog = page.getByRole("dialog", { name: /gift card/i });
   await expect(dialog).toBeVisible({ timeout: 10_000 });
   await dialog.getByRole("button", { name: "5", exact: true }).click();

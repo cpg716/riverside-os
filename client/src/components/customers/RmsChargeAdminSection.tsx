@@ -694,9 +694,15 @@ export default function RmsChargeAdminSection({
         )}
       </div>
 
-      <div className="mb-6 flex gap-2 rounded-xl bg-app-surface-3 p-1 w-fit border border-app-border">
+      <div
+        role="tablist"
+        aria-label="RMS Charge workspace sections"
+        className="mb-6 flex w-fit gap-2 rounded-xl border border-app-border bg-app-surface-3 p-1"
+      >
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "customers"}
           onClick={() => setActiveTab("customers")}
           className={`rounded-lg px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${
             activeTab === "customers"
@@ -708,6 +714,8 @@ export default function RmsChargeAdminSection({
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "transactions"}
           onClick={() => setActiveTab("transactions")}
           className={`rounded-lg px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${
             activeTab === "transactions"
@@ -719,6 +727,8 @@ export default function RmsChargeAdminSection({
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "import"}
           onClick={() => setActiveTab("import")}
           className={`rounded-lg px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${
             activeTab === "import"

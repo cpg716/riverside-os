@@ -1,4 +1,5 @@
 import { expect, type APIRequestContext } from "@playwright/test";
+import { centsToFixed2, parseMoneyToCents } from "../../src/lib/money";
 import {
   apiBase,
   ensureSessionAuth,
@@ -79,6 +80,43 @@ export async function checkoutWeddingOrderSeed(
   const operatorStaffId = await verifyStaffId(request);
   const total = totalFor(options.products);
   const amountPaid = options.amountPaid ?? total;
+  const checkoutClientId = crypto.randomUUID();
+  const minimumDepositCents = Math.ceil(parseMoneyToCents(total) / 4);
+  let orderDepositOverride:
+    | { manager_staff_id: string; manager_approval_reference: string }
+    | undefined;
+  if (parseMoneyToCents(amountPaid) < minimumDepositCents) {
+    const approvalRes = await request.post(`${apiBase()}/api/staff/verify-pin`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+      },
+      data: {
+        staff_id: operatorStaffId,
+        pin: staffCode(),
+        authorize_action: "pos_order_deposit_override",
+        authorize_metadata: {
+          register_session_id: sessionId,
+          checkout_client_id: checkoutClientId,
+          customer_id: options.customerId,
+          transaction_total: total,
+          amount_paid: amountPaid,
+          minimum_deposit: centsToFixed2(minimumDepositCents),
+        },
+      },
+      failOnStatusCode: false,
+    });
+    const approvalBody = (await approvalRes.json()) as {
+      manager_approval_reference?: string;
+    };
+    expect(approvalRes.status(), JSON.stringify(approvalBody)).toBe(200);
+    expect(approvalBody.manager_approval_reference).toBeTruthy();
+    orderDepositOverride = {
+      manager_staff_id: operatorStaffId,
+      manager_approval_reference: approvalBody.manager_approval_reference!,
+    };
+  }
   const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
     headers: {
       ...staffHeaders(),
@@ -101,7 +139,8 @@ export async function checkoutWeddingOrderSeed(
           : [],
       is_tax_exempt: true,
       tax_exempt_reason: "Phase 4 readiness certification",
-      checkout_client_id: crypto.randomUUID(),
+      checkout_client_id: checkoutClientId,
+      order_deposit_override: orderDepositOverride,
       items: options.products.map((product) => ({
         product_id: product.productId,
         variant_id: product.variantId,
