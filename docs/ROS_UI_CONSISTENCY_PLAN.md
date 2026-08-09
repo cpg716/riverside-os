@@ -1,7 +1,7 @@
 ---
 title: ROS UI consistency (full-app pass)
-status: phase-6-modernization-dashboard-complete-2026-04-15
-source: Monitors the SaaS-inspired "WowDash" overhaul. Phase 6 (Dashboards) is complete; guest `/shop` remains deferred.
+status: phase-6-workspace-continuity-complete-2026-08-09
+source: Monitors the SaaS-inspired "WowDash" overhaul. Dashboards and suitable staff workspaces now share the ROS workspace contract; guest `/shop` remains deferred.
 ---
 
 # ROS brand, typography, and theme consistency (full-app pass)
@@ -29,7 +29,7 @@ Order of execution: **foundation → Back Office → POS → WM tree → QA** (s
 | Public `/shop` | **Deferred** | **No active work.** Any existing `--sf-*` / theme wiring in the repo is incidental; do not schedule storefront typography or QA for this initiative until product asks. |
 | Status tokens | **Done** | `ui-caution-text`, `ui-info-text`, `ui-positive-text` in `index.css`; migrated at high-traffic call sites during sweeps. |
 | Phase 5 QA | **Done** | `npm run build` green; Playwright suite; visual snapshots. |
-| **Phase WowDash** | **In Progress** | Modernized Operational and POS Dashboards with SaaS aesthetics and real metrics. Extension to other workspaces pending. |
+| **Phase WowDash** | **Done** | Modernized Operational and POS Dashboards, established the Gift Cards/Loyalty-derived workspace standard, migrated the core list/search surfaces, and applied shared card/filter hierarchy across suitable Back Office workspaces. |
 
 \*Treat as “implementation complete for the automated/token sweep”; product owners should still spot-check high-value flows (checkout, QBO staging, customer hub) in both themes.
 
@@ -46,7 +46,7 @@ Order of execution: **foundation → Back Office → POS → WM tree → QA** (s
 - [x] `ui-caution-text` / `ui-info-text` / `ui-positive-text` in `index.css`
 - [x] Phase production build + Playwright; visual snapshots.
 - [x] **Phase 6 (Dashboards):** Modernize OperationalHome and RegisterDashboard with "WowDash" system; standardize on `DashboardStatsCard` and `DashboardGridCard`.
-- [ ] **Phase 6 (Workspace Continuity):** Extend WowDash aesthetics to Customer Hub, Transaction Records, and Settings.
+- [x] **Phase 6 (Workspace Continuity):** Shared root contract plus dedicated summary/panel patterns applied across suitable staff workspaces; task-specific exceptions retained.
 - [ ] **Ongoing:** If you add dense typography or surfaces that bypassed the sweep, periodically grep `text-[7px]`, `text-[8px]`, and unjustified `bg-white` under `client/src/components/` (allowlist print, POS glass strips, importer inversion panel per Phase 5 notes below)
 
 ## Goals
@@ -165,11 +165,11 @@ Shared classes `ui-caution-text`, `ui-info-text`, `ui-positive-text` in `index.c
 - **Customer Relationship Hub (COMPLETE):** Refactored the drawer into a tabbed interface (Transactions vs. Fulfillments) with SaaS-style density and integrated financial KPIs. Mirrored the full hub into the POS rail.
 - **Shipping Hub (COMPLETE):** Integrated Shippo rate quoting and shipment tracking into a unified hub mirrored between Back Office and POS.
 - **Orders Hub (COMPLETE):** Full-width Order Management Hub mirrored into the POS rail for streamlined inventory and sale tracking.
+- **Core Workspace Continuity (COMPLETE):** Added the reusable Gift Cards/Loyalty-derived workspace standard and shared summary, panel, header, and toolbar primitives. Applied the detailed pattern to Customers, Orders, Loyalty, and Inventory Find Item; Gift Cards remains the reference implementation. The Back Office workspace root now normalizes existing card, table, panel, filter, and toolbar hierarchy everywhere the pattern is appropriate.
 - **Register Workspace Modernization (COMPLETE):** Hardened the "Fixed Rail" layout with a bottom-anchored Pay button. Implemented native root scrolling and percentage-based discount logic on the on-screen keypad. Integrated **Pennyless (Swedish Rounding)** for cash accuracy and expanded keypad touch-targets (`h-16`) for reliable terminal interaction.
 
-### Next Steps (IN PLANNING)
-- Refactor **Orders Workspace** to use SaaS-style density and typography.
-- Modernize **Settings Workspace** with the standardized `DashboardGridCard` framing for integration panels.
+### Ongoing rule
+- New staff workspaces inherit the shared root and use the dedicated summary/panel primitives when their task model fits. Do not force the pattern onto the documented exceptions.
 
 ### Phase 7 — Persistent Top Bar & Shell Navigation (v0.2.0+)
 

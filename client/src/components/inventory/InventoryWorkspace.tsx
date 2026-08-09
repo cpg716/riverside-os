@@ -464,11 +464,11 @@ export default function InventoryWorkspace({
 
   return (
     <div className="flex flex-1 flex-col bg-transparent animate-in fade-in duration-700">
-      <div className={isPosSurface ? "flex-1 p-4 sm:p-6" : "flex-1 p-6 sm:p-10"}>
+      <div className="flex-1 p-4 sm:p-6">
         
         {/* Harmonized Dashboard Header */}
         {!isPosSurface && (
-	        <div className="mb-8">
+	        <div className="mb-5">
             {section === "hub" ? (
               <div className="flex flex-col gap-6">
                 <div className="flex flex-wrap items-center justify-between gap-6">
@@ -538,25 +538,26 @@ export default function InventoryWorkspace({
                 </div>
               </div>
             ) : (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <div className="h-1 w-4 rounded-full bg-app-accent shadow-[0_0_8px_rgba(var(--app-accent-rgb),0.5)]" />
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">
+              <div className="ui-workspace-page-header">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-app-accent/20 bg-app-surface text-app-accent shadow-sm">
+                  <INVENTORY_ICON size={26} strokeWidth={2.5} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-accent">
                     {activeJob?.label ?? "Inventory"}
                   </p>
-                </div>
-                <h2 className="text-3xl font-bold tracking-tight text-app-text">
-                  {meta.title}
-                </h2>
-                <p className="max-w-2xl text-sm font-medium text-app-text-muted leading-relaxed">
-                  {meta.subtitle}
-                </p>
-                {meta.toolLabel !== meta.title ? (
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                    Current tool: <span className="text-app-text">{meta.toolLabel}</span>
+                  <h2 className="mt-1 text-2xl font-black tracking-tight text-app-text sm:text-3xl">
+                    {meta.title}
+                  </h2>
+                  <p className="mt-1 max-w-2xl text-sm font-semibold leading-relaxed text-app-text-muted">
+                    {meta.subtitle}
                   </p>
+                </div>
+                {activeJob ? (
+                  <div className="w-full [&>div]:mt-0 xl:w-auto">
+                    {renderSubtoolChips(activeJob)}
+                  </div>
                 ) : null}
-                {activeJob ? renderSubtoolChips(activeJob) : null}
               </div>
             )}
 	        </div>

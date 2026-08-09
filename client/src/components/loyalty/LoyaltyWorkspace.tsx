@@ -29,7 +29,7 @@ import {
 } from "./LoyaltyLogic";
 import type { Customer } from "../pos/CustomerSelector";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
-import { useMediaQuery } from "../../hooks/useMediaQuery";
+import WorkspaceMetricCard from "../ui/WorkspaceMetricCard";
 
 interface LoyaltyPipelineStats {
   total_points_liability: number;
@@ -46,12 +46,6 @@ interface StaffApproverRow {
 
 const BASE = getBaseUrl();
 const ELIGIBLE_PAGE_SIZE = 100;
-
-function summaryValueSize(value: string): string {
-  if (value.length >= 10) return "text-[1.25rem] sm:text-[1.45rem] xl:text-[1.65rem]";
-  if (value.length >= 7) return "text-[1.55rem] sm:text-[1.75rem] xl:text-[1.95rem]";
-  return "text-[2rem]";
-}
 
 interface RewardFulfillmentRow {
   id: string;
@@ -1554,7 +1548,6 @@ export default function LoyaltyWorkspace({
   surface?: "backoffice" | "pos";
 }) {
   const posSurface = surface === "pos";
-  const isCompactLayout = useMediaQuery("(max-width: 1023px)");
   const { backofficeHeaders } = useBackofficeAuth();
   const [stats, setStats] = useState<LoyaltyPipelineStats | null>(null);
   const [settings, setSettings] = useState<LoyaltySettings | null>(null);
@@ -1595,36 +1588,19 @@ export default function LoyaltyWorkspace({
   return (
     <div className="flex flex-1 flex-col bg-transparent">
       {/* Executive summaries stay in Back Office; POS opens the active task. */}
-      {!posSurface ? <div className="no-scrollbar flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2">
-        {[
-          { label: "Points On Accounts", val: stats?.total_points_liability.toLocaleString() ?? "—", icon: Coins, color: "text-amber-500", bg: "bg-amber-500/10", border: "border-amber-500/20", trend: "Current total" },
-          { label: "Ready For Reward", val: stats?.eligible_customers_count.toLocaleString() ?? "—", icon: UserCheck, color: "text-sky-500", bg: "bg-sky-500/10", border: "border-sky-500/20", trend: "At threshold" },
-          { label: "Reward Cards Issued", val: stats?.lifetime_rewards_issued.toLocaleString() ?? "—", icon: Award, color: "text-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20", trend: "All time" },
-          { label: "Recent Adjustments", val: stats?.active_30d_adjustments.toLocaleString() ?? "—", icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10", border: "border-purple-500/20", trend: "Last 30 days" },
-        ].map((s, idx) => (
-          <div
-            key={idx}
-            className={`group relative flex ${isCompactLayout ? "min-w-[210px]" : "min-w-[240px]"} flex-1 items-center gap-4 overflow-hidden rounded-[28px] border ${s.border} bg-app-surface p-5 shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)] transition-transform duration-500 hover:scale-[1.02]`}
-          >
-            <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-700">
-               <s.icon size={80} />
-            </div>
-            <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-app-surface-2 shadow-sm border border-app-border`}>
-              <s.icon size={26} className={s.color} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-start gap-2">
-                <p className="min-w-0 flex-1 text-xs font-bold leading-tight text-app-text-muted opacity-80">{s.label}</p>
-                <span className="max-w-20 shrink-0 rounded-full bg-app-surface-2 px-1.5 py-0.5 text-center text-[10px] font-bold leading-tight tabular-nums text-app-text-muted">{s.trend}</span>
-              </div>
-              <p className={`max-w-full whitespace-nowrap font-black leading-none tabular-nums tracking-tight text-app-text ${summaryValueSize(s.val)}`}>{s.val}</p>
-            </div>
-          </div>
+      {!posSurface ? <div className="ui-workspace-summary">
+        {([
+          { title: "Points On Accounts", value: stats?.total_points_liability.toLocaleString() ?? "—", icon: Coins, tone: "warning", badge: "Current total" },
+          { title: "Ready For Reward", value: stats?.eligible_customers_count.toLocaleString() ?? "—", icon: UserCheck, tone: "info", badge: "At threshold" },
+          { title: "Reward Cards Issued", value: stats?.lifetime_rewards_issued.toLocaleString() ?? "—", icon: Award, tone: "success", badge: "All time" },
+          { title: "Recent Adjustments", value: stats?.active_30d_adjustments.toLocaleString() ?? "—", icon: TrendingUp, tone: "accent", badge: "Last 30 days" },
+        ] as const).map((summary) => (
+          <WorkspaceMetricCard key={summary.title} {...summary} />
         ))}
       </div> : null}
 
       <div className="flex flex-1 flex-col p-4 sm:p-6 sm:pt-4 animate-workspace-snap">
-        <div className="flex flex-1 flex-col rounded-[24px] border border-app-border bg-app-surface shadow-2xl">
+        <div className="ui-card ui-workspace-panel flex flex-1 flex-col">
           {activeSection === "adjust" ? (
             <div className="p-4 sm:p-6"><AdjustPanel /></div>
           ) : activeSection === "settings" ? (

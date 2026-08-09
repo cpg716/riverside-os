@@ -44,6 +44,7 @@ import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
+import WorkspaceMetricCard from "../ui/WorkspaceMetricCard";
 
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { parseCsv } from "../../lib/parseCsv";
@@ -1065,63 +1066,38 @@ export default function CustomersWorkspace({
     <div className="ui-page flex-1 p-0 bg-transparent flex flex-col">
       <div className="flex flex-1 flex-col bg-transparent">
         {/* Management summaries stay in Back Office; POS opens directly into lookup. */}
-        {!posSurface ? <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
-          {[
+        {!posSurface ? <div className="ui-workspace-summary">
+          {([
             {
-              label: "Customer Profiles",
-              count: pipelineStats?.total_customers,
+              title: "Customer Profiles",
+              value: pipelineStats?.total_customers == null ? "—" : pipelineStats.total_customers.toLocaleString(),
               icon: Users,
-              color: "text-app-info",
-              bg: "bg-app-info/8",
-              border: "border-app-info/16",
-              tint: "ui-tint-info",
+              tone: "info",
+              badge: "All profiles",
             },
             {
-              label: "VIP Customers",
-              count: pipelineStats?.vip_customers,
+              title: "VIP Customers",
+              value: pipelineStats?.vip_customers == null ? "—" : pipelineStats.vip_customers.toLocaleString(),
               icon: Gem,
-              color: "text-app-warning",
-              bg: "bg-app-warning/8",
-              border: "border-app-warning/16",
-              tint: "ui-tint-warning",
+              tone: "warning",
+              badge: "VIP status",
             },
             {
-              label: "Customers with Balance",
-              count: pipelineStats?.with_balance,
+              title: "Customers with Balance",
+              value: pipelineStats?.with_balance == null ? "—" : pipelineStats.with_balance.toLocaleString(),
               icon: Wallet,
-              color: "text-app-danger",
-              bg: "bg-app-danger/8",
-              border: "border-app-danger/16",
-              tint: "ui-tint-danger",
+              tone: "danger",
+              badge: "Balance due",
             },
             {
-              label: "Wedding Dates (30d)",
-              count: pipelineStats?.upcoming_weddings,
+              title: "Wedding Dates (30d)",
+              value: pipelineStats?.upcoming_weddings == null ? "—" : pipelineStats.upcoming_weddings.toLocaleString(),
               icon: Heart,
-              color: "text-app-accent",
-              bg: "bg-app-accent/8",
-              border: "border-app-accent/16",
-              tint: "ui-tint-accent",
+              tone: "accent",
+              badge: "Next 30 days",
             },
-          ].map((stat, i) => (
-            <div
-              key={i}
-              className={`ui-card flex min-w-[200px] flex-1 items-center gap-4 p-4 ${stat.tint}`}
-            >
-              <div
-                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${stat.border} ${stat.bg} shadow-sm`}
-              >
-                <stat.icon size={24} className={stat.color} />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-70">
-                  {stat.label}
-                </p>
-                <p className="text-2xl font-black tabular-nums text-app-text">
-                  {stat.count == null ? "—" : stat.count.toLocaleString()}
-                </p>
-              </div>
-            </div>
+          ] as const).map((summary) => (
+            <WorkspaceMetricCard key={summary.title} {...summary} />
           ))}
         </div> : null}
 
@@ -1163,9 +1139,9 @@ export default function CustomersWorkspace({
         </div> : null}
 
         <div className="flex flex-1 flex-col p-3 sm:p-6 lg:p-8 animate-workspace-snap">
-          <div className="ui-card flex flex-col overflow-hidden">
+          <div className="ui-card ui-workspace-panel flex flex-col overflow-hidden">
             {/* Toolbar */}
-            <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-2 px-4 py-4 lg:flex-row lg:flex-wrap lg:items-center lg:gap-4 lg:px-5">
+            <div className="ui-workspace-panel-header">
               <div className="relative group min-w-0 flex-1">
                 <Search
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors"

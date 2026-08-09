@@ -34,6 +34,7 @@ import { twMerge } from "tailwind-merge";
 import { getAppIcon } from "../../lib/icons";
 import type { CustomOrderDetails } from "../../lib/customOrders";
 import { openPrintableHtml } from "../../lib/browserPrint";
+import WorkspaceMetricCard from "../ui/WorkspaceMetricCard";
 import {
   isOrderStatus,
   normalizeOrderStatus,
@@ -1934,37 +1935,29 @@ export default function OrdersWorkspace({
       label: viewPreset === "open" ? "Visible Orders" : "Order Records",
       value: orderIntegritySummary.visibleOrders,
       icon: ORDERS_ICON,
-      tint: "ui-tint-info",
-      color: "text-app-info",
-      bg: "bg-app-info/8",
-      border: "border-app-info/16",
+      tone: "info" as const,
+      badge: "In view",
     },
     {
       label: "Waiting Details",
       value: orderIntegritySummary.waitingOnDetails,
       icon: Clock,
-      tint: "ui-tint-warning",
-      color: "text-app-warning",
-      bg: "bg-app-warning/8",
-      border: "border-app-warning/16",
+      tone: "warning" as const,
+      badge: "Needs details",
     },
     {
       label: "Orders with Balance Due",
       value: orderIntegritySummary.balanceStillDue,
       icon: Wallet,
-      tint: "ui-tint-danger",
-      color: "text-app-danger",
-      bg: "bg-app-danger/8",
-      border: "border-app-danger/16",
+      tone: "danger" as const,
+      badge: "Balance due",
     },
     {
       label: "Wedding Orders",
       value: pipelineStats?.wedding_orders ?? 0,
       icon: WEDDINGS_ICON,
-      tint: "ui-tint-accent",
-      color: "text-app-accent",
-      bg: "bg-app-accent/8",
-      border: "border-app-accent/16",
+      tone: "accent" as const,
+      badge: "Wedding",
     },
   ];
 
@@ -2116,26 +2109,16 @@ export default function OrdersWorkspace({
   return (
     <div className="ui-page flex flex-1 flex-col bg-transparent p-0">
       <div className="flex flex-1 flex-col bg-transparent">
-        {!posSurface ? <div className="grid shrink-0 grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-6 sm:pb-2 xl:grid-cols-4">
+        {!posSurface ? <div className="ui-workspace-summary">
           {orderStatCards.map((stat) => (
-            <div
+            <WorkspaceMetricCard
               key={stat.label}
-              className={`ui-card flex min-w-0 items-center gap-4 p-4 ${stat.tint}`}
-            >
-              <div
-                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${stat.border} ${stat.bg} shadow-sm`}
-              >
-                <stat.icon size={24} className={stat.color} />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-70">
-                  {stat.label}
-                </p>
-                <p className="text-2xl font-black tabular-nums text-app-text">
-                  {stat.value}
-                </p>
-              </div>
-            </div>
+              title={stat.label}
+              value={stat.value}
+              icon={stat.icon}
+              tone={stat.tone}
+              badge={stat.badge}
+            />
           ))}
         </div> : null}
 
@@ -2219,8 +2202,8 @@ export default function OrdersWorkspace({
         </div>
 
         <div className="flex flex-1 flex-col p-3 sm:p-6 lg:p-8 animate-workspace-snap">
-          <div className="ui-card flex flex-col overflow-hidden">
-            <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-2 px-4 py-4 lg:flex-row lg:flex-wrap lg:items-center lg:gap-4 lg:px-5">
+          <div className="ui-card ui-workspace-panel flex flex-col overflow-hidden">
+            <div className="ui-workspace-panel-header">
               <div className="relative group min-w-0 flex-1">
                 <Search
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors"

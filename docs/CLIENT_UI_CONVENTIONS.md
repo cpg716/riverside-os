@@ -77,6 +77,10 @@ Located in `client/src/components/ui/`, these components serve as the foundation
   - **Features**: Standardized header with Icon + Title + Subtitle; support for footer actions and scrolling lists.
   - **Usage**: Use for "Morning Compass", "Activity Feed", and "Floor Matrix" logic.
 
+### Staff workspace visual system
+
+The canonical list/search workspace pattern is documented in **[`ROS_WORKSPACE_DESIGN_STANDARD.md`](ROS_WORKSPACE_DESIGN_STANDARD.md)**. Use `WorkspaceMetricCard`, `ui-workspace-summary`, `ui-workspace-panel`, `ui-workspace-panel-header`, and `ui-workspace-toolbar` for Gift Cards/Loyalty-style workspace continuity. This complements the dashboard primitives above; it does not replace task-specific POS, Alterations, Wedding Manager, or storefront layouts.
+
 ## Icon system
 
 - Use **`lucide-react`** as the single icon library for operational UI.

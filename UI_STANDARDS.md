@@ -75,8 +75,10 @@ import PromptModal from '../ui/PromptModal';
    - **`z-200`**: Modals / Wizards / Overlays.
    - **`z-300`**: System Priority (Bug Reports, Error Overlays, Toasts).
    - Use the **`.ui-overlay-backdrop`** class for consistent background and layering behavior.
+6. **Coherent Staff Workspaces**: List/search workspaces follow **[`docs/ROS_WORKSPACE_DESIGN_STANDARD.md`](docs/ROS_WORKSPACE_DESIGN_STANDARD.md)**: a useful summary strip when warranted, one dominant workspace panel, compact outlined filters, semantic color, and responsive root scrolling.
 
 ## See also
 
 - **[`docs/CLIENT_UI_CONVENTIONS.md`](docs/CLIENT_UI_CONVENTIONS.md)** — layout primitives, **`useDialogAccessibility`**, lazy workspaces in **`App.tsx`**, embedded Wedding Manager wiring, **`client/UI_WORKSPACE_INVENTORY.md`** tab map.
 - **[`docs/ROS_UI_CONSISTENCY_PLAN.md`](docs/ROS_UI_CONSISTENCY_PLAN.md)** — full-app **`data-theme`** / Tailwind **`dark:`** + typography sweep; **Phases 1–5** complete (2026-04-08); ongoing grep hygiene; guest **`/shop`** deferred.
+- **[`docs/ROS_WORKSPACE_DESIGN_STANDARD.md`](docs/ROS_WORKSPACE_DESIGN_STANDARD.md)** — reusable staff workspace anatomy, cards, panels, filters, responsive behavior, and exceptions.

@@ -1608,9 +1608,9 @@ export default function InventoryControlBoard({
 };
 
   return (
-    <div className="flex flex-col space-y-8 animate-in fade-in duration-500">
-      <div className="shrink-0 space-y-4">
-        <div className="mb-4 flex flex-wrap items-center gap-4">
+    <div className="flex flex-col space-y-5 animate-in fade-in duration-500">
+      <div className="ui-workspace-toolbar shrink-0 flex-col !items-stretch space-y-4">
+        <div className="flex flex-wrap items-center gap-4">
           <div className="relative min-w-0 flex-1 group">
             <Search
               className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted transition-colors group-focus-within:text-app-accent"
@@ -1790,7 +1790,7 @@ export default function InventoryControlBoard({
 
       <div
         ref={inventoryListRef}
-        className="ui-card ui-tint-neutral flex flex-col overflow-x-auto overscroll-x-contain lg:overflow-x-visible [-webkit-overflow-scrolling:touch]"
+        className="ui-card ui-workspace-panel ui-tint-neutral flex flex-col overflow-x-auto overscroll-x-contain lg:overflow-x-visible [-webkit-overflow-scrolling:touch]"
       >
         <div
           className="min-w-[640px] outline-none lg:min-w-0"

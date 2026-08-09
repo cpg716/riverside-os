@@ -2111,7 +2111,9 @@ function AppMainColumn({
             <div
               key={activeTab}
               data-testid="backoffice-workspace-root"
-              className={`workspace-snap flex flex-1 flex-col ${activeTab === "alterations" ? "lg:min-h-0 lg:overflow-hidden" : ""}`}
+              data-workspace-theme="ros"
+              data-workspace-section={activeTab}
+              className={`workspace-snap ui-workspace-root flex flex-1 flex-col ${activeTab === "alterations" ? "lg:min-h-0 lg:overflow-hidden" : ""}`}
             >
               {(() => {
                 if (activeTab === "home")

@@ -54,6 +54,7 @@ for (const viewport of WORKSPACE_VIEWPORTS) {
 
     const appShellState = page.getByTestId("app-shell-state");
     await expect(appShellState).toBeVisible({ timeout: 20_000 });
+    const workspaceRoot = page.getByTestId("backoffice-workspace-root");
 
     for (const tab of WORKSPACE_TABS) {
       await openBackofficeSidebarTab(page, tab);
@@ -63,6 +64,27 @@ for (const viewport of WORKSPACE_VIEWPORTS) {
       await expect(page.getByText(/loading workspace/i)).toBeHidden({
         timeout: 20_000,
       });
+      await expect(workspaceRoot).toHaveAttribute("data-workspace-theme", "ros");
+      await expect(workspaceRoot).toHaveAttribute("data-workspace-section", tab);
+
+      if (["customers", "orders", "loyalty"].includes(tab)) {
+        await expect(
+          workspaceRoot.locator("[data-workspace-metric]").first(),
+        ).toBeVisible({ timeout: 20_000 });
+      }
+
+      if (tab === "inventory") {
+        await page
+          .getByRole("button", { name: /^Find Item/ })
+          .first()
+          .click();
+        await expect(
+          workspaceRoot.locator(".ui-workspace-page-header"),
+        ).toBeVisible({ timeout: 20_000 });
+        await expect(
+          workspaceRoot.locator(".ui-workspace-toolbar"),
+        ).toBeVisible({ timeout: 20_000 });
+      }
     }
 
     await openBackofficeSidebarTab(page, "settings");

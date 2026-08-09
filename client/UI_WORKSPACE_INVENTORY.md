@@ -26,6 +26,8 @@ Generated for the phased UI sweep. Source: [`src/App.tsx`](src/App.tsx), [`src/c
 
 Shared chrome: `Sidebar`, `Header` (optional **Report a bug** opens **`BugReportFlow`** via `App.tsx`), `GlobalSearchDrawerHost`, `CloseRegisterModal` (when session open).
 
+Shared staff workspace theme: [`docs/ROS_WORKSPACE_DESIGN_STANDARD.md`](../docs/ROS_WORKSPACE_DESIGN_STANDARD.md). `AppMainColumn` marks the delivery plane with `data-workspace-theme="ros"` plus the active workspace section, so existing Back Office cards, tables, panels, filters, and toolbars inherit the shared surface hierarchy. Customers, Orders, Loyalty, and Inventory Find Item additionally use the dedicated summary/panel/toolbar primitives; Gift Cards remains the reference surface. Task-specific POS, Alterations, embedded Wedding Manager, and the public storefront keep their documented exceptions.
+
 **`/api/insights/rms-charges`:** register-wide RMS/R2S ledger export (**`record_kind`** charge vs payment) for **insights.view**; consumed by Metabase, NL tooling, etc. **POS → Reports** and **Customers → RMS charge** use other read paths — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**.
 
 ## POS mode (`PosShell.tsx`)
