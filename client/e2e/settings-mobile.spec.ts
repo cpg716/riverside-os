@@ -11,42 +11,63 @@ type SettingsDeepLinkCase = {
   expected: RegExp;
 };
 
+const SETTINGS_GROUPS = [
+  {
+    label: "Store & Staff",
+    sections: [
+      "Profile",
+      "Staff Access Defaults",
+      "Online Store",
+      "Customer Reviews",
+    ],
+  },
+  {
+    label: "Register & Printing",
+    sections: [
+      "Printers & Scanners",
+      "Receipt Settings",
+      "Tag Designer",
+      "Terminal Overrides",
+      "Station & Network",
+    ],
+  },
+  {
+    label: "Data & Maintenance",
+    sections: ["Data & Backups", "Daily Financial Report"],
+  },
+  {
+    label: "Connected Services",
+    sections: [
+      "Podium",
+      "Email",
+      "Shippo",
+      "Helcim",
+      "Fal.ai",
+      "QuickBooks",
+      "Constant Contact",
+      "Counterpoint",
+      "NuORDER",
+      "Geoapify",
+      "Weather",
+      "Insights",
+      "Meilisearch",
+    ],
+  },
+  {
+    label: "Help & System",
+    sections: [
+      "Remote Access",
+      "Help Center",
+      "ROSIE",
+      "ROS Operations & Support Center",
+      "ROS Dev Center",
+    ],
+  },
+];
+
 const SETTINGS_ORDER = [
-  "Store Setup",
   "Settings Hub",
-  "Profile",
-  "Staff Access Defaults",
-  "Online Store",
-  "Tag Designer",
-  "Register Setup",
-  "Printers & Scanners",
-  "Receipt Settings",
-  "Terminal Overrides",
-  "Station & Network",
-  "Maintenance",
-  "Data & Backups",
-  "Daily Financial Report",
-  "Remote Access",
-  "Integrations",
-  "Integrations Overview",
-  "Podium",
-  "Email",
-  "Shippo",
-  "Helcim",
-  "Fal.ai",
-  "QuickBooks",
-  "Constant Contact",
-  "Counterpoint",
-  "NuORDER",
-  "Geoapify",
-  "Weather",
-  "Insights",
-  "Meilisearch",
-  "System & Support",
-  "Help Center",
-  "ROSIE",
-  "ROS Operations & Support Center",
-  "ROS Dev Center",
+  ...SETTINGS_GROUPS.flatMap((group) => [group.label, ...group.sections]),
 ];
 
 const SETTINGS_DEEP_LINKS: SettingsDeepLinkCase[] = [
@@ -128,40 +149,48 @@ function expectTextOrder(text: string, labels: string[]) {
   }
 }
 
-test("Settings sidebar groups stay visible and ordered", async ({ page }) => {
+test("Settings sidebar groups stay compact, complete, and ordered", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const mainNav = await openSettings(page);
 
-  for (const group of [
-    "Store Setup",
-    "Register Setup",
-    "Maintenance",
-    "Integrations",
-    "System & Support",
-  ]) {
-    await expect(mainNav.getByText(group, { exact: true })).toBeVisible();
-  }
+  await expect(
+    mainNav.getByRole("button", { name: "Settings Hub", exact: true }),
+  ).toBeVisible();
 
-  for (const section of [
-    "Settings Hub",
-    "Profile",
-    "Online Store",
-    "Tag Designer",
-    "Printers & Scanners",
-    "Terminal Overrides",
-    "Station & Network",
-    "Data & Backups",
-    "Integrations Overview",
-    "Email",
-    "Shippo",
-    "ROS Operations & Support Center",
-    "ROS Dev Center",
-  ]) {
-    await expect(mainNav.getByRole("button", { name: section, exact: true })).toBeVisible();
+  for (const group of SETTINGS_GROUPS) {
+    const groupButton = mainNav.getByRole("button", {
+      name: new RegExp(`^${group.label}`),
+    });
+    await expect(groupButton).toBeVisible();
+    await expect(groupButton).toHaveAttribute("aria-expanded", "false");
+    await groupButton.click();
+    await expect(groupButton).toHaveAttribute("aria-expanded", "true");
+
+    for (const section of group.sections) {
+      await expect(
+        mainNav.getByRole("button", { name: section, exact: true }),
+      ).toBeVisible();
+    }
   }
 
   const navText = (await mainNav.textContent()) ?? "";
   expectTextOrder(navText.replace(/\s+/g, " "), SETTINGS_ORDER);
+});
+
+test("Settings Hub search opens the matching setting", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openSettings(page);
+
+  await page.getByRole("searchbox", { name: "Search settings" }).fill("receipt");
+  await expect(
+    page.getByRole("button", { name: /Receipt Settings/ }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Profile/ })).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Receipt Settings/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Receipt Settings" }),
+  ).toBeVisible({ timeout: 20_000 });
 });
 
 for (const linkCase of SETTINGS_DEEP_LINKS) {

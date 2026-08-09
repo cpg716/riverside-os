@@ -14,12 +14,23 @@ const SETTINGS_VIEWPORTS: SettingsViewport[] = [
   { label: "desktop_1440x900", width: 1440, height: 900 },
 ];
 
-async function openSettingsSubItem(page: Page, label: RegExp): Promise<void> {
+async function openSettingsSubItem(
+  page: Page,
+  groupLabel: RegExp,
+  label: RegExp,
+): Promise<void> {
   const subButton = page.getByRole("button", { name: label }).first();
   if (!(await subButton.isVisible().catch(() => false))) {
     const menuToggle = page.getByRole("button", { name: /toggle menu/i });
     if (await menuToggle.isVisible().catch(() => false)) {
       await menuToggle.click().catch(() => {});
+    }
+  }
+  if (!(await subButton.isVisible().catch(() => false))) {
+    const groupButton = page.getByRole("button", { name: groupLabel }).first();
+    await expect(groupButton).toBeVisible({ timeout: 20_000 });
+    if ((await groupButton.getAttribute("aria-expanded")) !== "true") {
+      await groupButton.click();
     }
   }
   await expect(subButton).toBeVisible({ timeout: 20_000 });
@@ -37,17 +48,21 @@ for (const viewport of SETTINGS_VIEWPORTS) {
       timeout: 20_000,
     });
 
-    await openSettingsSubItem(page, /^profile$/i);
+    await openSettingsSubItem(page, /^store & staff/i, /^profile$/i);
     await expect(page.getByRole("heading", { name: /staff profile/i })).toBeVisible({
       timeout: 20_000,
     });
 
-    await openSettingsSubItem(page, /^help center$/i);
+    await openSettingsSubItem(page, /^help & system/i, /^help center$/i);
     await expect(page.getByRole("heading", { name: /help center manager/i })).toBeVisible({
       timeout: 20_000,
     });
 
-    await openSettingsSubItem(page, /^ros operations & support center$/i);
+    await openSettingsSubItem(
+      page,
+      /^help & system/i,
+      /^ros operations & support center$/i,
+    );
     await expect(page.getByRole("heading", { name: /support center/i })).toBeVisible({
       timeout: 20_000,
     });

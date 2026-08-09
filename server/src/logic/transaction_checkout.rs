@@ -6223,8 +6223,8 @@ async fn execute_checkout_internal(
                     sqlx::query(
                         r#"
                         INSERT INTO gift_card_events
-                            (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id)
-                        VALUES ($1, 'redeemed', $2, $3, $4, $5)
+                            (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id, staff_id)
+                        VALUES ($1, 'redeemed', $2, $3, $4, $5, $6)
                         "#,
                     )
                     .bind(redemption.card_id)
@@ -6232,6 +6232,7 @@ async fn execute_checkout_internal(
                     .bind(redemption.new_balance)
                     .bind(transaction_id)
                     .bind(payload.session_id)
+                    .bind(payload.operator_staff_id)
                     .execute(&mut *tx)
                     .await?;
                 }

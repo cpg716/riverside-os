@@ -2,7 +2,7 @@
 
 **Audience:** Store admins.
 
-**Where in ROS:** Back Office → **Settings**. The settings workspace opens to the **Settings Hub**, with links grouped into practical neighborhoods: **Store Setup**, **Register Setup**, **Maintenance**, **Integrations**, and **System & Support**.
+**Where in ROS:** Back Office → **Settings**. The workspace opens to the searchable **Settings Hub**. The sidebar keeps **Settings Hub** visible and folds every setting into five task-based groups: **Store & Staff**, **Register & Printing**, **Data & Maintenance**, **Connected Services**, and **Help & System**.
 
 **Related permissions:** **settings.admin** for most store-wide configuration. **Staff access defaults** is visible with **settings.admin** **or** **staff.manage_access** (role permission templates + template discount caps). **Online store** uses **online_store.manage** (admins also have access via **settings.admin** on the same APIs). **Profile** / **avatar** may be self-service for any signed-in staff.
 
@@ -10,52 +10,52 @@
 
 ## How to use this area
 
-Use **Settings Hub** when you are not sure where to start. **Profile** changes **you**. **General** changes **the store** (theme, **store staff playbook**, build info). **Online store** covers **marketing pages** for the public **`/shop`** site and **web coupons** — see **§ Online store** below. **Printers & Scanners**, **Receipt Settings**, **Tag Designer**, and **Terminal Overrides** stay together for register setup. **Integrations Overview** is an optional landing page; each third-party bridge also remains directly reachable in the same group. **Help Center**, **ROSIE**, **Bug Reports**, and **ROS Dev Center** are grouped at the end for support and system administration.
+Use **Settings Hub** when you are not sure where to start. Search by task, provider, or device, then open the matching card. **Profile** changes **you**. **Store & Staff** owns store-facing and staff defaults. **Register & Printing** keeps workstation hardware, receipts, tags, and lane preferences together. **Connected Services** owns each provider directly; the former duplicate **Integrations Overview** route now opens Settings Hub without removing any provider page. **Help & System** contains remote access, manuals and the store playbook, ROSIE, operational support, updates, bug review, and developer tools.
 
 ## Sidebar order
 
-Settings appears in these sidebar groups:
+**Settings Hub** stays at the top. Select a group heading to expand or collapse its settings:
 
-**Store Setup**
-1. **Settings Hub**
-2. **Profile**
-3. **General**
-4. **Staff Access Defaults**
-5. **Online Store**
+**Store & Staff**
+1. **Profile**
+2. **Staff Access Defaults**
+3. **Online Store**
+4. **Customer Reviews**
 
-**Register Setup**
+**Register & Printing**
 1. **Printers & Scanners**
 2. **Receipt Settings**
 3. **Tag Designer**
 4. **Terminal Overrides**
+5. **Station & Network**
 
-**Maintenance**
+**Data & Maintenance**
 1. **Data & Backups**
 2. **Daily Financial Report**
-3. **Remote Access**
-4. **Updates** *(via ROS Dev Center → Updates tab)*
 
-**Integrations**
-1. **Integrations Overview**
-2. **Podium**
+**Connected Services**
+1. **Podium**
+2. **Email**
 3. **Shippo**
 4. **Helcim**
-5. **RMS Charge diagnostics**
-6. **Fal.ai**
-7. **QuickBooks**
+5. **Fal.ai**
+6. **QuickBooks**
+7. **Constant Contact**
 8. **Counterpoint**
 9. **NuORDER**
-10. **Weather**
-11. **Insights**
-12. **Meilisearch**
+10. **Geoapify**
+11. **Weather**
+12. **Insights**
+13. **Meilisearch**
 
 When Meilisearch credentials are saved or cleared, Settings shows **Main Hub restart required**. The encrypted value is saved immediately, but application search does not fully activate the changed credential until the Main Hub process restarts.
 
-**System & Support**
-1. **Help Center**
-2. **ROSIE**
-3. **Bug Reports**
-4. **ROS Dev Center**
+**Help & System**
+1. **Remote Access**
+2. **Help Center**
+3. **ROSIE**
+4. **ROS Operations & Support Center** *(alerts, updates, and bug review)*
+5. **ROS Dev Center**
 
 ## Helcim
 
@@ -85,21 +85,21 @@ When Meilisearch credentials are saved or cleared, Settings shows **Main Hub res
 6. **View-only access (POS mode)**: Identity-sensitive fields like **Role**, **Economics**, and **Permissions** are read-only to prevent unauthorized modification during sales operations; full management is available in the Back Office.
 7. **Save**: Save your profile changes; the sidebar and top-bar identity will update instantly upon confirmation.
 
-## General
+## Store playbook and shared guidance
 
 Typical areas (labels may group differently by build):
 
 ### Store staff playbook
 
-1. **Settings** → **General** → **Store staff playbook**.
+1. **Settings** → **Help Center** → **Store playbook**.
 2. Paste or write **Markdown** (suggested sections: [STORE-SOP-TEMPLATE.md](STORE-SOP-TEMPLATE.md)).
 3. **Save playbook**; UTF-8 size must stay under the shown limit.
 4. **Audit:** updates are logged as `staff_sop_update` in staff access history.
 
-### Receipt and timezone
+### Receipt Settings and timezone
 
-- Set **IANA timezone** (e.g. `America/New_York`) for **printed** timestamps and **business date** logic used in metrics.
-- Edit **receipt header/footer**, tender labels — test **one** receipt after changes.
+- Open **Settings → Receipt Settings** to set the **IANA timezone** (e.g. `America/New_York`) used for printed timestamps and business-date logic.
+- Edit the receipt header, footer, and tender labels there, then test **one** receipt after changes.
 
 ### Backups
 
@@ -130,7 +130,7 @@ Typical areas (labels may group differently by build):
 - **Stats** — table sizes, health signals (**settings.admin**).
 - **Optimize** — VACUUM-style maintenance; run in **low traffic** window per IT.
 
-### Integrations tab
+### Connected services
 
 - **Visual Crossing (weather):** location, units, enable flag, API key — see [WEATHER_VISUAL_CROSSING.md](../WEATHER_VISUAL_CROSSING.md).
 - **Geoapify:** free-plan API key used for nationwide U.S. customer and shipping address suggestions, with Western New York ranked first. Selecting a result fills the form directly without calling Shippo. Shippo is used later only for shipping operations such as rates and labels.
@@ -287,7 +287,7 @@ For remote administrative management, developers and admins can run the standalo
 | Receipt time wrong | Fix timezone string | DEVELOPER / IT |
 | Backup failed | Disk space | [BACKUP_RESTORE_GUIDE.md](../../BACKUP_RESTORE_GUIDE.md) |
 | Weather stopped | Key rotation | Weather doc |
-| 403 on General | Not **settings.admin** | Owner |
+| 403 on a store-wide setting | Not **settings.admin** | Owner |
 | Missing **Online store** tab | No **online_store.manage** and not admin | Owner / **Staff → Team** (access) or template in **Settings → Staff access defaults** |
 | Missing **Help Center Manager** tab | No **help.manage** permission | Owner / admin updates role or individual access |
 | Missing **ROS Dev Center** tab | No **ops.dev_center.view** permission | Owner / admin updates role or individual access |
@@ -313,4 +313,4 @@ For remote administrative management, developers and admins can run the standalo
 - [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md)
 - [pos-settings.md](pos-settings.md)
 
-**Last reviewed:** 2026-05-27
+**Last reviewed:** 2026-08-09

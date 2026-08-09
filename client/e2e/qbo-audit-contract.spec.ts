@@ -1812,6 +1812,25 @@ test.describe("QBO audit contract", () => {
           }),
         ]),
       );
+      const eventsResponse = await request.get(
+        `${apiBase()}/api/gift-cards/code/${encodeURIComponent(card.code)}/events`,
+        {
+          headers: staffHeaders(),
+          failOnStatusCode: false,
+        },
+      );
+      const eventsBody = await eventsResponse.text();
+      expect(eventsResponse.status(), eventsBody.slice(0, 1000)).toBe(200);
+      const events = JSON.parse(eventsBody) as Array<Record<string, unknown>>;
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            event_kind: "redeemed",
+            transaction_id: checkout.transaction_id,
+            staff_id: operatorStaffId,
+          }),
+        ]),
+      );
     }
 
     const proposal = await proposeJournal(request, activityDate);

@@ -16,6 +16,15 @@ const SETTINGS_ROUTE_CASES: RouteCase[] = [
     allowedUrlPatterns: [/\/settings\/general\/?$/i, /\/settings\/?$/i],
   },
   {
+    label: "legacy integrations overview route",
+    route: "/settings/integrations",
+    expectedPanelSignals: [/Settings Hub/i, /Connected Services/i],
+    allowedUrlPatterns: [
+      /\/settings\/integrations\/?$/i,
+      /\/settings\/?$/i,
+    ],
+  },
+  {
     label: "unknown section route fallback",
     route: "/settings/unknown-section",
     expectedPanelSignals: [/System Settings/i, /Settings Hub/i, /Profile/i],

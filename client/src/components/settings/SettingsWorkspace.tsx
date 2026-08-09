@@ -35,6 +35,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Save,
+  Search,
   SlidersHorizontal,
   Star,
   Store,
@@ -154,16 +155,6 @@ interface SettingsWorkspaceProps {
   onOpenOnlineStore?: () => void;
 }
 
-type IntegrationCardItem = {
-  id: string;
-  label: string;
-  desc: string;
-  color: string;
-  icon?: LucideIcon;
-  brand?: IntegrationBrand;
-  brandKind?: "icon" | "wordmark";
-};
-
 type SettingsHubLink = {
   id: string;
   label: string;
@@ -179,45 +170,43 @@ type SettingsHubGroup = {
 };
 
 const SETTINGS_HUB_DESCRIPTIONS: Record<string, string> = {
-  profile: "Your staff profile, contact details, Access PIN, and notification preferences.",
-  "staff-access-defaults": "Role templates, default access, and discount caps.",
-  "online-store": "Storefront publishing, product exposure, and customer checkout setup.",
-  reviews: "Post-sale review policy, scheduling defaults, and Podium request wording.",
-  printing: "Printers, scanners, labels, test tools, and workstation hardware.",
-  "receipt-builder": "Receipt layout, branding, barcode, and delivery settings.",
-  "tag-designer": "Merchandise tag layout and printing templates.",
-  register: "Terminal overrides, register feedback, and lane device preferences.",
-  "station-network": "Server connection, LAN IPs for registers and PWA devices, and network diagnostics.",
-  backups: "Local snapshots, backup retention, restore tools, and maintenance tasks.",
-  "daily-financial-report": "Automated daily financial summary, email delivery, and report archive.",
-  "remote-access": "Remote support access and workstation connectivity.",
-  updates: "App updates, PWA refresh, and server update steps.",
-  integrations: "Overview cards for connected services and integration setup.",
-  podium: "Podium messaging, review invites, and communication readiness.",
-  email: "IONOS mailbox setup, automated email, inbox sync, and staff signatures.",
-  shippo: "Shipping account setup, carrier rates, and label configuration.",
-  helcim: "Helcim payments, terminal readiness, and card processing setup.",
-  fal: "Fal.ai API key configuration, credit balance, and image queue logs.",
-  quickbooks: "QuickBooks connection settings and accounting bridge controls.",
-  "constant-contact": "Sync opted-in customer lists and map group codes to Constant Contact lists.",
-  counterpoint: "Counterpoint sync status, mappings, staging, and issue handling.",
-  nuorder: "NuORDER catalog and vendor sync configuration.",
-  geoapify: "Address lookup setup for customer, vendor, and shipping entry.",
-  weather: "Weather provider settings for store planning signals.",
-  insights: "Native ROSIE reporting, Cube policy, favorites, and report history.",
-  meilisearch: "Search index health, reindex controls, and diagnostics.",
-  "help-center": "Help Center content, manuals, and staff guidance publishing.",
-  rosie: "ROSIE assistant settings and runtime behavior.",
-  "ros-operations-center": "Heartbeats, alerts, bug tracking, integrations, updates, operational readiness, and support snapshot.",
-  "ros-dev-center": "Developer operations, runtime health, and guarded actions.",
+  profile: "Contact details, avatar, Access PIN, and preferences.",
+  "staff-access-defaults": "Role templates, access defaults, and discount caps.",
+  "online-store": "Storefront publishing and customer checkout.",
+  reviews: "Review policy, timing, and request wording.",
+  printing: "Printers, scanners, labels, and test tools.",
+  "receipt-builder": "Receipt layout, branding, and delivery.",
+  "tag-designer": "Merchandise tag layouts and templates.",
+  register: "Register feedback and lane preferences.",
+  "station-network": "Main Hub, register, and PWA connections.",
+  backups: "Snapshots, retention, restore, and maintenance.",
+  "daily-financial-report": "Daily summaries, delivery, and archive.",
+  "remote-access": "Remote support and workstation connectivity.",
+  podium: "Messaging, OAuth, webhooks, and diagnostics.",
+  email: "Store mailbox, automated email, and signatures.",
+  shippo: "Carrier rates, labels, and shipping account.",
+  helcim: "Payments, terminals, and processor readiness.",
+  fal: "Image-service credentials, usage, and queue logs.",
+  quickbooks: "Accounting connection and bridge controls.",
+  "constant-contact": "Customer list and segment sync.",
+  counterpoint: "Sync status, mappings, and issue review.",
+  nuorder: "Catalog and vendor sync.",
+  geoapify: "Customer and shipping address lookup.",
+  weather: "Store-planning weather data.",
+  insights: "ROSIE reports, Cube policy, and history.",
+  meilisearch: "Search health, reindexing, and diagnostics.",
+  "help-center": "Manuals, staff playbook, and guidance.",
+  rosie: "Assistant behavior and local runtime.",
+  "ros-operations-center": "Alerts, updates, bugs, and operational readiness.",
+  "ros-dev-center": "Runtime health and guarded admin actions.",
 };
 
 const SETTINGS_HUB_GROUP_ORDER = [
   "settings-group-store-setup",
   "settings-group-register-setup",
   "settings-group-maintenance",
-  "settings-group-system-support",
   "settings-group-integrations",
+  "settings-group-system-support",
 ];
 
 const SETTINGS_HUB_INTEGRATION_BRANDS: Partial<
@@ -292,7 +281,8 @@ export default function SettingsWorkspace({
   const requestedActiveTab = activeSection || settingsActiveSection || "hub";
   let activeTab =
     requestedActiveTab.startsWith("settings-group-") ||
-    requestedActiveTab === "general"
+    requestedActiveTab === "general" ||
+    requestedActiveTab === "integrations"
       ? "hub"
       : requestedActiveTab;
   // POS mode restricts settings to Profile and Printers & Scanners only
@@ -314,6 +304,7 @@ export default function SettingsWorkspace({
   // Settings State
   const [backupCfg, setBackupCfg] = useState<BackupSettings | null>(null);
   const [busy, setBusy] = useState(false);
+  const [settingsQuery, setSettingsQuery] = useState("");
 
   // Database State
   const [backups, setBackups] = useState<BackupFile[]>([]);
@@ -383,6 +374,27 @@ export default function SettingsWorkspace({
         return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
       });
   }, [hasPermission, permissionsLoaded, mode]);
+
+  const filteredSettingsHubGroups = useMemo(() => {
+    const query = settingsQuery.trim().toLocaleLowerCase();
+    if (!query) return settingsHubGroups;
+
+    return settingsHubGroups
+      .map((group) => ({
+        ...group,
+        links: group.links.filter((link) =>
+          `${group.label} ${link.label} ${link.description}`
+            .toLocaleLowerCase()
+            .includes(query),
+        ),
+      }))
+      .filter((group) => group.links.length > 0);
+  }, [settingsHubGroups, settingsQuery]);
+
+  const visibleSettingsCount = filteredSettingsHubGroups.reduce(
+    (total, group) => total + group.links.length,
+    0,
+  );
 
   const fetchBackups = useCallback(async () => {
     try {
@@ -603,18 +615,37 @@ export default function SettingsWorkspace({
           >
             {activeTab === "hub" && (
               <div className="space-y-8">
-                <header className="max-w-5xl">
-                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-                    Settings Hub
-                  </h2>
-                  <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
-                    Start here for store setup, register hardware, maintenance,
-                    integrations, and system support.
-                  </p>
+                <header className="ui-workspace-page-header">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-accent">
+                      Back Office
+                    </p>
+                    <h2 className="mt-1 text-3xl font-black tracking-tight text-app-text">
+                      Settings Hub
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm font-medium text-app-text-muted">
+                      Find a setting by task, service, or device.
+                    </p>
+                  </div>
+                  <div className="relative w-full sm:max-w-md">
+                    <Search
+                      size={18}
+                      aria-hidden
+                      className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-app-text-muted"
+                    />
+                    <input
+                      type="search"
+                      value={settingsQuery}
+                      onChange={(event) => setSettingsQuery(event.target.value)}
+                      className="ui-input h-12 w-full pl-11 pr-4"
+                      placeholder="Search settings"
+                      aria-label="Search settings"
+                    />
+                  </div>
                 </header>
 
                 <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                  {settingsHubGroups.map((group) => {
+                  {filteredSettingsHubGroups.map((group) => {
                     const isIntegrationsGroup =
                       group.id === "settings-group-integrations";
 
@@ -625,16 +656,11 @@ export default function SettingsWorkspace({
                           isIntegrationsGroup ? "xl:col-span-2" : ""
                         }`}
                       >
-                        <div className="mb-5 flex items-center justify-between gap-3 border-b border-app-border pb-4">
-                          <div>
-                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                              Settings
-                            </p>
-                            <h3 className="mt-1 text-lg font-black uppercase tracking-tight text-app-text">
-                              {group.label}
-                            </h3>
-                          </div>
-                          <span className="rounded-full border border-app-border bg-app-bg px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        <div className="mb-4 flex items-center justify-between gap-3 border-b border-app-border pb-4">
+                          <h3 className="text-lg font-black tracking-tight text-app-text">
+                            {group.label}
+                          </h3>
+                          <span className="rounded-full border border-app-border bg-app-bg px-2.5 py-1 text-[10px] font-black tabular-nums text-app-text-muted">
                             {group.links.length}
                           </span>
                         </div>
@@ -651,7 +677,7 @@ export default function SettingsWorkspace({
                               key={link.id}
                               type="button"
                               onClick={() => navigateToTab?.(link.id)}
-                              className="group flex min-h-24 w-full items-center gap-4 rounded-xl border border-app-border bg-app-surface/60 p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:bg-app-surface hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
+                              className="group flex min-h-20 w-full items-center gap-3 rounded-xl border border-app-border bg-app-surface/60 p-3.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:bg-app-surface hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
                             >
                               <span
                                 className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border text-xs font-black uppercase text-app-accent ${
@@ -681,10 +707,10 @@ export default function SettingsWorkspace({
                                 )}
                               </span>
                               <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-black uppercase tracking-wide text-app-text">
+                                <span className="block text-sm font-black text-app-text">
                                   {link.label}
                                 </span>
-                                <span className="mt-1 block text-xs font-medium leading-relaxed text-app-text-muted">
+                                <span className="mt-0.5 block text-xs font-medium leading-snug text-app-text-muted">
                                   {link.description}
                                 </span>
                               </span>
@@ -700,6 +726,31 @@ export default function SettingsWorkspace({
                     );
                   })}
                 </div>
+
+                {filteredSettingsHubGroups.length === 0 && (
+                  <div className="ui-card flex min-h-48 flex-col items-center justify-center gap-3 p-8 text-center">
+                    <Search size={24} className="text-app-text-muted" aria-hidden />
+                    <div>
+                      <h3 className="font-black text-app-text">
+                        No settings found
+                      </h3>
+                      <p className="mt-1 text-sm text-app-text-muted">
+                        Try a service name, device, or staff task.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSettingsQuery("")}
+                      className="ui-btn-secondary min-h-11 px-4"
+                    >
+                      Clear search
+                    </button>
+                  </div>
+                )}
+
+                <p className="text-center text-xs font-semibold text-app-text-muted">
+                  {visibleSettingsCount} {visibleSettingsCount === 1 ? "setting" : "settings"}
+                </p>
               </div>
             )}
 
@@ -1209,138 +1260,6 @@ export default function SettingsWorkspace({
             {activeTab === "station-network" && (
               <div className="space-y-10">
                 <StationNetworkPanel />
-              </div>
-            )}
-            {activeTab === "integrations" && (
-              <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <header className="mb-10">
-                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-                    Integrations & Hub
-                  </h2>
-                  <p className="text-sm text-app-text-muted mt-2 font-medium leading-relaxed">
-                    Each integration is now managed via its own dedicated
-                    sub-page for better control.
-                  </p>
-                </header>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {([
-                    {
-                      id: "meilisearch",
-                      label: "Meilisearch",
-                      desc: "Meilisearch index health",
-                      color: "bg-app-surface",
-                      brand: "meilisearch" as IntegrationBrand,
-                      brandKind: "icon" as const,
-                    },
-                    {
-                      id: "insights",
-                      label: "Native Data Insights",
-                      desc: "ROSIE reports, Cube policy & history",
-                      color: "bg-app-surface",
-                      icon: Database,
-                    },
-                    {
-                      id: "weather",
-                      label: "Live Weather",
-                      desc: "Visual Crossing snapshots",
-                      color: "bg-app-surface",
-                      brand: "weather" as IntegrationBrand,
-                      brandKind: "icon" as const,
-                    },
-                    {
-                      id: "shippo",
-                      label: "Shippo",
-                      desc: "Carrier rates & labels",
-                      color: "bg-app-surface",
-                      brand: "shippo" as IntegrationBrand,
-                      brandKind: "icon" as const,
-                    },
-                    {
-                      id: "podium",
-                      label: "Podium Comms",
-                      desc: "SMS, inbox & reviews",
-                      color: "bg-app-surface",
-                      brand: "podium" as IntegrationBrand,
-                      brandKind: "icon" as const,
-                    },
-                    {
-                      id: "nuorder",
-                      label: "NuORDER",
-                      desc: "Retail catalog & sync",
-                      color: "bg-app-surface",
-                      brand: "nuorder" as IntegrationBrand,
-                      brandKind: "icon" as const,
-                    },
-                    {
-                      id: "geoapify",
-                      label: "Geoapify",
-                      desc: "Address lookup",
-                      color: "bg-app-surface",
-                      icon: MapPin,
-                    },
-                    {
-                      id: "quickbooks",
-                      label: "QuickBooks Online",
-                      desc: "Launch QBO Data Bridge",
-                      color: "bg-app-surface",
-                      brand: "qbo" as IntegrationBrand,
-                      brandKind: "icon" as const,
-                    },
-                    {
-                      id: "helcim",
-                      label: "Helcim Payments",
-                      desc: "Card Processing Hub",
-                      color: "bg-app-surface",
-                      brand: "helcim" as IntegrationBrand,
-                      brandKind: "icon" as const,
-                    },
-                    {
-                      id: "constant-contact",
-                      label: "Constant Contact",
-                      desc: "Mailing List & Segments Sync",
-                      color: "bg-app-surface",
-                      brand: "constant_contact" as IntegrationBrand,
-                      brandKind: "icon" as const,
-                    },
-                    {
-                      id: "fal",
-                      label: "Fal.ai",
-                      desc: "Visual diffusion pipelines",
-                      color: "bg-app-surface",
-                    },
-                  ] satisfies IntegrationCardItem[]).map((item) => (
-                    <button
-                      type="button"
-                      key={item.id}
-                      onClick={() => navigateToTab?.(item.id)}
-                      className="ui-card group flex flex-col items-center p-8 text-center transition-all hover:-translate-y-0.5"
-                    >
-                      <div
-                        className={`w-16 h-16 ${item.color} text-white rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-black/10 group-hover:scale-110 transition-transform ring-1 ring-black/5`}
-                      >
-                        {"brand" in item && item.brand ? (
-                          <IntegrationBrandLogo
-                            brand={item.brand}
-                            kind={item.brandKind}
-                            className="inline-flex"
-                            imageClassName="max-h-10 max-w-10 rounded-md object-contain"
-                          />
-                        ) : item.id === "fal" ? (
-                          <RosieIcon size={28} alt="" />
-                        ) : "icon" in item && item.icon ? (
-                          createElement(item.icon as LucideIcon, { size: 28 })
-                        ) : null}
-                      </div>
-                      <h3 className="text-sm font-black uppercase tracking-widest text-app-text mb-2">
-                        {item.label}
-                      </h3>
-                      <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider">
-                        {item.desc}
-                      </p>
-                    </button>
-                  ))}
-                </div>
               </div>
             )}
             {activeTab === "staff-access-defaults" &&

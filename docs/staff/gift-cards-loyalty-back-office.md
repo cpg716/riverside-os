@@ -29,7 +29,7 @@ The dashboard cards show only **open** cards: active status, a positive balance,
 1. **Gift Cards** → **Card Inventory**.
 2. Search by **full code**, **last four**, or the linked customer. Counterpoint-originated cards use the source card owner's customer number when it resolves uniquely to a Riverside customer; missing or ambiguous ownership is never guessed.
 3. Select a row to read **initial value**, **remaining balance**, **status**, **customer link**, and **recent activity**. The detail window stays centered in the current workspace even after the card list has been scrolled.
-4. Use the activity panel to confirm whether the card was **issued**, **loaded**, **used at checkout**, **refunded to card**, or **voided**. ROS-created Loyalty and Donated issue/load events show the acting staff member. Counterpoint cards show their source issue record after the guarded import repair has added the missing audit entry without changing the card balance. If activity cannot be retrieved, Riverside reports that failure instead of presenting it as an empty history.
+4. Use the activity panel to confirm whether the card was **issued**, **loaded**, **used at checkout**, **refunded to card**, or **voided**. ROS-created issue/load events and new Register redemption events show the acting staff member. Counterpoint cards show their source issue record after the guarded import repair has added the missing audit entry without changing the card balance. If activity cannot be retrieved, Riverside reports that failure instead of presenting it as an empty history.
 5. **Void** only with written SOP — it changes **liability** and may need accounting notice.
 6. Use **Previous** and **Next** beneath the inventory to review every matching card. Riverside shows 100 cards per page and displays the complete filtered total, so the summary and inventory range remain reconcilable.
 
@@ -99,6 +99,8 @@ If POS cannot verify a gift card, check the card record in Back Office first. So
 
 Expired purchased-card balances post to gift card breakage during QBO proposal generation. Loyalty, donated, and promo cards expire after one year but do not create purchased-card breakage because they are not customer-paid liabilities. Loyalty/Promo redemptions use `expense_loyalty`; Donated redemptions use the separately configured `expense_donated` account.
 
+QuickBooks authorization and both expense mappings remain owned by **Settings → Integrations → QuickBooks Online**. A missing mapping or unresolved Gift Card classification blocks journal approval/sync. After a reviewed Counterpoint classification repair, regenerate every activity date listed by the repair preview/apply result before accounting review; an older proposal retains its earlier snapshot.
+
 ## Helping a coworker
 
 - **Gift card at register:** Look up in **Card Inventory** first; compare **balance**, **status**, and the most recent activity before changing anything.
@@ -128,4 +130,4 @@ Expired purchased-card balances post to gift card breakage during QBO proposal g
 - [pos-loyalty.md](pos-loyalty.md)
 - [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)
 
-**Last reviewed:** 2026-07-14
+**Last reviewed:** 2026-08-09

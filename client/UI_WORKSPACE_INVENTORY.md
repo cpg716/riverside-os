@@ -22,7 +22,7 @@ Generated for the phased UI sweep. Source: [`src/App.tsx`](src/App.tsx), [`src/c
 | `appointments` | scheduler, conflicts | `SchedulerWorkspace` |
 | `reports` | (none) | `ReportsWorkspace` — curated `/api/insights/*` (+ CRM RMS list) library; **`insights.view`** tab; Admin-only margin pivot |
 | `dashboard` | (none; Insights opens `InsightsShell` + Metabase iframe) | — |
-| `settings` | profile, general, backups, integrations (weather, Podium, **Meilisearch** reindex — **`settings.admin`**), **bug-reports** (**`BugReportsSettingsPanel`**, **`settings.admin`** — **`docs/PLAN_BUG_REPORTS.md`**), **online-store** (**`OnlineStoreSettingsPanel`**, **`online_store.manage`** / **`settings.admin`**; GrapesJS Studio lazy chunk — **`docs/ONLINE_STORE.md`**) | `SettingsWorkspace` |
+| `settings` | searchable Settings Hub plus collapsible **Store & Staff**, **Register & Printing**, **Data & Maintenance**, **Connected Services**, and **Help & System** groups; provider pages remain direct routes, while support owns bug review and updates | `SettingsWorkspace` |
 
 Shared chrome: `Sidebar`, `Header` (optional **Report a bug** opens **`BugReportFlow`** via `App.tsx`), `GlobalSearchDrawerHost`, `CloseRegisterModal` (when session open).
 

@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ChevronDown,
   ChevronRight,
   ChevronLeft,
 } from "lucide-react";
@@ -29,17 +30,18 @@ interface SidebarProps {
 
 type WorkspaceSurface = "POS-Core" | "BackOffice";
 
-function shouldShowSubGroup(
+function visibleSubGroupItems(
   subItems: SubItem[],
   groupIndex: number,
   visibleSubIds: Set<string>,
-) {
+): string[] {
+  const itemIds: string[] = [];
   for (let i = groupIndex + 1; i < subItems.length; i += 1) {
     const sub = subItems[i];
-    if (sub.kind === "group") return false;
-    if (visibleSubIds.has(sub.id)) return true;
+    if (sub.kind === "group") break;
+    if (visibleSubIds.has(sub.id)) itemIds.push(sub.id);
   }
-  return false;
+  return itemIds;
 }
 
 export default function Sidebar({
@@ -53,6 +55,9 @@ export default function Sidebar({
   const { hasPermission, permissionsLoaded } =
     useBackofficeAuth();
   const notifCtx = useNotificationCenterOptional();
+  const [expandedSubGroups, setExpandedSubGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
   const podiumInboxUnread = notifCtx?.podiumInboxUnread ?? 0;
   const canPollNotifications = notifCtx?.canView ?? false;
   const showPodiumInboxDot =
@@ -60,6 +65,25 @@ export default function Sidebar({
     permissionsLoaded &&
     hasPermission("customers.hub_view") &&
     podiumInboxUnread > 0;
+
+  useEffect(() => {
+    const subItems = SIDEBAR_SUB_SECTIONS[activeTab];
+    let currentGroupId: string | null = null;
+    for (const sub of subItems) {
+      if (sub.kind === "group") {
+        currentGroupId = sub.id;
+      } else if (sub.id === activeSubSection && currentGroupId) {
+        const groupKey = `${activeTab}:${currentGroupId}`;
+        setExpandedSubGroups((current) => {
+          if (current.has(groupKey)) return current;
+          const next = new Set(current);
+          next.add(groupKey);
+          return next;
+        });
+        break;
+      }
+    }
+  }, [activeSubSection, activeTab]);
 
   const menuItems = useMemo(
     () =>
@@ -216,19 +240,61 @@ export default function Sidebar({
                 <div className="ml-3 mt-1 mb-2 flex flex-col gap-0.5 border-l-2 border-app-border/40 pl-3">
                   {subItems.map((sub, index) => {
                     if (sub.kind === "group") {
-                      if (!shouldShowSubGroup(subItems, index, visibleSubIds)) {
+                      const groupItems = visibleSubGroupItems(
+                        subItems,
+                        index,
+                        visibleSubIds,
+                      );
+                      if (groupItems.length === 0) {
                         return null;
                       }
+                      const groupKey = `${item.id}:${sub.id}`;
+                      const isExpanded = expandedSubGroups.has(groupKey);
                       return (
-                        <div
+                        <button
                           key={sub.id}
-                          className="mt-2 px-2.5 pb-1 pt-1 text-[9px] font-black uppercase tracking-[0.18em] text-app-text-muted/70 first:mt-0"
+                          type="button"
+                          aria-expanded={isExpanded}
+                          onClick={() => {
+                            setExpandedSubGroups((current) => {
+                              const next = new Set(current);
+                              if (next.has(groupKey)) next.delete(groupKey);
+                              else next.add(groupKey);
+                              return next;
+                            });
+                          }}
+                          className="mt-1 flex min-h-10 w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[10px] font-black uppercase tracking-[0.12em] text-app-text-muted transition-colors first:mt-0 hover:bg-app-surface-2 hover:text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20"
                         >
-                          {sub.label}
-                        </div>
+                          <span className="min-w-0 flex-1 truncate">
+                            {sub.label}
+                          </span>
+                          <span className="rounded-full border border-app-border bg-app-bg px-1.5 py-0.5 text-[9px] tabular-nums tracking-normal text-app-text-muted">
+                            {groupItems.length}
+                          </span>
+                          <ChevronDown
+                            size={14}
+                            aria-hidden
+                            className={`shrink-0 transition-transform ${
+                              isExpanded ? "rotate-180" : ""
+                            }`}
+                          />
+                        </button>
                       );
                     }
                     if (!visibleSubIds.has(sub.id)) return null;
+                    let parentGroupId: string | null = null;
+                    for (let i = index - 1; i >= 0; i -= 1) {
+                      if (subItems[i].kind === "group") {
+                        parentGroupId = subItems[i].id;
+                        break;
+                      }
+                    }
+                    if (
+                      parentGroupId &&
+                      !expandedSubGroups.has(`${item.id}:${parentGroupId}`)
+                    ) {
+                      return null;
+                    }
                     return (
                       <button
                         key={sub.id}

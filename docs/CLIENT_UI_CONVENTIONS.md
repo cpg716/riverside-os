@@ -54,6 +54,7 @@ The implementation of the Settings module follows a unified, reactive pattern ac
 
 - **Profile-First Entry**: The settings workspace MUST initialize to the **Staff Profile** by default. Current staff meta (Avatar, Permissions, Identity) is the primary anchor.
 - **Unified Navigator**: Settings navigation is driven by the global sidebar (BO) or the navigation rail (POS). Workspace-internal tab switching should be avoided in favor of direct sub-section routing.
+- **Progressive Settings Navigation**: Keep **Settings Hub** pinned as the searchable entry point. The Back Office sidebar exposes task-based groups as accordions and automatically opens the group containing the active deep link; do not restore a second provider overview or an always-expanded list of every setting.
 - **POS Settings Gate**: **Strategic Boundary**: POS Settings are restricted to **Staff Profile** and **Printers & Scanners** (Hardware) to maintain operational security at public registers.
 - **ROS Dev Center (v0.2.1+)**: The **Settings → ROS Dev Center** subsection is an admin-bound operational command center. Read surfaces require **`ops.dev_center.view`**; guarded mutations require **`ops.dev_center.actions`** and must enforce explicit reason + dual confirmation before execution.
 - **Change Staff / Logout**: These actions are unified in the Profile dropdown. Both successfully clear the active persona and trigger the `BackofficeSignInGate` across all shell modes.
