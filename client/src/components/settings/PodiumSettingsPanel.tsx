@@ -305,6 +305,13 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
         | PodiumContactReconciliationResult
         | { error?: string };
       if (!response.ok) {
+        if (response.status === 409) {
+          toast(
+            "A Podium contact reconciliation is already running. Try again after it finishes.",
+            "info",
+          );
+          return;
+        }
         toast(
           "error" in body && body.error
             ? body.error

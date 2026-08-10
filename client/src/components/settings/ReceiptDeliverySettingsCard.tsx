@@ -1,4 +1,6 @@
-import { CheckCircle2, Save, Send } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { CheckCircle2, Mail, MessageSquareText, Save, Send } from "lucide-react";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import type { ReceiptMessageTemplates } from "./useCustomerCommunicationSettings";
 import { useCustomerCommunicationSettings } from "./useCustomerCommunicationSettings";
 
@@ -11,13 +13,103 @@ const FIELDS: Array<[TemplateKey, string]> = [
   ["gift_email_subject", "Gift receipt email subject"],
 ];
 
+type EmailDeliveryReadiness = {
+  settings: { enabled: boolean };
+  credentials_configured: boolean;
+};
+
+type PodiumDeliveryReadiness = {
+  credentials_configured: boolean;
+  location_uid_configured: boolean;
+  receipt_sms_enabled: boolean;
+};
+
+type EmailDeliveryHealth = {
+  reachable: boolean;
+  smtp_reachable: boolean;
+  imap_reachable: boolean;
+  latency_ms: number;
+  message: string;
+};
+
+type PodiumDeliveryHealth = {
+  reachable: boolean;
+  latency_ms: number;
+  message: string;
+};
+
 export default function ReceiptDeliverySettingsCard({
   baseUrl,
 }: {
   baseUrl: string;
 }) {
+  const { backofficeHeaders } = useBackofficeAuth();
   const { settings, setSettings, loading, saving, savePatch } =
     useCustomerCommunicationSettings(baseUrl);
+  const [emailReadiness, setEmailReadiness] =
+    useState<EmailDeliveryReadiness | null>(null);
+  const [podiumReadiness, setPodiumReadiness] =
+    useState<PodiumDeliveryReadiness | null>(null);
+  const [emailHealth, setEmailHealth] =
+    useState<EmailDeliveryHealth | null>(null);
+  const [podiumHealth, setPodiumHealth] =
+    useState<PodiumDeliveryHealth | null>(null);
+  const [readinessLoaded, setReadinessLoaded] = useState(false);
+
+  const loadDeliveryReadiness = useCallback(async () => {
+    setReadinessLoaded(false);
+    const headers = backofficeHeaders() as Record<string, string>;
+    const [emailResult, podiumResult, emailHealthResult, podiumHealthResult] =
+      await Promise.allSettled([
+        fetch(`${baseUrl}/api/settings/email`, {
+          headers,
+          cache: "no-store",
+        }).then(async (response) => {
+          if (!response.ok) throw new Error("email-readiness");
+          return (await response.json()) as EmailDeliveryReadiness;
+        }),
+        fetch(`${baseUrl}/api/settings/podium/readiness`, {
+          headers,
+          cache: "no-store",
+        }).then(async (response) => {
+          if (!response.ok) throw new Error("podium-readiness");
+          return (await response.json()) as PodiumDeliveryReadiness;
+        }),
+        fetch(`${baseUrl}/api/mailbox/health`, {
+          headers,
+          cache: "no-store",
+        }).then(async (response) => {
+          if (!response.ok) throw new Error("email-health");
+          return (await response.json()) as EmailDeliveryHealth;
+        }),
+        fetch(`${baseUrl}/api/settings/podium/health`, {
+          headers,
+          cache: "no-store",
+        }).then(async (response) => {
+          if (!response.ok) throw new Error("podium-health");
+          return (await response.json()) as PodiumDeliveryHealth;
+        }),
+      ]);
+    setEmailReadiness(
+      emailResult.status === "fulfilled" ? emailResult.value : null,
+    );
+    setPodiumReadiness(
+      podiumResult.status === "fulfilled" ? podiumResult.value : null,
+    );
+    setEmailHealth(
+      emailHealthResult.status === "fulfilled" ? emailHealthResult.value : null,
+    );
+    setPodiumHealth(
+      podiumHealthResult.status === "fulfilled"
+        ? podiumHealthResult.value
+        : null,
+    );
+    setReadinessLoaded(true);
+  }, [backofficeHeaders, baseUrl]);
+
+  useEffect(() => {
+    void loadDeliveryReadiness();
+  }, [loadDeliveryReadiness]);
 
   const updateTemplate = (key: TemplateKey, value: string) => {
     setSettings((current) =>
@@ -35,6 +127,35 @@ export default function ReceiptDeliverySettingsCard({
   const allInherited = Object.values(settings.receipt_templates).every(
     (value) => !value.trim(),
   );
+  const emailConfigured = Boolean(
+    emailReadiness?.settings.enabled &&
+      emailReadiness.credentials_configured,
+  );
+  const emailReady = Boolean(emailConfigured && emailHealth?.smtp_reachable);
+  const podiumConfigured = Boolean(
+    podiumReadiness?.credentials_configured &&
+      podiumReadiness.location_uid_configured,
+  );
+  const podiumReady = Boolean(
+    podiumConfigured &&
+      podiumReadiness?.receipt_sms_enabled &&
+      podiumHealth?.reachable,
+  );
+  const podiumSavePending = Boolean(
+    podiumReadiness &&
+      settings.sms_features.receipts !== podiumReadiness.receipt_sms_enabled,
+  );
+
+  const saveDeliverySettings = async () => {
+    const saved = await savePatch(
+      {
+        sms_features: { receipts: settings.sms_features.receipts },
+        receipt_templates: settings.receipt_templates,
+      },
+      "Digital receipt delivery settings saved.",
+    );
+    if (saved) await loadDeliveryReadiness();
+  };
 
   return (
     <section className="ui-card p-6">
@@ -89,6 +210,101 @@ export default function ReceiptDeliverySettingsCard({
         </label>
       </div>
 
+      <div className="mb-5 grid gap-3 md:grid-cols-2" aria-label="Digital receipt provider status">
+        <div className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text">
+              <Mail className="h-4 w-4 text-app-accent" aria-hidden />
+              Store Email
+            </span>
+            <span
+              className={`ui-pill text-[10px] font-black uppercase tracking-widest ${
+                emailReady
+                  ? "bg-app-success/10 text-app-success"
+                  : "bg-app-warning/10 text-app-warning"
+              }`}
+            >
+              {!readinessLoaded
+                ? "Checking"
+                : !emailReadiness
+                  ? "Unavailable"
+                  : !emailConfigured
+                    ? "Setup needed"
+                    : !emailHealth?.smtp_reachable
+                      ? "Needs attention"
+                      : "Ready"}
+            </span>
+          </div>
+          <p className="mt-2 text-[10px] font-semibold leading-relaxed text-app-text-muted">
+            {!readinessLoaded
+              ? "Checking the current Store Email settings..."
+              : !emailReadiness
+              ? "Status unavailable. Check Settings → Email."
+              : !emailReadiness.settings.enabled
+                ? "Store Email is turned off in Settings → Email."
+                : !emailReadiness.credentials_configured
+                  ? "Save the mailbox credentials in Settings → Email."
+                  : !emailHealth
+                    ? "The Store Email health check could not run."
+                    : !emailHealth.smtp_reachable
+                      ? `SMTP is not reachable. ${emailHealth.message}`
+                      : emailHealth.imap_reachable
+                        ? `SMTP and inbox are reachable · ${emailHealth.latency_ms} ms.`
+                        : `Receipt email SMTP is ready · ${emailHealth.latency_ms} ms. Inbox sync still needs attention.`
+            }
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text">
+              <MessageSquareText className="h-4 w-4 text-app-accent" aria-hidden />
+              Podium
+            </span>
+            <span
+              className={`ui-pill text-[10px] font-black uppercase tracking-widest ${
+                podiumReady
+                  ? "bg-app-success/10 text-app-success"
+                  : "bg-app-warning/10 text-app-warning"
+              }`}
+            >
+              {podiumSavePending
+                ? "Save pending"
+                : !readinessLoaded
+                  ? "Checking"
+                  : !podiumReadiness
+                    ? "Unavailable"
+                    : !podiumConfigured ||
+                        !podiumReadiness.receipt_sms_enabled
+                      ? "Setup needed"
+                      : !podiumHealth?.reachable
+                        ? "Needs attention"
+                        : "Ready"}
+            </span>
+          </div>
+          <p className="mt-2 text-[10px] font-semibold leading-relaxed text-app-text-muted">
+            {podiumSavePending
+              ? `Save delivery settings to turn receipt texts ${settings.sms_features.receipts ? "on" : "off"}.`
+              : !readinessLoaded
+                ? "Checking the current Podium receipt settings..."
+                : !podiumReadiness
+                  ? "Status unavailable. Check Settings → Podium."
+                  : !podiumReadiness.credentials_configured
+                    ? "Connect the Podium account in Settings → Podium."
+                    : !podiumReadiness.location_uid_configured
+                      ? "Select and save the sending location in Settings → Podium."
+                      : !podiumReadiness.receipt_sms_enabled
+                        ? "Podium is connected; turn on Text receipts and save below."
+                        : !podiumHealth
+                          ? "The Podium health check could not run."
+                          : !podiumHealth.reachable
+                            ? `Podium is not reachable. ${podiumHealth.message}`
+                            : `Authenticated Podium API reachable · ${podiumHealth.latency_ms} ms.`
+            }
+          </p>
+        </div>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2">
         {FIELDS.map(([key, label]) => (
           <label
@@ -110,15 +326,7 @@ export default function ReceiptDeliverySettingsCard({
         <button
           type="button"
           disabled={saving}
-          onClick={() =>
-            void savePatch(
-              {
-                sms_features: { receipts: settings.sms_features.receipts },
-                receipt_templates: settings.receipt_templates,
-              },
-              "Digital receipt delivery settings saved.",
-            )
-          }
+          onClick={() => void saveDeliverySettings()}
           className="ui-btn-primary inline-flex h-11 items-center gap-2 px-5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
         >
           <Save className="h-4 w-4" aria-hidden />

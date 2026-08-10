@@ -57,7 +57,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 6. Select the correct active location from the provider-backed **Podium location** list and save it. Do not type or copy a raw location UID.
 7. Save a webhook signing secret, then use **Register Webhook**. Riverside creates or updates only the subscription matching its public HTTPS URL and selected location, for the message, contact, and review-link events it processes.
 8. In the Podium developer portal, use **Send Test** for the Riverside webhook. A successful response confirms public reachability and signing-secret verification; it does not replace testing a real inbound customer reply.
-9. Use **Check Health**, then **Reconcile Contacts** under **Diagnostics and contact maintenance**. Reconciliation compares the complete Podium contact list and shows collisions that require staff review. Riverside allows one reconciliation at a time and stops safely if Podium returns an incomplete or unrecognized contact page.
+9. Use **Check Health**, then **Reconcile Contacts** under **Diagnostics and contact maintenance**. Reconciliation compares the complete Podium contact list and shows collisions that require staff review. Riverside allows one reconciliation at a time and reports an already-running comparison as informational instead of a provider failure. If Riverside restarts during reconciliation, the interrupted audit row is closed and the new server can safely begin the next run. Riverside stops safely if Podium returns an incomplete or unrecognized contact page.
 
 ### Admin / IT: know which Podium values to enter
 

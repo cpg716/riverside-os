@@ -2,7 +2,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test, expect } from "@playwright/test";
 import { transform } from "receiptline";
-import { duplicateReceiptTokens } from "../src/components/settings/receiptTemplateValidation";
+import {
+  duplicateReceiptTokens,
+  missingRequiredReceiptTokens,
+} from "../src/components/settings/receiptTemplateValidation";
 
 const readSource = (path: string) =>
   readFileSync(resolve(process.cwd(), path), "utf8");
@@ -64,6 +67,37 @@ test("receipt builder permits only the intentional barcode stub repeats", () => 
       `{{CUSTOMER_LINE}}\n{{CUSTOMER_LINE}}\n{{BARCODE_IMAGE}}`,
     ),
   ).toEqual(["{{CUSTOMER_LINE}}"]);
+});
+
+test("picked-up receipt validation matches the production payment layout", () => {
+  const pickupTemplate = [
+    "{{RECEIPT_TITLE}}",
+    "{{RECEIPT_ID}}",
+    "{{RECEIPT_DATE}}",
+    "{{CUSTOMER_LINE}}",
+    "{{SALESPERSON_LINE}}",
+    "{{CASHIER_LINE}}",
+    "{{REGISTER_LINE}}",
+    "{{ITEM_LINES}}",
+    "{{PAYMENT_BLOCK}}",
+    "{{SUBTOTAL_LINE}}",
+    "{{TAX_LINE}}",
+    "{{TOTAL_LINE}}",
+    "{{PAID_LINE}}",
+    "{{BALANCE_LINE}}",
+    "{{STATUS_LINE}}",
+  ].join("\n");
+
+  expect(missingRequiredReceiptTokens(pickupTemplate, "pickup")).toEqual([]);
+  expect(missingRequiredReceiptTokens(pickupTemplate, "standard")).toEqual([
+    "{{TENDER_LINE}}",
+  ]);
+  expect(
+    missingRequiredReceiptTokens(
+      pickupTemplate.replace("{{PAYMENT_BLOCK}}", ""),
+      "pickup",
+    ),
+  ).toEqual(["{{PAYMENT_BLOCK}}"]);
 });
 
 test("printed tax detail uses one compact Epson Font B line", () => {

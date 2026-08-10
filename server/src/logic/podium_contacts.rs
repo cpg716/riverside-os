@@ -1257,6 +1257,23 @@ async fn fail_reconciliation_run(pool: &PgPool, run_id: Uuid, error: &str) {
     .await;
 }
 
+pub const RECONCILIATION_ALREADY_RUNNING: &str =
+    "A Podium contact reconciliation is already running.";
+
+pub async fn recover_interrupted_reconciliation_runs(pool: &PgPool) -> Result<u64, sqlx::Error> {
+    Ok(sqlx::query(
+        r#"
+        UPDATE podium_contact_reconciliation_run
+        SET status = 'failed', completed_at = NOW(),
+            error = 'Riverside restarted before reconciliation recorded completion.'
+        WHERE status = 'running'
+        "#,
+    )
+    .execute(pool)
+    .await?
+    .rows_affected())
+}
+
 pub async fn reconcile_all_contacts(
     pool: &PgPool,
     http: &reqwest::Client,
@@ -1287,7 +1304,7 @@ pub async fn reconcile_all_contacts(
                 .as_database_error()
                 .is_some_and(|db| db.is_unique_violation()) =>
         {
-            return Err("A Podium contact reconciliation is already running.".to_string());
+            return Err(RECONCILIATION_ALREADY_RUNNING.to_string());
         }
         Err(error) => return Err(error.to_string()),
     };

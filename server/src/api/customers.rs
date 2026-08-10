@@ -6303,9 +6303,13 @@ async fn post_podium_contact_reconciliation(
     )
     .await
     .map_err(|error| {
-        CustomerError::PodiumUnavailable(format!(
-            "Could not reconcile Podium contacts ({error}). Confirm read_contacts authorization and Integration credentials."
-        ))
+        if error == podium_contacts::RECONCILIATION_ALREADY_RUNNING {
+            CustomerError::Conflict(error)
+        } else {
+            CustomerError::PodiumUnavailable(format!(
+                "Could not reconcile Podium contacts ({error}). Confirm read_contacts authorization and Integration credentials."
+            ))
+        }
     })?;
     Ok(Json(result))
 }

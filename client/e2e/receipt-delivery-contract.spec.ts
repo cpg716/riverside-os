@@ -12,6 +12,9 @@ function repoFile(relativePath: string): string {
 const receiptBuilder = repoFile(
   "client/src/components/settings/ReceiptBuilderPanel.tsx",
 );
+const receiptDeliverySettings = repoFile(
+  "client/src/components/settings/ReceiptDeliverySettingsCard.tsx",
+);
 const saleComplete = repoFile(
   "client/src/components/pos/ReceiptSummaryModal.tsx",
 );
@@ -29,6 +32,7 @@ test("Receipt Builder can send the current preview to typed email and phone dest
   );
   expect(receiptBuilder).toContain("receiptHtmlToPngBase64");
   expect(receiptBuilder).toContain("png_base64: pngBase64");
+  expect(receiptBuilder).toContain("receipt_sms_enabled");
   expect(receiptBuilder).not.toContain("receiptEmailHtml");
   expect(settingsApi).toContain('"/receipt/test-email"');
   expect(settingsApi).toContain('"/receipt/test-sms"');
@@ -39,6 +43,26 @@ test("Receipt Builder can send the current preview to typed email and phone dest
   expect(settingsApi).toContain(
     "send_podium_phone_message_with_png_attachment",
   );
+  expect(settingsApi).toContain("podium_cfg.sms_features.receipts");
+  expect(settingsApi).toContain(
+    "podium_cfg.receipt_templates.merged_defaults().sms_caption",
+  );
+});
+
+test("Digital Receipt Delivery shows current Store Email and Podium readiness", () => {
+  expect(receiptDeliverySettings).toContain("Store Email");
+  expect(receiptDeliverySettings).toContain("Podium");
+  expect(receiptDeliverySettings).toContain("ui-pill");
+  expect(receiptDeliverySettings).toContain("/api/settings/email");
+  expect(receiptDeliverySettings).toContain("/api/settings/podium/readiness");
+  expect(receiptDeliverySettings).toContain("/api/mailbox/health");
+  expect(receiptDeliverySettings).toContain("/api/settings/podium/health");
+  expect(receiptDeliverySettings).toContain("credentials_configured");
+  expect(receiptDeliverySettings).toContain("location_uid_configured");
+  expect(receiptDeliverySettings).toContain("receipt_sms_enabled");
+  expect(receiptDeliverySettings).toContain("smtp_reachable");
+  expect(receiptDeliverySettings).toContain("podiumHealth?.reachable");
+  expect(receiptDeliverySettings).toContain("Save pending");
 });
 
 test("Sale Complete sends email through Store Email and text through Podium", () => {

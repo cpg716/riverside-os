@@ -1088,6 +1088,20 @@ async fn launch_server_inner(
         }
     });
 
+    match crate::logic::podium_contacts::recover_interrupted_reconciliation_runs(&state.db).await {
+        Ok(recovered) if recovered > 0 => tracing::warn!(
+            target: "podium",
+            recovered,
+            "Recovered Podium contact reconciliation runs interrupted by the previous server process"
+        ),
+        Ok(_) => {}
+        Err(error) => tracing::error!(
+            target: "podium",
+            error = %error,
+            "Could not recover interrupted Podium contact reconciliation runs"
+        ),
+    }
+
     let podium_contact_reconciliation_state = state.clone();
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(std::time::Duration::from_secs(6 * 60 * 60));

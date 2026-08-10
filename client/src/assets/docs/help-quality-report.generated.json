@@ -10,6 +10,15 @@
   },
   "screenshot_backlog": [
     {
+      "id": "loyalty-redeem-dialog",
+      "title": "Reward Redemption Dialog",
+      "source_path": "client/src/assets/docs/loyalty-redeem-dialog-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
       "id": "insights",
       "title": "Insights — conversational reporting",
       "source_path": "client/src/assets/docs/insights-manual.md",
@@ -2279,21 +2288,25 @@
         "content_unique_local": 3,
         "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
-        "reused_unique_local": 0,
+        "reused_unique_local": 3,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/loyalty-workspace/workflow-1.png",
-          "client/src/assets/images/help/loyalty-workspace/workflow-2.png",
-          "client/src/assets/images/help/loyalty-workspace/workflow-3.png"
+          "client/src/assets/images/help/loyalty-workspace/eligible.png",
+          "client/src/assets/images/help/loyalty-workspace/adjust-points.png",
+          "client/src/assets/images/help/loyalty-workspace/history.png"
         ],
         "manual_folder_paths": [
-          "client/src/assets/images/help/loyalty-workspace/workflow-1.png",
-          "client/src/assets/images/help/loyalty-workspace/workflow-2.png",
-          "client/src/assets/images/help/loyalty-workspace/workflow-3.png"
+          "client/src/assets/images/help/loyalty-workspace/eligible.png",
+          "client/src/assets/images/help/loyalty-workspace/adjust-points.png",
+          "client/src/assets/images/help/loyalty-workspace/history.png"
         ],
-        "reused_paths": []
+        "reused_paths": [
+          "client/src/assets/images/help/loyalty-workspace/eligible.png",
+          "client/src/assets/images/help/loyalty-workspace/adjust-points.png",
+          "client/src/assets/images/help/loyalty-workspace/history.png"
+        ]
       },
       "required_buckets": [
         {
@@ -2329,7 +2342,7 @@
           "present": false
         }
       ],
-      "numbered_steps": 11,
+      "numbered_steps": 13,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -2343,23 +2356,19 @@
         "local_refs": 3,
         "unique_local": 3,
         "content_unique_local": 3,
-        "dedicated_unique_local": 3,
-        "manual_folder_unique_local": 3,
-        "reused_unique_local": 0,
+        "dedicated_unique_local": 0,
+        "manual_folder_unique_local": 0,
+        "reused_unique_local": 3,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
-        "dedicated_paths": [
-          "client/src/assets/images/help/loyalty-redeem-dialog/workflow-1.png",
-          "client/src/assets/images/help/loyalty-redeem-dialog/workflow-2.png",
-          "client/src/assets/images/help/loyalty-redeem-dialog/workflow-3.png"
-        ],
-        "manual_folder_paths": [
-          "client/src/assets/images/help/loyalty-redeem-dialog/workflow-1.png",
-          "client/src/assets/images/help/loyalty-redeem-dialog/workflow-2.png",
-          "client/src/assets/images/help/loyalty-redeem-dialog/workflow-3.png"
-        ],
-        "reused_paths": []
+        "dedicated_paths": [],
+        "manual_folder_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/loyalty-workspace/eligible.png",
+          "client/src/assets/images/help/loyalty-workspace/history.png",
+          "client/src/assets/images/help/loyalty-workspace/adjust-points.png"
+        ]
       },
       "required_buckets": [
         {
@@ -2395,10 +2404,12 @@
           "present": false
         }
       ],
-      "numbered_steps": 5,
+      "numbered_steps": 4,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/loyalty-redeem-dialog/; target 3-4."
+      ]
     },
     {
       "id": "notifications-notification-center-bell",

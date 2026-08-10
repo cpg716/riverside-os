@@ -584,7 +584,6 @@ struct TestReceiptEmailBody {
 #[derive(Debug, Deserialize)]
 struct TestReceiptSmsBody {
     to_phone: String,
-    body: String,
     png_base64: String,
 }
 
@@ -648,6 +647,13 @@ async fn post_receipt_test_sms(
     Json(body): Json<TestReceiptSmsBody>,
 ) -> Result<Json<Value>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
+    let podium_cfg = crate::logic::podium::load_store_podium_config(&state.db).await?;
+    if !podium_cfg.sms_features.receipts {
+        return Err(SettingsError::InvalidPayload(
+            "Text receipt delivery is disabled under Digital receipt delivery in Receipt Settings."
+                .to_string(),
+        ));
+    }
     if crate::logic::podium::normalize_phone_e164(body.to_phone.trim()).is_none() {
         return Err(SettingsError::InvalidPayload(
             "Invalid test phone number.".to_string(),
@@ -661,16 +667,39 @@ async fn post_receipt_test_sms(
             "Receipt image is empty or too large for text delivery.".to_string(),
         ));
     }
+    let receipt_cfg: ReceiptConfig =
+        sqlx::query_scalar::<_, Value>("SELECT receipt_config FROM store_settings WHERE id = 1")
+            .fetch_optional(&state.db)
+            .await?
+            .and_then(|value| serde_json::from_value::<ReceiptConfig>(value).ok())
+            .unwrap_or_default()
+            .normalize_runtime();
+    let caption = crate::logic::podium::apply_template_placeholders(
+        &podium_cfg.receipt_templates.merged_defaults().sms_caption,
+        &[
+            ("store_name", receipt_cfg.store_name.trim()),
+            ("receipt_ref", "TEST"),
+            ("receipt_type", "Receipt builder test"),
+            ("customer_name", "Test customer"),
+            ("customer_code", "TEST"),
+        ],
+    );
     crate::logic::podium::send_podium_phone_message_with_png_attachment(
         &state.db,
         &state.http_client,
         &state.podium_token_cache,
         body.to_phone.trim(),
-        body.body.trim(),
+        &caption,
         png,
     )
     .await
-    .map_err(|error| SettingsError::InvalidPayload(format!("Test receipt text failed: {error}")))?;
+    .map_err(|error| match error {
+        crate::logic::podium::PodiumError::NotConfigured => SettingsError::InvalidPayload(
+            "Podium text delivery is not ready. Connect Podium and select a location in Settings → Podium, then enable Text receipts in Receipt Settings."
+                .to_string(),
+        ),
+        other => SettingsError::InvalidPayload(format!("Test receipt text failed: {other}")),
+    })?;
     Ok(Json(json!({ "status": "sent", "mode": "mms_attachment" })))
 }
 
@@ -3306,6 +3335,7 @@ struct PodiumSmsReadinessResponse {
     api_base: String,
     api_version: String,
     sms_send_enabled: bool,
+    receipt_sms_enabled: bool,
     location_uid_configured: bool,
     widget_embed_enabled: bool,
 }
@@ -3332,6 +3362,7 @@ async fn get_podium_sms_readiness(
         api_base: podium_effective_rest_api_base(&state.db).await,
         api_version: podium_api_version(),
         sms_send_enabled: cfg.sms_send_enabled,
+        receipt_sms_enabled: cfg.sms_features.receipts,
         location_uid_configured: !cfg.location_uid.trim().is_empty(),
         widget_embed_enabled: cfg.widget_embed_enabled,
     }))

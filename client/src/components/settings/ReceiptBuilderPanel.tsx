@@ -17,7 +17,10 @@ import {
 } from "../../lib/receiptPrint";
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
-import { duplicateReceiptTokens } from "./receiptTemplateValidation";
+import {
+  duplicateReceiptTokens,
+  missingRequiredReceiptTokens,
+} from "./receiptTemplateValidation";
 import ReceiptDeliverySettingsCard from "./ReceiptDeliverySettingsCard";
 
 const EPSON_RECEIPT_CPL = 48;
@@ -116,6 +119,12 @@ export interface ReceiptConfig {
   receiptline_template?: string | null;
   receiptline_pickup_template?: string | null;
 }
+
+type PodiumTextReadiness = {
+  credentials_configured: boolean;
+  location_uid_configured: boolean;
+  receipt_sms_enabled: boolean;
+};
 
 const DEFAULT_RECEIPTLINE_TEMPLATE = `{{LOGO_IMAGE}}
 {{HEADER_LINES}}
@@ -295,6 +304,8 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   );
   const [testEmail, setTestEmail] = useState("");
   const [testPhone, setTestPhone] = useState("");
+  const [podiumTextReadiness, setPodiumTextReadiness] =
+    useState<PodiumTextReadiness | null>(null);
   const [receiptLogoBase64, setReceiptLogoBase64] = useState("");
   const [activeTab, setActiveTab] = useState<"standard" | "pickup">("standard");
   const [previewScenario, setPreviewScenario] =
@@ -303,17 +314,28 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   const load = useCallback(async () => {
     setSettingsReady(false);
     try {
-      const res = await fetch(`${baseUrl}/api/settings/receipt`, {
-        headers: backofficeHeaders() as Record<string, string>,
-      });
+      const headers = backofficeHeaders() as Record<string, string>;
+      const [res, podiumReadinessResponse] = await Promise.all([
+        fetch(`${baseUrl}/api/settings/receipt`, { headers }),
+        fetch(`${baseUrl}/api/settings/podium/readiness`, {
+          headers,
+          cache: "no-store",
+        }).catch(() => null),
+      ]);
       if (res.ok) {
         setCfg((await res.json()) as ReceiptConfig);
       } else {
         setCfg(null);
         toast("Could not load receipt settings", "error");
       }
+      setPodiumTextReadiness(
+        podiumReadinessResponse?.ok
+          ? ((await podiumReadinessResponse.json()) as PodiumTextReadiness)
+          : null,
+      );
     } catch {
       setCfg(null);
+      setPodiumTextReadiness(null);
       toast("Could not load receipt settings", "error");
     } finally {
       setSettingsReady(true);
@@ -385,6 +407,9 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
     activeTab === "standard"
       ? standardEffectiveTemplate
       : pickupEffectiveTemplate;
+  const selectedPreviewScenario = RECEIPT_PREVIEW_SCENARIOS.find(
+    (scenario) => scenario.value === previewScenario,
+  );
   const headerLineValues = [
     cfg.show_address
       ? cfg.store_address?.trim() || "6470 Transit Rd, Depew, NY"
@@ -673,40 +698,18 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replaceAll("{{FOOTER_LINES}}", centeredLines(cfg.footer_lines))
       .replaceAll("{{CUT}}", "=");
 
-  const commonRequiredTokens = [
-    "{{RECEIPT_TITLE}}",
-    "{{RECEIPT_ID}}",
-    "{{RECEIPT_DATE}}",
-    "{{CUSTOMER_LINE}}",
-    "{{SALESPERSON_LINE}}",
-    "{{CASHIER_LINE}}",
-    "{{REGISTER_LINE}}",
-    "{{ITEM_LINES}}",
-    "{{PAYMENT_BLOCK}}",
-    "{{SUBTOTAL_LINE}}",
-    "{{TAX_LINE}}",
-    "{{TOTAL_LINE}}",
-    "{{PAID_LINE}}",
-    "{{BALANCE_LINE}}",
-    "{{STATUS_LINE}}",
-  ];
-  const requiredTokens = [
-    ...commonRequiredTokens,
-    ...(activeTab === "standard"
-      ? ["{{TENDER_LINE}}"]
-      : ["{{PAYMENT_HISTORY_BLOCK}}"]),
-  ];
-  const missingRequiredTokens = requiredTokens.filter(
-    (token) => !effectiveTemplate.includes(token),
+  const missingRequiredTokens = missingRequiredReceiptTokens(
+    effectiveTemplate,
+    activeTab,
   );
-  const standardMissingTokens = [
-    ...commonRequiredTokens,
-    "{{TENDER_LINE}}",
-  ].filter((token) => !standardEffectiveTemplate.includes(token));
-  const pickupMissingTokens = [
-    ...commonRequiredTokens,
-    "{{PAYMENT_HISTORY_BLOCK}}",
-  ].filter((token) => !pickupEffectiveTemplate.includes(token));
+  const standardMissingTokens = missingRequiredReceiptTokens(
+    standardEffectiveTemplate,
+    "standard",
+  );
+  const pickupMissingTokens = missingRequiredReceiptTokens(
+    pickupEffectiveTemplate,
+    "pickup",
+  );
   const standardDuplicateTokens = duplicateReceiptTokens(
     standardEffectiveTemplate,
   );
@@ -720,6 +723,22 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
     pickupDuplicateTokens.length > 0;
   const activeTemplateInvalid =
     missingRequiredTokens.length > 0 || duplicateRequiredTokens.length > 0;
+  const standardIssueCount =
+    standardMissingTokens.length + standardDuplicateTokens.length;
+  const pickupIssueCount =
+    pickupMissingTokens.length + pickupDuplicateTokens.length;
+
+  const restoreTemplate = (kind: "standard" | "pickup") => {
+    setCfg({
+      ...cfg,
+      [kind === "standard"
+        ? "receiptline_template"
+        : "receiptline_pickup_template"]:
+        kind === "standard"
+          ? DEFAULT_RECEIPTLINE_TEMPLATE
+          : DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE,
+    });
+  };
 
   const printTestReceipt = async () => {
     setTestPrinting(true);
@@ -745,8 +764,12 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
     if (!destination) {
       toast(
         `Enter a test ${channel === "email" ? "email address" : "phone number"}.`,
-        "error",
+        "info",
       );
+      return;
+    }
+    if (channel === "sms" && !podiumTextReady) {
+      toast(podiumTextUnavailableReason, "info");
       return;
     }
     setTestDelivery(channel);
@@ -767,7 +790,6 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
             }
           : {
               to_phone: destination,
-              body: `${cfg.store_name} — Receipt builder test (image attached).`,
               png_base64: pngBase64,
             };
       const res = await fetch(
@@ -806,6 +828,20 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       }),
     ),
   );
+  const podiumTextReady = Boolean(
+    podiumTextReadiness?.credentials_configured &&
+      podiumTextReadiness.location_uid_configured &&
+      podiumTextReadiness.receipt_sms_enabled,
+  );
+  const podiumTextUnavailableReason = !podiumTextReadiness
+    ? "Podium text readiness could not be confirmed. Open Settings → Podium and check the connection."
+    : !podiumTextReadiness.credentials_configured
+      ? "Connect the Podium account in Settings → Podium before testing receipt texts."
+      : !podiumTextReadiness.location_uid_configured
+        ? "Select and save a Podium location in Settings → Podium before testing receipt texts."
+        : !podiumTextReadiness.receipt_sms_enabled
+          ? "Enable Text receipts and save Digital receipt delivery below before testing receipt texts."
+          : "";
 
   return (
     <div className="space-y-8">
@@ -873,10 +909,13 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
             >
               {RECEIPT_PREVIEW_SCENARIOS.map((scenario) => (
                 <option key={scenario.value} value={scenario.value}>
-                  {scenario.label} — {scenario.description}
+                  {scenario.label}
                 </option>
               ))}
             </select>
+            <span className="mt-2 block text-[10px] font-semibold leading-relaxed text-app-text-muted">
+              {selectedPreviewScenario?.description}
+            </span>
           </label>
         </div>
       </section>
@@ -898,31 +937,38 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={saveReceiptSettings}
-                disabled={busy || hasInvalidSavedTemplate}
-                className="flex h-10 items-center gap-2 rounded-xl bg-app-text px-6 text-[10px] font-black uppercase tracking-widest text-white transition-all hover:bg-black/80 disabled:opacity-50"
-              >
-                {busy ? (
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Save size={14} />
-                )}
-                Apply
-              </button>
-              <button
-                type="button"
-                onClick={() => void printTestReceipt()}
-                disabled={testPrinting || activeTemplateInvalid}
-                className="flex h-10 items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 text-[10px] font-black uppercase tracking-widest text-emerald-700 transition-all hover:bg-emerald-500/15 disabled:opacity-50 dark:text-emerald-300"
-              >
-                {testPrinting ? (
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                ) : (
-                  <FileText size={14} />
-                )}
-                Print Test
-              </button>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <button
+                  onClick={saveReceiptSettings}
+                  disabled={busy || hasInvalidSavedTemplate}
+                  title={
+                    hasInvalidSavedTemplate
+                      ? "Restore the receipt template fields shown below before applying."
+                      : undefined
+                  }
+                  className="flex h-10 items-center gap-2 rounded-xl bg-app-text px-6 text-[10px] font-black uppercase tracking-widest text-white transition-all hover:bg-black/80 disabled:opacity-50"
+                >
+                  {busy ? (
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Save size={14} />
+                  )}
+                  Apply changes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void printTestReceipt()}
+                  disabled={testPrinting || activeTemplateInvalid}
+                  className="flex h-10 items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 text-[10px] font-black uppercase tracking-widest text-emerald-700 transition-all hover:bg-emerald-500/15 disabled:opacity-50 dark:text-emerald-300"
+                >
+                  {testPrinting ? (
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <FileText size={14} />
+                  )}
+                  Print test
+                </button>
+              </div>
             </div>
 
             <div className="mt-6 rounded-xl border border-app-border bg-app-surface-2 p-4">
@@ -962,14 +1008,20 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     type="tel"
                     value={testPhone}
                     onChange={(event) => setTestPhone(event.target.value)}
+                    disabled={!podiumTextReady}
                     className="ui-input w-full text-xs"
                     placeholder="(716) 555-0199"
                     aria-label="Test receipt phone number"
+                    aria-describedby="receipt-test-text-readiness"
                   />
                   <button
                     type="button"
                     onClick={() => void sendTestReceipt("sms")}
-                    disabled={testDelivery !== null || activeTemplateInvalid}
+                    disabled={
+                      testDelivery !== null ||
+                      activeTemplateInvalid ||
+                      !podiumTextReady
+                    }
                     className="ui-btn-secondary inline-flex h-10 w-full items-center justify-center gap-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                   >
                     {testDelivery === "sms" ? (
@@ -977,6 +1029,14 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     ) : null}
                     Send Test Text
                   </button>
+                  {!podiumTextReady ? (
+                    <p
+                      id="receipt-test-text-readiness"
+                      className="text-[10px] font-semibold leading-relaxed text-app-warning"
+                    >
+                      {podiumTextUnavailableReason}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -1145,6 +1205,11 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   }`}
                 >
                   Standard Template
+                  {standardIssueCount > 0 ? (
+                    <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-700 dark:text-amber-300">
+                      {standardIssueCount}
+                    </span>
+                  ) : null}
                 </button>
                 <button
                   type="button"
@@ -1159,6 +1224,11 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   }`}
                 >
                   Picked Up Template
+                  {pickupIssueCount > 0 ? (
+                    <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-700 dark:text-amber-300">
+                      {pickupIssueCount}
+                    </span>
+                  ) : null}
                 </button>
               </div>
 
@@ -1223,21 +1293,13 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   ))}
                   <button
                     type="button"
-                    onClick={() =>
-                      setCfg({
-                        ...cfg,
-                        [activeTab === "standard"
-                          ? "receiptline_template"
-                          : "receiptline_pickup_template"]:
-                          activeTab === "standard"
-                            ? DEFAULT_RECEIPTLINE_TEMPLATE
-                            : DEFAULT_RECEIPTLINE_PICKUP_TEMPLATE,
-                      })
-                    }
+                    onClick={() => restoreTemplate(activeTab)}
                     className="inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-amber-700 transition-colors hover:bg-amber-500/15"
                   >
                     <RotateCcw className="h-3 w-3" />
-                    Reset {activeTab === "standard" ? "Standard" : "Picked Up"}
+                    Restore{" "}
+                    {activeTab === "standard" ? "Standard" : "Picked Up"}{" "}
+                    default
                   </button>
                 </div>
                 <textarea
@@ -1267,10 +1329,21 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                       className="mt-0.5 h-4 w-4 shrink-0 text-amber-700"
                       aria-hidden
                     />
-                    <p className="text-[10px] font-bold leading-relaxed text-amber-800">
-                      Restore required receipt fields before applying, printing,
-                      or sending: {missingRequiredTokens.join(", ")}.
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold leading-relaxed text-amber-800">
+                        Restore required receipt fields before applying,
+                        printing, or sending: {missingRequiredTokens.join(", ")}.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => restoreTemplate(activeTab)}
+                        className="ui-btn-secondary h-8 px-3 text-[9px] font-black uppercase tracking-widest"
+                      >
+                        Restore{" "}
+                        {activeTab === "standard" ? "Standard" : "Picked Up"}{" "}
+                        default
+                      </button>
+                    </div>
                   </div>
                 ) : null}
                 {!activeTemplateInvalid && hasInvalidSavedTemplate ? (
@@ -1279,15 +1352,40 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                       className="mt-0.5 h-4 w-4 shrink-0 text-amber-700"
                       aria-hidden
                     />
-                    <p className="text-[10px] font-bold leading-relaxed text-amber-800">
-                      Apply is unavailable until the{" "}
-                      {standardMissingTokens.length > 0 ||
-                      standardDuplicateTokens.length > 0
-                        ? "Standard"
-                        : "Picked Up"}{" "}
-                      template is restored. Open that tab to see the fields that
-                      need attention.
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-[10px] font-bold leading-relaxed text-amber-800">
+                        Apply is unavailable because the{" "}
+                        {standardIssueCount > 0 ? "Standard" : "Picked Up"}{" "}
+                        template has missing or duplicate protected fields.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const invalidKind =
+                              standardIssueCount > 0 ? "standard" : "pickup";
+                            setActiveTab(invalidKind);
+                            setPreviewScenario(
+                              invalidKind === "pickup" ? "pickup" : "mixed",
+                            );
+                          }}
+                          className="ui-btn-secondary h-8 px-3 text-[9px] font-black uppercase tracking-widest"
+                        >
+                          Open affected template
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            restoreTemplate(
+                              standardIssueCount > 0 ? "standard" : "pickup",
+                            )
+                          }
+                          className="ui-btn-secondary h-8 px-3 text-[9px] font-black uppercase tracking-widest"
+                        >
+                          Restore Riverside default
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 ) : null}
                 {duplicateRequiredTokens.length > 0 ? (
