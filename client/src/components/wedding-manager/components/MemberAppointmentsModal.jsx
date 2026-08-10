@@ -4,8 +4,6 @@ import { api } from '../lib/api';
 import SchedulerModal from './SchedulerModal';
 import { activateOnEnterOrSpace } from '../../../lib/interaction';
 
-import { useModal } from '../hooks/useModal';
-
 const localDateKey = (date) => {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -14,7 +12,6 @@ const localDateKey = (date) => {
 };
 
 const MemberAppointmentsModal = ({ isOpen, onClose, member, parties, onRefresh }) => {
-    const { showConfirm, selectSalesperson } = useModal();
     const [appointments, setAppointments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isSchedulerOpen, setIsSchedulerOpen] = useState(false);
@@ -43,45 +40,16 @@ const MemberAppointmentsModal = ({ isOpen, onClose, member, parties, onRefresh }
             futureBound.setFullYear(futureBound.getFullYear() + 2);
             const startStr = pastBound.toISOString().slice(0, 10) + 'T00:00:00';
             const endStr   = futureBound.toISOString().slice(0, 10) + 'T23:59:59';
-            const allAppts = await api.getAppointments(startStr, endStr);
-            const memberAppts = (allAppts || []).filter(a =>
-                a.memberId === member.id ||
-                (member.partyId && a.partyId === member.partyId)
-            );
+            const allAppts = await api.getAppointments(startStr, endStr, {
+                member_id: member.id,
+                limit: 500,
+            });
+            const memberAppts = allAppts || [];
             setAppointments(memberAppts.sort((a, b) => a.datetime.localeCompare(b.datetime)));
         } catch (err) {
             console.error("Failed to fetch appointments:", err);
         } finally {
             setLoading(false);
-        }
-    };
-
-    const handleDelete = async (id) => {
-        const apptToDelete = appointments.find(a => a.id === id);
-        if (!apptToDelete) return;
-
-        const confirmed = await showConfirm("Are you sure you want to delete this appointment?", "Delete Appointment", { variant: 'danger', confirmText: 'Delete' });
-        if (!confirmed) return;
-
-        const deletedBy = await selectSalesperson();
-        if (!deletedBy) return;
-
-        try {
-            await api.deleteAppointment(id, deletedBy);
-
-            // Log to Contact History
-            const apptDate = new Date(apptToDelete.datetime).toLocaleDateString();
-            const newNote = `Deleted appointment on ${apptDate} - ${deletedBy}`;
-            const historyEntry = { date: localDateKey(new Date()), note: newNote, id: Date.now() };
-
-            const updatedHistory = [...(member.contactHistory || []), historyEntry];
-            await api.updateMember(member.id, { contactHistory: updatedHistory });
-
-            fetchAppointments();
-            if (onRefresh) onRefresh();
-        } catch (err) {
-            console.error("Failed to delete:", err);
-            showConfirm(`Failed to delete appointment. Please try again.`, 'Error', { variant: 'danger', confirmText: 'OK', cancelText: null });
         }
     };
 
@@ -147,13 +115,6 @@ const MemberAppointmentsModal = ({ isOpen, onClose, member, parties, onRefresh }
                                         )}
                                         <div className="text-xs text-blue-500 mt-1 font-bold">Click to View/Edit in Schedule</div>
                                     </div>
-                                    <button type="button"
-                                        onClick={(e) => { e.stopPropagation(); handleDelete(appt.id); }}
-                                        className="text-app-text-muted hover:text-red-500 p-2 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                                        title="Delete Appointment"
-                                    >
-                                        <Icon name="Trash" size={16} />
-                                    </button>
                                 </div>
                             ))}
                         </div>
@@ -194,6 +155,7 @@ const MemberAppointmentsModal = ({ isOpen, onClose, member, parties, onRefresh }
                     phone: member.phone,
                     partyId: member.partyId,
                     memberId: member.id,
+                    customerId: member.customerId,
                     type: apptType,
                     salesperson: partySalesperson,
                     initialDate: jumpDate

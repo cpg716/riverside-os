@@ -22,11 +22,11 @@
 ## Scheduler
 
 1. **Appointments** → **Scheduler**.
-2. Pick **date** and **resource** (room, chair, stylist) per UI.
-3. **New** → duration, **type**, **title/notes**.
-4. **Customer** search — use **Load more**; minimum character rules apply on some searches.
+2. Pick the **date**, then choose a 15-minute time slot or **New Appt**.
+3. Set the duration, type, optional room/resource, staff member, and notes.
+4. Search for a Customer, or type a name or phone for a one-off visit. Use a Customer record when messages and Customer history are needed.
 5. Optionally link **wedding party** or **member** if the visit is party-related.
-6. **Save**; confirm on **week** view.
+6. **Save** and confirm the booking appears in Day or Week view.
 
 When a selected day has no appointments, the Scheduler says so above the time grid. Select **New Appointment** there or choose any time slot below; an empty grid is not a loading result.
 
@@ -36,8 +36,9 @@ When a selected day has no appointments, the Scheduler says so above the time gr
 
 1. **Appointments** → **Conflicts**.
 2. Review **double-booked** resources or overlapping times.
-3. **Drag** or **edit** one booking to a free slot — or split **resources** if two staff can run parallel.
-4. Add **note** if conflict was **intentional** (e.g. shared fitting suite with stagger).
+3. Open a conflict and edit one booking to a free slot, change the assigned resource, or increase a real shared resource's capacity when operationally correct.
+4. An intentional overlap requires Manager Access and a written reason. ROS keeps that override in the audit history.
+5. Managers can add or edit rooms/resources in this subsection. Capacity is the number of simultaneous Scheduled appointments allowed to reserve that resource.
 
 ## Weddings vs Appointments
 
@@ -50,14 +51,14 @@ When a selected day has no appointments, the Scheduler says so above the time gr
 
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
-| Customer not found | Broader search; **Load more** | Quick-add profile first |
-| Slot won’t save | **Min duration**; **blackout** | Manager |
+| Customer not found | Search name, phone, or Customer # | Create the Customer first, or use a one-off name/phone when no Customer history or messages are needed |
+| Slot won’t save | Check the staff schedule, duration, and resource overlap message | Choose another slot; use Manager Access only for an intentional, documented exception |
 | Wrong timezone | **Receipt / store** timezone | Settings → General |
-| Conflict false positive | **Refresh** | Check **resource** definition |
+| Conflict looks wrong | Open the conflicting appointment and compare its full start/end time | Check the resource capacity and assigned staff before escalating |
 
 ## Helping a coworker
 
-- Read **appointment ID** or **time + room** from confirmation email when customer shows phone.
+- Confirm the Customer name, appointment type, and local date/time from the confirmation before opening the exact booking in Search.
 
 ## When to get a manager
 
@@ -71,4 +72,4 @@ When a selected day has no appointments, the Scheduler says so above the time gr
 - [weddings-back-office.md](weddings-back-office.md)
 - [../APPOINTMENTS_AND_CALENDAR.md](../APPOINTMENTS_AND_CALENDAR.md)
 
-**Last reviewed:** 2026-07-26
+**Last reviewed:** 2026-08-10

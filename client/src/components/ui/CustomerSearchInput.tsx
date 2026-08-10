@@ -7,6 +7,7 @@ import type { Customer } from "../pos/CustomerSelector";
 
 interface CustomerSearchInputProps {
   onSelect: (customer: Customer) => void;
+  onQueryChange?: (query: string) => void;
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
@@ -19,6 +20,7 @@ interface CustomerSearchInputProps {
 
 export default function CustomerSearchInput({
   onSelect,
+  onQueryChange,
   placeholder = "Search customers by name, phone, email…",
   className = "",
   autoFocus = false,
@@ -42,6 +44,10 @@ export default function CustomerSearchInput({
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const suppressNextSearchRef = useRef(false);
+
+  useEffect(() => {
+    setQuery(effectiveInitial);
+  }, [effectiveInitial]);
 
   const performSearch = useCallback(async (q: string) => {
     if (q.trim().length < 2) {
@@ -129,7 +135,10 @@ export default function CustomerSearchInput({
         <input
           type="text"
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            onQueryChange?.(e.target.value);
+          }}
           placeholder={placeholder}
           autoFocus={autoFocus}
           onFocus={() => query.trim() && setIsOpen(true)}

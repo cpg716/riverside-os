@@ -1033,7 +1033,11 @@ pub async fn upsert_appointment_document(client: &Client, pool: &PgPool, appt_id
         id: Uuid,
         customer_first: Option<String>,
         customer_last: Option<String>,
+        customer_display_name: Option<String>,
+        phone: Option<String>,
         party_name: Option<String>,
+        appointment_type: String,
+        salesperson: Option<String>,
         notes: Option<String>,
         status: String,
     }
@@ -1044,11 +1048,16 @@ pub async fn upsert_appointment_document(client: &Client, pool: &PgPool, appt_id
             a.id,
             c.first_name AS customer_first,
             c.last_name AS customer_last,
+            a.customer_display_name,
+            a.phone,
             wp.party_name,
+            a.appointment_type,
+            a.salesperson,
             a.notes,
             a.status
         FROM wedding_appointments a
-        LEFT JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN wedding_members wm ON wm.id = a.wedding_member_id
+        LEFT JOIN customers c ON c.id = COALESCE(a.customer_id, wm.customer_id)
         LEFT JOIN wedding_parties wp ON wp.id = a.wedding_party_id
         WHERE a.id = $1
         "#,
@@ -1078,16 +1087,21 @@ pub async fn upsert_appointment_document(client: &Client, pool: &PgPool, appt_id
     };
 
     let search_text = format!(
-        "{} {} {} {}",
+        "{} {} {} {} {} {} {} {} {}",
         row.customer_first.as_deref().unwrap_or(""),
         row.customer_last.as_deref().unwrap_or(""),
+        row.customer_display_name.as_deref().unwrap_or(""),
+        row.phone.as_deref().unwrap_or(""),
         row.party_name.as_deref().unwrap_or(""),
+        row.appointment_type,
+        row.salesperson.as_deref().unwrap_or(""),
+        row.status,
         row.notes.as_deref().unwrap_or("")
     );
 
     let doc = AppointmentDoc {
         id: row.id.to_string(),
-        is_cancelled: row.status == "Cancelled",
+        is_cancelled: row.status.eq_ignore_ascii_case("Cancelled"),
         search_text,
     };
 
@@ -2172,9 +2186,11 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
     let mut appointment_tasks = Vec::new();
     let mut appt_stream = sqlx::query(
         r#"
-        SELECT a.id, c.first_name, c.last_name, wp.party_name, a.notes, a.status::text as status
+        SELECT a.id, c.first_name, c.last_name, a.customer_display_name, a.phone,
+               wp.party_name, a.appointment_type, a.salesperson, a.notes, a.status::text as status
         FROM wedding_appointments a
-        LEFT JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN wedding_members wm ON wm.id = a.wedding_member_id
+        LEFT JOIN customers c ON c.id = COALESCE(a.customer_id, wm.customer_id)
         LEFT JOIN wedding_parties wp ON wp.id = a.wedding_party_id
         "#,
     )
@@ -2185,18 +2201,33 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
         let row = res?;
         use sqlx::Row;
         let status = row.get::<Option<String>, _>("status");
-        let is_cancelled = status.as_deref() == Some("Cancelled");
+        let is_cancelled = status
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("Cancelled"));
         let search_text = format!(
-            "{} {} {} {}",
+            "{} {} {} {} {} {} {} {} {}",
             row.get::<Option<String>, _>("first_name")
                 .as_deref()
                 .unwrap_or(""),
             row.get::<Option<String>, _>("last_name")
                 .as_deref()
                 .unwrap_or(""),
+            row.get::<Option<String>, _>("customer_display_name")
+                .as_deref()
+                .unwrap_or(""),
+            row.get::<Option<String>, _>("phone")
+                .as_deref()
+                .unwrap_or(""),
             row.get::<Option<String>, _>("party_name")
                 .as_deref()
                 .unwrap_or(""),
+            row.get::<Option<String>, _>("appointment_type")
+                .as_deref()
+                .unwrap_or(""),
+            row.get::<Option<String>, _>("salesperson")
+                .as_deref()
+                .unwrap_or(""),
+            status.as_deref().unwrap_or(""),
             row.get::<Option<String>, _>("notes")
                 .as_deref()
                 .unwrap_or("")

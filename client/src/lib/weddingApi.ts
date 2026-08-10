@@ -5,6 +5,7 @@ const baseUrl = getBaseUrl();
 export type WeddingAppointmentClient = {
   id: string;
   datetime: string;
+  endsAt: string;
   customerName?: string | null;
   phone?: string | null;
   type: string;
@@ -15,12 +16,16 @@ export type WeddingAppointmentClient = {
   partyId?: string | null;
   customerId?: string | null;
   notes?: string;
+  serviceTypeId?: string | null;
+  resourceIds: string[];
+  revision: number;
 };
 
 function mapAppointmentRow(a: Record<string, unknown>): WeddingAppointmentClient {
   return {
     id: String(a.id),
     datetime: String(a.starts_at ?? a.datetime ?? ""),
+    endsAt: String(a.ends_at ?? a.endsAt ?? a.starts_at ?? a.datetime ?? ""),
     customerName: (a.customer_display_name as string) ?? null,
     phone: (a.phone as string) ?? null,
     type: String(a.appointment_type ?? a.type ?? "Measurement"),
@@ -31,8 +36,38 @@ function mapAppointmentRow(a: Record<string, unknown>): WeddingAppointmentClient
     partyId: a.wedding_party_id != null ? String(a.wedding_party_id) : null,
     customerId: a.customer_id != null ? String(a.customer_id) : null,
     notes: (a.notes as string) ?? "",
+    serviceTypeId: a.service_type_id != null ? String(a.service_type_id) : null,
+    resourceIds: Array.isArray(a.resource_ids) ? a.resource_ids.map(String) : [],
+    revision: Number(a.revision ?? 1),
   };
 }
+
+export type AppointmentServiceType = {
+  id: string;
+  code: string;
+  display_name: string;
+  duration_minutes: number;
+  buffer_before_minutes: number;
+  buffer_after_minutes: number;
+};
+
+export type AppointmentResource = {
+  id: string;
+  name: string;
+  capacity: number;
+  notes?: string | null;
+};
+
+export type AppointmentConflict = {
+  appointment_id: string;
+  customer_display_name?: string | null;
+  appointment_type: string;
+  starts_at: string;
+  ends_at: string;
+  salesperson?: string | null;
+  salesperson_staff_id?: string | null;
+  resource_names: string[];
+};
 
 export type RosCustomerSearchHit = {
   id: string;
@@ -120,6 +155,10 @@ export const weddingApi = {
       salesperson?: string | null;
       salespersonStaffId?: string | null;
       scheduleOverrideReason?: string | null;
+      conflictOverrideReason?: string | null;
+      durationMinutes?: number;
+      serviceTypeId?: string | null;
+      resourceIds?: string[];
     },
     opts?: WeddingApiFetchOpts,
   ) {
@@ -135,6 +174,10 @@ export const weddingApi = {
       salesperson: data.salesperson?.trim() || null,
       salesperson_staff_id: data.salespersonStaffId?.trim() || null,
       schedule_override_reason: data.scheduleOverrideReason?.trim() || null,
+      conflict_override_reason: data.conflictOverrideReason?.trim() || null,
+      duration_minutes: data.durationMinutes,
+      service_type_id: data.serviceTypeId?.trim() || null,
+      resource_ids: data.resourceIds ?? [],
     };
     const headers = new Headers(opts?.headers ?? undefined);
     headers.set("Content-Type", "application/json");
@@ -164,6 +207,16 @@ export const weddingApi = {
       salesperson?: string | null;
       salespersonStaffId?: string | null;
       scheduleOverrideReason?: string | null;
+      conflictOverrideReason?: string | null;
+      cancellationReason?: string | null;
+      durationMinutes?: number;
+      serviceTypeId?: string | null;
+      resourceIds?: string[];
+      expectedRevision?: number;
+      completeMemberMilestone?: boolean;
+      clearWeddingLink?: boolean;
+      clearCustomerLink?: boolean;
+      clearSalesperson?: boolean;
     },
     opts?: WeddingApiFetchOpts,
   ) {
@@ -178,6 +231,16 @@ export const weddingApi = {
       salesperson: data.salesperson?.trim() ?? undefined,
       salesperson_staff_id: data.salespersonStaffId?.trim() || undefined,
       schedule_override_reason: data.scheduleOverrideReason?.trim() || undefined,
+      conflict_override_reason: data.conflictOverrideReason?.trim() || undefined,
+      cancellation_reason: data.cancellationReason?.trim() || undefined,
+      duration_minutes: data.durationMinutes,
+      service_type_id: data.serviceTypeId?.trim() || undefined,
+      resource_ids: data.resourceIds,
+      expected_revision: data.expectedRevision,
+      complete_member_milestone: data.completeMemberMilestone ?? false,
+      clear_wedding_link: data.clearWeddingLink ?? false,
+      clear_customer_link: data.clearCustomerLink ?? false,
+      clear_salesperson: data.clearSalesperson ?? false,
     };
     if (data.datetime) {
       payload.starts_at = new Date(data.datetime).toISOString();
@@ -217,17 +280,95 @@ export const weddingApi = {
   },
 
   async getAppointments(
-    params: { from?: string; to?: string; headers?: Record<string, string> } = {},
+    params: {
+      from?: string;
+      to?: string;
+      partyId?: string;
+      memberId?: string;
+      customerId?: string;
+      resourceId?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
+      headers?: Record<string, string>;
+    } = {},
   ): Promise<WeddingAppointmentClient[]> {
     const q = new URLSearchParams();
-    if (params.from) q.set("from", params.from);
-    if (params.to) q.set("to", params.to);
+    if (params.from) q.set("from", new Date(params.from).toISOString());
+    if (params.to) q.set("to", new Date(params.to).toISOString());
+    if (params.partyId) q.set("party_id", params.partyId);
+    if (params.memberId) q.set("member_id", params.memberId);
+    if (params.customerId) q.set("customer_id", params.customerId);
+    if (params.resourceId) q.set("resource_id", params.resourceId);
+    if (params.status) q.set("status", params.status);
+    if (params.limit != null) q.set("limit", String(params.limit));
+    if (params.offset != null) q.set("offset", String(params.offset));
     const res = await fetch(`${baseUrl}/api/weddings/appointments?${q}`, {
       headers: params.headers,
     });
     if (!res.ok) throw new Error("Failed to fetch appointments");
     const rows: Record<string, unknown>[] = await res.json();
     return rows.map(mapAppointmentRow);
+  },
+
+  async getAppointmentServiceTypes(opts?: WeddingApiFetchOpts): Promise<AppointmentServiceType[]> {
+    const res = await fetch(`${baseUrl}/api/weddings/appointments/service-types`, {
+      headers: opts?.headers,
+      signal: opts?.signal,
+    });
+    if (!res.ok) throw new Error("Failed to fetch appointment service types");
+    return res.json();
+  },
+
+  async getAppointmentResources(opts?: WeddingApiFetchOpts): Promise<AppointmentResource[]> {
+    const res = await fetch(`${baseUrl}/api/weddings/appointments/resources`, {
+      headers: opts?.headers,
+      signal: opts?.signal,
+    });
+    if (!res.ok) throw new Error("Failed to fetch appointment resources");
+    return res.json();
+  },
+
+  async saveAppointmentResource(
+    data: { id?: string; name: string; capacity: number; notes?: string | null; isActive?: boolean },
+    opts?: WeddingApiFetchOpts,
+  ): Promise<AppointmentResource> {
+    const headers = new Headers(opts?.headers ?? undefined);
+    headers.set("Content-Type", "application/json");
+    const res = await fetch(
+      data.id
+        ? `${baseUrl}/api/weddings/appointments/resources/${data.id}`
+        : `${baseUrl}/api/weddings/appointments/resources`,
+      {
+        method: data.id ? "PATCH" : "POST",
+        headers,
+        body: JSON.stringify({
+          name: data.name,
+          capacity: data.capacity,
+          notes: data.notes?.trim() || null,
+          is_active: data.isActive ?? true,
+        }),
+      },
+    );
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? "Failed to save appointment resource");
+    }
+    return res.json();
+  },
+
+  async getAppointmentConflicts(
+    params: { from: string; to: string; headers?: Record<string, string> },
+  ): Promise<AppointmentConflict[]> {
+    const q = new URLSearchParams({
+      from: new Date(params.from).toISOString(),
+      to: new Date(params.to).toISOString(),
+    });
+    const res = await fetch(`${baseUrl}/api/weddings/appointments/conflicts?${q}`, {
+      headers: params.headers,
+    });
+    if (!res.ok) throw new Error("Failed to fetch appointment conflicts");
+    return res.json();
   },
 
   async attachOrderToWedding(

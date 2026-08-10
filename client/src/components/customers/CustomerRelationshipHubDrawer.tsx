@@ -607,7 +607,12 @@ export interface CustomerRelationshipHubDrawerProps {
   onNavigateRegister?: () => void;
   navigateAfterStartSale?: boolean;
   onAddToWedding?: () => void;
-  onBookAppointment?: () => void;
+  onBookAppointment?: (customer: {
+    customerId: string;
+    customerName: string;
+    phone?: string | null;
+  }) => void;
+  onOpenAppointment?: (appointmentId: string) => void;
   onOpenOrderInBackoffice?: (orderId: string) => void;
   onOpenTransactionInBackoffice?: (orderId: string) => void;
   onSwitchCustomer?: (c: Customer) => void;
@@ -782,6 +787,7 @@ export function CustomerRelationshipHubDrawer({
   navigateAfterStartSale = true,
   onAddToWedding,
   onBookAppointment,
+  onOpenAppointment,
   onOpenOrderInBackoffice,
   onOpenTransactionInBackoffice,
   onSwitchCustomer,
@@ -2619,6 +2625,17 @@ export function CustomerRelationshipHubDrawer({
                           >
                             {ev.summary}
                           </button>
+                        ) : ev.kind === "appointment" && ev.reference_id && onOpenAppointment ? (
+                          <button
+                            type="button"
+                            className="mt-1 w-full text-left text-sm font-semibold text-app-accent hover:underline"
+                            onClick={() => {
+                              onOpenAppointment(ev.reference_id!);
+                              onClose();
+                            }}
+                          >
+                            {ev.summary}
+                          </button>
                         ) : ev.kind === "shipping" &&
                         ev.reference_type === "shipment" &&
                         ev.reference_id &&
@@ -3549,7 +3566,11 @@ export function CustomerRelationshipHubDrawer({
                 <button
                   type="button"
                   onClick={() => {
-                    onBookAppointment();
+                    onBookAppointment({
+                      customerId: customer.id,
+                      customerName: `${customer.first_name} ${customer.last_name}`.trim(),
+                      phone: customer.phone,
+                    });
                     onClose();
                   }}
                   className="inline-flex items-center gap-2 rounded-xl border border-app-accent/35 bg-app-accent/10 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text"

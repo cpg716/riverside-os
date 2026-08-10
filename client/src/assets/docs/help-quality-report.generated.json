@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-10T20:51:50.715Z",
+  "generated_at": "2026-08-10T22:51:37.618Z",
   "standard_version": "help-manual-standard-v3",
   "published_manual_count": 73,
   "draft_manual_count": 0,
@@ -3881,12 +3881,12 @@
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
         "dedicated_paths": [
-          "client/src/assets/images/help/scheduler-workspace/workflow-1.png",
+          "client/src/assets/images/help/scheduler-workspace/main.png",
           "client/src/assets/images/help/scheduler-workspace/workflow-2.png",
           "client/src/assets/images/help/scheduler-workspace/workflow-3.png"
         ],
         "manual_folder_paths": [
-          "client/src/assets/images/help/scheduler-workspace/workflow-1.png",
+          "client/src/assets/images/help/scheduler-workspace/main.png",
           "client/src/assets/images/help/scheduler-workspace/workflow-2.png",
           "client/src/assets/images/help/scheduler-workspace/workflow-3.png"
         ],
@@ -3926,7 +3926,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 7,
+      "numbered_steps": 8,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []

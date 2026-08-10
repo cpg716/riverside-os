@@ -2569,6 +2569,7 @@ pub async fn run_customer_appointment_reminders(
             phone,
             appointment_type,
             starts_at,
+            ends_at,
             notes,
             status,
             salesperson
@@ -2576,26 +2577,135 @@ pub async fn run_customer_appointment_reminders(
         WHERE wa.customer_id IS NOT NULL
           AND wa.starts_at > NOW()
           AND wa.starts_at - INTERVAL '24 hours' <= NOW()
-          AND lower(trim(wa.status)) NOT IN ('cancelled', 'canceled', 'no_show')
-          AND NOT EXISTS (
-              SELECT 1
-              FROM customer_notification_queue cnq
-              WHERE cnq.entity_type = 'appointment'
-                AND cnq.entity_id = wa.id
-                AND cnq.kind = 'appointment_reminder'
-          )
+          AND wa.status = 'Scheduled'
         ORDER BY wa.starts_at ASC
-        LIMIT 100
+        LIMIT 1000
         "#,
     )
     .fetch_all(pool)
     .await?;
 
     for appointment in rows {
-        MessagingService::trigger_appointment_reminder(pool, http, podium_cache, &appointment)
-            .await?;
+        if let Err(error) =
+            MessagingService::trigger_appointment_reminder(pool, http, podium_cache, &appointment)
+                .await
+        {
+            tracing::error!(
+                appointment_id = %appointment.id,
+                %error,
+                "Customer appointment reminder failed; continuing reminder batch"
+            );
+        }
     }
 
+    Ok(())
+}
+
+/// Retry failed appointment confirmations for the current appointment time.
+pub async fn run_customer_appointment_confirmation_retries(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query_as::<_, AppointmentRow>(
+        r#"
+        SELECT
+            id, wedding_party_id, wedding_member_id, customer_id, customer_display_name,
+            phone, appointment_type, starts_at, ends_at, notes, status, salesperson, revision
+        FROM wedding_appointments wa
+        WHERE wa.customer_id IS NOT NULL
+          AND wa.status = 'Scheduled'
+          AND wa.starts_at > NOW()
+          AND EXISTS (
+              SELECT 1
+              FROM (
+                  SELECT DISTINCT ON (attempt.delivery_method) attempt.delivery_status
+                  FROM customer_notification_queue attempt
+                  WHERE attempt.entity_type = 'appointment'
+                    AND attempt.entity_id = wa.id
+                    AND attempt.kind = 'appointment_confirmation'
+                    AND CASE
+                        WHEN COALESCE(attempt.metadata->>'appointment_starts_at', '') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T'
+                        THEN (attempt.metadata->>'appointment_starts_at')::timestamptz
+                        ELSE NULL
+                    END = wa.starts_at
+                  ORDER BY attempt.delivery_method, attempt.created_at DESC, attempt.id DESC
+              ) latest
+              WHERE latest.delivery_status = 'failed'
+          )
+        ORDER BY wa.updated_at DESC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    for appointment in rows {
+        if let Err(error) = MessagingService::trigger_appointment_confirmation(
+            pool,
+            http,
+            podium_cache,
+            &appointment,
+        )
+        .await
+        {
+            tracing::error!(
+                appointment_id = %appointment.id,
+                %error,
+                "Customer appointment confirmation retry failed; continuing retry batch"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Retry failed appointment cancellation notices with the same per-channel backoff as sends.
+pub async fn run_customer_appointment_cancellation_retries(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+) -> Result<(), sqlx::Error> {
+    let rows = sqlx::query_as::<_, AppointmentRow>(
+        r#"
+        SELECT
+            id, wedding_party_id, wedding_member_id, customer_id, customer_display_name,
+            phone, appointment_type, starts_at, ends_at, notes, status, salesperson, revision
+        FROM wedding_appointments wa
+        WHERE wa.customer_id IS NOT NULL
+          AND wa.status = 'Cancelled'
+          AND EXISTS (
+              SELECT 1
+              FROM (
+                  SELECT DISTINCT ON (attempt.delivery_method) attempt.delivery_status
+                  FROM customer_notification_queue attempt
+                  WHERE attempt.entity_type = 'appointment'
+                    AND attempt.entity_id = wa.id
+                    AND attempt.kind = 'appointment_cancellation'
+                  ORDER BY attempt.delivery_method, attempt.created_at DESC, attempt.id DESC
+              ) latest
+              WHERE latest.delivery_status = 'failed'
+          )
+        ORDER BY wa.updated_at DESC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    for appointment in rows {
+        if let Err(error) = MessagingService::trigger_appointment_cancellation(
+            pool,
+            http,
+            podium_cache,
+            &appointment,
+        )
+        .await
+        {
+            tracing::error!(
+                appointment_id = %appointment.id,
+                %error,
+                "Customer appointment cancellation retry failed; continuing retry batch"
+            );
+        }
+    }
     Ok(())
 }
 
@@ -2611,7 +2721,7 @@ async fn run_appointment_soon_reminders(pool: &PgPool) -> Result<(), sqlx::Error
         FROM wedding_appointments
         WHERE starts_at > NOW()
           AND starts_at <= NOW() + INTERVAL '48 hours'
-          AND lower(trim(status)) NOT IN ('cancelled', 'canceled', 'no_show')
+          AND status = 'Scheduled'
         ORDER BY starts_at
         LIMIT 200
         "#,

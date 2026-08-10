@@ -1,5 +1,6 @@
 //! Domain logic (tax, pricing, etc.).
 pub mod alterations_scheduler;
+pub mod appointments;
 
 pub mod backups;
 pub mod blocked_exchange_recovery_repair;

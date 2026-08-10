@@ -1088,6 +1088,30 @@ pub async fn mark_absence_and_handle_appointments(
                 .bind(created_by)
                 .execute(&mut *tx)
                 .await?;
+                sqlx::query(
+                    r#"
+                    INSERT INTO appointment_audit (
+                        appointment_id, action, actor_staff_id, before_state, after_state, reason
+                    ) VALUES (
+                        $1, 'reassigned', $2,
+                        jsonb_build_object('salesperson_staff_id', $3::uuid, 'salesperson', $4::text),
+                        jsonb_build_object('salesperson_staff_id', $5::uuid, 'salesperson', $6::text),
+                        $7
+                    )
+                    "#,
+                )
+                .bind(row.get::<Uuid, _>("id"))
+                .bind(created_by)
+                .bind(
+                    row.get::<Option<Uuid>, _>("salesperson_staff_id")
+                        .or(Some(staff_id)),
+                )
+                .bind(row.get::<Option<String>, _>("salesperson"))
+                .bind(new_id)
+                .bind(&new_name)
+                .bind(notes.map(str::trim).filter(|s| !s.is_empty()))
+                .execute(&mut *tx)
+                .await?;
             }
             appointments_updated = n;
         } else if unassign_appointments {
@@ -1116,6 +1140,28 @@ pub async fn mark_absence_and_handle_appointments(
                 .bind(row.get::<Option<String>, _>("salesperson"))
                 .bind(notes.map(str::trim).filter(|s| !s.is_empty()))
                 .bind(created_by)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query(
+                    r#"
+                    INSERT INTO appointment_audit (
+                        appointment_id, action, actor_staff_id, before_state, after_state, reason
+                    ) VALUES (
+                        $1, 'unassigned', $2,
+                        jsonb_build_object('salesperson_staff_id', $3::uuid, 'salesperson', $4::text),
+                        jsonb_build_object('salesperson_staff_id', NULL, 'salesperson', NULL),
+                        $5
+                    )
+                    "#,
+                )
+                .bind(row.get::<Uuid, _>("id"))
+                .bind(created_by)
+                .bind(
+                    row.get::<Option<Uuid>, _>("salesperson_staff_id")
+                        .or(Some(staff_id)),
+                )
+                .bind(row.get::<Option<String>, _>("salesperson"))
+                .bind(notes.map(str::trim).filter(|s| !s.is_empty()))
                 .execute(&mut *tx)
                 .await?;
             }

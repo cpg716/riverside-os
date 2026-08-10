@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Printer, Plus, Clock, User, Trash, Scissors, Ruler, ShoppingBag, Search, X } from 'lucide-react';
+import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, Printer, Plus, Clock, User, Scissors, Ruler, ShoppingBag, Search, X } from 'lucide-react';
 import { getBaseUrl } from '../../lib/apiConfig';
-import { weddingApi } from '../../lib/weddingApi';
+import {
+  type AppointmentConflict,
+  type AppointmentResource,
+  weddingApi,
+} from '../../lib/weddingApi';
 import AppointmentModal from './AppointmentModal';
-import ConfirmationModal from '../ui/ConfirmationModal';
 import { formatPhone } from '../../lib/utils.ts';
 import { useBackofficeAuth } from '../../context/BackofficeAuthContextLogic';
 import { mergedPosStaffHeaders } from '../../lib/posRegisterAuth';
@@ -82,6 +85,7 @@ const isOpenAppointment = (appt: Appointment) =>
 const normalizeAppointmentRow = (row: Record<string, unknown>): Appointment => ({
   id: String(row.id ?? ""),
   datetime: String(row.datetime ?? row.starts_at ?? ""),
+  endsAt: String(row.endsAt ?? row.ends_at ?? row.datetime ?? row.starts_at ?? ""),
   status: String(row.status ?? "Scheduled"),
   type: String(row.type ?? row.appointment_type ?? "Measurement"),
   customerName:
@@ -117,11 +121,24 @@ const normalizeAppointmentRow = (row: Record<string, unknown>): Appointment => (
         : null,
   customer_display_name: (row.customer_display_name as string | null | undefined) ?? null,
   appointment_type: (row.appointment_type as string | null | undefined) ?? null,
+  serviceTypeId:
+    row.serviceTypeId != null
+      ? String(row.serviceTypeId)
+      : row.service_type_id != null
+        ? String(row.service_type_id)
+        : null,
+  resourceIds: Array.isArray(row.resourceIds)
+    ? row.resourceIds.map(String)
+    : Array.isArray(row.resource_ids)
+      ? row.resource_ids.map(String)
+      : [],
+  revision: Number(row.revision ?? 1),
 });
 
 export interface Appointment {
   id: string;
   datetime: string;
+  endsAt?: string;
   status: string;
   type?: string;
   customerName?: string | null;
@@ -134,19 +151,31 @@ export interface Appointment {
   customerId?: string | null;
   customer_display_name?: string | null;
   appointment_type?: string | null;
+  serviceTypeId?: string | null;
+  resourceIds?: string[];
+  revision?: number;
 }
 
 interface SchedulerWorkspaceProps {
   activeSection?: string;
   deepLinkAppointmentId?: string | null;
   onDeepLinkAppointmentConsumed?: () => void;
+  prefillCustomer?: {
+    customerId: string;
+    customerName: string;
+    phone?: string | null;
+  } | null;
+  onPrefillCustomerConsumed?: () => void;
 }
 
 const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
+  activeSection = "scheduler",
   deepLinkAppointmentId,
   onDeepLinkAppointmentConsumed,
+  prefillCustomer,
+  onPrefillCustomerConsumed,
 }) => {
-  const { backofficeHeaders } = useBackofficeAuth();
+  const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
   const isCompactLayout = useMediaQuery("(max-width: 639px)");
   const wmHeaders = useMemo(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
@@ -155,16 +184,17 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedAppt, setSelectedAppt] = useState<Partial<Appointment> | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<Appointment[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [conflictsRefreshKey, setConflictsRefreshKey] = useState(0);
   const searchRequestRef = useRef(0);
   const searchAbortRef = useRef<AbortController | null>(null);
   const appointmentsRequestRef = useRef(0);
+  const canMutate = hasPermission("weddings.mutate");
 
   const fetchAppointments = useCallback(async () => {
     const requestId = ++appointmentsRequestRef.current;
@@ -236,6 +266,15 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
     }
   }, [wmHeaders]);
 
+  const openAppointmentById = useCallback(async (appointmentId: string) => {
+    const appt = await weddingApi.getAppointment(appointmentId, { headers: wmHeaders });
+    const appointmentDate = new Date(appt.datetime);
+    if (Number.isFinite(appointmentDate.getTime())) setSelectedDate(appointmentDate);
+    setViewMode("day");
+    setSelectedAppt(appt);
+    setIsModalOpen(true);
+  }, [wmHeaders]);
+
   useEffect(() => {
     searchRequestRef.current += 1;
     searchAbortRef.current?.abort();
@@ -267,23 +306,31 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
     if (!appointmentId) return;
     void (async () => {
       try {
-        const appt = await weddingApi.getAppointment(appointmentId, {
-          headers: wmHeaders,
-        });
-        const appointmentDate = new Date(appt.datetime);
-        if (Number.isFinite(appointmentDate.getTime())) {
-          setSelectedDate(appointmentDate);
-        }
-        setViewMode('day');
-        setSelectedAppt(appt);
-        setIsModalOpen(true);
+        await openAppointmentById(appointmentId);
       } catch (err) {
         console.error("Failed to open appointment from notification:", err);
       } finally {
         onDeepLinkAppointmentConsumed?.();
       }
     })();
-  }, [deepLinkAppointmentId, onDeepLinkAppointmentConsumed, wmHeaders]);
+  }, [deepLinkAppointmentId, onDeepLinkAppointmentConsumed, openAppointmentById]);
+
+  useEffect(() => {
+    if (!prefillCustomer?.customerId) return;
+    const dateStr = localDateKey(selectedDate);
+    setSelectedAppt({
+      datetime: `${dateStr}T10:00:00`,
+      status: "Scheduled",
+      customerId: prefillCustomer.customerId,
+      customerName: prefillCustomer.customerName,
+      customer_display_name: prefillCustomer.customerName,
+      phone: prefillCustomer.phone ?? null,
+      resourceIds: [],
+      revision: 1,
+    });
+    setIsModalOpen(true);
+    onPrefillCustomerConsumed?.();
+  }, [onPrefillCustomerConsumed, prefillCustomer, selectedDate]);
 
   const handlePrev = () => {
     const newDate = new Date(selectedDate);
@@ -302,6 +349,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
   const handleToday = () => setSelectedDate(new Date());
 
   const handleAddAppt = (timeSlot?: string) => {
+    if (!canMutate) return;
     const dateStr = localDateKey(selectedDate);
     setSelectedAppt({
       datetime: `${dateStr}T${timeSlot || '10:00'}:00`,
@@ -311,6 +359,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
   };
 
   const handleAddApptAtDate = (date: Date, timeSlot?: string) => {
+    if (!canMutate) return;
     const dateStr = localDateKey(date);
     setSelectedAppt({
       datetime: `${dateStr}T${timeSlot || '10:00'}:00`,
@@ -324,31 +373,20 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
     setIsModalOpen(true);
   };
 
-  const handleDeleteAppt = (e: React.MouseEvent, apptId: string) => {
-    e.stopPropagation();
-    setDeleteConfirm(apptId);
-  };
-
-  const executeDelete = async () => {
-    if (!deleteConfirm) return;
-    try {
-      await weddingApi.deleteAppointment(deleteConfirm, { headers: wmHeaders });
-      fetchAppointments();
-      setDeleteConfirm(null);
-    } catch (err) {
-      console.error("Failed to delete appointment:", err);
-    }
-  };
-
-  // Time slots: 9 AM to 6:30 PM
+  // Fifteen-minute booking grid, plus exact legacy/off-hours times so no appointment is hidden.
   const timeSlots = useMemo(() => {
-    const slots = [];
-    for (let i = 9; i <= 18; i++) {
-      slots.push(`${i.toString().padStart(2, '0')}:00`);
-      slots.push(`${i.toString().padStart(2, '0')}:30`);
+    const slots = new Set<string>();
+    for (let hour = 8; hour <= 21; hour += 1) {
+      for (const minute of [0, 15, 30, 45]) {
+        if (hour === 21 && minute > 0) continue;
+        slots.add(`${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
+      }
     }
-    return slots;
-  }, []);
+    appointments.filter(isOpenAppointment).forEach((appointment) => {
+      slots.add(appointmentLocalTimeKey(appointment.datetime));
+    });
+    return [...slots].sort();
+  }, [appointments]);
 
   // Helper to get 7 dates for the week (starting Monday)
   const weekDates = useMemo(() => {
@@ -522,6 +560,32 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
     });
   }, [printTitle, printableRows, toast, viewMode]);
 
+  if (activeSection === "conflicts") {
+    return (
+      <>
+        <AppointmentConflictsPanel
+          headers={wmHeaders}
+          canMutate={canMutate}
+          refreshKey={conflictsRefreshKey}
+          onOpenAppointment={(id) => {
+            void openAppointmentById(id).catch((error) => {
+              toast(error instanceof Error ? error.message : "Could not open appointment.", "error");
+            });
+          }}
+        />
+        <AppointmentModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onSave={() => {
+            void fetchAppointments();
+            setConflictsRefreshKey((value) => value + 1);
+          }}
+          initialData={selectedAppt}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="flex flex-1 flex-col bg-app-surface">
       {/* Header Controls */}
@@ -596,6 +660,8 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                             const date = new Date(a.datetime);
                             setSelectedDate(date);
                             setViewMode('day');
+                            setSelectedAppt(a);
+                            setIsModalOpen(true);
                             setIsSearching(false);
                           }}
                           onKeyDown={(event) =>
@@ -603,6 +669,8 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                               const date = new Date(a.datetime);
                               setSelectedDate(date);
                               setViewMode('day');
+                              setSelectedAppt(a);
+                              setIsModalOpen(true);
                               setIsSearching(false);
                             })
                           }
@@ -614,7 +682,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                                 {new Date(a.datetime).toLocaleDateString()} @ {new Date(a.datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {a.type || a.appointment_type}
                               </div>
                             </div>
-                            <div className="text-[9px] font-black uppercase text-app-accent opacity-0 transition-opacity group-hover/res:opacity-100">Jump to Day →</div>
+                            <div className="text-[9px] font-black uppercase text-app-accent opacity-0 transition-opacity group-hover/res:opacity-100">Open →</div>
                           </div>
                         </div>
                       ))}
@@ -690,13 +758,13 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
           >
             <Printer size={14} /> Print Schedule
           </button>
-          <button
+          {canMutate ? <button
             type="button"
             onClick={() => handleAddAppt()}
             className="flex min-h-[44px] min-w-[44px] items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-emerald-600/20 transition-all hover:bg-emerald-500 active:scale-95"
           >
             <Plus size={14} strokeWidth={3} /> New Appt
-          </button>
+          </button> : null}
         </div>
       </div>
 
@@ -719,14 +787,14 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                     Choose any time slot below or create an appointment now.
                   </p>
                 </div>
-                <button
+                {canMutate ? <button
                   type="button"
                   onClick={() => handleAddApptAtDate(selectedDate, "09:00")}
                   className="ui-btn-primary inline-flex items-center justify-center gap-2"
                 >
                   <Plus size={16} aria-hidden />
                   New Appointment
-                </button>
+                </button> : null}
               </div>
             ) : null}
             <div className={`grid ${isCompactLayout ? "grid-cols-[72px_1fr]" : "grid-cols-[100px_1fr]"} divide-y divide-app-border/40`}>
@@ -742,20 +810,20 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                       {displayTime}
                     </div>
                     <div
-                      tabIndex={0}
-                      aria-label={`Add appointment at ${displayTime}`}
-                      className="min-h-[80px] p-2 flex gap-2 overflow-x-auto no-scrollbar hover:bg-app-surface-2/30 transition-colors cursor-pointer relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30"
-                      onClick={() => handleAddApptAtDate(selectedDate, time)}
+                      tabIndex={canMutate ? 0 : -1}
+                      aria-label={canMutate ? `Add appointment at ${displayTime}` : undefined}
+                      className={`min-h-[80px] p-2 flex gap-2 overflow-x-auto no-scrollbar transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30 ${canMutate ? "cursor-pointer hover:bg-app-surface-2/30" : ""}`}
+                      onClick={() => canMutate && handleAddApptAtDate(selectedDate, time)}
                       onKeyDown={(event) =>
-                        activateOnEnterOrSpace(event, () => handleAddApptAtDate(selectedDate, time))
+                        canMutate && activateOnEnterOrSpace(event, () => handleAddApptAtDate(selectedDate, time))
                       }
                     >
                       {slotAppts.map(appt => (
-                        <AppointmentCard key={appt.id} appt={appt} onEdit={handleEditAppt} onDelete={handleDeleteAppt} />
+                        <AppointmentCard key={appt.id} appt={appt} onEdit={handleEditAppt} />
                       ))}
-                      <div className="opacity-0 group-hover:opacity-100 flex items-center justify-center border-2 border-dashed border-app-border rounded-xl w-12 shrink-0 transition-opacity print:hidden">
+                      {canMutate ? <div className="opacity-0 group-hover:opacity-100 flex items-center justify-center border-2 border-dashed border-app-border rounded-xl w-12 shrink-0 transition-opacity print:hidden">
                         <Plus size={20} className="text-app-text-muted" />
-                      </div>
+                      </div> : null}
                     </div>
                   </div>
                 );
@@ -808,22 +876,22 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                                 return (
                                     <div 
                                         key={`${dateStr}-${time}`} 
-                                        tabIndex={0}
-                                        aria-label={`Add appointment on ${date.toLocaleDateString()} at ${displayTime}`}
-                                        className={`min-h-[100px] p-2 flex flex-col gap-2 border-r border-app-border/40 hover:bg-app-surface-2/30 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30 ${isToday ? 'bg-app-accent/[0.02]' : ''}`}
-                                        onClick={() => handleAddApptAtDate(date, time)}
+                                        tabIndex={canMutate ? 0 : -1}
+                                        aria-label={canMutate ? `Add appointment on ${date.toLocaleDateString()} at ${displayTime}` : undefined}
+                                        className={`min-h-[100px] p-2 flex flex-col gap-2 border-r border-app-border/40 transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-app-accent/30 ${canMutate ? "cursor-pointer hover:bg-app-surface-2/30" : ""} ${isToday ? 'bg-app-accent/[0.02]' : ''}`}
+                                        onClick={() => canMutate && handleAddApptAtDate(date, time)}
                                         onKeyDown={(event) =>
-                                          activateOnEnterOrSpace(event, () => handleAddApptAtDate(date, time))
+                                          canMutate && activateOnEnterOrSpace(event, () => handleAddApptAtDate(date, time))
                                         }
                                     >
                                         {slotAppts.map(appt => (
                                             <div key={appt.id} className="w-full">
-                                                <AppointmentCard appt={appt} onEdit={handleEditAppt} onDelete={handleDeleteAppt} isCompact />
+                                                <AppointmentCard appt={appt} onEdit={handleEditAppt} isCompact />
                                             </div>
                                         ))}
-                                        <div className="mt-auto opacity-0 group-hover:opacity-100 flex items-center justify-center border border-dashed border-app-border/60 rounded-lg py-1 transition-opacity print:hidden">
+                                        {canMutate ? <div className="mt-auto opacity-0 group-hover:opacity-100 flex items-center justify-center border border-dashed border-app-border/60 rounded-lg py-1 transition-opacity print:hidden">
                                             <Plus size={14} className="text-app-text-muted" />
-                                        </div>
+                                        </div> : null}
                                     </div>
                                 );
                             })}
@@ -843,29 +911,167 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
         initialData={selectedAppt}
       />
 
-      {deleteConfirm && (
-        <ConfirmationModal
-          isOpen={true}
-          title="Delete Appointment"
-          message="Are you sure you want to permanently delete this appointment? This action cannot be undone."
-          confirmLabel="Delete Appointment"
-          onConfirm={executeDelete}
-          onClose={() => setDeleteConfirm(null)}
-          variant="danger"
-        />
-      )}
-
     </div>
   );
 };
 
-const AppointmentCard: React.FC<{ appt: Appointment; onEdit: (a: Appointment) => void; onDelete: (e: React.MouseEvent, id: string) => void, isCompact?: boolean }> = ({ appt, onEdit, onDelete, isCompact }) => {
+const AppointmentConflictsPanel: React.FC<{
+  headers: Record<string, string>;
+  canMutate: boolean;
+  refreshKey: number;
+  onOpenAppointment: (id: string) => void;
+}> = ({ headers, canMutate, refreshKey, onOpenAppointment }) => {
+  const { toast } = useToast();
+  const initialFrom = useMemo(() => localDateKey(new Date()), []);
+  const initialTo = useMemo(() => {
+    const value = new Date();
+    value.setDate(value.getDate() + 90);
+    return localDateKey(value);
+  }, []);
+  const [from, setFrom] = useState(initialFrom);
+  const [to, setTo] = useState(initialTo);
+  const [conflicts, setConflicts] = useState<AppointmentConflict[]>([]);
+  const [resources, setResources] = useState<AppointmentResource[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [draft, setDraft] = useState({ id: "", name: "", capacity: 1, notes: "" });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [conflictRows, resourceRows] = await Promise.all([
+        weddingApi.getAppointmentConflicts({
+          from: `${from}T00:00:00`,
+          to: `${to}T23:59:59`,
+          headers,
+        }),
+        weddingApi.getAppointmentResources({ headers }),
+      ]);
+      setConflicts(conflictRows);
+      setResources(resourceRows);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not load appointment conflicts.", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [from, headers, to, toast]);
+
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => void load(), 60_000);
+    return () => window.clearInterval(timer);
+  }, [load, refreshKey]);
+
+  const saveResource = async () => {
+    if (!draft.name.trim()) {
+      toast("Resource name is required.", "error");
+      return;
+    }
+    try {
+      await weddingApi.saveAppointmentResource(
+        {
+          id: draft.id || undefined,
+          name: draft.name,
+          capacity: draft.capacity,
+          notes: draft.notes,
+        },
+        { headers },
+      );
+      setDraft({ id: "", name: "", capacity: 1, notes: "" });
+      await load();
+      toast("Appointment resource saved.", "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not save resource.", "error");
+    }
+  };
+
+  return (
+    <div className="flex flex-1 flex-col gap-5 bg-app-bg p-4 sm:p-6">
+      <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-lg">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="text-app-warning" size={20} />
+              <h2 className="text-lg font-black uppercase tracking-tight text-app-text">Appointment Conflicts</h2>
+            </div>
+            <p className="mt-1 text-sm text-app-text-muted">Staff overlaps and resource capacity conflicts from the authoritative ROS calendar.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              From
+              <input className="ui-input mt-1 block" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+            </label>
+            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Through
+              <input className="ui-input mt-1 block" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+            </label>
+          </div>
+        </div>
+        <div className="mt-5 space-y-2">
+          {loading ? <p className="text-sm text-app-text-muted">Checking schedules…</p> : null}
+          {!loading && conflicts.length === 0 ? (
+            <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-semibold text-emerald-700 dark:text-emerald-200">No unresolved overlaps in this range.</p>
+          ) : null}
+          {conflicts.map((conflict) => (
+            <button
+              key={conflict.appointment_id}
+              type="button"
+              onClick={() => onOpenAppointment(conflict.appointment_id)}
+              className="flex w-full flex-col gap-1 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-left hover:bg-red-500/10 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <span>
+                <span className="block text-sm font-black text-app-text">{conflict.customer_display_name || "One-off visit"} · {conflict.appointment_type}</span>
+                <span className="text-xs text-app-text-muted">{new Date(conflict.starts_at).toLocaleString()}–{new Date(conflict.ends_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+              </span>
+              <span className="text-xs font-bold text-red-700 dark:text-red-200">{[conflict.salesperson, ...conflict.resource_names].filter(Boolean).join(" · ") || "Open conflict"}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-lg">
+        <h3 className="text-base font-black uppercase tracking-tight text-app-text">Rooms & Resources</h3>
+        <p className="mt-1 text-sm text-app-text-muted">Capacity determines how many overlapping appointments may reserve a resource.</p>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr]">
+          <div className="space-y-2">
+            {resources.length === 0 ? <p className="text-sm text-app-text-muted">No appointment resources configured.</p> : null}
+            {resources.map((resource) => (
+              <button
+                key={resource.id}
+                type="button"
+                disabled={!canMutate}
+                onClick={() => setDraft({ id: resource.id, name: resource.name, capacity: resource.capacity, notes: resource.notes ?? "" })}
+                className="flex w-full items-center justify-between rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-left disabled:cursor-default"
+              >
+                <span className="font-bold text-app-text">{resource.name}</span>
+                <span className="text-xs text-app-text-muted">Capacity {resource.capacity}</span>
+              </button>
+            ))}
+          </div>
+          {canMutate ? (
+            <div className="space-y-3 rounded-xl border border-app-border bg-app-surface-2 p-4">
+              <input className="ui-input w-full" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Resource name" />
+              <input className="ui-input w-full" type="number" min={1} max={50} value={draft.capacity} onChange={(event) => setDraft({ ...draft, capacity: Number(event.target.value) })} aria-label="Resource capacity" />
+              <textarea className="ui-input min-h-[5rem] w-full" value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Optional notes" />
+              <div className="flex justify-end gap-2">
+                {draft.id ? <button type="button" className="ui-btn-secondary" onClick={() => setDraft({ id: "", name: "", capacity: 1, notes: "" })}>New Resource</button> : null}
+                <button type="button" className="ui-btn-primary" onClick={() => void saveResource()}>Save Resource</button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+};
+
+const AppointmentCard: React.FC<{ appt: Appointment; onEdit: (a: Appointment) => void; isCompact?: boolean }> = ({ appt, onEdit, isCompact }) => {
   const appointmentType = appt.type || appt.appointment_type || "Service";
   const normalizedType = appointmentType.toLowerCase();
   const customerName = appt.customerName || appt.customer_display_name || "Anonymous";
   const isMeasurement = normalizedType === 'measurement';
   const isFitting = normalizedType === 'fitting';
   const isPickup = normalizedType === 'pickup';
+  const timeRange = `${new Date(appt.datetime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}${appt.endsAt ? `–${new Date(appt.endsAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`;
   
   let colorClass = "bg-app-surface-3 border-app-border text-app-text";
   let icon = <Clock size={12} />;
@@ -895,7 +1101,7 @@ const AppointmentCard: React.FC<{ appt: Appointment; onEdit: (a: Appointment) =>
       <div className="min-w-0">
         <h4 className="truncate text-xs font-black uppercase tracking-tight">{customerName}</h4>
         <div className="mt-1 flex items-center gap-1.5 text-[10px] font-bold opacity-80">
-          {icon} <span>{appointmentType}</span>
+          {icon} <span>{appointmentType} · {timeRange}</span>
           {!isCompact && appt.phone && <span className="opacity-40">• {formatPhone(appt.phone)}</span>}
         </div>
         {!isCompact && appt.salesperson && (
@@ -910,12 +1116,6 @@ const AppointmentCard: React.FC<{ appt: Appointment; onEdit: (a: Appointment) =>
         )}
       </div>
       
-      <button
-        onClick={(e) => onDelete(e, appt.id)}
-        className="absolute bottom-2 right-2 rounded-md p-1.5 text-app-text-muted hover:bg-red-500/20 hover:text-red-400 opacity-0 group-hover/card:opacity-100 transition-all no-print"
-      >
-        <Trash size={12} />
-      </button>
     </div>
   );
 };

@@ -1595,6 +1595,7 @@ async fn fetch_register_day_summary_page_on_connection(
         FROM wedding_appointments wa
         WHERE (wa.starts_at AT TIME ZONE $1)::date >= $2::date
           AND (wa.starts_at AT TIME ZONE $1)::date <= $3::date
+          AND wa.status <> 'Cancelled'
         "#,
     )
     .bind(&tz_name)

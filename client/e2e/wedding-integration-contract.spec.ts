@@ -25,13 +25,13 @@ test("wedding lifecycle is fulfillment-derived and pickup cannot be toggled", ()
 
 test("wedding appointment integration preserves schedule and audit contracts", () => {
   const modal = source(
-    "../src/components/wedding-manager/components/AppointmentModal.jsx",
+    "../src/components/scheduler/AppointmentModal.tsx",
+  );
+  const scheduler = source(
+    "../src/components/scheduler/SchedulerWorkspace.tsx",
   );
   const api = source("../src/components/wedding-manager/lib/api.js");
   const server = source("../../server/src/api/weddings.rs");
-  const portal = source(
-    "../src/components/wedding-manager/components/WeddingModalPortal.jsx",
-  );
   const bridge = source("../src/lib/weddingPosBridge.ts");
   const memberDetail = source(
     "../src/components/wedding-manager/components/MemberDetailModal.jsx",
@@ -39,15 +39,19 @@ test("wedding appointment integration preserves schedule and audit contracts", (
 
   expect(api).toContain("salesperson_staff_id");
   expect(api).toContain("schedule_override_reason");
-  expect(modal).toContain("Manager Access and a reason are required");
-  expect(modal).toContain("completeMemberMilestone: completesMilestone");
+  expect(api).toContain("conflict_override_reason");
+  expect(api).toContain("expected_revision");
+  expect(modal).toContain("Manager Access overlap override");
+  expect(modal).toContain("completeMemberMilestone: syncMember");
   expect(modal).toContain("Complete the pickup through Orders/Register");
+  expect(modal).toContain('document.getElementById("drawer-root")');
+  expect(modal).toContain("ui-overlay-backdrop");
+  expect(scheduler).toContain('activeSection === "conflicts"');
+  expect(scheduler).toContain("getAppointmentConflicts");
   expect(server).toContain('"APPOINTMENT_ATTENDED"');
   expect(server).toContain("body.complete_member_milestone");
   expect(server).toContain('merged_status.eq_ignore_ascii_case("Attended")');
   expect(server).toContain('"actor_staff_id": actor.id');
-  expect(portal).toContain("document.getElementById('drawer-root')");
-  expect(portal).toContain("z-[200]");
   expect(bridge).toContain("ROS_OPEN_TRANSACTION_FROM_WM");
   expect(memberDetail).toContain("dispatchOpenWeddingTransaction(ln.transaction_id)");
 });

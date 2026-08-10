@@ -17,6 +17,8 @@ Do not assume the sidebar calendar is “wedding-only”: staff should treat it 
 
 Day/week scheduler grids and printed schedules show **open** appointments only. **Attended**, **Missed**, **Cancelled**, and **Canceled** rows remain in history/search, but they do not keep blocking the live booking grid.
 
+Migration **`192_appointment_system_hardening.sql`** adds authoritative end times, service types, room/resource capacity, optimistic revisions, cancellation metadata, and append-only appointment audit rows. Scheduled staff/resource overlaps are checked inside the same database transaction as create/update. An intentional overlap requires Manager Access plus a reason and remains separately auditable.
+
 ## Migration 33 — walk-in / general appointments
 
 **`migrations/legacy_prelaunch_history/33_wedding_appointments_walk_in.sql`**:
@@ -43,10 +45,13 @@ Optional query params: **`limit`** (default **25**, max **100**), **`offset`** �
 
 ### Shared ROS `AppointmentModal` behavior
 
-- Search uses **`weddingApi.searchCustomers(q, { limit, offset })`** (`client/src/lib/weddingApi.ts`).
+- Search uses the authenticated Customer browse endpoint with debouncing, cancellation of superseded requests, and a visible unavailable state.
 - Selecting a hit fills **name / phone / `customer_id`** by default (**no** automatic wedding-member link).
 - The selected customer name remains visible in the input and the result dropdown closes after selection.
 - If the customer has an active party, an **optional** panel offers **Link wedding party** (sets `wedding_member_id` + party for Wedding Manager workflow sync). **Mark Attended** can still prompt to sync member flags only when a member link exists.
+- Editing the visible name after selecting a Customer deliberately clears the stale Customer/member identity instead of silently keeping the wrong linkage.
+- Duration and resource assignments are server validated. Cancellation is a status transition with a required reason; the row is not hard-deleted.
+- An `expected_revision` blocks stale edits from another workstation. Staff must refresh before applying their change.
 
 ## Salesperson dropdown
 
@@ -64,7 +69,15 @@ Form fields use the shared **`ui-input`** class so borders match the rest of ROS
 
 - `searchCustomers(q, opts?)` — passes **`limit`/`offset`** to `/api/customers/search` when supplied
 - `getAppointmentStaff()` / `getSalespeople()` — **salesperson** and **sales_support** staff for the appointment staff picker (aligned with **Staff → Schedule**; bookings are warned against **`staff_effective_working_day`** when the name matches roster schedule-eligible staff — see **`docs/STAFF_SCHEDULE_AND_CALENDAR.md`**).
-- `getAppointments` / `addAppointment` / `updateAppointment` — payloads use **snake_case** keys expected by the server (`wedding_member_id`, `customer_id`, `customer_display_name`, `starts_at`, `salesperson_staff_id`, etc.).
+- `getAppointments` / `addAppointment` / `updateAppointment` — payloads use **snake_case** keys expected by the server (`wedding_member_id`, `customer_id`, `customer_display_name`, `starts_at`, `salesperson_staff_id`, duration/resource fields, and revision guards). List ranges are timezone-explicit and server-bounded.
+
+## Notifications and timezone
+
+Customer-facing confirmation, cancellation, and 24-hour reminder text is formatted in `reporting.effective_store_timezone()`. Email calendar attachments use the saved appointment end time. Delivery idempotency is per appointment, notification kind, channel, and current start time, so rescheduling produces a new current-time notification while an old delivery does not suppress it. Failed confirmation, reminder, and cancellation channels retry with bounded backoff. Appointments without a linked Customer remain visible operationally but do not receive automated customer messages.
+
+## Search, history, and cross-module navigation
+
+Appointment search indexes Customer names (including member-derived identity), one-off display names, phone, party, type, staff, status, and notes. Create, edit, cancellation, absence reassignment, and absence unassignment refresh appointment search and publish calendar update events. Universal Search, Operations Timeline, Customer history, notifications, and the Conflicts workspace open the exact appointment by ID. Cancelled appointments remain searchable and auditable.
 
 Wedding Manager’s `api.js` maps the same fields for `addAppointment`.
 

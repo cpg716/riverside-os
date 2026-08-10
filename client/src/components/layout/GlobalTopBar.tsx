@@ -50,6 +50,7 @@ interface GlobalTopBarProps {
   onSearchOpenShipment?: (shipmentId: string) => void;
   onSearchOpenWeddingParty?: (partyId: string) => void;
   onSearchOpenAlteration?: (alterationId: string) => void;
+  onSearchOpenAppointment?: (appointmentId: string) => void;
   onSearchOpenHelp?: (query: string, manualId: string, sectionSlug: string) => void;
   searchVariant?: "backoffice" | "pos";
   /** Toggles the responsive sidebar. */
@@ -80,6 +81,7 @@ export default function GlobalTopBar({
   onSearchOpenShipment,
   onSearchOpenWeddingParty,
   onSearchOpenAlteration,
+  onSearchOpenAppointment,
   onSearchOpenHelp,
   searchVariant = "backoffice",
   onToggleSidebar,
@@ -232,6 +234,7 @@ export default function GlobalTopBar({
           onSearchOpenShipment={onSearchOpenShipment}
           onSearchOpenWeddingParty={onSearchOpenWeddingParty}
           onSearchOpenAlteration={onSearchOpenAlteration}
+          onSearchOpenAppointment={onSearchOpenAppointment}
           onSearchOpenHelp={onSearchOpenHelp}
           onNavigateToTab={onNavigateToTab}
           variant={searchVariant}

@@ -648,14 +648,15 @@ export const api = {
   },
 
   // Appointments
-  getAppointments: async (start, end) => {
-    const params = {};
+  getAppointments: async (start, end, filters = {}) => {
+    const params = { ...filters };
     if (start) params.from = new Date(start).toISOString();
     if (end) params.to = new Date(end).toISOString();
     const json = await wmJson("GET", `${API_URL}/weddings/appointments`, { params });
     return (json || []).map((a) => ({
       id: a.id,
       datetime: a.starts_at,
+      endsAt: a.ends_at,
       customerName: a.customer_display_name,
       phone: a.phone,
       type: a.appointment_type,
@@ -666,15 +667,19 @@ export const api = {
       partyId: a.wedding_party_id,
       customerId: a.customer_id,
       notes: a.notes || "",
+      serviceTypeId: a.service_type_id,
+      resourceIds: a.resource_ids || [],
+      revision: a.revision || 1,
     }));
   },
   getPartyAppointments: async (partyId) => {
     const json = await wmJson("GET", `${API_URL}/weddings/appointments`, {
-      params: { party_id: partyId },
+      params: { party_id: partyId, limit: 500 },
     });
     return (json || []).map((a) => ({
       id: a.id,
       datetime: a.starts_at,
+      endsAt: a.ends_at,
       customerName: a.customer_display_name,
       phone: a.phone,
       type: a.appointment_type,
@@ -685,6 +690,9 @@ export const api = {
       partyId: a.wedding_party_id,
       customerId: a.customer_id,
       notes: a.notes || "",
+      serviceTypeId: a.service_type_id,
+      resourceIds: a.resource_ids || [],
+      revision: a.revision || 1,
     }));
   },
   searchCustomers: async (q, opts = {}) => {
@@ -726,6 +734,10 @@ export const api = {
       salesperson: apptData.salesperson || null,
       salesperson_staff_id: apptData.salespersonStaffId || null,
       schedule_override_reason: apptData.scheduleOverrideReason || null,
+      conflict_override_reason: apptData.conflictOverrideReason || null,
+      duration_minutes: apptData.durationMinutes,
+      service_type_id: apptData.serviceTypeId || null,
+      resource_ids: apptData.resourceIds || [],
     };
     return wmJson("POST", `${API_URL}/weddings/appointments`, { body: payload });
   },
@@ -742,6 +754,12 @@ export const api = {
       salesperson: updates.salesperson,
       salesperson_staff_id: updates.salespersonStaffId || undefined,
       schedule_override_reason: updates.scheduleOverrideReason || undefined,
+      conflict_override_reason: updates.conflictOverrideReason || undefined,
+      cancellation_reason: updates.cancellationReason || undefined,
+      duration_minutes: updates.durationMinutes,
+      service_type_id: updates.serviceTypeId || undefined,
+      resource_ids: updates.resourceIds,
+      expected_revision: updates.expectedRevision,
       complete_member_milestone: updates.completeMemberMilestone || false,
     };
     return wmJson("PATCH", `${API_URL}/weddings/appointments/${id}`, { body: payload });

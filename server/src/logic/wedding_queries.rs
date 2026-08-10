@@ -1131,22 +1131,46 @@ pub async fn list_appointments_filtered(
     from: Option<chrono::DateTime<chrono::Utc>>,
     to: Option<chrono::DateTime<chrono::Utc>>,
     party_id: Option<uuid::Uuid>,
+    member_id: Option<uuid::Uuid>,
+    customer_id: Option<uuid::Uuid>,
+    resource_id: Option<uuid::Uuid>,
+    status: Option<&str>,
+    limit: i64,
+    offset: i64,
 ) -> Result<Vec<AppointmentRow>, sqlx::Error> {
     let mut qb: QueryBuilder<'_, sqlx::Postgres> = QueryBuilder::new(
         "SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone, \
-         appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id \
+         appointment_type, starts_at, ends_at, notes, status, salesperson, salesperson_staff_id, \
+         service_type_id, revision, \
+         ARRAY(SELECT ara.resource_id FROM appointment_resource_assignment ara WHERE ara.appointment_id = wedding_appointments.id ORDER BY ara.resource_id) AS resource_ids \
          FROM wedding_appointments WHERE 1=1 ",
     );
     if let Some(from) = from {
-        qb.push(" AND starts_at >= ").push_bind(from);
+        qb.push(" AND ends_at > ").push_bind(from);
     }
     if let Some(to) = to {
-        qb.push(" AND starts_at <= ").push_bind(to);
+        qb.push(" AND starts_at < ").push_bind(to);
     }
     if let Some(party_id) = party_id {
         qb.push(" AND wedding_party_id = ").push_bind(party_id);
     }
+    if let Some(member_id) = member_id {
+        qb.push(" AND wedding_member_id = ").push_bind(member_id);
+    }
+    if let Some(customer_id) = customer_id {
+        qb.push(" AND (customer_id = ")
+            .push_bind(customer_id)
+            .push(" OR EXISTS (SELECT 1 FROM wedding_members wm WHERE wm.id = wedding_appointments.wedding_member_id AND wm.customer_id = ")
+            .push_bind(customer_id)
+            .push(")) ");
+    }
+    crate::logic::appointments::push_optional_resource_filter(&mut qb, resource_id);
+    if let Some(status) = status.map(str::trim).filter(|value| !value.is_empty()) {
+        qb.push(" AND status = ").push_bind(status.to_string());
+    }
     qb.push(" ORDER BY starts_at ASC, id ASC ");
+    qb.push(" LIMIT ").push_bind(limit.clamp(1, 500));
+    qb.push(" OFFSET ").push_bind(offset.max(0));
 
     qb.build_query_as::<AppointmentRow>().fetch_all(pool).await
 }
@@ -1199,11 +1223,17 @@ pub async fn search_appointments_hybrid(
         }
     }
 
-    if let Some(ids) = search_ids {
-        let rows = sqlx::query_as::<_, AppointmentRow>(
+    let mut rows = if let Some(ids) = search_ids {
+        sqlx::query_as::<_, AppointmentRow>(
             r#"
-            SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-                   appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
+            SELECT wa.id, wa.wedding_party_id, wa.wedding_member_id, wa.customer_id,
+                   wa.customer_display_name, wa.phone, wa.appointment_type, wa.starts_at,
+                   wa.ends_at, wa.notes, wa.status, wa.salesperson,
+                   wa.salesperson_staff_id, wa.service_type_id, wa.revision,
+                   ARRAY(
+                       SELECT ara.resource_id FROM appointment_resource_assignment ara
+                       WHERE ara.appointment_id = wa.id ORDER BY ara.resource_id
+                   ) AS resource_ids
             FROM UNNEST($1::uuid[]) WITH ORDINALITY AS t(id, ord)
             JOIN wedding_appointments wa ON wa.id = t.id
             ORDER BY t.ord
@@ -1213,22 +1243,41 @@ pub async fn search_appointments_hybrid(
         .bind(&ids)
         .bind(limit)
         .fetch_all(pool)
-        .await?;
-        Ok(rows)
+        .await?
     } else {
+        Vec::new()
+    };
+
+    // Appointment documents can legitimately lag a schema/content expansion until the next full
+    // Meilisearch rebuild. Always supplement authoritative candidates with the bounded SQL search
+    // so a linked customer, one-off name, status, or staff value never disappears in that window.
+    if rows.len() < limit.max(1) as usize {
         let pat = literal_ilike_pattern(&q.to_lowercase());
-        let rows = sqlx::query_as::<_, AppointmentRow>(
+        let sql_rows = sqlx::query_as::<_, AppointmentRow>(
             r#"
-            SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-                   appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
-            FROM wedding_appointments
+            SELECT wa.id, wa.wedding_party_id, wa.wedding_member_id, wa.customer_id,
+                   wa.customer_display_name, wa.phone, wa.appointment_type, wa.starts_at,
+                   wa.ends_at, wa.notes, wa.status, wa.salesperson, wa.salesperson_staff_id,
+                   wa.service_type_id, wa.revision,
+                   ARRAY(
+                       SELECT ara.resource_id FROM appointment_resource_assignment ara
+                       WHERE ara.appointment_id = wa.id ORDER BY ara.resource_id
+                   ) AS resource_ids
+            FROM wedding_appointments wa
+            LEFT JOIN wedding_members wm ON wm.id = wa.wedding_member_id
+            LEFT JOIN customers c ON c.id = COALESCE(wa.customer_id, wm.customer_id)
+            LEFT JOIN wedding_parties wp ON wp.id = wa.wedding_party_id
             WHERE (
-                LOWER(customer_display_name) LIKE $1
-                OR LOWER(notes) LIKE $1
-                OR LOWER(salesperson) LIKE $1
-                OR phone LIKE $1
+                LOWER(COALESCE(wa.customer_display_name, '')) LIKE $1
+                OR LOWER(COALESCE(c.first_name || ' ' || c.last_name, '')) LIKE $1
+                OR LOWER(COALESCE(wp.party_name, '')) LIKE $1
+                OR LOWER(COALESCE(wa.appointment_type, '')) LIKE $1
+                OR LOWER(COALESCE(wa.status, '')) LIKE $1
+                OR LOWER(COALESCE(wa.notes, '')) LIKE $1
+                OR LOWER(COALESCE(wa.salesperson, '')) LIKE $1
+                OR COALESCE(wa.phone, '') LIKE $1
             )
-            ORDER BY starts_at DESC, id DESC
+            ORDER BY wa.starts_at DESC, wa.id DESC
             LIMIT $2
             "#,
         )
@@ -1236,8 +1285,17 @@ pub async fn search_appointments_hybrid(
         .bind(limit)
         .fetch_all(pool)
         .await?;
-        Ok(rows)
+        for row in sql_rows {
+            if !rows.iter().any(|existing| existing.id == row.id) {
+                rows.push(row);
+                if rows.len() >= limit.max(1) as usize {
+                    break;
+                }
+            }
+        }
     }
+
+    Ok(rows)
 }
 
 #[cfg(test)]

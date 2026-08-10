@@ -31,6 +31,7 @@ export default function DuplicateReviewQueueSection({
   onNavigateRegister,
   onAddToWedding,
   onBookAppointment,
+  onOpenAppointment,
   onOpenTransactionInBackoffice,
 }: {
   onNavigateAllCustomers: () => void;
@@ -38,7 +39,12 @@ export default function DuplicateReviewQueueSection({
   onStartSale: (c: Customer) => void;
   onNavigateRegister?: () => void;
   onAddToWedding?: () => void;
-  onBookAppointment?: () => void;
+  onBookAppointment?: (customer: {
+    customerId: string;
+    customerName: string;
+    phone?: string | null;
+  }) => void;
+  onOpenAppointment?: (appointmentId: string) => void;
   onOpenTransactionInBackoffice?: (orderId: string) => void;
 }) {
   const { toast } = useToast();
@@ -525,6 +531,7 @@ export default function DuplicateReviewQueueSection({
           onNavigateRegister={onNavigateRegister}
           onAddToWedding={onAddToWedding}
           onBookAppointment={onBookAppointment}
+          onOpenAppointment={onOpenAppointment}
           onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
         />
       ) : null}

@@ -36,7 +36,7 @@ test("remote workspace searches debounce and cancel superseded requests", async 
   for (const path of [
     "components/online-store/OnlineStoreProductsPanel.tsx",
     "components/pos/WeddingDepositWorkspace.tsx",
-    "components/wedding-manager/components/AppointmentModal.jsx",
+    "components/ui/CustomerSearchInput.tsx",
     "components/inventory/PhysicalInventoryWorkspace.tsx",
   ]) {
     const text = await source(path);

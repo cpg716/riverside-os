@@ -116,6 +116,11 @@ import {
 import { discardPersistedSaleForSession } from "./hooks/useCartPersistence";
 
 export type ThemeMode = "light" | "dark" | "system";
+type AppointmentCustomerPrefill = {
+  customerId: string;
+  customerName: string;
+  phone?: string | null;
+};
 
 const INVENTORY_SECTION_KEYS = new Set([
   "hub",
@@ -225,6 +230,8 @@ function App() {
   const [appointmentsDeepLinkId, setAppointmentsDeepLinkId] = useState<
     string | null
   >(null);
+  const [appointmentCustomerPrefill, setAppointmentCustomerPrefill] =
+    useState<AppointmentCustomerPrefill | null>(null);
   const [staffTasksFocusInstanceId, setStaffTasksFocusInstanceId] = useState<
     string | null
   >(null);
@@ -1162,6 +1169,8 @@ function App() {
             setQboDeepLinkSyncLogId={setQboDeepLinkSyncLogId}
             appointmentsDeepLinkId={appointmentsDeepLinkId}
             setAppointmentsDeepLinkId={setAppointmentsDeepLinkId}
+            appointmentCustomerPrefill={appointmentCustomerPrefill}
+            setAppointmentCustomerPrefill={setAppointmentCustomerPrefill}
             staffTasksFocusInstanceId={staffTasksFocusInstanceId}
             setStaffTasksFocusInstanceId={setStaffTasksFocusInstanceId}
             handleStaffTasksFocusConsumed={handleStaffTasksFocusConsumed}
@@ -1279,6 +1288,8 @@ interface AppShellProps {
   setQboDeepLinkSyncLogId: (id: string | null) => void;
   appointmentsDeepLinkId: string | null;
   setAppointmentsDeepLinkId: (id: string | null) => void;
+  appointmentCustomerPrefill: AppointmentCustomerPrefill | null;
+  setAppointmentCustomerPrefill: (value: AppointmentCustomerPrefill | null) => void;
   staffTasksFocusInstanceId: string | null;
   setStaffTasksFocusInstanceId: (id: string | null) => void;
   handleStaffTasksFocusConsumed: () => void;
@@ -1388,6 +1399,8 @@ function AppShell({
   setQboDeepLinkSyncLogId,
   appointmentsDeepLinkId,
   setAppointmentsDeepLinkId,
+  appointmentCustomerPrefill,
+  setAppointmentCustomerPrefill,
   staffTasksFocusInstanceId,
   handleStaffTasksFocusConsumed,
   customersMessagingFocusCustomerId,
@@ -1667,6 +1680,8 @@ function AppShell({
                 onQboDeepLinkConsumed={() => setQboDeepLinkSyncLogId(null)}
                 appointmentsDeepLinkId={appointmentsDeepLinkId}
                 setAppointmentsDeepLinkId={setAppointmentsDeepLinkId}
+                appointmentCustomerPrefill={appointmentCustomerPrefill}
+                setAppointmentCustomerPrefill={setAppointmentCustomerPrefill}
                 staffTasksFocusInstanceId={staffTasksFocusInstanceId}
                 onStaffTasksFocusConsumed={handleStaffTasksFocusConsumed}
                 customersMessagingFocusCustomerId={customersMessagingFocusCustomerId}
@@ -1776,6 +1791,10 @@ function AppShell({
           enterBackofficeShell("alterations");
           setAlterationsDeepLinkId(alterationId);
         }}
+        onSearchOpenAppointment={(appointmentId: string) => {
+          enterBackofficeShell("appointments", "scheduler");
+          setAppointmentsDeepLinkId(appointmentId);
+        }}
         onSearchOpenHelp={(query: string, manualId: string, sectionSlug: string) => {
           setHelpDrawerInitialTarget({ query, manualId, sectionSlug });
           setHelpDrawerMode("browse");
@@ -1878,6 +1897,8 @@ type AppMainColumnProps = {
   onQboDeepLinkConsumed: () => void;
   appointmentsDeepLinkId: string | null;
   setAppointmentsDeepLinkId: (id: string | null) => void;
+  appointmentCustomerPrefill: AppointmentCustomerPrefill | null;
+  setAppointmentCustomerPrefill: (value: AppointmentCustomerPrefill | null) => void;
   staffTasksFocusInstanceId: string | null;
   onStaffTasksFocusConsumed: () => void;
   customersMessagingFocusCustomerId: string | null;
@@ -1930,6 +1951,8 @@ function AppMainColumn({
   onQboDeepLinkConsumed,
   appointmentsDeepLinkId,
   setAppointmentsDeepLinkId,
+  appointmentCustomerPrefill,
+  setAppointmentCustomerPrefill,
   staffTasksFocusInstanceId,
   onStaffTasksFocusConsumed,
   customersMessagingFocusCustomerId,
@@ -2064,6 +2087,9 @@ function AppMainColumn({
                         if (target.section) {
                           setActiveSubSection(target.section);
                         }
+                        if (target.appointmentId) {
+                          setAppointmentsDeepLinkId(target.appointmentId);
+                        }
                       }}
                       onOpenInboxCustomer={onOpenCustomerHubFromInbox}
                       podiumInboxFocusId={podiumInboxFocusId}
@@ -2138,7 +2164,16 @@ function AppMainColumn({
                       onAddToWedding={() => {
                         navigateWedding();
                       }}
-                      onBookAppointment={() => setActiveTab("appointments")}
+                      onBookAppointment={(customer) => {
+                        setAppointmentCustomerPrefill(customer);
+                        setActiveTab("appointments");
+                        setActiveSubSection("scheduler");
+                      }}
+                      onOpenAppointment={(appointmentId) => {
+                        setAppointmentsDeepLinkId(appointmentId);
+                        setActiveTab("appointments");
+                        setActiveSubSection("scheduler");
+                      }}
                       onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
                       messagingFocusCustomerId={
                         customersMessagingFocusCustomerId
@@ -2173,6 +2208,10 @@ function AppMainColumn({
                       deepLinkAppointmentId={appointmentsDeepLinkId}
                       onDeepLinkAppointmentConsumed={() =>
                         setAppointmentsDeepLinkId(null)
+                      }
+                      prefillCustomer={appointmentCustomerPrefill}
+                      onPrefillCustomerConsumed={() =>
+                        setAppointmentCustomerPrefill(null)
                       }
                     />
                   );

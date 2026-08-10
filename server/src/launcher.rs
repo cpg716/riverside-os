@@ -921,6 +921,26 @@ async fn launch_server_inner(
             {
                 tracing::error!(error = %e, "customer appointment reminder worker failed");
             }
+            if let Err(e) =
+                crate::logic::notifications_jobs::run_customer_appointment_confirmation_retries(
+                    &customer_appt_reminder_state.db,
+                    &customer_appt_reminder_state.http_client,
+                    &customer_appt_reminder_state.podium_token_cache,
+                )
+                .await
+            {
+                tracing::error!(error = %e, "customer appointment confirmation retry worker failed");
+            }
+            if let Err(e) =
+                crate::logic::notifications_jobs::run_customer_appointment_cancellation_retries(
+                    &customer_appt_reminder_state.db,
+                    &customer_appt_reminder_state.http_client,
+                    &customer_appt_reminder_state.podium_token_cache,
+                )
+                .await
+            {
+                tracing::error!(error = %e, "customer appointment cancellation retry worker failed");
+            }
         }
     });
 

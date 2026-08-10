@@ -266,10 +266,19 @@ pub struct AppointmentRow {
     pub phone: Option<String>,
     pub appointment_type: String,
     pub starts_at: DateTime<Utc>,
+    #[sqlx(default)]
+    pub ends_at: Option<DateTime<Utc>>,
     pub notes: Option<String>,
     pub status: String,
     pub salesperson: Option<String>,
+    #[sqlx(default)]
     pub salesperson_staff_id: Option<Uuid>,
+    #[sqlx(default)]
+    pub service_type_id: Option<Uuid>,
+    #[sqlx(default)]
+    pub resource_ids: Vec<Uuid>,
+    #[sqlx(default)]
+    pub revision: i32,
 }
 
 #[derive(Debug, Serialize, FromRow)]

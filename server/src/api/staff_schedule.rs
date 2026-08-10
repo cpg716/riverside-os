@@ -641,6 +641,24 @@ async fn post_mark_absence(
     )
     .await
     .map_err(map_err)?;
+    if !res.appointment_ids.is_empty() {
+        state.wedding_events.appointments_updated(None);
+        if let Some(client) = state.meilisearch.clone() {
+            for appointment_id in &res.appointment_ids {
+                let client = client.clone();
+                let pool = state.db.clone();
+                let appointment_id = *appointment_id;
+                crate::logic::meilisearch_sync::spawn_meili(async move {
+                    crate::logic::meilisearch_sync::upsert_appointment_document(
+                        &client,
+                        &pool,
+                        appointment_id,
+                    )
+                    .await;
+                });
+            }
+        }
+    }
     Ok(Json(res))
 }
 

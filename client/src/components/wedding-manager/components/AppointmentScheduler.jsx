@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Icon from './Icon';
 import { api, socket } from '../lib/api';
 import AppointmentModal from '../../scheduler/AppointmentModal';
 import { formatDate } from '../lib/utils';
 import { openPrintableHtml } from '../../../lib/browserPrint';
 import { activateOnEnterOrSpace } from '../../../lib/interaction';
+import { useBackofficeAuth } from '../../../context/BackofficeAuthContextLogic';
 
 import { useModal } from '../hooks/useModal';
 
@@ -37,28 +38,17 @@ const isOpenAppointment = (appt) =>
     !CLOSED_APPOINTMENT_STATUSES.has(String(appt?.status || '').trim().toLowerCase());
 
 const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave }) => {
-    const { showAlert, showConfirm, selectSalesperson } = useModal();
+    const { showAlert } = useModal();
+    const { hasPermission } = useBackofficeAuth();
+    const canMutate = hasPermission('weddings.mutate');
     const [appointments, setAppointments] = useState([]);
 
     const [selectedDate, setSelectedDate] = useState(initialDate ? new Date(initialDate) : new Date());
     const [viewMode, setViewMode] = useState('day'); // 'day' or 'week'
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedAppt, setSelectedAppt] = useState(null);
-    const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        fetchAppointments();
-
-        const onAppointmentsUpdated = () => fetchAppointments();
-        socket.on('appointments_updated', onAppointmentsUpdated);
-
-        return () => {
-            socket.off('appointments_updated', onAppointmentsUpdated);
-        };
-    }, [selectedDate, viewMode]);
-
-    const fetchAppointments = async () => {
-        setLoading(true);
+    const fetchAppointments = useCallback(async () => {
         try {
             let startStr, endStr;
             const start = new Date(selectedDate);
@@ -68,7 +58,6 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                 startStr = `${dateStr}T00:00:00`;
                 endStr = `${dateStr}T23:59:59`;
             } else {
-                // Week view logic
                 const day = start.getDay();
                 const diff = start.getDate() - day + (day === 0 ? -6 : 1);
                 start.setDate(diff);
@@ -83,10 +72,21 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
             setAppointments(data);
         } catch (err) {
             console.error("Failed to fetch appointments:", err);
-        } finally {
-            setLoading(false);
         }
-    };
+    }, [selectedDate, viewMode]);
+
+    useEffect(() => {
+        void fetchAppointments();
+
+        const onAppointmentsUpdated = () => void fetchAppointments();
+        socket.on('appointments_updated', onAppointmentsUpdated);
+        const poll = window.setInterval(() => void fetchAppointments(), 60000);
+
+        return () => {
+            socket.off('appointments_updated', onAppointmentsUpdated);
+            window.clearInterval(poll);
+        };
+    }, [fetchAppointments]);
 
     const handlePrev = () => {
         const newDate = new Date(selectedDate);
@@ -125,6 +125,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
     };
 
     const handleAddAppt = (timeSlot) => {
+        if (!canMutate) return;
         setSelectedAppt({
             datetime: `${localDateKey(selectedDate)}T${timeSlot || '10:00'}:00`,
             ...(prefilledMember || {})
@@ -137,50 +138,6 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
         setIsModalOpen(true);
     };
 
-    const handleDeleteAppt = async (e, apptId) => {
-        e.stopPropagation();
-        const confirmed = await showConfirm(
-            "Are you sure you want to delete this appointment?",
-            "Delete Appointment",
-            { variant: 'danger', confirmText: 'Delete' }
-        );
-        if (confirmed) {
-            const deletedBy = await selectSalesperson();
-            if (!deletedBy) return;
-
-            try {
-                // We need to get the appointment details first to log it properly if we want to add to member history
-                // But we only have the ID here.
-                // We can find it in the `appointments` prop if available?
-                // `appointments` is passed as prop.
-                const apptToDelete = appointments.find(a => a.id === apptId);
-
-                await api.deleteAppointment(apptId, deletedBy);
-
-                if (apptToDelete && apptToDelete.memberId) {
-                    const apptDate = new Date(apptToDelete.datetime).toLocaleDateString();
-                    const newNote = `Deleted appointment on ${apptDate} - ${deletedBy}`;
-                    try {
-                        // Fetch member to get current history
-                        const member = await api.getMember(apptToDelete.memberId);
-                        if (member) {
-                            const historyEntry = { date: localDateKey(new Date()), note: newNote, id: Date.now() };
-                            const updatedHistory = [...(member.contactHistory || []), historyEntry];
-                            await api.updateMember(apptToDelete.memberId, { contactHistory: updatedHistory });
-                        }
-                    } catch (err) {
-                        console.error("Failed to update member history on delete:", err);
-                    }
-                }
-
-                if (onSave) onSave();
-            } catch (err) {
-                console.error("Failed to delete appointment:", err);
-                showAlert("Failed to delete appointment.", "Error", { variant: 'danger' });
-            }
-        }
-    };
-
     // Filter appointments for display
     const filteredAppointments = useMemo(() => {
         // Construct YYYY-MM-DD in local time to match the selectedDate display
@@ -191,12 +148,19 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
             .sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
     }, [appointments, selectedDate]);
 
-    // Generate time slots for Day View
-    const timeSlots = [];
-    for (let i = 9; i <= 18; i++) {
-        timeSlots.push(`${i.toString().padStart(2, '0')}:00`);
-        timeSlots.push(`${i.toString().padStart(2, '0')}:30`);
-    }
+    const timeSlots = useMemo(() => {
+        const slots = new Set();
+        for (let hour = 8; hour <= 21; hour += 1) {
+            for (const minute of [0, 15, 30, 45]) {
+                if (hour === 21 && minute > 0) continue;
+                slots.add(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+            }
+        }
+        appointments.filter(isOpenAppointment).forEach((appointment) => {
+            slots.add(appointmentLocalTimeKey(appointment.datetime));
+        });
+        return [...slots].sort();
+    }, [appointments]);
 
     return (
         <div className="h-full flex flex-col bg-app-surface rounded-lg shadow-sm border border-app-border overflow-hidden print:fixed print:inset-0 print:z-[9999] print:bg-app-surface print:h-screen print:w-screen print:overflow-visible print:scale-[0.85] print:origin-top">
@@ -245,12 +209,12 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                     >
                         <Icon name="Printer" size={16} /> Print
                     </button>
-                    <button type="button"
+                    {canMutate ? <button type="button"
                         onClick={() => handleAddAppt()}
                         className="flex items-center gap-1 px-3 py-2 bg-gold-500 text-white font-bold rounded hover:bg-gold-600 shadow-sm text-sm"
                     >
                         <Icon name="Plus" size={16} /> New Appt
-                    </button>
+                    </button> : null}
                 </div>
             </div>
 
@@ -275,23 +239,23 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                                             {parseInt(time.split(':')[0]) > 12 ? parseInt(time.split(':')[0]) - 12 : parseInt(time.split(':')[0])}:{time.split(':')[1]} {parseInt(time.split(':')[0]) >= 12 ? 'PM' : 'AM'}
                                         </div>
                                         <div
-                                            role="button"
-                                            tabIndex={0}
-                                            aria-label={`Schedule appointment at ${time}`}
-                                            className="p-1 min-h-[60px] relative hover:bg-app-surface-2 transition-colors cursor-pointer border-b border-app-border/80 flex gap-1 overflow-x-auto print:overflow-visible print:flex-wrap"
-                                            onClick={() => handleAddAppt(time)}
-                                            onKeyDown={(event) => activateOnEnterOrSpace(event, () => handleAddAppt(time))}
+                                            role={canMutate ? "button" : undefined}
+                                            tabIndex={canMutate ? 0 : -1}
+                                            aria-label={canMutate ? `Schedule appointment at ${time}` : undefined}
+                                            className={`p-1 min-h-[60px] relative transition-colors border-b border-app-border/80 flex gap-1 overflow-x-auto print:overflow-visible print:flex-wrap ${canMutate ? "cursor-pointer hover:bg-app-surface-2" : ""}`}
+                                            onClick={() => canMutate && handleAddAppt(time)}
+                                            onKeyDown={(event) => canMutate && activateOnEnterOrSpace(event, () => handleAddAppt(time))}
                                         >
                                             {slotAppts.map(appt => (
-                                                <AppointmentCard key={appt.id} appt={appt} onEdit={handleEditAppt} onDelete={handleDeleteAppt} />
+                                                <AppointmentCard key={appt.id} appt={appt} onEdit={handleEditAppt} />
                                             ))}
-                                            <button type="button"
+                                            {canMutate ? <button type="button"
                                                 onClick={(e) => { e.stopPropagation(); handleAddAppt(time); }}
                                                 className="min-w-[40px] bg-app-surface-2 hover:bg-app-surface-2 text-app-text-muted hover:text-app-text rounded border border-dashed border-app-border flex items-center justify-center transition-colors print:hidden mb-1"
                                                 title="Add another appointment"
                                             >
                                                 <Icon name="Plus" size={16} />
-                                            </button>
+                                            </button> : null}
                                         </div>
                                     </div>
                                 );
@@ -324,9 +288,9 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                         <div className="grid grid-cols-8 divide-x divide-app-border h-[600px] overflow-y-auto relative">
                             {/* Time Column */}
                             <div className="flex flex-col bg-app-surface-2/50">
-                                {timeSlots.filter((_, i) => i % 2 === 0).map(time => (
-                                    <div key={time} className="h-20 p-2 text-right text-[10px] font-bold text-app-text-muted border-b border-app-border/80">
-                                        {parseInt(time.split(':')[0]) > 12 ? parseInt(time.split(':')[0]) - 12 : parseInt(time.split(':')[0])} {parseInt(time.split(':')[0]) >= 12 ? 'PM' : 'AM'}
+                                {timeSlots.map(time => (
+                                    <div key={time} className="h-14 p-2 text-right text-[10px] font-bold text-app-text-muted border-b border-app-border/80">
+                                        {parseInt(time.split(':')[0]) > 12 ? parseInt(time.split(':')[0]) - 12 : parseInt(time.split(':')[0])}:{time.split(':')[1]} {parseInt(time.split(':')[0]) >= 12 ? 'PM' : 'AM'}
                                     </div>
                                 ))}
                             </div>
@@ -340,14 +304,15 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
 
                                 return (
                                     <div key={colIdx} className="flex flex-col relative group">
-                                        {timeSlots.filter((_, i) => i % 2 === 0).map(time => (
+                                        {timeSlots.map(time => (
                                             <div
                                                 key={time}
-                                                role="button"
-                                                tabIndex={0}
-                                                aria-label={`Schedule appointment on ${dateStr} at ${time}`}
-                                                className="h-20 border-b border-app-border/80 hover:bg-app-surface-2 transition-colors cursor-pointer p-1 space-y-1"
+                                                role={canMutate ? "button" : undefined}
+                                                tabIndex={canMutate ? 0 : -1}
+                                                aria-label={canMutate ? `Schedule appointment on ${dateStr} at ${time}` : undefined}
+                                                className={`h-14 border-b border-app-border/80 transition-colors p-1 space-y-1 ${canMutate ? "cursor-pointer hover:bg-app-surface-2" : ""}`}
                                                 onClick={() => {
+                                                    if (!canMutate) return;
                                                     setSelectedDate(columnDate);
                                                     setSelectedAppt({
                                                         datetime: `${dateStr}T${time}:00`,
@@ -355,7 +320,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                                                     });
                                                     setIsModalOpen(true);
                                                 }}
-                                                onKeyDown={(event) => activateOnEnterOrSpace(event, () => {
+                                                onKeyDown={(event) => canMutate && activateOnEnterOrSpace(event, () => {
                                                     setSelectedDate(columnDate);
                                                     setSelectedAppt({
                                                         datetime: `${dateStr}T${time}:00`,
@@ -367,7 +332,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
                                                 {appointments.filter(a =>
                                                     isOpenAppointment(a) &&
                                                     appointmentLocalDateKey(a.datetime) === dateStr &&
-                                                    appointmentLocalTimeKey(a.datetime).startsWith(time.slice(0, 2))
+                                                    appointmentLocalTimeKey(a.datetime) === time
                                                 )
                                                     .map(appt => (
                                                         <div
@@ -411,7 +376,7 @@ const AppointmentScheduler = ({ parties, prefilledMember, initialDate, onSave })
     );
 };
 
-const AppointmentCard = ({ appt, onEdit, onDelete }) => (
+const AppointmentCard = ({ appt, onEdit }) => (
     <div
         role="button"
         tabIndex={0}
@@ -434,13 +399,6 @@ const AppointmentCard = ({ appt, onEdit, onDelete }) => (
             )}
             {appt.notes && <div className="mt-1 italic opacity-70 truncate max-w-[120px]">{appt.notes}</div>}
         </div>
-        <button type="button"
-            onClick={(e) => { e.stopPropagation(); onDelete(e, appt.id); }}
-            className="text-app-text-muted hover:text-red-500 p-2 -mr-1 -mb-1 self-end print:hidden touch-target"
-            title="Delete Appointment"
-        >
-            <Icon name="Trash" size={16} />
-        </button>
     </div>
 );
 

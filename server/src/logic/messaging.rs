@@ -1,3 +1,4 @@
+use chrono_tz::Tz;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -103,8 +104,12 @@ fn url_encode_component(value: &str) -> String {
     out
 }
 
-fn google_calendar_link(summary: &str, starts_at: chrono::DateTime<chrono::Utc>) -> String {
-    let ends_at = starts_at + chrono::Duration::hours(1);
+fn google_calendar_link(
+    summary: &str,
+    starts_at: chrono::DateTime<chrono::Utc>,
+    ends_at: Option<chrono::DateTime<chrono::Utc>>,
+) -> String {
+    let ends_at = ends_at.unwrap_or_else(|| starts_at + chrono::Duration::hours(1));
     let start = starts_at.format("%Y%m%dT%H%M%SZ").to_string();
     let end = ends_at.format("%Y%m%dT%H%M%SZ").to_string();
     format!(
@@ -127,9 +132,10 @@ fn appointment_ics(
     appointment_id: Uuid,
     summary: &str,
     starts_at: chrono::DateTime<chrono::Utc>,
+    ends_at: Option<chrono::DateTime<chrono::Utc>>,
     notes: Option<&str>,
 ) -> String {
-    let ends_at = starts_at + chrono::Duration::hours(1);
+    let ends_at = ends_at.unwrap_or_else(|| starts_at + chrono::Duration::hours(1));
     let now = chrono::Utc::now();
     format!(
         "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Riverside OS//Appointments//EN\r\nMETHOD:PUBLISH\r\nBEGIN:VEVENT\r\nUID:{}@riverside-os\r\nDTSTAMP:{}\r\nDTSTART:{}\r\nDTEND:{}\r\nSUMMARY:{}\r\nDESCRIPTION:{}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
@@ -140,6 +146,57 @@ fn appointment_ics(
         ics_escape(summary),
         ics_escape(notes.unwrap_or("Riverside appointment"))
     )
+}
+
+async fn appointment_display_timezone(pool: &PgPool) -> Tz {
+    let name = sqlx::query_scalar::<_, String>("SELECT reporting.effective_store_timezone()")
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "America/New_York".to_string());
+    name.parse().unwrap_or(chrono_tz::America::New_York)
+}
+
+async fn appointment_channel_due(
+    pool: &PgPool,
+    appointment_id: Uuid,
+    kind: CustomerNotificationKind,
+    channel: CustomerNotificationChannel,
+    starts_at: chrono::DateTime<chrono::Utc>,
+    occurrence_revision: Option<i32>,
+) -> Result<bool, sqlx::Error> {
+    let row: (i64, bool, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
+        r#"
+        SELECT
+            COUNT(*)::bigint,
+            COALESCE(BOOL_OR(delivery_status = 'delivered'), FALSE),
+            MAX(created_at)
+        FROM customer_notification_queue
+        WHERE entity_type = 'appointment'
+          AND entity_id = $1
+          AND kind = $2
+          AND delivery_method = $3
+          AND metadata->>'appointment_starts_at' = $4
+          AND ($5::integer IS NULL OR metadata->>'appointment_revision' = $5::text)
+        "#,
+    )
+    .bind(appointment_id)
+    .bind(kind.as_str())
+    .bind(channel.as_str())
+    .bind(starts_at.to_rfc3339())
+    .bind(occurrence_revision)
+    .fetch_one(pool)
+    .await?;
+    if row.1 {
+        return Ok(false);
+    }
+    let Some(last_attempt) = row.2 else {
+        return Ok(true);
+    };
+    let exponent = u32::try_from(row.0.saturating_sub(1).min(4)).unwrap_or(4);
+    let delay_minutes = 5_i64.saturating_mul(2_i64.saturating_pow(exponent)).min(60);
+    Ok(last_attempt + chrono::Duration::minutes(delay_minutes) <= chrono::Utc::now())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -225,6 +282,7 @@ impl MessagingService {
 
         let customer = load_customer_messaging_row(pool, customer_id).await?;
         let store = load_store_message_identity(pool).await?;
+        let timezone = appointment_display_timezone(pool).await;
         let podium_cfg = podium::load_store_podium_config(pool).await.ok();
         let sms_templates = podium_cfg
             .as_ref()
@@ -238,13 +296,15 @@ impl MessagingService {
         let first = customer.first_name.as_deref().unwrap_or("there");
         let last = customer.last_name.as_deref().unwrap_or("");
         let full_name = customer_full_name(&customer);
-        let starts = appt.starts_at.format("%Y-%m-%d %H:%M %Z").to_string();
-        let appointment_date = appt.starts_at.format("%A, %B %-d, %Y").to_string();
-        let appointment_time = appt.starts_at.format("%-I:%M %p %Z").to_string();
+        let local_starts = appt.starts_at.with_timezone(&timezone);
+        let starts = local_starts.format("%Y-%m-%d %H:%M %Z").to_string();
+        let appointment_date = local_starts.format("%A, %B %-d, %Y").to_string();
+        let appointment_time = local_starts.format("%-I:%M %p %Z").to_string();
+        let appointment_starts_at = appt.starts_at.to_rfc3339();
         let appt_type = appt.appointment_type.as_str();
         let notes = appt.notes.as_deref().unwrap_or("");
         let calendar_summary = format!("Riverside {appt_type} Appointment");
-        let calendar_url = google_calendar_link(&calendar_summary, appt.starts_at);
+        let calendar_url = google_calendar_link(&calendar_summary, appt.starts_at, appt.ends_at);
         let notes_block = appt
             .notes
             .as_deref()
@@ -277,6 +337,15 @@ impl MessagingService {
             .as_ref()
             .is_some_and(|cfg| cfg.sms_features.appointment_confirmation)
             && sms_opt_in_ok(&customer)
+            && appointment_channel_due(
+                pool,
+                appt.id,
+                CustomerNotificationKind::AppointmentConfirmation,
+                CustomerNotificationChannel::Sms,
+                appt.starts_at,
+                Some(appt.revision),
+            )
+            .await?
         {
             if let Some(ref phone) = customer.phone {
                 if let Some(e164) = normalize_phone_e164(phone) {
@@ -286,6 +355,7 @@ impl MessagingService {
                         appt.id,
                         &calendar_summary,
                         appt.starts_at,
+                        appt.ends_at,
                         appt.notes.as_deref(),
                     );
                     let sms_result = podium::send_podium_phone_message_with_attachment_tracked(
@@ -335,7 +405,7 @@ impl MessagingService {
                         CustomerNotificationChannel::Sms,
                         &sms_body,
                         sms_error,
-                        serde_json::json!({ "appointment_type": appt_type, "starts_at": starts, "calendar_url": calendar_url }),
+                        serde_json::json!({ "appointment_type": appt_type, "starts_at": starts, "appointment_starts_at": appointment_starts_at, "appointment_revision": appt.revision, "calendar_url": calendar_url }),
                     )
                     .await;
                 } else {
@@ -359,7 +429,17 @@ impl MessagingService {
             calendar_url
         ));
 
-        if email_opt_in_ok(&customer) {
+        if email_opt_in_ok(&customer)
+            && appointment_channel_due(
+                pool,
+                appt.id,
+                CustomerNotificationKind::AppointmentConfirmation,
+                CustomerNotificationChannel::Email,
+                appt.starts_at,
+                Some(appt.revision),
+            )
+            .await?
+        {
             if let Some(ref em) = customer.email {
                 if looks_like_email(em) {
                     tracing::info!(
@@ -375,6 +455,7 @@ impl MessagingService {
                         appt.id,
                         &calendar_summary,
                         appt.starts_at,
+                        appt.ends_at,
                         appt.notes.as_deref(),
                     );
                     let email_result = store_email::send_email_with_attachments(
@@ -409,7 +490,7 @@ impl MessagingService {
                         CustomerNotificationChannel::Email,
                         &format!("{subject}\n{html}"),
                         email_error,
-                        serde_json::json!({ "appointment_type": appt_type, "starts_at": starts, "calendar_url": calendar_url }),
+                        serde_json::json!({ "appointment_type": appt_type, "starts_at": starts, "appointment_starts_at": appointment_starts_at, "appointment_revision": appt.revision, "calendar_url": calendar_url }),
                     )
                     .await;
                 } else {
@@ -440,6 +521,7 @@ impl MessagingService {
 
         let customer = load_customer_messaging_row(pool, customer_id).await?;
         let store = load_store_message_identity(pool).await?;
+        let timezone = appointment_display_timezone(pool).await;
         let podium_cfg = podium::load_store_podium_config(pool).await.ok();
         let sms_templates = podium_cfg
             .as_ref()
@@ -453,9 +535,11 @@ impl MessagingService {
         let first = customer.first_name.as_deref().unwrap_or("there");
         let last = customer.last_name.as_deref().unwrap_or("");
         let full_name = customer_full_name(&customer);
-        let starts = appt.starts_at.format("%Y-%m-%d %H:%M %Z").to_string();
-        let appointment_date = appt.starts_at.format("%A, %B %-d, %Y").to_string();
-        let appointment_time = appt.starts_at.format("%-I:%M %p %Z").to_string();
+        let local_starts = appt.starts_at.with_timezone(&timezone);
+        let starts = local_starts.format("%Y-%m-%d %H:%M %Z").to_string();
+        let appointment_date = local_starts.format("%A, %B %-d, %Y").to_string();
+        let appointment_time = local_starts.format("%-I:%M %p %Z").to_string();
+        let appointment_starts_at = appt.starts_at.to_rfc3339();
         let appt_type = appt.appointment_type.as_str();
         let notes = appt.notes.as_deref().unwrap_or("");
         let vars = [
@@ -478,6 +562,15 @@ impl MessagingService {
             .as_ref()
             .is_some_and(|cfg| cfg.sms_features.appointment_reminder)
             && sms_opt_in_ok(&customer)
+            && appointment_channel_due(
+                pool,
+                appt.id,
+                CustomerNotificationKind::AppointmentReminder,
+                CustomerNotificationChannel::Sms,
+                appt.starts_at,
+                None,
+            )
+            .await?
         {
             if let Some(ref phone) = customer.phone {
                 let sms_body =
@@ -507,13 +600,23 @@ impl MessagingService {
                     CustomerNotificationChannel::Sms,
                     &sms_body,
                     sms_error,
-                    serde_json::json!({ "appointment_type": appt_type, "starts_at": starts }),
+                    serde_json::json!({ "appointment_type": appt_type, "starts_at": starts, "appointment_starts_at": appointment_starts_at }),
                 )
                 .await;
             }
         }
 
-        if email_opt_in_ok(&customer) {
+        if email_opt_in_ok(&customer)
+            && appointment_channel_due(
+                pool,
+                appt.id,
+                CustomerNotificationKind::AppointmentReminder,
+                CustomerNotificationChannel::Email,
+                appt.starts_at,
+                None,
+            )
+            .await?
+        {
             if let Some(ref email) = customer.email {
                 if looks_like_email(email) {
                     let subject = apply_template_placeholders(
@@ -543,13 +646,145 @@ impl MessagingService {
                         CustomerNotificationChannel::Email,
                         &format!("{subject}\n{html}"),
                         email_error,
-                        serde_json::json!({ "appointment_type": appt_type, "starts_at": starts }),
+                        serde_json::json!({ "appointment_type": appt_type, "starts_at": starts, "appointment_starts_at": appointment_starts_at }),
                     )
                     .await;
                 }
             }
         }
 
+        Ok(())
+    }
+
+    /// Sends a durable cancellation notice while preserving the appointment history in ROS.
+    pub async fn trigger_appointment_cancellation(
+        pool: &PgPool,
+        http: &reqwest::Client,
+        podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+        appt: &AppointmentRow,
+    ) -> Result<(), sqlx::Error> {
+        let Some(customer_id) = appt.customer_id else {
+            return Ok(());
+        };
+        let customer = load_customer_messaging_row(pool, customer_id).await?;
+        let store = load_store_message_identity(pool).await?;
+        let timezone = appointment_display_timezone(pool).await;
+        let local_starts = appt.starts_at.with_timezone(&timezone);
+        let starts = local_starts
+            .format("%A, %B %-d at %-I:%M %p %Z")
+            .to_string();
+        let appointment_starts_at = appt.starts_at.to_rfc3339();
+        let podium_cfg = podium::load_store_podium_config(pool).await.ok();
+        let first_name = customer.first_name.as_deref().unwrap_or("there");
+        let sms_body = format!(
+            "Hi {first_name}, your Riverside {} appointment for {starts} has been cancelled. Questions? Call {}.",
+            appt.appointment_type, store.store_phone
+        );
+
+        if podium_cfg
+            .as_ref()
+            .is_some_and(|cfg| cfg.sms_features.appointment_confirmation)
+            && sms_opt_in_ok(&customer)
+            && appointment_channel_due(
+                pool,
+                appt.id,
+                CustomerNotificationKind::AppointmentCancellation,
+                CustomerNotificationChannel::Sms,
+                appt.starts_at,
+                Some(appt.revision),
+            )
+            .await?
+        {
+            if let Some(phone) = customer.phone.as_deref() {
+                let error = if let Some(e164) = normalize_phone_e164(phone) {
+                    podium::try_send_operational_sms(
+                        pool,
+                        http,
+                        podium_cache,
+                        &e164,
+                        sms_body.clone(),
+                        Some(customer_id),
+                        podium::PodiumSmsFeature::AppointmentConfirmation,
+                    )
+                    .await
+                    .err()
+                    .map(|value| value.to_string())
+                } else {
+                    Some("SMS skipped: customer phone is not a valid mobile number.".to_string())
+                };
+                record_outcome(
+                    pool,
+                    customer_id,
+                    "appointment",
+                    appt.id,
+                    CustomerNotificationKind::AppointmentCancellation,
+                    CustomerNotificationChannel::Sms,
+                    &sms_body,
+                    error,
+                    serde_json::json!({
+                        "appointment_type": appt.appointment_type,
+                        "starts_at": starts,
+                        "appointment_starts_at": appointment_starts_at,
+                        "appointment_revision": appt.revision,
+                    }),
+                )
+                .await;
+            }
+        }
+
+        if email_opt_in_ok(&customer)
+            && appointment_channel_due(
+                pool,
+                appt.id,
+                CustomerNotificationKind::AppointmentCancellation,
+                CustomerNotificationChannel::Email,
+                appt.starts_at,
+                Some(appt.revision),
+            )
+            .await?
+        {
+            if let Some(email) = customer
+                .email
+                .as_deref()
+                .filter(|value| looks_like_email(value))
+            {
+                let subject = "Your Riverside appointment was cancelled".to_string();
+                let html = format!(
+                    "<p>Hi {},</p><p>Your <b>{}</b> appointment for <b>{}</b> has been cancelled.</p><p>Questions? Call {}.</p>",
+                    html_escape_minimal(first_name),
+                    html_escape_minimal(&appt.appointment_type),
+                    html_escape_minimal(&starts),
+                    html_escape_minimal(&store.store_phone),
+                );
+                let error = store_email::try_send_operational_email(
+                    pool,
+                    email,
+                    subject.clone(),
+                    html.clone(),
+                    Some(customer_id),
+                )
+                .await
+                .err()
+                .map(|value| value.to_string());
+                record_outcome(
+                    pool,
+                    customer_id,
+                    "appointment",
+                    appt.id,
+                    CustomerNotificationKind::AppointmentCancellation,
+                    CustomerNotificationChannel::Email,
+                    &format!("{subject}\n{html}"),
+                    error,
+                    serde_json::json!({
+                        "appointment_type": appt.appointment_type,
+                        "starts_at": starts,
+                        "appointment_starts_at": appointment_starts_at,
+                        "appointment_revision": appt.revision,
+                    }),
+                )
+                .await;
+            }
+        }
         Ok(())
     }
 
@@ -946,5 +1181,24 @@ mod tests {
             summary.delivery_error().as_deref(),
             Some("SMS disabled; Email missing")
         );
+    }
+
+    #[test]
+    fn appointment_calendar_payloads_use_the_saved_end_time() {
+        let starts_at = chrono::DateTime::parse_from_rfc3339("2026-08-10T14:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let ends_at = starts_at + chrono::Duration::minutes(90);
+        let link = google_calendar_link("Riverside Fitting", starts_at, Some(ends_at));
+        assert!(link.contains("dates=20260810T140000Z/20260810T153000Z"));
+
+        let ics = appointment_ics(
+            Uuid::nil(),
+            "Riverside Fitting",
+            starts_at,
+            Some(ends_at),
+            None,
+        );
+        assert!(ics.contains("DTEND:20260810T153000Z"));
     }
 }

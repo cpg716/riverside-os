@@ -505,7 +505,7 @@ async fn search_customers(
                 )
                 .await
                 {
-                    Some(ids) if ids.is_empty() => return Ok(Vec::new()),
+                    Some(ids) if ids.is_empty() => None,
                     ids => ids,
                 }
             }
@@ -1105,22 +1105,29 @@ async fn search_appointments(
     const APPOINTMENT_SEARCH_SQL: &str = r#"
         SELECT
             a.id,
-            a.customer_display_name,
+            COALESCE(
+              NULLIF(BTRIM(a.customer_display_name), ''),
+              NULLIF(BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), '')
+            ) AS customer_display_name,
             a.appointment_type,
             a.status,
             a.starts_at,
             a.salesperson,
             wp.party_name
         FROM wedding_appointments a
+        LEFT JOIN wedding_members wm ON wm.id = a.wedding_member_id
+        LEFT JOIN customers c ON c.id = COALESCE(a.customer_id, wm.customer_id)
         LEFT JOIN wedding_parties wp ON wp.id = a.wedding_party_id
         WHERE ($1::uuid[] IS NULL OR a.id = ANY($1))
           AND (
             $1::uuid[] IS NOT NULL
             OR $4
             OR COALESCE(a.customer_display_name, '') ILIKE $2
+            OR COALESCE(c.first_name || ' ' || c.last_name, '') ILIKE $2
             OR COALESCE(a.phone, '') ILIKE $2
             OR ($5::text IS NOT NULL AND regexp_replace(COALESCE(a.phone, ''), '[^0-9]', '', 'g') LIKE $5)
             OR COALESCE(a.appointment_type, '') ILIKE $2
+            OR COALESCE(a.status, '') ILIKE $2
             OR COALESCE(a.notes, '') ILIKE $2
             OR COALESCE(a.salesperson, '') ILIKE $2
             OR COALESCE(wp.party_name, '') ILIKE $2
@@ -1158,6 +1165,28 @@ async fn search_appointments(
                 .bind(phone_like.as_deref())
                 .fetch_all(pool)
                 .await?;
+        }
+    }
+    if meili_ids.is_some() && rows.len() < limit {
+        let sql_rows = sqlx::query(APPOINTMENT_SEARCH_SQL)
+            .bind(Option::<&[Uuid]>::None)
+            .bind(&like)
+            .bind(limit as i64)
+            .bind(broad)
+            .bind(phone_like.as_deref())
+            .fetch_all(pool)
+            .await?;
+        for row in sql_rows {
+            let row_id = row.get::<Uuid, _>("id");
+            if !rows
+                .iter()
+                .any(|existing| existing.get::<Uuid, _>("id") == row_id)
+            {
+                rows.push(row);
+                if rows.len() >= limit {
+                    break;
+                }
+            }
         }
     }
 

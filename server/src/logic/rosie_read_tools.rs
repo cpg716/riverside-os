@@ -1612,7 +1612,7 @@ async fn appointments_by_date(
         FROM wedding_appointments
         WHERE (starts_at AT TIME ZONE reporting.effective_store_timezone())::date >= $1
           AND (starts_at AT TIME ZONE reporting.effective_store_timezone())::date <= $2
-          AND status::text NOT IN ('cancelled', 'canceled')
+          AND status = 'Scheduled'
         ORDER BY starts_at ASC
         LIMIT $3
         "#,
@@ -3226,7 +3226,7 @@ async fn daily_manager_brief(
             (SELECT COUNT(*)::bigint FROM wedding_appointments
              WHERE (starts_at AT TIME ZONE reporting.effective_store_timezone())::date =
                    (now() AT TIME ZONE reporting.effective_store_timezone())::date
-               AND status::text NOT IN ('cancelled', 'canceled')) AS appointments_today,
+               AND status = 'Scheduled') AS appointments_today,
             (SELECT COUNT(*)::bigint FROM alteration_orders
              WHERE due_at IS NOT NULL
                AND (due_at AT TIME ZONE reporting.effective_store_timezone())::date =

@@ -14,9 +14,13 @@ const AppointmentList = ({ memberId, partyId }) => {
     useEffect(() => {
         const fetchAppts = async () => {
             try {
-                const all = await api.getAppointments();
-                const mine = all.filter(a => a.memberId === memberId && a.partyId === partyId && a.status !== 'Attended' && a.status !== 'Missed');
-                setAppointments(mine.sort((a, b) => a.datetime.localeCompare(b.datetime)));
+                const all = await api.getAppointments(undefined, undefined, {
+                    member_id: memberId,
+                    party_id: partyId,
+                    status: 'Scheduled',
+                    limit: 200,
+                });
+                setAppointments(all.sort((a, b) => a.datetime.localeCompare(b.datetime)));
             } catch (err) {
                 console.error(err);
             } finally {

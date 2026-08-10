@@ -356,7 +356,11 @@ export default function OperationalTimeline({
         severity: appointment.status.toLowerCase().includes("cancel") ? "done" : urgencyFor(date),
         owner: appointment.salesperson,
         group: "Customer schedule",
-        onOpen: () => onNavigate({ tab: "appointments", section: "scheduler" }),
+        onOpen: () => onNavigate({
+          tab: "appointments",
+          section: "scheduler",
+          appointmentId: appointment.id,
+        }),
       });
     }
 

@@ -2446,18 +2446,18 @@ async fn appointments_no_show_report(
     let rows = sqlx::query_as::<_, AppointmentNoShowReportRow>(
         r#"
         SELECT
-            starts_at::date AS appointment_date,
+            (starts_at AT TIME ZONE reporting.effective_store_timezone())::date AS appointment_date,
             COALESCE(NULLIF(TRIM(appointment_type), ''), 'Unspecified') AS appointment_type,
             COALESCE(NULLIF(TRIM(salesperson), ''), 'Unassigned') AS salesperson,
             COUNT(*)::bigint AS appointment_count,
             COUNT(*) FILTER (
-                WHERE lower(replace(replace(COALESCE(status, ''), ' ', '_'), '-', '_')) IN ('complete', 'completed', 'checked_in', 'showed', 'done')
+                WHERE lower(replace(replace(COALESCE(status, ''), ' ', '_'), '-', '_')) IN ('attended', 'complete', 'completed', 'checked_in', 'showed', 'done')
             )::bigint AS completed_count,
             COUNT(*) FILTER (
                 WHERE lower(replace(replace(COALESCE(status, ''), ' ', '_'), '-', '_')) IN ('cancelled', 'canceled')
             )::bigint AS cancellation_count,
             COUNT(*) FILTER (
-                WHERE lower(replace(replace(COALESCE(status, ''), ' ', '_'), '-', '_')) IN ('no_show', 'noshow')
+                WHERE lower(replace(replace(COALESCE(status, ''), ' ', '_'), '-', '_')) IN ('missed', 'no_show', 'noshow')
             )::bigint AS no_show_count,
             COUNT(*) FILTER (
                 WHERE wedding_party_id IS NOT NULL OR wedding_member_id IS NOT NULL
@@ -2650,7 +2650,8 @@ async fn staff_schedule_coverage_sales_report(
             GROUP BY 1
         ),
         appointments AS (
-            SELECT starts_at::date AS report_date, COUNT(*)::bigint AS appointment_count
+            SELECT (starts_at AT TIME ZONE reporting.effective_store_timezone())::date AS report_date,
+                   COUNT(*) FILTER (WHERE status <> 'Cancelled')::bigint AS appointment_count
             FROM wedding_appointments
             WHERE starts_at >= $3 AND starts_at < $4
             GROUP BY 1

@@ -98,7 +98,12 @@ interface CustomersWorkspaceProps {
   onStartSaleInPos: (c: Customer) => void;
   onNavigateRegister: () => void;
   onAddToWedding: () => void;
-  onBookAppointment: () => void;
+  onBookAppointment: (customer: {
+    customerId: string;
+    customerName: string;
+    phone?: string | null;
+  }) => void;
+  onOpenAppointment?: (appointmentId: string) => void;
   /** Open Back Office Orders with this order selected (requires orders.view). */
   onOpenTransactionInBackoffice?: (orderId: string) => void;
   activeSection?: string;
@@ -180,6 +185,7 @@ export default function CustomersWorkspace({
   onNavigateRegister,
   onAddToWedding,
   onBookAppointment,
+  onOpenAppointment,
   onOpenTransactionInBackoffice,
   activeSection,
   onNavigateSubSection,
@@ -1018,6 +1024,7 @@ export default function CustomersWorkspace({
             navigateAfterStartSale
             onAddToWedding={onAddToWedding}
             onBookAppointment={onBookAppointment}
+            onOpenAppointment={onOpenAppointment}
             onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
             onSwitchCustomer={(nextCustomer) => {
               setHubInitialTab("profile");
@@ -1057,6 +1064,7 @@ export default function CustomersWorkspace({
         onNavigateRegister={onNavigateRegister}
         onAddToWedding={onAddToWedding}
         onBookAppointment={onBookAppointment}
+        onOpenAppointment={onOpenAppointment}
         onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
       />
     );
@@ -1979,6 +1987,7 @@ export default function CustomersWorkspace({
           navigateAfterStartSale
           onAddToWedding={onAddToWedding}
           onBookAppointment={onBookAppointment}
+          onOpenAppointment={onOpenAppointment}
           onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
           onSwitchCustomer={(nextCustomer) => {
             setHubInitialTab("profile");

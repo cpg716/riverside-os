@@ -192,4 +192,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("189_qbo_donated_gift_card_expense_mapping.sql", include_str!("../../migrations/189_qbo_donated_gift_card_expense_mapping.sql")),
     ("190_loyalty_redemption_idempotency.sql", include_str!("../../migrations/190_loyalty_redemption_idempotency.sql")),
     ("191_mailbox_read_and_trash.sql", include_str!("../../migrations/191_mailbox_read_and_trash.sql")),
+    ("192_appointment_system_hardening.sql", include_str!("../../migrations/192_appointment_system_hardening.sql")),
 ];

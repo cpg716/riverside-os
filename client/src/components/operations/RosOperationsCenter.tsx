@@ -62,6 +62,7 @@ export type OperationsCenterNavigateTarget = {
     | "weddings"
     | "staff";
   section?: string;
+  appointmentId?: string;
 };
 
 interface IntegrationHealthItem {

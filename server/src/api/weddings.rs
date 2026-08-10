@@ -32,6 +32,7 @@ use crate::auth::permissions::{
     STAFF_MANAGE_ACCESS, TASKS_MANAGE, WEDDINGS_MUTATE, WEDDINGS_VIEW,
 };
 use crate::auth::pins;
+use crate::logic::appointments as appointment_logic;
 use crate::logic::customers::{insert_customer, next_customer_code, InsertCustomerParams};
 use crate::logic::messaging::MessagingService;
 use crate::logic::staff_schedule;
@@ -92,6 +93,34 @@ fn spawn_meilisearch_appointment_upsert(state: &AppState, appt_id: Uuid) {
     crate::logic::meilisearch_sync::spawn_meili(async move {
         crate::logic::meilisearch_sync::upsert_appointment_document(&client, &pool, appt_id).await;
     });
+}
+
+async fn fetch_appointment_row(
+    pool: &PgPool,
+    appointment_id: Uuid,
+) -> Result<Option<AppointmentRow>, sqlx::Error> {
+    sqlx::query_as(
+        r#"
+        SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
+               appointment_type, starts_at, ends_at, notes, status, salesperson,
+               salesperson_staff_id, service_type_id, revision,
+               ARRAY(
+                   SELECT ara.resource_id
+                   FROM appointment_resource_assignment ara
+                   WHERE ara.appointment_id = wedding_appointments.id
+                   ORDER BY ara.resource_id
+               ) AS resource_ids
+        FROM wedding_appointments
+        WHERE id = $1
+        "#,
+    )
+    .bind(appointment_id)
+    .fetch_optional(pool)
+    .await
+}
+
+fn appointment_state_json(row: &AppointmentRow) -> serde_json::Value {
+    serde_json::to_value(row).unwrap_or_else(|_| json!({ "id": row.id }))
 }
 
 async fn get_or_create_wedding_customer(
@@ -807,6 +836,14 @@ pub struct CreateAppointmentRequest {
     pub phone: Option<String>,
     pub appointment_type: Option<String>,
     pub starts_at: chrono::DateTime<chrono::Utc>,
+    #[serde(default)]
+    pub ends_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    pub duration_minutes: Option<i32>,
+    #[serde(default)]
+    pub service_type_id: Option<Uuid>,
+    #[serde(default)]
+    pub resource_ids: Vec<Uuid>,
     pub notes: Option<String>,
     pub status: Option<String>,
     pub salesperson: Option<String>,
@@ -814,6 +851,8 @@ pub struct CreateAppointmentRequest {
     pub salesperson_staff_id: Option<Uuid>,
     #[serde(default)]
     pub schedule_override_reason: Option<String>,
+    #[serde(default)]
+    pub conflict_override_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -821,18 +860,38 @@ pub struct UpdateAppointmentRequest {
     #[serde(default)]
     pub wedding_member_id: Option<Uuid>,
     #[serde(default)]
+    pub clear_wedding_link: bool,
+    #[serde(default)]
     pub customer_id: Option<Uuid>,
+    #[serde(default)]
+    pub clear_customer_link: bool,
     pub customer_display_name: Option<String>,
     pub phone: Option<String>,
     pub appointment_type: Option<String>,
     pub starts_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    pub ends_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    pub duration_minutes: Option<i32>,
+    #[serde(default)]
+    pub service_type_id: Option<Uuid>,
+    #[serde(default)]
+    pub resource_ids: Option<Vec<Uuid>>,
     pub notes: Option<String>,
     pub status: Option<String>,
     pub salesperson: Option<String>,
     #[serde(default)]
     pub salesperson_staff_id: Option<Uuid>,
     #[serde(default)]
+    pub clear_salesperson: bool,
+    #[serde(default)]
     pub schedule_override_reason: Option<String>,
+    #[serde(default)]
+    pub conflict_override_reason: Option<String>,
+    #[serde(default)]
+    pub cancellation_reason: Option<String>,
+    #[serde(default)]
+    pub expected_revision: Option<i32>,
     /// Atomically completes Measurement/Fitting member milestones when the appointment is attended.
     #[serde(default)]
     pub complete_member_milestone: bool,
@@ -843,21 +902,76 @@ pub struct AppointmentsQuery {
     pub from: Option<String>,
     pub to: Option<String>,
     pub party_id: Option<Uuid>,
+    pub member_id: Option<Uuid>,
+    pub customer_id: Option<Uuid>,
+    pub resource_id: Option<Uuid>,
+    pub status: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AppointmentConflictsQuery {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct AppointmentServiceTypeRow {
+    pub id: Uuid,
+    pub code: String,
+    pub display_name: String,
+    pub duration_minutes: i32,
+    pub buffer_before_minutes: i32,
+    pub buffer_after_minutes: i32,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct AppointmentResourceRow {
+    pub id: Uuid,
+    pub name: String,
+    pub capacity: i32,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpsertAppointmentResourceRequest {
+    pub name: String,
+    #[serde(default = "default_resource_capacity")]
+    pub capacity: i32,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default = "default_true")]
+    pub is_active: bool,
+}
+
+fn default_resource_capacity() -> i32 {
+    1
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn map_appointment_resource_write_error(error: sqlx::Error) -> WeddingError {
+    if error
+        .as_database_error()
+        .is_some_and(|database_error| database_error.is_unique_violation())
+    {
+        WeddingError::BadRequest("An appointment resource with that name already exists.".into())
+    } else {
+        WeddingError::Database(error)
+    }
 }
 
 fn parse_datetime(s: &str) -> Result<chrono::DateTime<chrono::Utc>, WeddingError> {
-    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
-        return Ok(dt.with_timezone(&chrono::Utc));
-    }
-    if let Ok(ndt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
-        return Ok(ndt.and_utc());
-    }
-    if let Ok(date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        if let Some(ndt) = date.and_hms_opt(0, 0, 0) {
-            return Ok(ndt.and_utc());
-        }
-    }
-    Err(WeddingError::BadRequest("Invalid date format".into()))
+    chrono::DateTime::parse_from_rfc3339(s)
+        .map(|value| value.with_timezone(&chrono::Utc))
+        .map_err(|_| {
+            WeddingError::BadRequest(
+                "Invalid date format. Include an explicit timezone offset.".into(),
+            )
+        })
 }
 
 #[derive(Debug, Deserialize)]
@@ -984,6 +1098,19 @@ pub fn router() -> Router<AppState> {
         .route(
             "/appointments",
             get(list_appointments).post(create_appointment),
+        )
+        .route("/appointments/conflicts", get(list_appointment_conflicts))
+        .route(
+            "/appointments/service-types",
+            get(list_appointment_service_types),
+        )
+        .route(
+            "/appointments/resources",
+            get(list_appointment_resources).post(create_appointment_resource),
+        )
+        .route(
+            "/appointments/resources/{resource_id}",
+            patch(update_appointment_resource),
         )
         .route("/appointments/search", get(search_appointments))
         .route(
@@ -2693,8 +2820,162 @@ async fn list_appointments(
     require_weddings_view(&state, &headers).await?;
     let from_dt = q.from.as_ref().map(|s| parse_datetime(s)).transpose()?;
     let to_dt = q.to.as_ref().map(|s| parse_datetime(s)).transpose()?;
-    let rows = list_appointments_filtered(&state.db, from_dt, to_dt, q.party_id).await?;
+    if let (Some(from), Some(to)) = (from_dt, to_dt) {
+        if to <= from || to - from > chrono::Duration::days(1465) {
+            return Err(WeddingError::BadRequest(
+                "Appointment date range must be positive and no more than four years.".to_string(),
+            ));
+        }
+    }
+    let status = if let Some(raw_status) = q.status.as_deref() {
+        Some(
+            appointment_logic::canonical_status(raw_status).ok_or_else(|| {
+                WeddingError::BadRequest("Invalid appointment status".to_string())
+            })?,
+        )
+    } else {
+        None
+    };
+    let rows = list_appointments_filtered(
+        &state.db,
+        from_dt,
+        to_dt,
+        q.party_id,
+        q.member_id,
+        q.customer_id,
+        q.resource_id,
+        status,
+        q.limit.unwrap_or(250),
+        q.offset.unwrap_or(0),
+    )
+    .await?;
     Ok(Json(rows))
+}
+
+async fn list_appointment_conflicts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<AppointmentConflictsQuery>,
+) -> Result<Json<Vec<appointment_logic::AppointmentConflictRow>>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let from = parse_datetime(&q.from)?;
+    let to = parse_datetime(&q.to)?;
+    if to <= from || to - from > chrono::Duration::days(366) {
+        return Err(WeddingError::BadRequest(
+            "Conflict range must be positive and no more than one year.".to_string(),
+        ));
+    }
+    Ok(Json(
+        appointment_logic::list_conflicts(&state.db, from, to).await?,
+    ))
+}
+
+async fn list_appointment_service_types(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<AppointmentServiceTypeRow>>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let rows = sqlx::query_as(
+        r#"
+        SELECT id, code, display_name, duration_minutes, buffer_before_minutes, buffer_after_minutes
+        FROM appointment_service_type
+        WHERE is_active = TRUE
+        ORDER BY display_name, id
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+async fn list_appointment_resources(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<AppointmentResourceRow>>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let rows = sqlx::query_as(
+        r#"
+        SELECT id, name, capacity, notes
+        FROM appointment_resource
+        WHERE is_active = TRUE
+        ORDER BY name, id
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+async fn create_appointment_resource(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<UpsertAppointmentResourceRequest>,
+) -> Result<Json<AppointmentResourceRow>, WeddingError> {
+    require_weddings_mutate(&state, &headers).await?;
+    let name = body.name.trim();
+    if name.is_empty() || !(1..=50).contains(&body.capacity) {
+        return Err(WeddingError::BadRequest(
+            "Resource name is required and capacity must be between 1 and 50.".to_string(),
+        ));
+    }
+    let row = sqlx::query_as(
+        r#"
+        INSERT INTO appointment_resource (name, capacity, notes, is_active)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, name, capacity, notes
+        "#,
+    )
+    .bind(name)
+    .bind(body.capacity)
+    .bind(
+        body.notes
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    )
+    .bind(body.is_active)
+    .fetch_one(&state.db)
+    .await
+    .map_err(map_appointment_resource_write_error)?;
+    Ok(Json(row))
+}
+
+async fn update_appointment_resource(
+    State(state): State<AppState>,
+    Path(resource_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<UpsertAppointmentResourceRequest>,
+) -> Result<Json<AppointmentResourceRow>, WeddingError> {
+    require_weddings_mutate(&state, &headers).await?;
+    let name = body.name.trim();
+    if name.is_empty() || !(1..=50).contains(&body.capacity) {
+        return Err(WeddingError::BadRequest(
+            "Resource name is required and capacity must be between 1 and 50.".to_string(),
+        ));
+    }
+    let row = sqlx::query_as(
+        r#"
+        UPDATE appointment_resource
+        SET name = $2, capacity = $3, notes = $4, is_active = $5, updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, name, capacity, notes
+        "#,
+    )
+    .bind(resource_id)
+    .bind(name)
+    .bind(body.capacity)
+    .bind(
+        body.notes
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    )
+    .bind(body.is_active)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(map_appointment_resource_write_error)?
+    .ok_or_else(|| WeddingError::BadRequest("Appointment resource not found".to_string()))?;
+    Ok(Json(row))
 }
 
 async fn get_appointment(
@@ -2703,18 +2984,9 @@ async fn get_appointment(
     Path(appointment_id): Path<Uuid>,
 ) -> Result<Json<AppointmentRow>, WeddingError> {
     require_weddings_view(&state, &headers).await?;
-    let row = sqlx::query_as(
-        r#"
-        SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-               appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
-        FROM wedding_appointments
-        WHERE id = $1
-        "#,
-    )
-    .bind(appointment_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
+    let row = fetch_appointment_row(&state.db, appointment_id)
+        .await?
+        .ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
     Ok(Json(row))
 }
 
@@ -2727,64 +2999,130 @@ async fn create_appointment(
     let actor = require_authenticated_staff_headers(&state, &headers)
         .await
         .map_err(map_wed_perm)?;
-    let name_ok = body
+    let provided_name = body
         .customer_display_name
         .as_deref()
         .map(str::trim)
-        .filter(|s| !s.is_empty());
-    let phone_ok = body
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let provided_phone = body
         .phone
         .as_deref()
         .map(str::trim)
-        .filter(|s| !s.is_empty());
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
 
-    let (party_id, member_id, customer_id) = if let Some(mid) = body.wedding_member_id {
-        let row: Option<(Uuid, Uuid)> =
-            sqlx::query_as("SELECT wedding_party_id, id FROM wedding_members WHERE id = $1")
-                .bind(mid)
-                .fetch_optional(&state.db)
-                .await?;
-        let (pid, real_mid) = row.ok_or(WeddingError::MemberNotFound)?;
-        (Some(pid), Some(real_mid), body.customer_id)
-    } else {
-        if name_ok.is_none() && phone_ok.is_none() {
+    let (party_id, member_id, customer_id, member_name, member_phone) = if let Some(member_id) =
+        body.wedding_member_id
+    {
+        let row: Option<(Uuid, Uuid, Uuid, String, Option<String>)> = sqlx::query_as(
+            r#"
+                SELECT wm.wedding_party_id, wm.id, wm.customer_id,
+                       BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), c.phone
+                FROM wedding_members wm
+                JOIN customers c ON c.id = wm.customer_id
+                WHERE wm.id = $1
+                "#,
+        )
+        .bind(member_id)
+        .fetch_optional(&state.db)
+        .await?;
+        let (party_id, member_id, member_customer_id, name, phone) =
+            row.ok_or(WeddingError::MemberNotFound)?;
+        if body
+            .customer_id
+            .is_some_and(|customer_id| customer_id != member_customer_id)
+        {
             return Err(WeddingError::BadRequest(
-                "Provide a wedding member, or a customer name or phone for this appointment."
-                    .to_string(),
+                "Appointment customer must match the selected wedding member.".to_string(),
             ));
         }
-        (None, None, body.customer_id)
+        (
+            Some(party_id),
+            Some(member_id),
+            Some(member_customer_id),
+            Some(name),
+            phone,
+        )
+    } else if let Some(customer_id) = body.customer_id {
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
+            r#"
+                SELECT BTRIM(CONCAT_WS(' ', first_name, last_name)), phone
+                FROM customers WHERE id = $1
+                "#,
+        )
+        .bind(customer_id)
+        .fetch_optional(&state.db)
+        .await?;
+        let (name, phone) = row.ok_or_else(|| {
+            WeddingError::BadRequest("Selected customer was not found.".to_string())
+        })?;
+        (None, None, Some(customer_id), Some(name), phone)
+    } else {
+        if provided_name.is_none() && provided_phone.is_none() {
+            return Err(WeddingError::BadRequest(
+                "Provide a customer, or enter a name or phone for this appointment.".to_string(),
+            ));
+        }
+        (None, None, None, None, None)
     };
+    let customer_display_name = provided_name.or(member_name);
+    let phone = provided_phone.or(member_phone);
 
     let appt_type = body
         .appointment_type
         .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .unwrap_or("Measurement")
         .to_string();
-    let status = body.status.as_deref().unwrap_or("Scheduled").to_string();
+    let status = appointment_logic::canonical_status(body.status.as_deref().unwrap_or("Scheduled"))
+        .ok_or_else(|| WeddingError::BadRequest("Invalid appointment status".to_string()))?
+        .to_string();
+    let duration_minutes = if let Some(duration) = body.duration_minutes {
+        duration
+    } else {
+        appointment_logic::service_duration_minutes(&state.db, body.service_type_id, &appt_type)
+            .await?
+    };
+    let ends_at = body
+        .ends_at
+        .unwrap_or_else(|| body.starts_at + chrono::Duration::minutes(i64::from(duration_minutes)));
+    appointment_logic::validate_time_range(body.starts_at, ends_at)
+        .map_err(WeddingError::BadRequest)?;
 
     let resolved_salesperson = if let Some(staff_id) = body.salesperson_staff_id {
         staff_schedule::resolve_floor_staff_name_by_id(&state.db, staff_id)
             .await?
-            .or_else(|| body.salesperson.clone())
+            .ok_or_else(|| {
+                WeddingError::BadRequest(
+                    "Selected appointment staff member is not active schedule-eligible staff."
+                        .to_string(),
+                )
+            })?
+            .into()
     } else {
         body.salesperson.clone()
     };
 
-    let schedule_warning = staff_schedule::appointment_staff_booking_check(
-        &state.db,
-        body.salesperson_staff_id,
-        resolved_salesperson.as_deref(),
-        body.starts_at,
-    )
-    .await
-    .map_err(|e| match e {
-        staff_schedule::StaffScheduleError::BadRequest(m) => WeddingError::BadRequest(m),
-        staff_schedule::StaffScheduleError::Database(e) => WeddingError::Database(e),
-        staff_schedule::StaffScheduleError::NotFound => {
-            WeddingError::BadRequest("Schedule check failed".to_string())
-        }
-    })?;
+    let schedule_warning = if status == "Scheduled" {
+        staff_schedule::appointment_staff_booking_check(
+            &state.db,
+            body.salesperson_staff_id,
+            resolved_salesperson.as_deref(),
+            body.starts_at,
+        )
+        .await
+        .map_err(|e| match e {
+            staff_schedule::StaffScheduleError::BadRequest(m) => WeddingError::BadRequest(m),
+            staff_schedule::StaffScheduleError::Database(e) => WeddingError::Database(e),
+            staff_schedule::StaffScheduleError::NotFound => {
+                WeddingError::BadRequest("Schedule check failed".to_string())
+            }
+        })?
+    } else {
+        None
+    };
 
     let override_actor = if let Some(message) = schedule_warning.as_deref() {
         let reason = body
@@ -2803,29 +3141,76 @@ async fn create_appointment(
     };
 
     let mut tx = state.db.begin().await?;
+    if let Some(message) = appointment_logic::validate_booking_dimensions_locked(
+        &mut tx,
+        body.service_type_id,
+        &body.resource_ids,
+    )
+    .await?
+    {
+        return Err(WeddingError::BadRequest(message));
+    }
+    let conflicts = if status == "Scheduled" {
+        appointment_logic::find_conflicts_locked(
+            &mut tx,
+            None,
+            body.salesperson_staff_id,
+            &body.resource_ids,
+            body.starts_at,
+            ends_at,
+        )
+        .await?
+    } else {
+        Vec::new()
+    };
+    let conflict_override = if conflicts.is_empty() {
+        None
+    } else {
+        let reason = body
+            .conflict_override_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                WeddingError::BadRequest(format!(
+                    "This booking overlaps {} active appointment(s). Choose another time or record a Manager Access override reason.",
+                    conflicts.len()
+                ))
+            })?;
+        Some((
+            require_schedule_override_actor(&state, &headers).await?,
+            reason.to_string(),
+        ))
+    };
     let id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO wedding_appointments (
             wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-            appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
+            appointment_type, starts_at, ends_at, notes, status, salesperson,
+            salesperson_staff_id, service_type_id, created_by_staff_id, updated_by_staff_id
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14)
         RETURNING id
         "#,
     )
     .bind(party_id)
     .bind(member_id)
     .bind(customer_id)
-    .bind(&body.customer_display_name)
-    .bind(&body.phone)
+    .bind(&customer_display_name)
+    .bind(&phone)
     .bind(&appt_type)
     .bind(body.starts_at)
+    .bind(ends_at)
     .bind(&body.notes)
     .bind(&status)
     .bind(&resolved_salesperson)
     .bind(body.salesperson_staff_id)
+    .bind(body.service_type_id)
+    .bind(actor.id)
     .fetch_one(&mut *tx)
     .await?;
+
+    appointment_logic::replace_resources(&mut tx, id, &body.resource_ids).await?;
 
     if let Some(party_id) = party_id {
         wedding_logic::insert_wedding_activity(
@@ -2865,18 +3250,59 @@ async fn create_appointment(
         .await?;
     }
 
-    tx.commit().await?;
+    if let Some((actor_id, reason)) = conflict_override {
+        sqlx::query(
+            r#"
+            INSERT INTO appointment_schedule_override_audit (
+                appointment_id, salesperson_staff_id, salesperson_name, override_reason,
+                validation_message, overridden_by_staff_id
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(id)
+        .bind(body.salesperson_staff_id)
+        .bind(&resolved_salesperson)
+        .bind(&reason)
+        .bind(format!(
+            "Overlaps {} active appointment(s)",
+            conflicts.len()
+        ))
+        .bind(actor_id)
+        .execute(&mut *tx)
+        .await?;
+    }
 
-    let appt: AppointmentRow = sqlx::query_as(
+    let after_state: serde_json::Value = sqlx::query_scalar(
         r#"
-        SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-               appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
-        FROM wedding_appointments WHERE id = $1
+        SELECT to_jsonb(wa) || jsonb_build_object(
+            'resource_ids', COALESCE((
+                SELECT jsonb_agg(ara.resource_id ORDER BY ara.resource_id)
+                FROM appointment_resource_assignment ara
+                WHERE ara.appointment_id = wa.id
+            ), '[]'::jsonb)
+        )
+        FROM wedding_appointments wa WHERE id = $1
         "#,
     )
     .bind(id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+    appointment_logic::insert_audit(
+        &mut *tx,
+        id,
+        "created",
+        Some(actor.id),
+        None,
+        Some(after_state),
+        body.conflict_override_reason.as_deref(),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    let appt = fetch_appointment_row(&state.db, id)
+        .await?
+        .ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
 
     let appt_email = appt.clone();
     let pool = state.db.clone();
@@ -2910,55 +3336,203 @@ async fn update_appointment(
     let actor = require_authenticated_staff_headers(&state, &headers)
         .await
         .map_err(map_wed_perm)?;
-
+    let mut tx = state.db.begin().await?;
     let current: AppointmentRow = sqlx::query_as(
         r#"
         SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-               appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
+               appointment_type, starts_at, ends_at, notes, status, salesperson,
+               salesperson_staff_id, service_type_id, revision,
+               ARRAY(
+                   SELECT ara.resource_id FROM appointment_resource_assignment ara
+                   WHERE ara.appointment_id = wedding_appointments.id ORDER BY ara.resource_id
+               ) AS resource_ids
         FROM wedding_appointments WHERE id = $1
+        FOR UPDATE
         "#,
     )
     .bind(appointment_id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
+    if body
+        .expected_revision
+        .is_some_and(|expected| expected != current.revision)
+    {
+        return Err(WeddingError::BadRequest(
+            "This appointment changed on another workstation. Refresh it before saving."
+                .to_string(),
+        ));
+    }
 
     let merged_starts = body.starts_at.unwrap_or(current.starts_at);
-    let merged_status = body
-        .status
-        .clone()
-        .unwrap_or_else(|| current.status.clone());
+    let current_ends = current
+        .ends_at
+        .unwrap_or_else(|| current.starts_at + chrono::Duration::hours(1));
+    let current_duration = current_ends - current.starts_at;
+    let merged_ends = if let Some(ends_at) = body.ends_at {
+        ends_at
+    } else if let Some(duration_minutes) = body.duration_minutes {
+        merged_starts + chrono::Duration::minutes(i64::from(duration_minutes))
+    } else if body.service_type_id.is_some() {
+        let duration = appointment_logic::service_duration_minutes(
+            &state.db,
+            body.service_type_id,
+            body.appointment_type
+                .as_deref()
+                .unwrap_or(&current.appointment_type),
+        )
+        .await?;
+        merged_starts + chrono::Duration::minutes(i64::from(duration))
+    } else {
+        merged_starts + current_duration
+    };
+    appointment_logic::validate_time_range(merged_starts, merged_ends)
+        .map_err(WeddingError::BadRequest)?;
+
+    let merged_status =
+        appointment_logic::canonical_status(body.status.as_deref().unwrap_or(&current.status))
+            .ok_or_else(|| WeddingError::BadRequest("Invalid appointment status".to_string()))?
+            .to_string();
     let merged_appointment_type = body
         .appointment_type
-        .clone()
-        .unwrap_or_else(|| current.appointment_type.clone());
-    let merged_salesperson_staff_id = body.salesperson_staff_id.or(current.salesperson_staff_id);
-    let merged_salesperson = body.salesperson.clone().or_else(|| {
-        merged_salesperson_staff_id
-            .and_then(|_| None)
-            .or_else(|| current.salesperson.clone())
-    });
-    let resolved_salesperson = if let Some(staff_id) = body.salesperson_staff_id {
-        staff_schedule::resolve_floor_staff_name_by_id(&state.db, staff_id)
-            .await?
-            .or(merged_salesperson)
-    } else {
-        merged_salesperson
-    };
-    let schedule_warning = staff_schedule::appointment_staff_booking_check(
-        &state.db,
-        merged_salesperson_staff_id,
-        resolved_salesperson.as_deref(),
-        merged_starts,
-    )
-    .await
-    .map_err(|e| match e {
-        staff_schedule::StaffScheduleError::BadRequest(m) => WeddingError::BadRequest(m),
-        staff_schedule::StaffScheduleError::Database(e) => WeddingError::Database(e),
-        staff_schedule::StaffScheduleError::NotFound => {
-            WeddingError::BadRequest("Schedule check failed".to_string())
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(&current.appointment_type)
+        .to_string();
+
+    let mut merged_party_id = current.wedding_party_id;
+    let mut merged_member_id = current.wedding_member_id;
+    let mut merged_customer_id = current.customer_id;
+    let mut derived_name: Option<String> = None;
+    let mut derived_phone: Option<String> = None;
+    if body.clear_wedding_link {
+        merged_party_id = None;
+        merged_member_id = None;
+    } else if let Some(member_id) = body.wedding_member_id {
+        let row: Option<(Uuid, Uuid, String, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT wm.wedding_party_id, wm.customer_id,
+                   BTRIM(CONCAT_WS(' ', c.first_name, c.last_name)), c.phone
+            FROM wedding_members wm
+            JOIN customers c ON c.id = wm.customer_id
+            WHERE wm.id = $1
+            "#,
+        )
+        .bind(member_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let (party_id, customer_id, name, phone) = row.ok_or(WeddingError::MemberNotFound)?;
+        if body
+            .customer_id
+            .is_some_and(|provided| provided != customer_id)
+        {
+            return Err(WeddingError::BadRequest(
+                "Appointment customer must match the selected wedding member.".to_string(),
+            ));
         }
-    })?;
+        merged_party_id = Some(party_id);
+        merged_member_id = Some(member_id);
+        merged_customer_id = Some(customer_id);
+        derived_name = Some(name);
+        derived_phone = phone;
+    }
+    if body.clear_customer_link {
+        if merged_member_id.is_some() {
+            return Err(WeddingError::BadRequest(
+                "A wedding-member appointment must remain linked to that member's customer."
+                    .to_string(),
+            ));
+        }
+        merged_customer_id = None;
+    } else if let Some(customer_id) = body.customer_id {
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT BTRIM(CONCAT_WS(' ', first_name, last_name)), phone FROM customers WHERE id = $1",
+        )
+        .bind(customer_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let (name, phone) = row.ok_or_else(|| {
+            WeddingError::BadRequest("Selected customer was not found.".to_string())
+        })?;
+        merged_customer_id = Some(customer_id);
+        derived_name = Some(name);
+        derived_phone = phone;
+    }
+
+    let merged_customer_name = body
+        .customer_display_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(derived_name)
+        .or_else(|| current.customer_display_name.clone());
+    let merged_phone = body
+        .phone
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(derived_phone)
+        .or_else(|| current.phone.clone());
+    if merged_member_id.is_none()
+        && merged_customer_id.is_none()
+        && merged_customer_name.is_none()
+        && merged_phone.is_none()
+    {
+        return Err(WeddingError::BadRequest(
+            "Provide a customer, or enter a name or phone for this appointment.".to_string(),
+        ));
+    }
+
+    let (merged_salesperson_staff_id, resolved_salesperson) = if body.clear_salesperson {
+        (None, None)
+    } else if let Some(staff_id) = body.salesperson_staff_id {
+        let name = staff_schedule::resolve_floor_staff_name_by_id(&state.db, staff_id)
+            .await?
+            .ok_or_else(|| {
+                WeddingError::BadRequest(
+                    "Selected appointment staff member is not active schedule-eligible staff."
+                        .to_string(),
+                )
+            })?;
+        (Some(staff_id), Some(name))
+    } else if let Some(name) = body
+        .salesperson
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let staff_id = staff_schedule::resolve_floor_staff_id_by_name(&state.db, name).await?;
+        (staff_id, Some(name.to_string()))
+    } else {
+        (current.salesperson_staff_id, current.salesperson.clone())
+    };
+    let merged_resource_ids = body
+        .resource_ids
+        .clone()
+        .unwrap_or_else(|| current.resource_ids.clone());
+    let merged_service_type_id = body.service_type_id.or(current.service_type_id);
+
+    let schedule_warning = if merged_status == "Scheduled" {
+        staff_schedule::appointment_staff_booking_check(
+            &state.db,
+            merged_salesperson_staff_id,
+            resolved_salesperson.as_deref(),
+            merged_starts,
+        )
+        .await
+        .map_err(|e| match e {
+            staff_schedule::StaffScheduleError::BadRequest(m) => WeddingError::BadRequest(m),
+            staff_schedule::StaffScheduleError::Database(e) => WeddingError::Database(e),
+            staff_schedule::StaffScheduleError::NotFound => {
+                WeddingError::BadRequest("Schedule check failed".to_string())
+            }
+        })?
+    } else {
+        None
+    };
 
     let override_actor = if let Some(message) = schedule_warning.as_deref() {
         let reason = body
@@ -2976,66 +3550,107 @@ async fn update_appointment(
         None
     };
 
-    let mut qb: QueryBuilder<'_, sqlx::Postgres> =
-        QueryBuilder::new("UPDATE wedding_appointments SET ");
-    let mut sep = qb.separated(", ");
-    let mut has_updates = false;
-
-    if let Some(mid) = body.wedding_member_id {
-        let row: Option<(Uuid, Uuid)> =
-            sqlx::query_as("SELECT wedding_party_id, id FROM wedding_members WHERE id = $1")
-                .bind(mid)
-                .fetch_optional(&state.db)
-                .await?;
-        let (party_id, real_mid) = row.ok_or(WeddingError::MemberNotFound)?;
-        sep.push("wedding_party_id = ")
-            .push_bind_unseparated(party_id);
-        sep.push("wedding_member_id = ")
-            .push_bind_unseparated(real_mid);
-        has_updates = true;
+    if merged_status == "Scheduled" || body.service_type_id.is_some() || body.resource_ids.is_some()
+    {
+        if let Some(message) = appointment_logic::validate_booking_dimensions_locked(
+            &mut tx,
+            merged_service_type_id,
+            &merged_resource_ids,
+        )
+        .await?
+        {
+            return Err(WeddingError::BadRequest(message));
+        }
     }
-
-    macro_rules! set_opt {
-        ($field:literal, $value:expr) => {
-            if let Some(v) = $value {
-                sep.push(concat!($field, " = ")).push_bind_unseparated(v);
-                has_updates = true;
-            }
-        };
-    }
-
-    set_opt!("customer_id", body.customer_id);
-    set_opt!("customer_display_name", body.customer_display_name);
-    set_opt!("phone", body.phone);
-    set_opt!("appointment_type", body.appointment_type);
-    set_opt!("starts_at", body.starts_at);
-    set_opt!("notes", body.notes);
-    set_opt!("status", body.status);
-    if let Some(staff_id) = body.salesperson_staff_id {
-        sep.push("salesperson_staff_id = ")
-            .push_bind_unseparated(staff_id);
-        sep.push("salesperson = ")
-            .push_bind_unseparated(resolved_salesperson.clone());
-        has_updates = true;
+    let conflicts = if merged_status == "Scheduled" {
+        appointment_logic::find_conflicts_locked(
+            &mut tx,
+            Some(appointment_id),
+            merged_salesperson_staff_id,
+            &merged_resource_ids,
+            merged_starts,
+            merged_ends,
+        )
+        .await?
     } else {
-        if let Some(salesperson) = body.salesperson {
-            sep.push("salesperson = ")
-                .push_bind_unseparated(salesperson);
-            sep.push("salesperson_staff_id = NULL");
-            has_updates = true;
-        }
-    }
+        Vec::new()
+    };
+    let conflict_override = if conflicts.is_empty() {
+        None
+    } else {
+        let reason = body
+            .conflict_override_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                WeddingError::BadRequest(format!(
+                    "This booking overlaps {} active appointment(s). Choose another time or record a Manager Access override reason.",
+                    conflicts.len()
+                ))
+            })?;
+        Some((
+            require_schedule_override_actor(&state, &headers).await?,
+            reason.to_string(),
+        ))
+    };
 
-    let mut tx = state.db.begin().await?;
-    if has_updates {
-        qb.push(" WHERE id = ").push_bind(appointment_id);
-        let result = qb.build().execute(&mut *tx).await?;
-        if result.rows_affected() == 0 {
-            return Err(WeddingError::BadRequest(
-                "Appointment not found".to_string(),
-            ));
-        }
+    let status_changed = merged_status != current.status;
+    let was_cancelled = current.status == "Cancelled";
+    let now_cancelled = merged_status == "Cancelled";
+    let cancellation_reason = body
+        .cancellation_reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if now_cancelled && !was_cancelled && cancellation_reason.is_none() {
+        return Err(WeddingError::BadRequest(
+            "Cancellation requires a reason.".to_string(),
+        ));
     }
+    let merged_notes = body.notes.clone().or_else(|| current.notes.clone());
+    sqlx::query(
+        r#"
+        UPDATE wedding_appointments
+        SET wedding_party_id = $2,
+            wedding_member_id = $3,
+            customer_id = $4,
+            customer_display_name = $5,
+            phone = $6,
+            appointment_type = $7,
+            starts_at = $8,
+            ends_at = $9,
+            notes = $10,
+            status = $11,
+            salesperson = $12,
+            salesperson_staff_id = $13,
+            service_type_id = $14,
+            updated_by_staff_id = $15,
+            cancelled_at = CASE WHEN $11 = 'Cancelled' THEN COALESCE(cancelled_at, NOW()) ELSE NULL END,
+            cancelled_by_staff_id = CASE WHEN $11 = 'Cancelled' THEN $15 ELSE NULL END,
+            cancellation_reason = CASE WHEN $11 = 'Cancelled' THEN COALESCE($16, cancellation_reason) ELSE NULL END
+        WHERE id = $1
+        "#,
+    )
+    .bind(appointment_id)
+    .bind(merged_party_id)
+    .bind(merged_member_id)
+    .bind(merged_customer_id)
+    .bind(&merged_customer_name)
+    .bind(&merged_phone)
+    .bind(&merged_appointment_type)
+    .bind(merged_starts)
+    .bind(merged_ends)
+    .bind(&merged_notes)
+    .bind(&merged_status)
+    .bind(&resolved_salesperson)
+    .bind(merged_salesperson_staff_id)
+    .bind(merged_service_type_id)
+    .bind(actor.id)
+    .bind(cancellation_reason)
+    .execute(&mut *tx)
+    .await?;
+    appointment_logic::replace_resources(&mut tx, appointment_id, &merged_resource_ids).await?;
 
     if let Some((actor_id, reason, message)) = override_actor {
         sqlx::query(
@@ -3057,10 +3672,30 @@ async fn update_appointment(
         .await?;
     }
 
+    if let Some((actor_id, reason)) = conflict_override {
+        sqlx::query(
+            r#"
+            INSERT INTO appointment_schedule_override_audit (
+                appointment_id, salesperson_staff_id, salesperson_name, override_reason,
+                validation_message, overridden_by_staff_id
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(appointment_id)
+        .bind(merged_salesperson_staff_id)
+        .bind(&resolved_salesperson)
+        .bind(&reason)
+        .bind(format!(
+            "Overlaps {} active appointment(s)",
+            conflicts.len()
+        ))
+        .bind(actor_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     if body.complete_member_milestone && merged_status.eq_ignore_ascii_case("Attended") {
-        if let (Some(party_id), Some(member_id)) =
-            (current.wedding_party_id, current.wedding_member_id)
-        {
+        if let (Some(party_id), Some(member_id)) = (merged_party_id, merged_member_id) {
             let milestone = if merged_appointment_type.eq_ignore_ascii_case("Measurement") {
                 sqlx::query(
                     "UPDATE wedding_members SET measured = TRUE, measure_date = COALESCE(measure_date, CURRENT_DATE), updated_at = NOW() WHERE id = $1",
@@ -3097,11 +3732,11 @@ async fn update_appointment(
                 .await?;
             }
         }
-    } else if let Some(party_id) = current.wedding_party_id {
+    } else if let Some(party_id) = merged_party_id {
         wedding_logic::insert_wedding_activity(
             &mut *tx,
             party_id,
-            current.wedding_member_id,
+            merged_member_id,
             &actor.full_name,
             "APPOINTMENT_UPDATED",
             "Wedding appointment updated",
@@ -3115,25 +3750,93 @@ async fn update_appointment(
         .await?;
     }
 
-    tx.commit().await?;
-
-    if has_updates {
-        state
-            .wedding_events
-            .appointments_updated(wedding_client_sender(&headers).as_deref());
-        spawn_meilisearch_appointment_upsert(&state, appointment_id);
-    }
-
-    let appt: AppointmentRow = sqlx::query_as(
+    let after_state: serde_json::Value = sqlx::query_scalar(
         r#"
-        SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
-               appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
-        FROM wedding_appointments WHERE id = $1
+        SELECT to_jsonb(wa) || jsonb_build_object(
+            'resource_ids', COALESCE((
+                SELECT jsonb_agg(ara.resource_id ORDER BY ara.resource_id)
+                FROM appointment_resource_assignment ara
+                WHERE ara.appointment_id = wa.id
+            ), '[]'::jsonb)
+        )
+        FROM wedding_appointments wa WHERE id = $1
         "#,
     )
     .bind(appointment_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+    let audit_action = if now_cancelled && !was_cancelled {
+        "cancelled"
+    } else if !now_cancelled && was_cancelled && merged_status == "Scheduled" {
+        "restored"
+    } else if status_changed {
+        "status_changed"
+    } else {
+        "updated"
+    };
+    appointment_logic::insert_audit(
+        &mut *tx,
+        appointment_id,
+        audit_action,
+        Some(actor.id),
+        Some(appointment_state_json(&current)),
+        Some(after_state),
+        cancellation_reason.or(body.conflict_override_reason.as_deref()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    state
+        .wedding_events
+        .appointments_updated(wedding_client_sender(&headers).as_deref());
+    spawn_meilisearch_appointment_upsert(&state, appointment_id);
+
+    let appt = fetch_appointment_row(&state.db, appointment_id)
+        .await?
+        .ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
+
+    if appt.status == "Scheduled"
+        && (was_cancelled
+            || appt.starts_at != current.starts_at
+            || appt.ends_at != current.ends_at
+            || appt.customer_id != current.customer_id
+            || appt.appointment_type != current.appointment_type)
+    {
+        let appt_for_message = appt.clone();
+        let pool = state.db.clone();
+        let http = state.http_client.clone();
+        let cache = Arc::clone(&state.podium_token_cache);
+        tokio::spawn(async move {
+            if let Err(error) = MessagingService::trigger_appointment_confirmation(
+                &pool,
+                &http,
+                &cache,
+                &appt_for_message,
+            )
+            .await
+            {
+                tracing::error!(%error, "updated appointment confirmation hook failed");
+            }
+        });
+    } else if now_cancelled && !was_cancelled {
+        let appt_for_message = appt.clone();
+        let pool = state.db.clone();
+        let http = state.http_client.clone();
+        let cache = Arc::clone(&state.podium_token_cache);
+        tokio::spawn(async move {
+            if let Err(error) = MessagingService::trigger_appointment_cancellation(
+                &pool,
+                &http,
+                &cache,
+                &appt_for_message,
+            )
+            .await
+            {
+                tracing::error!(%error, "appointment cancellation hook failed");
+            }
+        });
+    }
 
     Ok(Json(appt))
 }
@@ -3149,12 +3852,16 @@ async fn delete_appointment(
         .map_err(map_wed_perm)?;
     let mut tx = state.db.begin().await?;
 
-    // Fetch before deleting so we can log it and update search index
     let existing: Option<AppointmentRow> = sqlx::query_as(
         r#"
         SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name,
-               phone, appointment_type, starts_at, notes, status, salesperson, salesperson_staff_id
-        FROM wedding_appointments WHERE id = $1
+               phone, appointment_type, starts_at, ends_at, notes, status, salesperson,
+               salesperson_staff_id, service_type_id, revision,
+               ARRAY(
+                   SELECT ara.resource_id FROM appointment_resource_assignment ara
+                   WHERE ara.appointment_id = wedding_appointments.id ORDER BY ara.resource_id
+               ) AS resource_ids
+        FROM wedding_appointments WHERE id = $1 FOR UPDATE
         "#,
     )
     .bind(appointment_id)
@@ -3164,15 +3871,20 @@ async fn delete_appointment(
     let existing =
         existing.ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
 
+    if existing.status == "Cancelled" {
+        tx.commit().await?;
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
     if let Some(party_id) = existing.wedding_party_id {
         wedding_logic::insert_wedding_activity(
             &mut *tx,
             party_id,
             existing.wedding_member_id,
             &actor.full_name,
-            "APPOINTMENT_DELETED",
+            "APPOINTMENT_CANCELLED",
             &format!(
-                "Appointment deleted: {} on {}",
+                "Appointment cancelled: {} on {}",
                 existing.appointment_type,
                 existing.starts_at.format("%Y-%m-%d %H:%M UTC"),
             ),
@@ -3188,21 +3900,74 @@ async fn delete_appointment(
         .await?;
     }
 
-    let result = sqlx::query("DELETE FROM wedding_appointments WHERE id = $1")
-        .bind(appointment_id)
-        .execute(&mut *tx)
-        .await?;
+    let result = sqlx::query(
+        r#"
+        UPDATE wedding_appointments
+        SET status = 'Cancelled',
+            cancelled_at = NOW(),
+            cancelled_by_staff_id = $2,
+            cancellation_reason = 'Cancelled from appointment calendar',
+            updated_by_staff_id = $2
+        WHERE id = $1
+        "#,
+    )
+    .bind(appointment_id)
+    .bind(actor.id)
+    .execute(&mut *tx)
+    .await?;
     if result.rows_affected() == 0 {
         return Err(WeddingError::BadRequest(
             "Appointment not found".to_string(),
         ));
     }
 
+    let after_state: serde_json::Value = sqlx::query_scalar(
+        r#"
+        SELECT to_jsonb(wa) || jsonb_build_object(
+            'resource_ids', COALESCE((
+                SELECT jsonb_agg(ara.resource_id ORDER BY ara.resource_id)
+                FROM appointment_resource_assignment ara
+                WHERE ara.appointment_id = wa.id
+            ), '[]'::jsonb)
+        )
+        FROM wedding_appointments wa WHERE id = $1
+        "#,
+    )
+    .bind(appointment_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    appointment_logic::insert_audit(
+        &mut *tx,
+        appointment_id,
+        "cancelled",
+        Some(actor.id),
+        Some(appointment_state_json(&existing)),
+        Some(after_state),
+        Some("Cancelled from appointment calendar"),
+    )
+    .await?;
+
     tx.commit().await?;
 
     state
         .wedding_events
         .appointments_updated(wedding_client_sender(&headers).as_deref());
+    spawn_meilisearch_appointment_upsert(&state, appointment_id);
+
+    let cancelled = fetch_appointment_row(&state.db, appointment_id)
+        .await?
+        .ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
+    let pool = state.db.clone();
+    let http = state.http_client.clone();
+    let cache = Arc::clone(&state.podium_token_cache);
+    tokio::spawn(async move {
+        if let Err(error) =
+            MessagingService::trigger_appointment_cancellation(&pool, &http, &cache, &cancelled)
+                .await
+        {
+            tracing::error!(%error, "appointment cancellation hook failed");
+        }
+    });
     Ok(StatusCode::NO_CONTENT)
 }
 

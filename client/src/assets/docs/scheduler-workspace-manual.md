@@ -12,18 +12,22 @@ status: approved
 
 ## Screenshots
 
-![Operational home](../images/help/scheduler-workspace/workflow-1.png)
+The Scheduler is the central hub for managing store appointments, consultations, and fittings. ROS checks assigned-staff overlap and room/resource capacity before a scheduled booking is saved.
 
-![Alterations workspace](../images/help/scheduler-workspace/workflow-2.png)
+![Scheduler day workspace](../images/help/scheduler-workspace/main.png)
 
-The Scheduler is the central hub for managing store appointments, consultations, and fittings. It provides a visual calendar interface to ensure your team is never double-booked.
+Review published staff coverage before assigning a staff member to an appointment.
 
-![Scheduler workspace](../images/help/scheduler-workspace/workflow-3.png)
+![Published staff schedule](../images/help/scheduler-workspace/workflow-2.png)
+
+Use the Customer workspace when a booking needs a linked Customer record and notification preferences.
+
+![Customer workspace for linked bookings](../images/help/scheduler-workspace/workflow-3.png)
 
 ## What this is
 
 Use the **Scheduler** to:
-- View the daily, weekly, or monthly store agenda.
+- View the daily or weekly store agenda.
 - Book new appointments for fittings, consultations, or pick-ups.
 - Manage staff assignments for specific appointment slots.
 - Identify and resolve scheduling conflicts.
@@ -36,7 +40,7 @@ Use the **Scheduler** to:
 
 ## Before you start
 
-- Ensure the **Customer** is already in the system (or be ready to add them).
+- Use a Customer record when customer notifications and Customer history are needed. A name or phone can be used for a one-off visit.
 - Confirm **Staff Availability** for the requested time slot.
 
 ## Steps
@@ -45,21 +49,23 @@ Use the **Scheduler** to:
 2. Use the top search field first when looking for an existing booking by customer or appointment detail.
 3. Select your preferred view with **Day** or **Week**, then use the date controls or **Today** to move the calendar.
 4. **Book Appointment**: Click on an empty time slot or use the **New Appt** button.
-5. Fill in the **Customer**, **Appointment Type** (e.g., Bridal Consultation, Tux Fitting), and **Assigned Staff**.
-6. Save the appointment. It will appear on the calendar and notify the assigned staff member.
-7. **Edit/Move**: Drag and drop appointments to change times, or click an entry to open the full edit dialog.
+5. Fill in the **Customer**, **Appointment Type**, **Duration**, optional **Rooms & Resources**, and **Assigned Staff**.
+6. Save the appointment. If the booking overlaps assigned staff or exceeds resource capacity, choose another slot or use an approved Manager Access override with a written reason.
+7. To edit or move an appointment, select the appointment, change its date or time in the dialog, and save. ROS warns when another workstation changed the same appointment first.
+8. Mark the visit **Attended** or **Missed** after it occurs. To cancel, enter a reason and use **Cancel Appointment**; ROS preserves the history.
 
 ## What to watch for
 
-- **Conflicts**: Red highlights or warnings indicate a staff member or room is overbooked.
-- **Syncing**: Changes made here may sync to external calendars (Google/Outlook) if your store has enabled that integration in Settings.
-- **Customer Notifications**: Confirmation and reminder messages are sent based on the customer's communication preferences. Appointment confirmations include `riverside-appointment.ics` in email and attempt to attach it to the SMS/MMS confirmation through Podium. Appointment reminders send about 24 hours before the appointment time.
+- **Conflicts**: Open **Appointments → Conflicts** to review staff overlaps, room/resource capacity conflicts, and configured resource capacities.
+- **Calendar authority**: ROS is the appointment calendar. Podium carries enabled messages; it is not a second booking calendar. Google/Outlook calendar synchronization is not part of this workflow.
+- **Customer Notifications**: For a linked Customer, confirmations, cancellations, and reminders follow the customer's communication preferences and the enabled Podium/Store Email settings. Confirmation calendar attachments use the saved duration. Reminders are attempted about 24 hours before the appointment time and failed channels retry with bounded backoff.
+- **Pickup**: Marking a Pickup appointment Attended does not fulfill merchandise. Complete product pickup through Orders/Register.
 - Search distinguishes **no matching appointments** from **appointment search is unavailable**. Retry an unavailable search before concluding that a booking does not exist.
 
 ## What happens next
 
-- Appointments appear in the **Staff Tasks** view for the assigned consultant.
-- On the day of the appointment, the customer can be "Checked In" directly from the calendar.
+- The appointment remains searchable after it is Attended, Missed, or Cancelled, while the open calendar grid shows Scheduled work.
+- Linked Measurement and Fitting appointments can complete their Wedding Manager milestone atomically when staff confirm that action. Pickup remains controlled by Orders/Register.
 
 ## Related workflows
 

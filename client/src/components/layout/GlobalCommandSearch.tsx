@@ -162,6 +162,7 @@ interface GlobalCommandSearchProps {
   onSearchOpenShipment?: (shipmentId: string) => void;
   onSearchOpenWeddingParty?: (partyId: string) => void;
   onSearchOpenAlteration?: (alterationId: string) => void;
+  onSearchOpenAppointment?: (appointmentId: string) => void;
   onSearchOpenHelp?: (query: string, manualId: string, sectionSlug: string) => void;
   onNavigateToTab?: (tab: SidebarTabId, section?: string) => void;
   variant?: "backoffice" | "pos";
@@ -477,6 +478,7 @@ export default function GlobalCommandSearch({
   onSearchOpenShipment,
   onSearchOpenWeddingParty,
   onSearchOpenAlteration,
+  onSearchOpenAppointment,
   onSearchOpenHelp,
   onNavigateToTab,
   variant = "backoffice",
@@ -983,6 +985,10 @@ export default function GlobalCommandSearch({
     closePalette();
     if (hit.transaction_id) {
       onSearchOpenOrder?.(hit.transaction_id);
+      return;
+    }
+    if (hit.route_tab === "appointments") {
+      onSearchOpenAppointment?.(hit.id);
       return;
     }
     onNavigateToTab?.(hit.route_tab, hit.route_section ?? undefined);
