@@ -34,10 +34,12 @@ pub struct PodiumMessageApiRow {
 pub struct PodiumInboxRow {
     pub conversation_id: Uuid,
     pub podium_conversation_uid: Option<String>,
-    pub customer_id: Uuid,
-    pub customer_code: String,
-    pub first_name: String,
-    pub last_name: String,
+    pub customer_id: Option<Uuid>,
+    pub customer_code: Option<String>,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub unmatched_id: Option<Uuid>,
+    pub contact_identifier: Option<String>,
     pub channel: String,
     pub last_message_at: DateTime<Utc>,
     pub last_inbound_at: Option<DateTime<Utc>>,
@@ -161,6 +163,41 @@ pub async fn list_messages_for_customer(
     .await
 }
 
+pub async fn list_messages_for_conversation(
+    pool: &PgPool,
+    conversation_id: Uuid,
+) -> Result<Vec<PodiumMessageApiRow>, sqlx::Error> {
+    sqlx::query_as::<_, PodiumMessageApiRow>(
+        r#"
+        SELECT
+            m.id,
+            m.conversation_id,
+            c.podium_conversation_uid,
+            m.direction,
+            m.channel,
+            m.body,
+            COALESCE(m.staff_id, podium_staff.id) AS staff_id,
+            COALESCE(s.full_name, podium_staff.full_name) AS staff_full_name,
+            m.podium_sender_uid,
+            m.podium_sender_name,
+            m.created_at
+        FROM podium_message m
+        JOIN podium_conversation c ON c.id = m.conversation_id
+        LEFT JOIN staff s ON s.id = m.staff_id
+        LEFT JOIN staff podium_staff
+          ON m.staff_id IS NULL
+         AND m.podium_sender_uid IS NOT NULL
+         AND podium_staff.podium_user_uid = m.podium_sender_uid
+         AND podium_staff.is_active = TRUE
+        WHERE c.id = $1
+        ORDER BY m.created_at ASC
+        "#,
+    )
+    .bind(conversation_id)
+    .fetch_all(pool)
+    .await
+}
+
 pub async fn has_conversations_for_customer(
     pool: &PgPool,
     customer_id: Uuid,
@@ -276,6 +313,12 @@ pub async fn list_messaging_inbox(
             c.customer_code,
             c.first_name,
             c.last_name,
+            unmatched.id AS unmatched_id,
+            COALESCE(
+                unmatched.identifier,
+                pc.contact_phone_e164,
+                pc.contact_email
+            ) AS contact_identifier,
             pc.channel,
             pc.last_message_at,
             (
@@ -313,8 +356,10 @@ pub async fn list_messaging_inbox(
                 LIMIT 1
             ) AS snippet
         FROM podium_conversation pc
-        JOIN customers c ON c.id = pc.customer_id
-        WHERE pc.customer_id IS NOT NULL
+        LEFT JOIN customers c ON c.id = pc.customer_id
+        LEFT JOIN podium_sync_unmatched_conversation unmatched
+          ON unmatched.provider_conversation_uid = pc.podium_conversation_uid
+         AND unmatched.resolved_at IS NULL
         ORDER BY pc.last_message_at DESC
         LIMIT $1
         "#,
@@ -500,7 +545,18 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
         SELECT
             (SELECT COUNT(*) FROM podium_conversation) AS local_conversation_count,
             (SELECT COUNT(*) FROM podium_message) AS local_message_count,
-            (SELECT COUNT(*) FROM podium_conversation WHERE last_synced_at IS NULL) AS incomplete_history_count,
+            (
+                SELECT COUNT(*)
+                FROM (
+                    SELECT pc.last_synced_at
+                    FROM podium_conversation pc
+                    WHERE pc.podium_conversation_uid IS NOT NULL
+                      AND trim(pc.podium_conversation_uid) <> ''
+                    ORDER BY pc.last_message_at DESC
+                    LIMIT 200
+                ) recent_provider_conversations
+                WHERE last_synced_at IS NULL
+            ) AS incomplete_history_count,
             (SELECT COUNT(*) FROM podium_sync_unmatched_conversation WHERE resolved_at IS NULL) AS unmatched_conversation_count,
             (SELECT MAX(received_at) FROM podium_webhook_delivery) AS last_webhook_received_at,
             (SELECT created_at FROM podium_webhook_failure ORDER BY created_at DESC LIMIT 1) AS last_webhook_failure_at,
@@ -712,6 +768,73 @@ pub async fn record_outbound_message(
     Ok(())
 }
 
+/// Persist a provider reply for a conversation that is not yet linked to a ROS customer.
+pub async fn record_outbound_message_for_conversation(
+    pool: &PgPool,
+    conversation_id: Uuid,
+    channel: &str,
+    body: &str,
+    staff_id: Option<Uuid>,
+    direction: &str,
+    provider_message_uid: Option<&str>,
+    provider_response: Option<&Value>,
+) -> Result<(), sqlx::Error> {
+    let dir = match direction {
+        "automated" => "automated",
+        _ => "outbound",
+    };
+    let ch = if channel == "email" { "email" } else { "sms" };
+    let provider_conversation_uid = provider_response.and_then(|value| {
+        text_at(
+            value,
+            &[
+                "/conversation/uid",
+                "/conversationUid",
+                "/data/conversation/uid",
+                "/data/conversationUid",
+            ],
+        )
+    });
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        r#"
+        UPDATE podium_conversation
+        SET last_message_at = NOW(),
+            podium_conversation_uid = COALESCE(podium_conversation_uid, $2)
+        WHERE id = $1
+        "#,
+    )
+    .bind(conversation_id)
+    .bind(provider_conversation_uid.as_deref())
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        r#"
+        INSERT INTO podium_message (
+            conversation_id, direction, channel, body, staff_id, podium_message_uid,
+            raw_payload, podium_sender_name
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
+        ON CONFLICT (podium_message_uid)
+        WHERE podium_message_uid IS NOT NULL AND trim(podium_message_uid) <> ''
+        DO UPDATE SET
+            staff_id = COALESCE(EXCLUDED.staff_id, podium_message.staff_id),
+            raw_payload = COALESCE(EXCLUDED.raw_payload, podium_message.raw_payload)
+        "#,
+    )
+    .bind(conversation_id)
+    .bind(dir)
+    .bind(ch)
+    .bind(body)
+    .bind(staff_id)
+    .bind(provider_message_uid)
+    .bind(provider_response)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 fn text_at(value: &Value, paths: &[&str]) -> Option<String> {
     paths.iter().find_map(|path| {
         value
@@ -909,6 +1032,23 @@ async fn find_customer_for_conversation(
     channel: &str,
     identifier: Option<&str>,
 ) -> Result<CustomerIdentityMatch, sqlx::Error> {
+    let linked_customer: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT customer_id
+        FROM podium_conversation
+        WHERE podium_conversation_uid = $1
+          AND customer_id IS NOT NULL
+        LIMIT 1
+        "#,
+    )
+    .bind(provider_conversation_uid)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    if let Some(customer_id) = linked_customer {
+        return Ok(CustomerIdentityMatch::Unique(customer_id));
+    }
+
     let manually_resolved: Option<Uuid> = sqlx::query_scalar(
         r#"
         SELECT resolved_customer_id
@@ -956,7 +1096,6 @@ fn match_metadata(
 enum SyncMessageOutcome {
     Inserted,
     Matched,
-    Unmatched,
 }
 
 enum SyncConversationOutcome {
@@ -985,7 +1124,11 @@ async fn upsert_synced_conversation_shell(
     let last_at = conversation_last_at(conversation).unwrap_or_else(Utc::now);
     let identity_match =
         find_customer_for_conversation(pool, &conv_uid, &channel, identifier.as_deref()).await?;
-    let CustomerIdentityMatch::Unique(customer_id) = identity_match else {
+    let customer_id = match &identity_match {
+        CustomerIdentityMatch::Unique(customer_id) => Some(*customer_id),
+        CustomerIdentityMatch::None | CustomerIdentityMatch::Ambiguous(_) => None,
+    };
+    if customer_id.is_none() {
         record_unmatched_conversation(
             pool,
             conversation,
@@ -996,8 +1139,7 @@ async fn upsert_synced_conversation_shell(
             &identity_match,
         )
         .await?;
-        return Ok(SyncConversationOutcome::Unmatched);
-    };
+    }
     let provider_status = provider_status(conversation);
     let provider_assignee_name = provider_assignee_name(conversation);
     sqlx::query(
@@ -1010,7 +1152,7 @@ async fn upsert_synced_conversation_shell(
         ON CONFLICT (podium_conversation_uid)
         WHERE podium_conversation_uid IS NOT NULL AND trim(podium_conversation_uid) <> ''
         DO UPDATE SET
-            customer_id = EXCLUDED.customer_id,
+            customer_id = COALESCE(podium_conversation.customer_id, EXCLUDED.customer_id),
             last_message_at = GREATEST(podium_conversation.last_message_at, EXCLUDED.last_message_at),
             last_synced_at = NULL,
             sync_source = 'api_sync',
@@ -1028,14 +1170,18 @@ async fn upsert_synced_conversation_shell(
     .bind(provider_assignee_name.as_deref())
     .execute(pool)
     .await?;
-    resolve_unmatched_conversation_by_provider_uid(
-        pool,
-        &conv_uid,
-        customer_id,
-        "Resolved by collision-safe API synchronization",
-    )
-    .await?;
-    Ok(SyncConversationOutcome::Matched)
+    if let Some(customer_id) = customer_id {
+        resolve_unmatched_conversation_by_provider_uid(
+            pool,
+            &conv_uid,
+            customer_id,
+            "Resolved by collision-safe API synchronization",
+        )
+        .await?;
+        Ok(SyncConversationOutcome::Matched)
+    } else {
+        Ok(SyncConversationOutcome::Unmatched)
+    }
 }
 
 async fn mark_conversation_synced(
@@ -1181,9 +1327,9 @@ pub async fn resolve_unmatched_conversation(
         return Ok(false);
     }
 
-    let unmatched: Option<(String, Value)> = sqlx::query_as(
+    let unmatched: Option<(String, String, Value)> = sqlx::query_as(
         r#"
-        SELECT channel, raw_payload
+        SELECT provider_conversation_uid, channel, raw_payload
         FROM podium_sync_unmatched_conversation
         WHERE id = $1 AND resolved_at IS NULL
         FOR UPDATE
@@ -1192,7 +1338,7 @@ pub async fn resolve_unmatched_conversation(
     .bind(unmatched_id)
     .fetch_optional(&mut *tx)
     .await?;
-    let Some((channel, raw_payload)) = unmatched else {
+    let Some((provider_conversation_uid, channel, raw_payload)) = unmatched else {
         return Ok(false);
     };
 
@@ -1212,6 +1358,17 @@ pub async fn resolve_unmatched_conversation(
     .bind(unmatched_id)
     .bind(customer_id)
     .bind(staff_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        r#"
+        UPDATE podium_conversation
+        SET customer_id = $2
+        WHERE podium_conversation_uid = $1
+        "#,
+    )
+    .bind(&provider_conversation_uid)
+    .bind(customer_id)
     .execute(&mut *tx)
     .await?;
     if channel == "sms"
@@ -1240,13 +1397,19 @@ async fn upsert_synced_message(
     let Some(conv_uid) = conversation_uid(conversation)
         .or_else(|| text_at(message, &["/conversation/uid", "/data/conversation/uid"]))
     else {
-        return Ok(SyncMessageOutcome::Unmatched);
+        return Err(sqlx::Error::Protocol(
+            "Podium message is missing its conversation UID".to_string(),
+        ));
     };
     let channel = channel_type(message);
     let identifier = channel_identifier(message).or_else(|| channel_identifier(conversation));
     let identity_match =
         find_customer_for_conversation(pool, &conv_uid, &channel, identifier.as_deref()).await?;
-    let CustomerIdentityMatch::Unique(customer_id) = identity_match else {
+    let customer_id = match &identity_match {
+        CustomerIdentityMatch::Unique(customer_id) => Some(*customer_id),
+        CustomerIdentityMatch::None | CustomerIdentityMatch::Ambiguous(_) => None,
+    };
+    if customer_id.is_none() {
         record_unmatched_conversation(
             pool,
             conversation,
@@ -1257,8 +1420,7 @@ async fn upsert_synced_message(
             &identity_match,
         )
         .await?;
-        return Ok(SyncMessageOutcome::Unmatched);
-    };
+    }
     let body = body_text(message).unwrap_or_default();
     let msg_uid = message_uid(message);
     let created_at = timestamp_at(
@@ -1292,7 +1454,7 @@ async fn upsert_synced_message(
         ON CONFLICT (podium_conversation_uid)
         WHERE podium_conversation_uid IS NOT NULL AND trim(podium_conversation_uid) <> ''
         DO UPDATE SET
-            customer_id = EXCLUDED.customer_id,
+            customer_id = COALESCE(podium_conversation.customer_id, EXCLUDED.customer_id),
             last_message_at = GREATEST(podium_conversation.last_message_at, EXCLUDED.last_message_at),
             provider_status = COALESCE(EXCLUDED.provider_status, podium_conversation.provider_status),
             provider_assignee_name = COALESCE(EXCLUDED.provider_assignee_name, podium_conversation.provider_assignee_name)
@@ -1351,29 +1513,33 @@ async fn upsert_synced_message(
         && channel == "sms"
         && crate::logic::podium_inbound::is_sms_opt_out_command(&body)
     {
-        podium_contacts::apply_sms_opt_out_conn(
-            tx.as_mut(),
-            customer_id,
-            msg_uid.as_deref(),
-            message,
+        if let Some(customer_id) = customer_id {
+            podium_contacts::apply_sms_opt_out_conn(
+                tx.as_mut(),
+                customer_id,
+                msg_uid.as_deref(),
+                message,
+            )
+            .await?;
+        }
+    }
+    if let Some(customer_id) = customer_id {
+        sqlx::query(
+            r#"
+            UPDATE podium_sync_unmatched_conversation
+            SET resolved_customer_id = $2,
+                resolved_at = COALESCE(resolved_at, NOW()),
+                match_status = 'resolved',
+                candidate_customer_ids = '{}'::uuid[],
+                resolution_note = 'Resolved by collision-safe message synchronization'
+            WHERE provider_conversation_uid = $1
+            "#,
         )
+        .bind(&conv_uid)
+        .bind(customer_id)
+        .execute(&mut *tx)
         .await?;
     }
-    sqlx::query(
-        r#"
-        UPDATE podium_sync_unmatched_conversation
-        SET resolved_customer_id = $2,
-            resolved_at = COALESCE(resolved_at, NOW()),
-            match_status = 'resolved',
-            candidate_customer_ids = '{}'::uuid[],
-            resolution_note = 'Resolved by collision-safe message synchronization'
-        WHERE provider_conversation_uid = $1
-        "#,
-    )
-    .bind(&conv_uid)
-    .bind(customer_id)
-    .execute(&mut *tx)
-    .await?;
     tx.commit().await?;
     Ok(if was_inserted {
         SyncMessageOutcome::Inserted
@@ -1409,7 +1575,6 @@ pub async fn sync_recent_from_podium(
             }
             Ok(SyncConversationOutcome::Unmatched) => {
                 result.conversations_unmatched += 1;
-                continue;
             }
             Err(err) => {
                 result.errors.push(format!("{uid}: {err}"));
@@ -1438,12 +1603,6 @@ pub async fn sync_recent_from_podium(
                     result.messages_inserted += 1;
                 }
                 Ok(SyncMessageOutcome::Matched) => {}
-                Ok(SyncMessageOutcome::Unmatched) => {
-                    history_complete = false;
-                    result.errors.push(format!(
-                        "{uid}: message could not be matched to the conversation"
-                    ));
-                }
                 Err(err) => {
                     history_complete = false;
                     result.errors.push(format!("{uid}: {err}"));

@@ -1,4 +1,4 @@
-//! Inbound Podium webhook → CRM conversation rows, customer match/create, optional welcome SMS.
+//! Inbound Podium webhook → CRM conversation rows, optional customer match, optional welcome SMS.
 
 use serde_json::{json, Value};
 use sqlx::PgPool;
@@ -7,7 +7,6 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::auth::permissions::NOTIFICATIONS_VIEW;
-use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
 use crate::logic::notifications::staff_ids_with_permission;
 use crate::logic::podium::{
     load_store_podium_config, normalize_phone_e164, send_podium_sms_message_tracked,
@@ -267,7 +266,7 @@ async fn message_uid_exists(pool: &PgPool, uid: &str) -> Result<bool, sqlx::Erro
 
 async fn insert_conversation_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    customer_id: Uuid,
+    customer_id: Option<Uuid>,
     channel: &str,
     podium_uid: Option<String>,
     phone: Option<String>,
@@ -340,13 +339,20 @@ fn truncate_body_preview(body: &str) -> String {
     s
 }
 
-fn podium_inbox_deep_link(customer_id: Uuid, conversation_id: Uuid, channel: &str) -> Value {
-    json!({
+fn podium_inbox_deep_link(
+    customer_id: Option<Uuid>,
+    conversation_id: Uuid,
+    channel: &str,
+) -> Value {
+    let mut link = json!({
         "type": "podium_inbox",
-        "customer_id": customer_id.to_string(),
         "conversation_id": conversation_id.to_string(),
         "message_channel": channel,
-    })
+    });
+    if let Some(customer_id) = customer_id {
+        link["customer_id"] = Value::String(customer_id.to_string());
+    }
+    link
 }
 
 /// After `podium_webhook_delivery` ledger insert: thread rows + notification fan-out.
@@ -422,19 +428,39 @@ pub async fn ingest_from_webhook(
         }
     }
 
-    let identity_match = podium_contacts::match_customer_identity(
-        pool,
-        e164.as_deref().or(phone_raw.as_deref()),
-        email.as_deref(),
-    )
-    .await?;
-    let mut customer_id: Option<Uuid> = match &identity_match {
+    let linked_customer: Option<Uuid> = if let Some(ref uid) = conv_uid {
+        sqlx::query_scalar(
+            r#"
+            SELECT customer_id
+            FROM podium_conversation
+            WHERE podium_conversation_uid = $1
+              AND customer_id IS NOT NULL
+            LIMIT 1
+            "#,
+        )
+        .bind(uid)
+        .fetch_optional(pool)
+        .await?
+        .flatten()
+    } else {
+        None
+    };
+    let identity_match = if let Some(customer_id) = linked_customer {
+        CustomerIdentityMatch::Unique(customer_id)
+    } else {
+        podium_contacts::match_customer_identity(
+            pool,
+            e164.as_deref().or(phone_raw.as_deref()),
+            email.as_deref(),
+        )
+        .await?
+    };
+    let customer_id: Option<Uuid> = match &identity_match {
         CustomerIdentityMatch::Unique(customer_id) => Some(*customer_id),
         CustomerIdentityMatch::None | CustomerIdentityMatch::Ambiguous(_) => None,
     };
-    let mut created_stub = false;
 
-    if matches!(identity_match, CustomerIdentityMatch::Ambiguous(_)) {
+    if customer_id.is_none() {
         if let Some(ref uid) = conv_uid {
             let identifier = if channel == "email" {
                 email.as_deref()
@@ -453,88 +479,23 @@ pub async fn ingest_from_webhook(
         }
         tracing::warn!(
             target = "podium_inbound",
-            event = "ambiguous_customer_identity",
+            event = "unlinked_customer_identity",
             uid = ?msg_uid,
             channel,
-            "Skipping Podium message because multiple active Riverside customers share its identifier"
+            "Storing Podium message without adding or choosing a Riverside customer"
         );
-        return Ok(PodiumInboundIngestOutcome::Skipped);
-    }
-
-    if customer_id.is_none() && is_outbound {
-        tracing::warn!(
-            target = "podium_inbound",
-            event = "outbound_no_matching_customer",
-            uid = ?msg_uid,
-            channel = %channel,
-            "Skipping Podium outbound webhook: no matching customer by phone/email."
-        );
-        return Ok(PodiumInboundIngestOutcome::Skipped);
-    }
-
-    if customer_id.is_none() {
-        let phone_store = e164.clone().or_else(|| phone_raw.clone());
-        let email_store = email.clone();
-        match insert_customer(
-            pool,
-            InsertCustomerParams {
-                customer_code: None,
-                first_name: "New".into(),
-                last_name: "Contact".into(),
-                company_name: None,
-                email: email_store.clone(),
-                phone: phone_store.clone(),
-                address_line1: None,
-                address_line2: None,
-                city: None,
-                state: None,
-                postal_code: None,
-                date_of_birth: None,
-                anniversary_date: None,
-                custom_field_1: None,
-                custom_field_2: None,
-                custom_field_3: None,
-                custom_field_4: None,
-                marketing_email_opt_in: false,
-                marketing_sms_opt_in: false,
-                transactional_sms_opt_in: !is_opt_out,
-                transactional_email_opt_in: email_store.is_some(),
-                customer_created_source: CustomerCreatedSource::Podium,
-            },
-        )
-        .await
-        {
-            Ok(id) => {
-                customer_id = Some(id);
-                created_stub = true;
-                let _ = sqlx::query(
-                    "UPDATE customers SET podium_name_capture_pending = true WHERE id = $1",
-                )
-                .bind(id)
-                .execute(pool)
-                .await;
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "insert podium stub customer");
-                return Err(e);
-            }
-        }
     } else if let Some(cid) = customer_id {
         if !is_outbound {
             try_apply_name_capture(pool, cid, &body).await;
         }
     }
 
-    let Some(cid) = customer_id else {
-        return Ok(PodiumInboundIngestOutcome::Skipped);
-    };
-
-    let notification_customer_name = if is_outbound {
+    let notification_customer_name = if is_outbound || customer_id.is_none() {
         None
     } else {
         let (first_name, last_name): (String, String) =
             sqlx::query_as("SELECT first_name, last_name FROM customers WHERE id = $1")
-                .bind(cid)
+                .bind(customer_id.expect("customer checked above"))
                 .fetch_one(pool)
                 .await?;
         let full_name = format!("{} {}", first_name.trim(), last_name.trim())
@@ -547,11 +508,12 @@ pub async fn ingest_from_webhook(
         })
     };
 
-    if is_opt_out {
-        podium_contacts::apply_sms_opt_out(pool, cid, msg_uid.as_deref(), value).await?;
+    if is_opt_out && customer_id.is_some() {
+        let customer_id = customer_id.expect("customer checked above");
+        podium_contacts::apply_sms_opt_out(pool, customer_id, msg_uid.as_deref(), value).await?;
         tracing::info!(
             target = "podium_inbound",
-            customer_id = %cid,
+            customer_id = %customer_id,
             "Customer opted out of SMS using an exact recognized command"
         );
     }
@@ -582,10 +544,15 @@ pub async fn ingest_from_webhook(
 
         if let Some(id) = existing {
             if let Err(e) = sqlx::query(
-                r#"UPDATE podium_conversation SET last_message_at = NOW(), customer_id = $2 WHERE id = $1"#,
+                r#"
+                UPDATE podium_conversation
+                SET last_message_at = NOW(),
+                    customer_id = COALESCE(customer_id, $2)
+                WHERE id = $1
+                "#,
             )
             .bind(id)
-            .bind(cid)
+            .bind(customer_id)
             .execute(&mut *tx)
             .await
             {
@@ -597,7 +564,7 @@ pub async fn ingest_from_webhook(
         } else {
             match insert_conversation_tx(
                 &mut tx,
-                cid,
+                customer_id,
                 channel,
                 Some(cu.clone()),
                 e164.clone(),
@@ -617,13 +584,26 @@ pub async fn ingest_from_webhook(
         let existing: Option<Uuid> = match sqlx::query_scalar(
             r#"
             SELECT id FROM podium_conversation
-            WHERE customer_id = $1 AND channel = $2
+            WHERE channel = $1
+              AND (
+                ($2::uuid IS NOT NULL AND customer_id = $2)
+                OR (
+                    $2::uuid IS NULL
+                    AND customer_id IS NULL
+                    AND (
+                        ($1 = 'sms' AND contact_phone_e164 = $3)
+                        OR ($1 = 'email' AND contact_email = $4)
+                    )
+                )
+              )
             ORDER BY last_message_at DESC
             LIMIT 1
             "#,
         )
-        .bind(cid)
         .bind(channel)
+        .bind(customer_id)
+        .bind(e164.as_deref().or(phone_raw.as_deref()))
+        .bind(email.as_deref())
         .fetch_optional(&mut *tx)
         .await
         {
@@ -652,7 +632,7 @@ pub async fn ingest_from_webhook(
             }
             None => match insert_conversation_tx(
                 &mut tx,
-                cid,
+                customer_id,
                 channel,
                 None,
                 e164.clone(),
@@ -715,17 +695,35 @@ pub async fn ingest_from_webhook(
         return Err(e);
     }
 
+    let should_send_unknown_welcome =
+        if customer_id.is_none() && !is_outbound && !is_opt_out && channel == "sms" {
+            sqlx::query_scalar::<_, i64>(
+                r#"
+            SELECT COUNT(*)
+            FROM podium_message
+            WHERE conversation_id = $1
+              AND direction = 'inbound'
+            "#,
+            )
+            .bind(conv_id)
+            .fetch_one(&mut *tx)
+            .await?
+                == 1
+        } else {
+            false
+        };
+
     if let Err(e) = tx.commit().await {
         tracing::error!(error = %e, "podium_inbound commit");
         return Err(e);
     }
 
-    if created_stub {
+    if should_send_unknown_welcome {
         let pool_c = pool.clone();
         let http_c = http.clone();
         let cache_c = Arc::clone(token_cache);
         let to_phone = e164.clone().or_else(|| phone_raw.clone());
-        let welcome_cid = cid;
+        let welcome_conversation_id = conv_id;
         tokio::spawn(async move {
             if let Some(ref ph) = to_phone {
                 let tpl = load_store_podium_config(&pool_c)
@@ -740,49 +738,23 @@ pub async fn ingest_from_webhook(
                         .await
                     {
                         Ok(send_result) => {
-                            let ph_e164 = normalize_phone_e164(ph);
-                            if let Err(e) = podium_messaging::record_outbound_message(
-                                &pool_c,
-                                welcome_cid,
-                                "sms",
-                                tpl_t,
-                                None,
-                                ph_e164.as_deref(),
-                                None,
-                                "automated",
-                                send_result.provider_message_id.as_deref(),
-                                Some(&send_result.raw_response),
-                            )
-                            .await
+                            if let Err(e) =
+                                podium_messaging::record_outbound_message_for_conversation(
+                                    &pool_c,
+                                    welcome_conversation_id,
+                                    "sms",
+                                    tpl_t,
+                                    None,
+                                    "automated",
+                                    send_result.provider_message_id.as_deref(),
+                                    Some(&send_result.raw_response),
+                                )
+                                .await
                             {
-                                tracing::error!(error = %e, customer_id = %welcome_cid, "record welcome SMS to podium_message");
+                                tracing::error!(error = %e, conversation_id = %welcome_conversation_id, "record welcome SMS to podium_message");
                             }
-                            let _ = crate::logic::customer_notifications::record_customer_notification(
-                                &pool_c,
-                                welcome_cid,
-                                "customer",
-                                welcome_cid,
-                                crate::logic::customer_notifications::CustomerNotificationKind::UnknownSenderWelcome,
-                                crate::logic::customer_notifications::CustomerNotificationChannel::Sms,
-                                Some(tpl_t),
-                                None,
-                                serde_json::json!({ "to_phone": ph_e164 }),
-                            )
-                            .await;
                         }
                         Err(e) => {
-                            let _ = crate::logic::customer_notifications::record_customer_notification(
-                                &pool_c,
-                                welcome_cid,
-                                "customer",
-                                welcome_cid,
-                                crate::logic::customer_notifications::CustomerNotificationKind::UnknownSenderWelcome,
-                                crate::logic::customer_notifications::CustomerNotificationChannel::Sms,
-                                Some(tpl_t),
-                                Some(&e.to_string()),
-                                serde_json::json!({ "to_phone": ph }),
-                            )
-                            .await;
                             tracing::warn!(error = %e, "podium welcome sms skipped");
                         }
                     }
@@ -802,12 +774,15 @@ pub async fn ingest_from_webhook(
         } else {
             "Podium SMS"
         };
-        let customer_name = notification_customer_name.as_deref().unwrap_or("Customer");
+        let customer_name = notification_customer_name
+            .as_deref()
+            .unwrap_or("Unknown sender");
         let bundle_prefix = format!("{channel_label} from {customer_name}");
 
-        // Real-time bundle by customer: "podium_inbound:{cid}"
-        let dedupe = format!("podium_inbound:{cid}");
-        let item_deep = podium_inbox_deep_link(cid, conv_id, channel);
+        let dedupe = customer_id
+            .map(|customer_id| format!("podium_inbound:{customer_id}"))
+            .unwrap_or_else(|| format!("podium_inbound_conversation:{conv_id}"));
+        let item_deep = podium_inbox_deep_link(customer_id, conv_id, channel);
 
         if let Ok(nid) = crate::logic::notifications::upsert_bundle_item(
             pool,
@@ -919,11 +894,21 @@ mod tests {
     fn inbound_notification_targets_the_exact_podium_conversation() {
         let customer_id = Uuid::new_v4();
         let conversation_id = Uuid::new_v4();
-        let link = podium_inbox_deep_link(customer_id, conversation_id, "sms");
+        let link = podium_inbox_deep_link(Some(customer_id), conversation_id, "sms");
 
         assert_eq!(link["type"], "podium_inbox");
         assert_eq!(link["customer_id"], customer_id.to_string());
         assert_eq!(link["conversation_id"], conversation_id.to_string());
         assert_eq!(link["message_channel"], "sms");
+    }
+
+    #[test]
+    fn unknown_sender_notification_targets_the_thread_without_inventing_a_customer() {
+        let conversation_id = Uuid::new_v4();
+        let link = podium_inbox_deep_link(None, conversation_id, "sms");
+
+        assert_eq!(link["type"], "podium_inbox");
+        assert!(link.get("customer_id").is_none());
+        assert_eq!(link["conversation_id"], conversation_id.to_string());
     }
 }

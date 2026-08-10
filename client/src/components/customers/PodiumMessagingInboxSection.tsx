@@ -22,6 +22,7 @@ import {
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import type { Customer } from "../pos/CustomerSelector";
+import { AddCustomerDrawer } from "./CustomersWorkspace";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -33,10 +34,12 @@ const PROVIDER_PULL_STALE_MS = 30 * 60 * 1000;
 type InboxRow = {
   conversation_id: string;
   podium_conversation_uid: string | null;
-  customer_id: string;
-  customer_code: string;
-  first_name: string;
-  last_name: string;
+  customer_id: string | null;
+  customer_code: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  unmatched_id: string | null;
+  contact_identifier: string | null;
   channel: string;
   last_message_at: string;
   last_inbound_at: string | null;
@@ -75,20 +78,6 @@ type PodiumHealth = {
   last_sync_at: string | null;
 };
 
-type UnmatchedConversation = {
-  id: string;
-  provider_conversation_uid: string;
-  channel: string;
-  identifier: string | null;
-  match_status: "unmatched" | "ambiguous";
-  candidate_customer_ids: string[];
-  resolution_note: string | null;
-  last_message_at: string | null;
-  snippet: string | null;
-  first_seen_at: string;
-  last_seen_at: string;
-};
-
 type PodiumMessageRow = {
   id: string;
   conversation_id: string;
@@ -113,12 +102,14 @@ type DirectSmsCustomerResult = {
 };
 
 function customerName(row: InboxRow) {
-  return `${row.first_name} ${row.last_name}`.trim() || "Customer";
+  if (!row.customer_id) return "Unknown sender";
+  return `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Customer";
 }
 
 function initials(row: InboxRow) {
-  const first = row.first_name.trim().charAt(0);
-  const last = row.last_name.trim().charAt(0);
+  if (!row.customer_id) return "?";
+  const first = row.first_name?.trim().charAt(0) ?? "";
+  const last = row.last_name?.trim().charAt(0) ?? "";
   return `${first}${last}`.toUpperCase() || "C";
 }
 
@@ -222,9 +213,8 @@ export default function PodiumMessagingInboxSection({
   const [replyDraft, setReplyDraft] = useState("");
   const [replySubject, setReplySubject] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
-  const [unmatchedRows, setUnmatchedRows] = useState<UnmatchedConversation[]>([]);
-  const [showUnmatched, setShowUnmatched] = useState(false);
-  const [selectedUnmatched, setSelectedUnmatched] = useState<UnmatchedConversation | null>(null);
+  const [matchingRow, setMatchingRow] = useState<InboxRow | null>(null);
+  const [addCustomerRow, setAddCustomerRow] = useState<InboxRow | null>(null);
   const [unmatchedCustomerSearch, setUnmatchedCustomerSearch] = useState("");
   const [unmatchedCustomerResults, setUnmatchedCustomerResults] = useState<DirectSmsCustomerResult[]>([]);
   const [unmatchedSearchBusy, setUnmatchedSearchBusy] = useState(false);
@@ -256,21 +246,6 @@ export default function PodiumMessagingInboxSection({
     }
   }, [apiAuth]);
 
-  const loadUnmatched = useCallback(async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/customers/podium/messaging-unmatched?limit=25`, {
-        headers: apiAuth(),
-        cache: "no-store",
-      });
-      if (res.ok) {
-        const data = (await res.json()) as UnmatchedConversation[];
-        setUnmatchedRows(Array.isArray(data) ? data : []);
-      }
-    } catch {
-      setUnmatchedRows([]);
-    }
-  }, [apiAuth]);
-
   const refresh = useCallback(async (opts?: { background?: boolean }) => {
     const background = Boolean(opts?.background);
     if (background && refreshInFlightRef.current) return;
@@ -295,7 +270,6 @@ export default function PodiumMessagingInboxSection({
         setLoadError(null);
         setLastLoadedAt(new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
         void loadHealth();
-        void loadUnmatched();
       }
     } catch {
       if (seq === refreshSeqRef.current) {
@@ -307,13 +281,12 @@ export default function PodiumMessagingInboxSection({
         if (!background) setLoading(false);
       }
     }
-  }, [apiAuth, loadHealth, loadUnmatched]);
+  }, [apiAuth, loadHealth]);
 
   useEffect(() => {
     void refresh();
     void loadHealth();
-    void loadUnmatched();
-  }, [loadHealth, loadUnmatched, refresh]);
+  }, [loadHealth, refresh]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -342,6 +315,7 @@ export default function PodiumMessagingInboxSection({
         row.first_name,
         row.last_name,
         row.customer_code,
+        row.contact_identifier,
         row.channel,
         row.snippet,
         row.last_message_at,
@@ -510,7 +484,7 @@ export default function PodiumMessagingInboxSection({
       setThreadLoading(true);
       try {
         const res = await fetch(
-          `${baseUrl}/api/customers/${encodeURIComponent(selectedRow.customer_id)}/podium/messages`,
+          `${baseUrl}/api/customers/podium/conversations/${encodeURIComponent(selectedRow.conversation_id)}/messages`,
           { headers: apiAuth(), cache: "no-store" },
         );
         if (!res.ok) {
@@ -569,7 +543,7 @@ export default function PodiumMessagingInboxSection({
       }
       if (!opts?.quiet && errorCount === 0) {
         toast(
-          `Podium pull added ${result.messages_inserted} messages across ${result.conversations_matched} conversations. ${result.conversations_unmatched} need customer matching.`,
+          `Podium pull added ${result.messages_inserted} messages across ${result.conversations_matched + result.conversations_unmatched} conversations.`,
           "success",
         );
       }
@@ -588,8 +562,12 @@ export default function PodiumMessagingInboxSection({
     () =>
       !!health &&
       ((health.local_conversation_count > 0 && health.local_message_count === 0) ||
-        health.incomplete_history_count > 0 ||
-        isOlderThan(health.last_sync_at, PROVIDER_PULL_STALE_MS)),
+        health.incomplete_history_count > 0),
+    [health],
+  );
+
+  const providerPullStale = useMemo(
+    () => !!health && isOlderThan(health.last_sync_at, PROVIDER_PULL_STALE_MS),
     [health],
   );
 
@@ -597,8 +575,13 @@ export default function PodiumMessagingInboxSection({
     () =>
       !!health?.credentials_configured &&
       !!health.location_uid_configured &&
+      (historyIncomplete || providerPullStale),
+    [
+      health?.credentials_configured,
+      health?.location_uid_configured,
       historyIncomplete,
-    [health?.credentials_configured, health?.location_uid_configured, historyIncomplete],
+      providerPullStale,
+    ],
   );
 
   const activeWebhookFailure = useMemo(() => {
@@ -609,26 +592,27 @@ export default function PodiumMessagingInboxSection({
   }, [health?.last_webhook_failure_at, health?.last_webhook_received_at]);
 
   useEffect(() => {
-    if (!historyIncomplete) {
+    if (!providerPullDue) {
       autoProviderPullKeyRef.current = null;
       return;
     }
-    if (!providerPullDue || syncBusy) return;
-    const key = "history-incomplete";
+    if (syncBusy) return;
+    const key = historyIncomplete ? "history-incomplete" : "history-refresh-due";
     if (autoProviderPullKeyRef.current === key) return;
     autoProviderPullKeyRef.current = key;
     void runSync({ quiet: true });
   }, [historyIncomplete, providerPullDue, runSync, syncBusy]);
 
   const openCustomer = async (row: InboxRow) => {
+    if (!row.customer_id) return;
     if (row.unread) {
       await setConversationReadState([row.conversation_id], true);
     }
     onOpenCustomerHub({
       id: row.customer_id,
-      customer_code: row.customer_code,
-      first_name: row.first_name,
-      last_name: row.last_name,
+      customer_code: row.customer_code ?? "",
+      first_name: row.first_name ?? "",
+      last_name: row.last_name ?? "",
       company_name: null,
       email: null,
       phone: null,
@@ -637,7 +621,7 @@ export default function PodiumMessagingInboxSection({
   };
 
   const sendReply = async () => {
-    if (!selectedRow) return;
+    if (!selectedRow?.customer_id) return;
     const body = replyDraft.trim();
     if (!body) return;
     setReplyBusy(true);
@@ -713,12 +697,15 @@ export default function PodiumMessagingInboxSection({
     }
   };
 
-  const resolveUnmatchedConversation = async (customer: DirectSmsCustomerResult) => {
-    if (!selectedUnmatched || unmatchedResolveBusy) return;
+  const resolveUnmatchedConversation = async (
+    row: InboxRow,
+    customer: Pick<DirectSmsCustomerResult, "id">,
+  ) => {
+    if (!row.unmatched_id || unmatchedResolveBusy) return;
     setUnmatchedResolveBusy(true);
     try {
       const res = await fetch(
-        `${baseUrl}/api/customers/podium/messaging-unmatched/${encodeURIComponent(selectedUnmatched.id)}/resolve`,
+        `${baseUrl}/api/customers/podium/messaging-unmatched/${encodeURIComponent(row.unmatched_id)}/resolve`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json", ...apiAuth() },
@@ -735,11 +722,12 @@ export default function PodiumMessagingInboxSection({
       }
       toast(
         payload.sync_completed === false
-          ? "Match saved. Podium will retry importing the conversation."
-          : "Podium conversation matched and imported.",
+          ? "Customer matched. Podium history will refresh automatically."
+          : "Customer matched to this conversation.",
         "success",
       );
-      setSelectedUnmatched(null);
+      setMatchingRow(null);
+      setAddCustomerRow(null);
       setUnmatchedCustomerSearch("");
       setUnmatchedCustomerResults([]);
       await refresh();
@@ -1273,7 +1261,7 @@ export default function PodiumMessagingInboxSection({
                         })()}
                         <span>{r.channel === "sms" ? "Text message" : "Email"}</span>
                         <span>·</span>
-                        <span>{r.customer_code}</span>
+                        <span>{r.customer_code ?? r.contact_identifier ?? "Podium sender"}</span>
                       </div>
                       {r.snippet ? (
                         <p className="mt-1 line-clamp-2 text-xs font-semibold leading-relaxed text-app-text-muted">
@@ -1381,16 +1369,113 @@ export default function PodiumMessagingInboxSection({
                       {selectedRow.closed ? <ArchiveRestore size={14} aria-hidden /> : <Archive size={14} aria-hidden />}
                       {selectedRow.closed ? "Reopen" : "Close"}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => void openCustomer(selectedRow)}
-                      className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
-                    >
-                      <UserCircle size={14} aria-hidden />
-                      Open Customer
-                    </button>
+                    {selectedRow.customer_id ? (
+                      <button
+                        type="button"
+                        onClick={() => void openCustomer(selectedRow)}
+                        className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                      >
+                        <UserCircle size={14} aria-hidden />
+                        Open Customer
+                      </button>
+                    ) : null}
                   </div>
                 </div>
+                {!selectedRow.customer_id && selectedRow.unmatched_id ? (
+                  <div className="border-b border-app-border bg-app-surface-2/50 px-5 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black text-app-text">
+                          {selectedRow.contact_identifier ?? "Podium sender"}
+                        </p>
+                        <p className="mt-0.5 text-[11px] font-semibold text-app-text-muted">
+                          Not in Riverside yet. Keep the conversation here, match an existing customer, or add a customer.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMatchingRow(selectedRow);
+                            setUnmatchedCustomerSearch(selectedRow.contact_identifier ?? "");
+                            setUnmatchedCustomerResults([]);
+                          }}
+                          className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                        >
+                          <Search size={13} aria-hidden />
+                          Match Customer
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAddCustomerRow(selectedRow)}
+                          className="ui-btn-primary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                        >
+                          <UserPlus size={13} aria-hidden />
+                          Add Customer
+                        </button>
+                      </div>
+                    </div>
+                    {matchingRow?.conversation_id === selectedRow.conversation_id ? (
+                      <div className="mt-3 rounded-xl border border-app-border bg-app-surface p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-xs font-black text-app-text">Match an existing customer</p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMatchingRow(null);
+                              setUnmatchedCustomerResults([]);
+                            }}
+                            className="ui-btn-ghost px-2 py-1 text-[10px] font-black uppercase tracking-widest"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        <div className="mt-2 flex gap-2">
+                          <input
+                            value={unmatchedCustomerSearch}
+                            onChange={(event) => setUnmatchedCustomerSearch(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") void searchUnmatchedCustomers();
+                            }}
+                            className="ui-input h-10 min-w-0 flex-1 rounded-xl px-3 text-sm"
+                            placeholder="Search by name, code, phone, or email"
+                            aria-label="Search customer to match Podium conversation"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void searchUnmatchedCustomers()}
+                            disabled={unmatchedSearchBusy}
+                            className="ui-btn-secondary inline-flex items-center gap-2 px-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                          >
+                            <Search size={13} aria-hidden />
+                            {unmatchedSearchBusy ? "Searching..." : "Search"}
+                          </button>
+                        </div>
+                        {unmatchedCustomerResults.length > 0 ? (
+                          <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                            {unmatchedCustomerResults.map((customer) => (
+                              <li key={customer.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => void resolveUnmatchedConversation(selectedRow, customer)}
+                                  disabled={unmatchedResolveBusy}
+                                  className="w-full rounded-lg border border-app-border px-3 py-2 text-left text-xs hover:bg-app-surface-muted disabled:opacity-50"
+                                >
+                                  <span className="block font-black text-app-text">
+                                    {customer.first_name} {customer.last_name}
+                                  </span>
+                                  <span className="block text-app-text-muted">
+                                    {customer.customer_code} · {customer.phone ?? customer.email ?? "No identifier"}
+                                  </span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div ref={threadScrollRef} className="flex min-h-[180px] flex-1 flex-col gap-2 overflow-y-auto bg-app-surface-2/40 px-4 py-5 sm:px-6">
                   {threadLoading ? (
                     <p className="text-sm font-semibold text-app-text-muted">
@@ -1452,37 +1537,39 @@ export default function PodiumMessagingInboxSection({
                     </div>
                   )}
                 </div>
-                <div className="border-t border-app-border bg-app-surface px-4 py-3 sm:px-5">
-                  {selectedRow.channel === "email" ? (
-                    <input
-                      value={replySubject}
-                      onChange={(event) => setReplySubject(event.target.value)}
-                      className="ui-input mb-2 w-full rounded-xl px-3 py-2 text-sm"
-                      placeholder="Email subject"
-                    />
-                  ) : null}
-                  <div className="flex items-end gap-2">
-                    <textarea
-                      value={replyDraft}
-                      onChange={(event) => setReplyDraft(event.target.value)}
-                      className="ui-input min-h-12 flex-1 resize-y rounded-[1.4rem] px-4 py-3 text-sm"
-                      placeholder={selectedRow.channel === "email" ? "Write an email reply" : "Text message"}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void sendReply()}
-                      disabled={
-                        replyBusy ||
-                        !replyDraft.trim() ||
-                        (selectedRow.channel === "email" && !replySubject.trim())
-                      }
-                      className="ui-btn-primary ui-touch-target inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-50"
-                      aria-label={replyBusy ? "Sending message" : "Send message"}
-                    >
-                      <Send size={17} aria-hidden />
-                    </button>
+                {selectedRow.customer_id ? (
+                  <div className="border-t border-app-border bg-app-surface px-4 py-3 sm:px-5">
+                    {selectedRow.channel === "email" ? (
+                      <input
+                        value={replySubject}
+                        onChange={(event) => setReplySubject(event.target.value)}
+                        className="ui-input mb-2 w-full rounded-xl px-3 py-2 text-sm"
+                        placeholder="Email subject"
+                      />
+                    ) : null}
+                    <div className="flex items-end gap-2">
+                      <textarea
+                        value={replyDraft}
+                        onChange={(event) => setReplyDraft(event.target.value)}
+                        className="ui-input min-h-12 flex-1 resize-y rounded-[1.4rem] px-4 py-3 text-sm"
+                        placeholder={selectedRow.channel === "email" ? "Write an email reply" : "Text message"}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void sendReply()}
+                        disabled={
+                          replyBusy ||
+                          !replyDraft.trim() ||
+                          (selectedRow.channel === "email" && !replySubject.trim())
+                        }
+                        className="ui-btn-primary ui-touch-target inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-50"
+                        aria-label={replyBusy ? "Sending message" : "Send message"}
+                      >
+                        <Send size={17} aria-hidden />
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </>
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-app-text-muted">
@@ -1667,129 +1754,21 @@ export default function PodiumMessagingInboxSection({
       </div>
       ) : null}
 
-      {unmatchedRows.length > 0 ? (
-        <div className="rounded-2xl border border-app-warning/30 bg-app-warning/10 px-4 py-3">
-          <button
-            type="button"
-            onClick={() => setShowUnmatched((value) => !value)}
-            className="flex w-full items-start justify-between gap-3 text-left text-sm text-app-text"
-          >
-            <span className="flex items-start gap-2">
-              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-app-warning" aria-hidden />
-              <span>
-                <span className="block font-black">Unknown Podium senders</span>
-                <span className="block text-xs font-semibold text-app-text-muted">
-                  {unmatchedRows.length} synced threads need a matching customer before they become customer history.
-                </span>
-              </span>
-            </span>
-            {showUnmatched ? <ChevronUp size={18} aria-hidden /> : <ChevronDown size={18} aria-hidden />}
-          </button>
-          {showUnmatched ? (
-            <div className="mt-3">
-              <ul className="grid gap-2 lg:grid-cols-2">
-                {unmatchedRows.map((row) => (
-                  <li key={row.id} className="rounded-lg border border-app-warning/30 bg-app-surface px-3 py-2 text-xs">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-black uppercase tracking-widest text-app-text-muted">
-                        {row.channel}
-                      </span>
-                      <span className="font-mono text-app-text">{row.identifier ?? "No identifier"}</span>
-                      <span className="ml-auto text-app-text-muted">
-                        {fullDateTime(row.last_seen_at)}
-                      </span>
-                    </div>
-                    {row.snippet ? (
-                      <p className="mt-1 line-clamp-1 text-app-text-muted">{row.snippet}</p>
-                    ) : null}
-                    <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                      {row.match_status === "ambiguous"
-                        ? `${row.candidate_customer_ids.length} customers share this identifier. Select the correct customer; ROS will never choose silently.`
-                        : "Select the correct existing customer after confirming their identity."}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedUnmatched(row);
-                        setUnmatchedCustomerSearch(row.identifier ?? "");
-                        setUnmatchedCustomerResults([]);
-                      }}
-                      className="ui-btn-secondary mt-2 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest"
-                    >
-                      Match customer
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              {selectedUnmatched ? (
-                <div className="mt-3 rounded-xl border border-app-border bg-app-surface p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-black text-app-text">Resolve customer identity</p>
-                      <p className="mt-1 text-[11px] text-app-text-muted">
-                        Confirm the intended customer for {selectedUnmatched.identifier ?? "this Podium thread"}.
-                        This decision is audited and reused for the provider conversation ID.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedUnmatched(null);
-                        setUnmatchedCustomerResults([]);
-                      }}
-                      className="ui-btn-ghost px-2 py-1 text-[10px] font-black uppercase tracking-widest"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <input
-                      value={unmatchedCustomerSearch}
-                      onChange={(event) => setUnmatchedCustomerSearch(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") void searchUnmatchedCustomers();
-                      }}
-                      className="ui-input h-10 min-w-0 flex-1 rounded-xl px-3 text-sm"
-                      placeholder="Search by name, code, phone, or email"
-                      aria-label="Search customer for unmatched Podium conversation"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void searchUnmatchedCustomers()}
-                      disabled={unmatchedSearchBusy}
-                      className="ui-btn-secondary inline-flex items-center gap-2 px-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-                    >
-                      <Search size={13} aria-hidden />
-                      {unmatchedSearchBusy ? "Searching..." : "Search"}
-                    </button>
-                  </div>
-                  {unmatchedCustomerResults.length > 0 ? (
-                    <ul className="mt-2 grid gap-2 sm:grid-cols-2">
-                      {unmatchedCustomerResults.map((customer) => (
-                        <li key={customer.id}>
-                          <button
-                            type="button"
-                            onClick={() => void resolveUnmatchedConversation(customer)}
-                            disabled={unmatchedResolveBusy}
-                            className="w-full rounded-lg border border-app-border px-3 py-2 text-left text-xs hover:bg-app-surface-muted disabled:opacity-50"
-                          >
-                            <span className="block font-black text-app-text">
-                              {customer.first_name} {customer.last_name}
-                            </span>
-                            <span className="block text-app-text-muted">
-                              {customer.customer_code} · {customer.phone ?? customer.email ?? "No identifier"}
-                            </span>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      <AddCustomerDrawer
+        isOpen={addCustomerRow !== null}
+        onClose={() => setAddCustomerRow(null)}
+        onSaved={() => setAddCustomerRow(null)}
+        initialDraft={
+          addCustomerRow?.channel === "email"
+            ? { email: addCustomerRow.contact_identifier ?? "" }
+            : { phone: addCustomerRow?.contact_identifier ?? "" }
+        }
+        onCreatedCustomer={(customer) => {
+          if (addCustomerRow) {
+            void resolveUnmatchedConversation(addCustomerRow, customer);
+          }
+        }}
+      />
       <ConfirmationModal
         isOpen={pendingClosedState !== null}
         onClose={() => {

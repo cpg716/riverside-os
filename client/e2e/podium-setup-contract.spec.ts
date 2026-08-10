@@ -37,6 +37,7 @@ const podiumLogic = repoFile("server/src/logic/podium.rs");
 const podiumReviews = repoFile("server/src/logic/podium_reviews.rs");
 const podiumWebhook = repoFile("server/src/logic/podium_webhook.rs");
 const podiumWebhookApi = repoFile("server/src/api/webhooks.rs");
+const podiumInbound = repoFile("server/src/logic/podium_inbound.rs");
 const podiumMessaging = repoFile("server/src/logic/podium_messaging.rs");
 const podiumInbox = repoFile(
   "client/src/components/customers/PodiumMessagingInboxSection.tsx",
@@ -162,6 +163,31 @@ test("Podium inbox keeps webhook and history status truthful", () => {
   expect(podiumInbox).toContain("Riverside did not mark the pull complete");
   expect(podiumInbox).toContain("ROS webhook ready");
   expect(podiumInbox).toContain("Last complete history pull");
+  expect(podiumInbox).toContain("historyIncomplete || providerPullStale");
+  expect(podiumInbox).not.toContain(
+    "health.incomplete_history_count > 0 ||\n        isOlderThan",
+  );
+});
+
+test("Podium inbox keeps unknown senders in the regular conversation flow", () => {
+  expect(podiumMessaging).toContain("pub customer_id: Option<Uuid>");
+  expect(podiumMessaging).toContain("LEFT JOIN customers c ON c.id = pc.customer_id");
+  expect(podiumMessaging).toContain("list_messages_for_conversation");
+  expect(podiumMessaging).toContain(
+    "customer_id = COALESCE(podium_conversation.customer_id, EXCLUDED.customer_id)",
+  );
+  expect(customersApi).toContain(
+    '"/podium/conversations/{conversation_id}/messages"',
+  );
+  expect(podiumInbound).toContain(
+    "Storing Podium message without adding or choosing a Riverside customer",
+  );
+  expect(podiumInbound).not.toContain('first_name: "New".into()');
+  expect(podiumInbox).toContain('return "Unknown sender"');
+  expect(podiumInbox).toContain("Match Customer");
+  expect(podiumInbox).toContain("Add Customer");
+  expect(podiumInbox).toContain("<AddCustomerDrawer");
+  expect(podiumInbox).not.toContain("Unknown Podium senders");
 });
 
 test("Podium inbox maps staff identity and supports shared conversation triage", () => {

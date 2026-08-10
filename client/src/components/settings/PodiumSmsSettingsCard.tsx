@@ -49,7 +49,7 @@ const SMS_TEMPLATE_BLOCKS: Array<{
     key: "unknown_sender_welcome",
     featureKey: "unknown_sender_welcome",
     label: "New text sender",
-    description: "Sent once when an unmatched inbound number creates a customer stub.",
+    description: "Sent once after the first inbound text from a number not yet linked to a customer.",
     tokens: [],
   },
 ];

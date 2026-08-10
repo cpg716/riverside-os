@@ -4030,6 +4030,10 @@ pub fn router() -> Router<AppState> {
             "/podium/conversations/{conversation_id}/assignees",
             get(get_podium_conversation_assignees).patch(patch_podium_conversation_assignee),
         )
+        .route(
+            "/podium/conversations/{conversation_id}/messages",
+            get(get_podium_conversation_messages),
+        )
         .route("/rms-charge/customers", get(list_rms_charge_customers))
         .route("/rms-charge/records", get(list_rms_charge_records))
         .route(
@@ -6234,6 +6238,25 @@ async fn get_podium_messaging_health(
     require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
     let health = podium_messaging::health(&state.db).await?;
     Ok(Json(health))
+}
+
+async fn get_podium_conversation_messages(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<Uuid>,
+) -> Result<Json<Vec<podium_messaging::PodiumMessageApiRow>>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM podium_conversation WHERE id = $1)")
+            .bind(conversation_id)
+            .fetch_one(&state.db)
+            .await?;
+    if !exists {
+        return Err(CustomerError::NotFound);
+    }
+    Ok(Json(
+        podium_messaging::list_messages_for_conversation(&state.db, conversation_id).await?,
+    ))
 }
 
 async fn list_podium_unmatched_conversations(
