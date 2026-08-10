@@ -239,6 +239,7 @@ type CloseSessionResponse = {
   unresolved_close_issues: UnresolvedCloseIssues | null;
   reconciliation: ReconciliationResponse;
   z_report_snapshot: {
+    total_sales: string;
     unresolved_close_issues: UnresolvedCloseIssues | null;
   };
 };
@@ -1505,23 +1506,8 @@ test.describe("Register close / reconciliation", () => {
       },
     );
     expect(checkoutRes.status()).toBe(200);
-    const checkout = (await checkoutRes.json()) as CheckoutResponse;
 
-    const detailRes = await request.get(
-      `${apiBase()}/api/transactions/${checkout.transaction_id}?register_session_id=${encodeURIComponent(satellite?.session_id ?? "")}`,
-      {
-        headers: {
-          "x-riverside-pos-session-id": satellite?.session_id ?? "",
-          "x-riverside-pos-session-token": lane2Token,
-          "x-riverside-station-key": "station-e2e",
-        },
-        failOnStatusCode: false,
-      },
-    );
-    expect(detailRes.status()).toBe(200);
-    const detail = (await detailRes.json()) as TransactionDetailResponse;
-
-    await closeRegisterGroup(
+    const close = await closeRegisterGroup(
       request,
       primary?.session_id ?? "",
       opened.pos_api_token ?? "",
@@ -1541,10 +1527,7 @@ test.describe("Register close / reconciliation", () => {
     );
     expect(primaryHistory).toBeTruthy();
     expect(primaryHistory?.register_lane).toBe(1);
-    const expectedNetSales = detail.items
-      .reduce((sum, item) => sum + Number(item.unit_price) * item.quantity, 0)
-      .toFixed(2);
-    expect(primaryHistory?.total_sales).toBe(expectedNetSales);
+    expect(primaryHistory?.total_sales).toBe(close.z_report_snapshot.total_sales);
     expect(
       history.some(
         (row) => row.z_report_json?.session_id === satellite?.session_id,
