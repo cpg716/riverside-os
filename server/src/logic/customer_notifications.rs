@@ -216,9 +216,14 @@ fn webhook_event(value: &Value) -> String {
         value,
         &[
             "/metadata/eventType",
+            "/metadata/event_type",
             "/event",
+            "/eventType",
+            "/event_type",
             "/type",
             "/data/event",
+            "/data/eventType",
+            "/data/event_type",
             "/data/type",
         ],
     )
@@ -462,6 +467,15 @@ mod tests {
         assert_eq!(webhook_identifier(&value).as_deref(), Some("+18015551212"));
         assert_eq!(webhook_failure_reason(&value).as_deref(), Some("landline"));
         assert_eq!(webhook_message_id(&value).as_deref(), None);
+    }
+
+    #[test]
+    fn podium_failure_event_accepts_snake_case_metadata() {
+        let value = json!({
+            "metadata": { "event_type": "message.failed", "event_uid": "event-1" }
+        });
+
+        assert_eq!(webhook_event(&value), "message.failed");
     }
 
     #[test]

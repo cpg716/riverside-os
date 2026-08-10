@@ -22,7 +22,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
 const INBOX_LOCAL_REFRESH_MS = 60_000;
-const PROVIDER_PULL_STALE_MS = 30 * 60 * 60 * 1000;
+const PROVIDER_PULL_STALE_MS = 30 * 60 * 1000;
 
 type InboxRow = {
   conversation_id: string;
@@ -47,6 +47,8 @@ type PodiumHealth = {
   webhook_secret_configured: boolean;
   inbound_ingest_enabled: boolean;
   local_conversation_count: number;
+  local_message_count: number;
+  incomplete_history_count: number;
   unmatched_conversation_count: number;
   last_webhook_received_at: string | null;
   last_webhook_failure_at: string | null;
@@ -161,6 +163,7 @@ export default function PodiumMessagingInboxSection({
   const [triageFilter, setTriageFilter] = useState<"all" | "needs_reply" | "unread">("all");
   const [health, setHealth] = useState<PodiumHealth | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
+  const [syncIssue, setSyncIssue] = useState<string | null>(null);
   const [selectedRow, setSelectedRow] = useState<InboxRow | null>(null);
   const [threadMessages, setThreadMessages] = useState<PodiumMessageRow[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
@@ -389,6 +392,7 @@ export default function PodiumMessagingInboxSection({
         body: JSON.stringify({ limit: 200 }),
       });
       if (!res.ok) {
+        setSyncIssue("Podium history could not be pulled. Check credentials and permissions.");
         if (!opts?.quiet) {
           toast("Podium pull could not run. Check credentials and permissions.", "error");
         }
@@ -400,33 +404,71 @@ export default function PodiumMessagingInboxSection({
         messages_inserted: number;
         errors?: string[];
       };
-      if (!opts?.quiet) {
+      const errorCount = Array.isArray(result.errors) ? result.errors.length : 0;
+      if (errorCount > 0) {
+        const issue = `${errorCount} Podium conversation ${errorCount === 1 ? "history" : "histories"} could not be loaded. Riverside did not mark the pull complete.`;
+        setSyncIssue(issue);
+        if (!opts?.quiet) {
+          toast(
+            `Podium pull incomplete: ${result.messages_inserted} messages added; ${errorCount} histories failed.`,
+            "error",
+          );
+        }
+      } else {
+        setSyncIssue(null);
+      }
+      if (!opts?.quiet && errorCount === 0) {
         toast(
           `Podium pull added ${result.messages_inserted} messages across ${result.conversations_matched} conversations. ${result.conversations_unmatched} need customer matching.`,
           "success",
         );
       }
       await refresh({ background: opts?.quiet });
+    } catch {
+      setSyncIssue("Podium history could not be pulled. Check the Main Hub connection and try again.");
+      if (!opts?.quiet) {
+        toast("Podium pull could not run. Check the Main Hub connection and try again.", "error");
+      }
     } finally {
       setSyncBusy(false);
     }
   }, [apiAuth, refresh, toast]);
 
+  const historyIncomplete = useMemo(
+    () =>
+      !!health &&
+      ((health.local_conversation_count > 0 && health.local_message_count === 0) ||
+        health.incomplete_history_count > 0 ||
+        isOlderThan(health.last_sync_at, PROVIDER_PULL_STALE_MS)),
+    [health],
+  );
+
   const providerPullDue = useMemo(
     () =>
       !!health?.credentials_configured &&
       !!health.location_uid_configured &&
-      isOlderThan(health.last_sync_at, PROVIDER_PULL_STALE_MS),
-    [health],
+      historyIncomplete,
+    [health?.credentials_configured, health?.location_uid_configured, historyIncomplete],
   );
 
+  const activeWebhookFailure = useMemo(() => {
+    if (!health?.last_webhook_failure_at) return false;
+    if (!health.last_webhook_received_at) return true;
+    return new Date(health.last_webhook_failure_at).getTime() >
+      new Date(health.last_webhook_received_at).getTime();
+  }, [health?.last_webhook_failure_at, health?.last_webhook_received_at]);
+
   useEffect(() => {
+    if (!historyIncomplete) {
+      autoProviderPullKeyRef.current = null;
+      return;
+    }
     if (!providerPullDue || syncBusy) return;
-    const key = health?.last_sync_at ?? "never";
+    const key = "history-incomplete";
     if (autoProviderPullKeyRef.current === key) return;
     autoProviderPullKeyRef.current = key;
     void runSync({ quiet: true });
-  }, [health?.last_sync_at, providerPullDue, runSync, syncBusy]);
+  }, [historyIncomplete, providerPullDue, runSync, syncBusy]);
 
   const markRead = async (row: InboxRow) => {
     await fetch(`${baseUrl}/api/customers/podium/conversations/${row.conversation_id}/read`, {
@@ -699,7 +741,7 @@ export default function PodiumMessagingInboxSection({
             ["Conversations", `${rows.length}`],
             ["Needs reply", `${needsReplyCount}`],
             ["Unread", `${unreadCount}`],
-            ["Last Podium pull", health.last_sync_at ? fullDateTime(health.last_sync_at) : "Not yet"],
+            ["Last complete history pull", health.last_sync_at ? fullDateTime(health.last_sync_at) : "Not yet"],
           ].map(([label, value]) => (
             <div key={label} className="rounded-xl border border-app-border bg-app-surface px-4 py-3 shadow-sm">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -734,26 +776,33 @@ export default function PodiumMessagingInboxSection({
                 }`}
               >
                 {health.webhook_secret_configured && health.inbound_ingest_enabled
-                  ? "Podium ready"
-                  : "Podium setup needed"}
+                  ? "ROS webhook ready"
+                  : "ROS webhook setup needed"}
               </span>
               <span
                 className={`ui-pill ${
-                  providerPullDue ? "bg-app-warning/10 text-app-warning" : "bg-app-success/10 text-app-success"
+                  historyIncomplete || syncIssue
+                    ? "bg-app-warning/10 text-app-warning"
+                    : "bg-app-success/10 text-app-success"
                 }`}
               >
-                {providerPullDue
+                {historyIncomplete || syncIssue
                   ? syncBusy
                     ? "Pulling history"
-                    : "History pull due"
+                    : "History incomplete"
                   : "History current"}
               </span>
             </div>
           </div>
-          {health.last_webhook_failure_at ? (
+          {activeWebhookFailure ? (
             <p className="mt-2 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
               Last webhook issue: {fullDateTime(health.last_webhook_failure_at)}
               {health.last_webhook_failure_reason ? ` - ${health.last_webhook_failure_reason}` : ""}
+            </p>
+          ) : null}
+          {syncIssue ? (
+            <p className="mt-2 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
+              {syncIssue}
             </p>
           ) : null}
         </div>

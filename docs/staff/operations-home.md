@@ -76,6 +76,7 @@ If the Timeline says a source feed did not refresh, treat it as a partial view a
 3. Use **Send Text** to message a current customer or a new phone number. Sending and new-contact creation require **customers.hub_edit**.
 4. For a phone number that is not already a customer, enter first and last name before sending. ROS creates the contact and records the text.
 5. Open a row to jump into the full customer conversation in the Customer Hub.
+6. **Refresh** reloads the Riverside copy. Use **Pull from Podium** when history is missing; **History incomplete** means the provider pull did not fully finish and must not be treated as current.
 
 ## Mailbox
 

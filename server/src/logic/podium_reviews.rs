@@ -933,13 +933,26 @@ fn text_at(value: &Value, paths: &[&str]) -> Option<String> {
     })
 }
 
+fn review_invite_webhook_event_type(value: &Value) -> String {
+    text_at(
+        value,
+        &[
+            "/metadata/eventType",
+            "/metadata/event_type",
+            "/eventType",
+            "/event_type",
+            "/event",
+        ],
+    )
+    .unwrap_or_default()
+    .to_ascii_lowercase()
+}
+
 pub async fn apply_review_invite_webhook(
     pool: &PgPool,
     value: &Value,
 ) -> Result<bool, sqlx::Error> {
-    let event_type = text_at(value, &["/metadata/eventType", "/eventType", "/event"])
-        .unwrap_or_default()
-        .to_ascii_lowercase();
+    let event_type = review_invite_webhook_event_type(value);
     if !event_type.starts_with("review.invite_link_") {
         return Ok(false);
     }
@@ -1144,5 +1157,17 @@ mod tests {
             .map(|value| value.eq_ignore_ascii_case("generated_link_only"))
             .unwrap_or(false);
         assert!(generated_link_only);
+    }
+
+    #[test]
+    fn review_webhook_accepts_snake_case_metadata() {
+        let value = json!({
+            "metadata": { "event_type": "review.invite_link_generated" }
+        });
+
+        assert_eq!(
+            review_invite_webhook_event_type(&value),
+            "review.invite_link_generated"
+        );
     }
 }

@@ -53,6 +53,8 @@ pub struct PodiumMessagingHealth {
     pub webhook_secret_configured: bool,
     pub inbound_ingest_enabled: bool,
     pub local_conversation_count: i64,
+    pub local_message_count: i64,
+    pub incomplete_history_count: i64,
     pub unmatched_conversation_count: i64,
     pub last_webhook_received_at: Option<DateTime<Utc>>,
     pub last_webhook_failure_at: Option<DateTime<Utc>>,
@@ -228,6 +230,9 @@ pub async fn hydrate_missing_messages_for_customer(
                 inserted += 1;
             }
         }
+        mark_conversation_synced(pool, &shell.podium_conversation_uid)
+            .await
+            .map_err(|err| err.to_string())?;
     }
 
     Ok(inserted)
@@ -322,6 +327,8 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
     #[derive(sqlx::FromRow)]
     struct PodiumMessagingHealthRow {
         local_conversation_count: i64,
+        local_message_count: i64,
+        incomplete_history_count: i64,
         unmatched_conversation_count: i64,
         last_webhook_received_at: Option<DateTime<Utc>>,
         last_webhook_failure_at: Option<DateTime<Utc>>,
@@ -333,6 +340,8 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
 
     let PodiumMessagingHealthRow {
         local_conversation_count,
+        local_message_count,
+        incomplete_history_count,
         unmatched_conversation_count,
         last_webhook_received_at,
         last_webhook_failure_at,
@@ -344,6 +353,8 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
         r#"
         SELECT
             (SELECT COUNT(*) FROM podium_conversation) AS local_conversation_count,
+            (SELECT COUNT(*) FROM podium_message) AS local_message_count,
+            (SELECT COUNT(*) FROM podium_conversation WHERE last_synced_at IS NULL) AS incomplete_history_count,
             (SELECT COUNT(*) FROM podium_sync_unmatched_conversation WHERE resolved_at IS NULL) AS unmatched_conversation_count,
             (SELECT MAX(received_at) FROM podium_webhook_delivery) AS last_webhook_received_at,
             (SELECT created_at FROM podium_webhook_failure ORDER BY created_at DESC LIMIT 1) AS last_webhook_failure_at,
@@ -363,6 +374,8 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
             .is_some(),
         inbound_ingest_enabled: crate::logic::podium_webhook::podium_inbound_crm_ingest_enabled(),
         local_conversation_count,
+        local_message_count,
+        incomplete_history_count,
         unmatched_conversation_count,
         last_webhook_received_at,
         last_webhook_failure_at,
@@ -727,6 +740,7 @@ fn message_direction(value: &Value) -> String {
             "/data/direction",
             "/data/items/0/sourceType",
             "/metadata/eventType",
+            "/metadata/event_type",
         ],
     )
     .unwrap_or_default()
@@ -839,15 +853,15 @@ async fn upsert_synced_conversation_shell(
         r#"
         INSERT INTO podium_conversation (
             customer_id, channel, podium_conversation_uid, contact_phone_e164, contact_email,
-            last_message_at, last_synced_at, sync_source, provider_status, provider_assignee_name
+            last_message_at, sync_source, provider_status, provider_assignee_name
         )
-        VALUES ($1, $2, $3, $4, $5, $6, NOW(), 'api_sync', $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, 'api_sync', $7, $8)
         ON CONFLICT (podium_conversation_uid)
         WHERE podium_conversation_uid IS NOT NULL AND trim(podium_conversation_uid) <> ''
         DO UPDATE SET
             customer_id = EXCLUDED.customer_id,
             last_message_at = GREATEST(podium_conversation.last_message_at, EXCLUDED.last_message_at),
-            last_synced_at = NOW(),
+            last_synced_at = NULL,
             sync_source = 'api_sync',
             provider_status = COALESCE(EXCLUDED.provider_status, podium_conversation.provider_status),
             provider_assignee_name = COALESCE(EXCLUDED.provider_assignee_name, podium_conversation.provider_assignee_name)
@@ -871,6 +885,24 @@ async fn upsert_synced_conversation_shell(
     )
     .await?;
     Ok(SyncConversationOutcome::Matched)
+}
+
+async fn mark_conversation_synced(
+    pool: &PgPool,
+    provider_conversation_uid: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        UPDATE podium_conversation
+        SET last_synced_at = NOW(),
+            sync_source = 'api_sync'
+        WHERE podium_conversation_uid = $1
+        "#,
+    )
+    .bind(provider_conversation_uid)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 async fn record_unmatched_conversation(
@@ -1103,15 +1135,14 @@ async fn upsert_synced_message(
         r#"
         INSERT INTO podium_conversation (
             customer_id, channel, podium_conversation_uid, contact_phone_e164, contact_email,
-            last_message_at, last_synced_at, sync_source, provider_status, provider_assignee_name
+            last_message_at, sync_source, provider_status, provider_assignee_name
         )
-        VALUES ($1, $2, $3, $4, $5, $6, NOW(), 'api_sync', $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, 'api_sync', $7, $8)
         ON CONFLICT (podium_conversation_uid)
         WHERE podium_conversation_uid IS NOT NULL AND trim(podium_conversation_uid) <> ''
         DO UPDATE SET
             customer_id = EXCLUDED.customer_id,
             last_message_at = GREATEST(podium_conversation.last_message_at, EXCLUDED.last_message_at),
-            last_synced_at = NOW(),
             provider_status = COALESCE(EXCLUDED.provider_status, podium_conversation.provider_status),
             provider_assignee_name = COALESCE(EXCLUDED.provider_assignee_name, podium_conversation.provider_assignee_name)
         RETURNING id
@@ -1221,60 +1252,57 @@ pub async fn sync_recent_from_podium(
             result.errors.push("conversation missing uid".to_string());
             continue;
         };
-        let messages = embedded_messages(&conversation);
-        if messages.is_empty() {
-            match upsert_synced_conversation_shell(pool, &conversation).await {
-                Ok(SyncConversationOutcome::Matched) => {
-                    result.conversations_matched += 1;
-                    match podium::fetch_podium_conversation_messages(
-                        pool,
-                        http,
-                        token_cache,
-                        &uid,
-                        50,
-                    )
-                    .await
-                    {
-                        Ok(provider_messages) => {
-                            for message in provider_messages {
-                                result.messages_seen += 1;
-                                match upsert_synced_message(pool, &conversation, &message).await {
-                                    Ok(SyncMessageOutcome::Inserted) => {
-                                        result.messages_inserted += 1;
-                                    }
-                                    Ok(SyncMessageOutcome::Matched) => {}
-                                    Ok(SyncMessageOutcome::Unmatched) => {}
-                                    Err(err) => result.errors.push(format!("{uid}: {err}")),
-                                }
-                            }
-                        }
-                        Err(err) => result.errors.push(format!("{uid}: {err}")),
-                    }
-                }
-                Ok(SyncConversationOutcome::Unmatched) => result.conversations_unmatched += 1,
-                Err(err) => result.errors.push(format!("{uid}: {err}")),
+        match upsert_synced_conversation_shell(pool, &conversation).await {
+            Ok(SyncConversationOutcome::Matched) => {
+                result.conversations_matched += 1;
             }
-            continue;
+            Ok(SyncConversationOutcome::Unmatched) => {
+                result.conversations_unmatched += 1;
+                continue;
+            }
+            Err(err) => {
+                result.errors.push(format!("{uid}: {err}"));
+                continue;
+            }
         }
-        let mut matched = false;
+        let embedded = embedded_messages(&conversation);
+        let messages = if embedded.is_empty() {
+            match podium::fetch_podium_conversation_messages(pool, http, token_cache, &uid, 50)
+                .await
+            {
+                Ok(messages) => messages,
+                Err(err) => {
+                    result.errors.push(format!("{uid}: {err}"));
+                    continue;
+                }
+            }
+        } else {
+            embedded
+        };
+        let mut history_complete = true;
         for message in messages {
             result.messages_seen += 1;
             match upsert_synced_message(pool, &conversation, &message).await {
                 Ok(SyncMessageOutcome::Inserted) => {
-                    matched = true;
                     result.messages_inserted += 1;
                 }
-                Ok(SyncMessageOutcome::Matched) => {
-                    matched = true;
+                Ok(SyncMessageOutcome::Matched) => {}
+                Ok(SyncMessageOutcome::Unmatched) => {
+                    history_complete = false;
+                    result.errors.push(format!(
+                        "{uid}: message could not be matched to the conversation"
+                    ));
                 }
-                Ok(SyncMessageOutcome::Unmatched) => {}
-                Err(err) => result.errors.push(format!("{uid}: {err}")),
+                Err(err) => {
+                    history_complete = false;
+                    result.errors.push(format!("{uid}: {err}"));
+                }
             }
         }
-        if matched {
-            result.conversations_matched += 1;
-        } else {
-            result.conversations_unmatched += 1;
+        if history_complete {
+            if let Err(err) = mark_conversation_synced(pool, &uid).await {
+                result.errors.push(format!("{uid}: {err}"));
+            }
         }
     }
     Ok(result)
@@ -1370,5 +1398,14 @@ mod tests {
         });
 
         assert_eq!(body_text(&payload).as_deref(), Some("STOP"));
+    }
+
+    #[test]
+    fn message_direction_accepts_snake_case_metadata() {
+        let payload = serde_json::json!({
+            "metadata": { "event_type": "message.received" }
+        });
+
+        assert_eq!(message_direction(&payload), "inbound");
     }
 }

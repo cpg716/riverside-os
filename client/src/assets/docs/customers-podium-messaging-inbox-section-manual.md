@@ -4,7 +4,7 @@ title: "Podium Inbox"
 order: 1007
 summary: "Review shared Podium SMS and email threads from Operations or POS, then open the full conversation in the Customer Hub."
 source: client/src/components/customers/PodiumMessagingInboxSection.tsx
-last_scanned: 2026-08-07
+last_scanned: 2026-08-10
 tags: customers, podium, messaging, inbox, communications
 ---
 
@@ -37,7 +37,7 @@ In Operations and POS, this surface is for communications follow-up only. It is 
 
 Use this inbox to decide who needs a response, not to replace the Customer Hub. A recent message without a linked customer should be handled carefully: search the customer first, confirm phone or email ownership, then create or link a contact only when staff can identify the person.
 
-The screen refreshes the Riverside copy every minute while it is open. Podium webhooks are still the fastest path for new inbound messages; Riverside stores verified webhook events in a retryable queue before acknowledging them. **Pull from Podium** fills missed history, including cursor-paged message history, and Riverside also runs a background pull every 30 minutes by default. If the inbox looks stale, check the **Inbox updating** row and webhook readiness before assuming there are no current conversations.
+The screen refreshes the Riverside copy every minute while it is open. Podium webhooks are still the fastest path for new inbound messages; Riverside stores verified webhook events in a retryable queue before acknowledging them. **Refresh** reloads only the Riverside copy. **Pull from Podium** fills missed history using Podium's cursor-paged conversation and message APIs, and Riverside also runs a background pull when history is more than 30 minutes old. **History current** appears only after every matched conversation history in the pull is stored. If the Inbox reports **History incomplete**, retry the pull once and escalate the displayed failure if it remains.
 
 Under **Unknown Podium senders**, choose **Match customer**, search for the intended existing customer, confirm the phone/email belongs to that person, and select the record. When multiple customers share an identifier, Riverside labels the collision and refuses to choose silently. The resolution is stored against the exact Podium conversation ID and later synchronization clears the item from the unmatched queue.
 
@@ -45,8 +45,8 @@ Under **Unknown Podium senders**, choose **Match customer**, search for the inte
 
 - Use this list to triage communication work quickly from either shell.
 - If you need the full customer record, open the row instead of trying to work from the list alone.
-- **Webhook ready** means new Podium messages can arrive by event.
-- **Missed-history pull current** means the local fallback pull is within the expected window.
+- **ROS webhook ready** means Riverside has its local signing secret and inbound processing enabled. The provider subscription can still require an update; Settings → Integrations → Podium is authoritative for that status.
+- **History current** means the last matched conversation histories completed. **History incomplete** means at least one history is missing, failed, or due for a provider pull.
 - A collision warning means staff must verify identity; do not select a customer solely because they are the newest record.
 
 ## What happens next

@@ -117,7 +117,7 @@ ROS is still the appointment system of record. Podium sends enabled appointment 
 6. If the phone number is not already a customer, enter the customer’s **first** and **last** name before sending. Riverside creates the new contact and records the outbound message.
 7. The thread auto-scrolls to the newest message; outbound messages show a **Sent** badge and the sender's name.
 8. The conversation header shows **assigned Podium users** when available.
-9. Use **Refresh** after you know a new message arrived if the row does not update. Refresh asks Podium for the current conversation list and brings back multiple pages when needed, so recent provider conversations should not be hidden behind old synced rows.
+9. Use **Refresh** to reload the Riverside copy. Use **Pull from Podium** when messages are missing; that action asks Podium for current conversations and their cursor-paged history. **History current** appears only after every matched history in the pull is stored. **History incomplete** means one or more histories still need another pull or IT review.
 10. Use **Unknown Podium senders** only when matching provider threads to customers. Choose **Match customer**, search for the intended customer, verify identity, and select that record. The decision is audited against the exact provider conversation ID.
 11. When the card says multiple customers share the identifier, correct the duplicate phone/email data or deliberately choose the intended record. Riverside never silently chooses the newest customer.
 
@@ -182,8 +182,9 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 | **Staff name shows as a UUID** | Manager must link staff to Podium user in **Staff → Edit** | Manager |
 | **Review invite sent to opted-out customer** | Check profile **Opt out of review requests**; verify saved before sale completion | Manager / IT |
 | **Podium Send Test returns 400** | Confirm the Main Hub is on a release that accepts Podium's signed provider-test payload, then retry once | IT checks the recorded webhook failure reason; do not weaken signature verification |
-| **Inbound customer texts never appear** | Confirm the public webhook URL is registered and tunnel/public host is running | IT checks webhook secret/signature and event types |
-| **Podium Inbox shows old conversations but not current Podium rows** | Click **Sync Podium** / **Refresh** once and confirm the Settings card still says credentials configured | IT checks OAuth scopes, saved provider location, provider cursor sync, and whether Podium returned the expected conversation page |
+| **Settings says webhook needs update while Inbox says ROS webhook ready** | Treat Settings as the provider-subscription status and use **Update Webhook** there after admin confirmation | **ROS webhook ready** only confirms Riverside has its local signing secret and inbound processing enabled; it does not prove Podium's subscription is enabled or complete |
+| **Inbound customer texts never appear** | Confirm Settings says the provider webhook is active, the public webhook URL is registered, and the tunnel/public host is running | IT checks webhook secret/signature, required event types, and the latest accepted delivery |
+| **Podium Inbox shows old conversations or History incomplete** | Click **Pull from Podium** once; use **Refresh** only to reload the Riverside copy | IT checks the displayed incomplete-pull warning, OAuth scopes, saved provider location, provider cursor sync, and the message-history response |
 | **Store email fails** | IONOS mailbox settings, customer email, server logs | Settings admin |
 | **Widget missing on public site** | Not a cashier task—**IT** + storefront flags | [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md) |
 
@@ -206,4 +207,4 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 - [pos-register-cart.md](pos-register-cart.md) — Register and receipt flow.
 - [operations-home.md](operations-home.md) — Operations home and Reviews.
 
-**Last reviewed:** 2026-08-09
+**Last reviewed:** 2026-08-10

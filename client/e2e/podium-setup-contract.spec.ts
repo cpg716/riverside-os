@@ -36,6 +36,11 @@ const customersApi = repoFile("server/src/api/customers.rs");
 const podiumLogic = repoFile("server/src/logic/podium.rs");
 const podiumReviews = repoFile("server/src/logic/podium_reviews.rs");
 const podiumWebhook = repoFile("server/src/logic/podium_webhook.rs");
+const podiumWebhookApi = repoFile("server/src/api/webhooks.rs");
+const podiumMessaging = repoFile("server/src/logic/podium_messaging.rs");
+const podiumInbox = repoFile(
+  "client/src/components/customers/PodiumMessagingInboxSection.tsx",
+);
 const podiumWebhookMigration = repoFile(
   "migrations/183_podium_webhook_processing_queue.sql",
 );
@@ -132,4 +137,23 @@ test("Podium provider contracts and webhook processing stay hardened", () => {
   expect(customersApi).toContain('sep.push("review_requests_opt_out = ")');
   expect(customersApi).not.toContain("opt_out_podium_contact");
   expect(podiumLogic).not.toContain("campaigns/opt_out");
+});
+
+test("Podium inbox keeps webhook and history status truthful", () => {
+  const historyFetcher = podiumLogic.slice(
+    podiumLogic.indexOf("pub async fn fetch_podium_conversation_messages"),
+    podiumLogic.indexOf("pub async fn fetch_podium_review_invites"),
+  );
+
+  expect(podiumWebhookApi).toContain('"/metadata/event_type"');
+  expect(podiumWebhook).toContain('"/metadata/event_uid"');
+  expect(historyFetcher).toContain('request.query(&[("cursor", cursor)])');
+  expect(historyFetcher).not.toContain('request.query(&[("limit"');
+  expect(podiumMessaging).toContain("last_synced_at = NULL");
+  expect(podiumMessaging).toContain("mark_conversation_synced");
+  expect(podiumInbox).toContain("incomplete_history_count");
+  expect(podiumInbox).toContain("PROVIDER_PULL_STALE_MS = 30 * 60 * 1000");
+  expect(podiumInbox).toContain("Riverside did not mark the pull complete");
+  expect(podiumInbox).toContain("ROS webhook ready");
+  expect(podiumInbox).toContain("Last complete history pull");
 });

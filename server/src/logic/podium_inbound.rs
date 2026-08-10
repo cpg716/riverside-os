@@ -161,10 +161,13 @@ fn podium_webhook_is_outbound(value: &Value) -> bool {
         "/type",
         "/event",
         "/eventType",
+        "/event_type",
         "/data/type",
         "/data/event",
         "/data/eventType",
+        "/data/event_type",
         "/metadata/eventType",
+        "/metadata/event_type",
     ] {
         if let Some(s) = value.pointer(ptr).and_then(|v| v.as_str()) {
             if let Some(out) = classify(s) {
@@ -827,6 +830,22 @@ mod tests {
         assert_eq!(extract_phone_raw(&value).as_deref(), Some("+18015551212"));
         assert_eq!(extract_email_raw(&value), None);
         assert_eq!(detect_channel(&value, true, false), "sms");
+        assert!(!podium_webhook_is_outbound(&value));
+    }
+
+    #[test]
+    fn snake_case_message_envelope_is_classified() {
+        let value = serde_json::json!({
+            "data": {
+                "conversation": {
+                    "channel": { "identifier": "+18015551212", "type": "phone" },
+                    "uid": "conversation-1"
+                },
+                "uid": "message-1"
+            },
+            "metadata": { "event_type": "message.received", "event_uid": "event-1" }
+        });
+
         assert!(!podium_webhook_is_outbound(&value));
     }
 

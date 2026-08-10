@@ -134,11 +134,17 @@ struct ShippoWebhookPayload {
 }
 
 fn podium_webhook_event_type(value: &Value) -> Option<&str> {
-    ["/metadata/eventType", "/eventType", "/event"]
-        .into_iter()
-        .find_map(|path| value.pointer(path).and_then(Value::as_str))
-        .map(str::trim)
-        .filter(|event| !event.is_empty())
+    [
+        "/metadata/eventType",
+        "/metadata/event_type",
+        "/eventType",
+        "/event_type",
+        "/event",
+    ]
+    .into_iter()
+    .find_map(|path| value.pointer(path).and_then(Value::as_str))
+    .map(str::trim)
+    .filter(|event| !event.is_empty())
 }
 
 fn is_podium_webhook_test_payload(value: &Value) -> bool {
@@ -2338,6 +2344,19 @@ mod tests {
         let payload = json!({
             "data": { "uid": "message-1" },
             "metadata": { "eventType": "message.received", "eventUid": "event-1" }
+        });
+
+        assert_eq!(
+            podium_webhook_event_type(&payload),
+            Some("message.received")
+        );
+    }
+
+    #[test]
+    fn podium_payload_accepts_documented_snake_case_metadata() {
+        let payload = json!({
+            "data": { "uid": "message-1" },
+            "metadata": { "event_type": "message.received", "event_uid": "event-1" }
         });
 
         assert_eq!(

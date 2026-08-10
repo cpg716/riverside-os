@@ -151,6 +151,7 @@ fn payload_sha256_hex(body: &[u8]) -> String {
 pub fn podium_webhook_idempotency_key(value: &Value, body: &[u8]) -> String {
     for ptr in [
         "/metadata/eventUid",
+        "/metadata/event_uid",
         "/uid",
         "/id",
         "/data/uid",
@@ -429,6 +430,19 @@ mod tests {
         let value = serde_json::json!({
             "data": { "uid": "message-1" },
             "metadata": { "eventUid": "event-1", "eventType": "message.failed" }
+        });
+
+        assert_eq!(
+            podium_webhook_idempotency_key(&value, b"unused"),
+            "podium:event-1"
+        );
+    }
+
+    #[test]
+    fn idempotency_accepts_snake_case_podium_event_uid() {
+        let value = serde_json::json!({
+            "data": { "uid": "message-1" },
+            "metadata": { "event_uid": "event-1", "event_type": "message.failed" }
         });
 
         assert_eq!(

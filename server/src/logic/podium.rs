@@ -1596,7 +1596,6 @@ pub async fn fetch_podium_conversation_messages(
         .await
         .ok_or(PodiumError::NotConfigured)?;
     let total_limit = limit.clamp(1, 500) as usize;
-    let page_limit = total_limit.min(100) as i64;
     let url = podium_conversation_messages_url(&creds.api_base_url, conversation_uid);
     let mut cursor: Option<String> = None;
     let mut messages = Vec::new();
@@ -1613,8 +1612,6 @@ pub async fn fetch_podium_conversation_messages(
                 let mut request = add_podium_headers(http.get(&url), Some(token));
                 if let Some(cursor) = page_cursor.as_deref() {
                     request = request.query(&[("cursor", cursor)]);
-                } else {
-                    request = request.query(&[("limit", page_limit)]);
                 }
                 request
             },

@@ -1454,10 +1454,13 @@ fn webhook_event_type(value: &Value) -> String {
         value,
         &[
             "/metadata/eventType",
+            "/metadata/event_type",
             "/eventType",
+            "/event_type",
             "/event",
             "/type",
             "/data/eventType",
+            "/data/event_type",
         ],
     )
     .unwrap_or_default()
@@ -1772,6 +1775,15 @@ mod tests {
         assert_eq!(parsed.phone_e164.as_deref(), Some("+17165551212"));
         assert_eq!(parsed.email.as_deref(), Some("alex@example.com"));
         assert!(parsed.transactional_sms_opted_out);
+    }
+
+    #[test]
+    fn contact_webhook_accepts_snake_case_metadata() {
+        let value = json!({
+            "metadata": { "event_type": "contact.updated" }
+        });
+
+        assert_eq!(webhook_event_type(&value), "contact.updated");
     }
 
     #[test]
