@@ -1568,6 +1568,9 @@ pub struct RegisterSessionsQuery {
     pub to: Option<NaiveDate>,
     #[serde(default = "default_register_sessions_limit")]
     pub limit: i64,
+    /// Remove large saved-detail arrays when the caller only needs history cards/table rows.
+    #[serde(default)]
+    pub compact: bool,
 }
 
 fn default_register_sessions_limit() -> i64 {
@@ -1609,7 +1612,7 @@ async fn register_session_history(
     let lim = q.limit.clamp(1, 500);
     let rows = sqlx::query_as::<_, RegisterSessionHistoryRow>(
         r#"
-        WITH report_rows AS (
+        WITH candidate_report_rows AS (
             SELECT
                 z.id,
                 rs.register_lane,
@@ -1627,7 +1630,11 @@ async fn register_session_history(
                 z.closing_notes,
                 z.closing_comments,
                 z.z_report_json,
-                z.till_close_group_id
+                z.till_close_group_id,
+                COALESCE(
+                    NULLIF(z.z_report_json->>'total_sales', '')::numeric(14,2),
+                    NULLIF(z.z_report_json->'day_summary'->>'net_sales', '')::numeric(14,2)
+                ) AS saved_total_sales
             FROM register_business_day_z_reports z
             INNER JOIN register_sessions rs ON rs.id = z.primary_register_session_id
             INNER JOIN staff s ON s.id = COALESCE(z.closed_by, rs.opened_by)
@@ -1653,7 +1660,11 @@ async fn register_session_history(
                 rs.closing_notes,
                 rs.closing_comments,
                 rs.z_report_json,
-                rs.till_close_group_id
+                rs.till_close_group_id,
+                COALESCE(
+                    NULLIF(rs.z_report_json->>'total_sales', '')::numeric(14,2),
+                    NULLIF(rs.z_report_json->'day_summary'->>'net_sales', '')::numeric(14,2)
+                ) AS saved_total_sales
             FROM register_sessions rs
             INNER JOIN staff s ON s.id = rs.opened_by
             WHERE rs.closed_at IS NOT NULL
@@ -1665,6 +1676,43 @@ async fn register_session_history(
                   FROM register_business_day_z_reports z
                   WHERE z.till_close_group_id = rs.till_close_group_id
               )
+        ),
+        report_rows AS MATERIALIZED (
+            SELECT *
+            FROM candidate_report_rows
+            ORDER BY business_date DESC, closed_at DESC
+            LIMIT $3
+        ),
+        report_payment_targets AS MATERIALIZED (
+            SELECT DISTINCT
+                r.id AS report_id,
+                o.id AS target_transaction_id
+            FROM report_rows r
+            INNER JOIN register_sessions rs_group
+                ON rs_group.till_close_group_id = r.till_close_group_id
+            INNER JOIN payment_transactions pt ON pt.session_id = rs_group.id
+            INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
+            INNER JOIN transactions o ON o.id = pa.target_transaction_id
+            WHERE r.saved_total_sales IS NULL
+              AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = r.business_date
+              AND pa.amount_allocated > 0
+        ),
+        report_sales AS (
+            SELECT
+                targets.report_id,
+                COALESCE(SUM(
+                    ((tl.unit_price - COALESCE(tl.discount_amount, 0))
+                    * GREATEST(tl.quantity - COALESCE(returned.returned, 0), 0))::numeric(14,2)
+                ), 0)::numeric(14,2) AS total_sales
+            FROM report_payment_targets targets
+            INNER JOIN transaction_lines tl
+                ON tl.transaction_id = targets.target_transaction_id
+            LEFT JOIN LATERAL (
+                SELECT SUM(trl.quantity_returned)::int AS returned
+                FROM transaction_return_lines trl
+                WHERE trl.transaction_line_id = tl.id
+            ) returned ON TRUE
+            GROUP BY targets.report_id
         )
         SELECT
             r.id,
@@ -1685,36 +1733,22 @@ async fn register_session_history(
             r.discrepancy,
             r.cash_deposit_date,
             r.cash_deposit_amount,
-            (
-                SELECT COALESCE(SUM(line_sales.sales_subtotal), 0)::numeric(14,2)
-                FROM (
-                    SELECT DISTINCT pa.target_transaction_id
-                    FROM payment_allocations pa
-                    INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                    INNER JOIN register_sessions rs_group ON rs_group.id = pt.session_id
-                    WHERE rs_group.till_close_group_id = r.till_close_group_id
-                      AND (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = r.business_date
-                      AND pa.amount_allocated > 0
-                ) paid_transactions
-                INNER JOIN transactions o ON o.id = paid_transactions.target_transaction_id
-                LEFT JOIN LATERAL (
-                    SELECT COALESCE(SUM(
-                        ((tl.unit_price - COALESCE(tl.discount_amount, 0))
-                        * GREATEST(tl.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)
-                    ), 0)::numeric(14,2) AS sales_subtotal
-                    FROM transaction_lines tl
-                    LEFT JOIN (
-                        SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
-                        FROM transaction_return_lines
-                        GROUP BY transaction_line_id
-                    ) orl ON orl.transaction_line_id = tl.id
-                    WHERE tl.transaction_id = o.id
-                ) line_sales ON TRUE
-            ) AS total_sales,
+            COALESCE(r.saved_total_sales, report_sales.total_sales, 0)::numeric(14,2) AS total_sales,
             r.closing_notes,
             r.closing_comments,
-            r.z_report_json
+            CASE
+                WHEN $4 THEN r.z_report_json - ARRAY[
+                    'transactions',
+                    'inventory_activity',
+                    'cash_adjustments',
+                    'unresolved_close_issues',
+                    'qbo_journal',
+                    'day_summary'
+                ]::text[]
+                ELSE r.z_report_json
+            END AS z_report_json
         FROM report_rows r
+        LEFT JOIN report_sales ON report_sales.report_id = r.id
         LEFT JOIN LATERAL (
             SELECT q.sync_date, q.status, q.journal_entry_id, q.error_message, q.updated_at
             FROM qbo_sync_logs q
@@ -1723,12 +1757,12 @@ async fn register_session_history(
             LIMIT 1
         ) qbo ON TRUE
         ORDER BY r.business_date DESC, r.closed_at DESC
-        LIMIT $3
         "#,
     )
     .bind(start)
     .bind(end)
     .bind(lim)
+    .bind(q.compact)
     .fetch_all(&state.db)
     .await?;
 
@@ -1969,6 +2003,7 @@ pub async fn rosie_reporting_run(
                 from: params.from,
                 to: params.to,
                 limit: params.limit,
+                compact: true,
             };
             let Json(data) =
                 register_session_history(State(state.clone()), headers.clone(), Query(query))

@@ -553,7 +553,7 @@ export const REPORTS_CATALOG: ReportDef[] = [
     usesGlobalDateRange: true,
     usesBasis: false,
     buildPath: ({ fromYmd, toYmd }) =>
-      `/api/insights/register-sessions?from=${enc(fromYmd)}&to=${enc(toYmd)}&limit=200`,
+      `/api/insights/register-sessions?from=${enc(fromYmd)}&to=${enc(toYmd)}&limit=200&compact=true`,
   },
   {
     id: "register_override_mix",

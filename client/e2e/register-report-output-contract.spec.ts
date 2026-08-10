@@ -683,9 +683,20 @@ test.describe("Register report output integrity contracts", () => {
     expect(archivedLoader).toContain("signal: controller.signal");
     expect(archivedLoader).toContain("archived Z-report timed out");
     expect(historyLoader).toContain("String(Z_LOG_LIMIT)");
+    expect(historyLoader).toContain('compact: "true"');
     expect(historyLoader).toContain("zLogsRequestRef.current?.abort()");
     expect(historyLoader).toContain("fetchWithTimeout");
     expect(historyLoader).toContain("setZLogsError");
+    expect(insightsServerSource).toContain("report_payment_targets AS MATERIALIZED");
+    expect(insightsServerSource).toContain("report_sales AS");
+    expect(insightsServerSource).toContain("r.saved_total_sales IS NULL");
+    expect(insightsServerSource).toContain(
+      "COALESCE(r.saved_total_sales, report_sales.total_sales, 0)",
+    );
+    expect(sessionsServerSource).toContain(
+      '"total_sales": &close_day_summary.net_sales',
+    );
+    expect(insightsServerSource).toContain("WHEN $4 THEN r.z_report_json - ARRAY[");
     expect(registerReportsSource).toContain("Z-report history is unavailable.");
     expect(registerReportsSource).toContain(
       "Showing up to the newest {Z_LOG_LIMIT}",

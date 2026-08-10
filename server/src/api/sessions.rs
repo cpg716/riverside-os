@@ -3017,6 +3017,7 @@ async fn close_session(
         "discrepancy": report_discrepancy,
         "cash_deposit_date": report_cash_deposit_date,
         "cash_deposit_amount": report_cash_deposit_amount,
+        "total_sales": &close_day_summary.net_sales,
         "cash_reconciliation_status": if cash_count_is_single_day { "counted" } else { "not_captured_separately" },
         "physical_group_expected_cash": physical_expected_cash,
         "physical_group_actual_cash": payload.actual_cash,

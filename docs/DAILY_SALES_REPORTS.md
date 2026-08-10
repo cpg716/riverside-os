@@ -194,6 +194,9 @@ Professional full-page report includes:
 | from | YYYY-MM-DD | Custom start date |
 | to | YYYY-MM-DD | Custom end date |
 | register_session_id | UUID | Scope to specific lane |
+| compact | true, false | Z-Report history only: omit large saved-detail arrays from list responses. Opening a report still loads the complete booked-day output. |
+
+Z-Report history uses the immutable saved `total_sales` value. Only legacy snapshots that predate that saved field are reconstructed from the ledger for compatibility.
 
 ## Permissions
 

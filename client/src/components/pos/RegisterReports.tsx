@@ -1418,7 +1418,10 @@ export default function RegisterReports({
   ]);
 
   const buildZLogParams = useCallback(() => {
-    const params = new URLSearchParams({ limit: String(Z_LOG_LIMIT) });
+    const params = new URLSearchParams({
+      limit: String(Z_LOG_LIMIT),
+      compact: "true",
+    });
     if (zPreset === "custom") {
       if (customFromZ && customToZ) {
         params.set("preset", "custom");
