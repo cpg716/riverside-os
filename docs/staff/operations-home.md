@@ -85,9 +85,13 @@ If the Timeline says a source feed did not refresh, treat it as a partial view a
 
 1. **Operations** → **Mailbox**.
 2. Requires **customers.hub_view**. Use this for store email from `info@riversidemens.com`.
-3. Click **Sync inbox** to pull recent IONOS email into ROS.
-4. Matched customer email appears here and in the customer **Messages** tab. Unmatched email stays here until staff can identify or answer it.
-5. Use **Quick email** for general customer email. SMS still belongs in **Podium Inbox** or the customer **Messages** tab.
+3. Use the folder list for **Inbox**, **Important**, **Follow-up**, **Sent**, **Archived**, **Trash**, or **All mail**. Use search or **Unmatched only** to narrow the conversation list.
+4. Opening an inbound conversation marks it read. Use **Mark unread** if someone still needs to follow up. Select multiple conversation checkboxes for group **Read**, **Unread**, **Archive**, or **Delete**.
+5. **Delete** moves the conversation to recoverable **Trash**; it does not permanently erase the email. **Restore** returns Archived or Trash conversations to Inbox.
+6. The selected conversation keeps **Reply**, **Forward**, **Important**, **Follow-up**, **Archive**, folder movement, and matched-customer access together above the message.
+7. Formatted email opens inside the contained viewer. Use **View plain text** when needed; email scripts, forms, and embedded frames are blocked, and links open separately.
+8. Choose **New email** for a general customer email. Click **Sync** to pull recent IONOS email into ROS. Matched customer email also appears in the customer **Messages** tab; unmatched email stays here for staff follow-up.
+9. SMS still belongs in **Podium Inbox** or the customer **Messages** tab.
 
 ## Reviews
 
@@ -132,4 +136,4 @@ Routine inventory reconciliation does not use the bell. Review negative availabl
 - [../STAFF_SCHEDULE_AND_CALENDAR.md](../STAFF_SCHEDULE_AND_CALENDAR.md)
 - [../WEATHER_VISUAL_CROSSING.md](../WEATHER_VISUAL_CROSSING.md)
 
-**Last reviewed:** 2026-06-06 (Customer Notifications naming and POS access updated)
+**Last reviewed:** 2026-08-10 (Mailbox triage and safe formatted-email viewer updated)

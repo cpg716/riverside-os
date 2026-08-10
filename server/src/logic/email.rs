@@ -151,6 +151,7 @@ pub struct MailboxMessageRow {
     pub staff_full_name: Option<String>,
     pub folder: String,
     pub status: String,
+    pub is_read: bool,
 }
 
 #[derive(Debug, Error)]
@@ -763,9 +764,9 @@ async fn send_email_with_reply_context_and_attachments(
         r#"
         INSERT INTO mailbox_messages (
             message_id, thread_key, direction, subject, from_email, from_name, to_emails,
-            body_html, sent_at, customer_id, staff_id, status, raw_headers
+            body_html, sent_at, customer_id, staff_id, status, is_read, raw_headers
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, 'sent', $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, 'sent', true, $11)
         RETURNING id
         "#,
     )
@@ -994,36 +995,9 @@ pub async fn update_mailbox_message_state(
     id: Uuid,
     folder: Option<&str>,
     status: Option<&str>,
+    is_read: Option<bool>,
 ) -> Result<MailboxMessageRow, EmailError> {
-    let folder = folder
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_uppercase());
-    if let Some(ref value) = folder {
-        if !matches!(
-            value.as_str(),
-            "INBOX" | "IMPORTANT" | "FOLLOW_UP" | "ARCHIVED"
-        ) {
-            return Err(EmailError::InvalidPayload(
-                "Unsupported mailbox folder.".to_string(),
-            ));
-        }
-    }
-
-    let status = status
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(|value| value.to_ascii_lowercase());
-    if let Some(ref value) = status {
-        if !matches!(
-            value.as_str(),
-            "received" | "sent" | "draft" | "failed" | "archived"
-        ) {
-            return Err(EmailError::InvalidPayload(
-                "Unsupported mailbox status.".to_string(),
-            ));
-        }
-    }
+    let (folder, status) = normalize_mailbox_state_patch(folder, status)?;
 
     let row = sqlx::query_as::<_, MailboxMessageDbRow>(
         r#"
@@ -1032,6 +1006,7 @@ pub async fn update_mailbox_message_state(
             SET
                 folder = COALESCE($2, folder),
                 status = COALESCE($3, status),
+                is_read = COALESCE($4, is_read),
                 updated_at = NOW()
             WHERE id = $1
             RETURNING *
@@ -1056,7 +1031,8 @@ pub async fn update_mailbox_message_state(
             m.staff_id,
             s.full_name AS staff_full_name,
             m.folder,
-            m.status
+            m.status,
+            m.is_read
         FROM updated m
         LEFT JOIN customers c ON c.id = m.customer_id
         LEFT JOIN staff s ON s.id = m.staff_id
@@ -1065,10 +1041,112 @@ pub async fn update_mailbox_message_state(
     .bind(id)
     .bind(folder.as_deref())
     .bind(status.as_deref())
+    .bind(is_read)
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| EmailError::InvalidPayload("Mailbox message not found.".to_string()))?;
     Ok(row.into_public())
+}
+
+pub async fn update_mailbox_message_states(
+    pool: &PgPool,
+    ids: &[Uuid],
+    folder: Option<&str>,
+    status: Option<&str>,
+    is_read: Option<bool>,
+) -> Result<Vec<MailboxMessageRow>, EmailError> {
+    if ids.is_empty() || ids.len() > 200 {
+        return Err(EmailError::InvalidPayload(
+            "Choose between 1 and 200 mailbox messages.".to_string(),
+        ));
+    }
+    let (folder, status) = normalize_mailbox_state_patch(folder, status)?;
+    let rows = sqlx::query_as::<_, MailboxMessageDbRow>(
+        r#"
+        WITH updated AS (
+            UPDATE mailbox_messages
+            SET
+                folder = COALESCE($2, folder),
+                status = COALESCE($3, status),
+                is_read = COALESCE($4, is_read),
+                updated_at = NOW()
+            WHERE id = ANY($1)
+            RETURNING *
+        )
+        SELECT
+            m.id,
+            m.message_id,
+            m.thread_key,
+            m.direction,
+            m.subject,
+            m.from_email,
+            m.from_name,
+            m.to_emails,
+            m.cc_emails,
+            m.body_text,
+            m.body_html,
+            m.received_at,
+            m.sent_at,
+            m.customer_id,
+            c.customer_code,
+            NULLIF(trim(concat_ws(' ', c.first_name, c.last_name)), '') AS customer_name,
+            m.staff_id,
+            s.full_name AS staff_full_name,
+            m.folder,
+            m.status,
+            m.is_read
+        FROM updated m
+        LEFT JOIN customers c ON c.id = m.customer_id
+        LEFT JOIN staff s ON s.id = m.staff_id
+        "#,
+    )
+    .bind(ids)
+    .bind(folder.as_deref())
+    .bind(status.as_deref())
+    .bind(is_read)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(MailboxMessageDbRow::into_public)
+        .collect())
+}
+
+fn normalize_mailbox_state_patch(
+    folder: Option<&str>,
+    status: Option<&str>,
+) -> Result<(Option<String>, Option<String>), EmailError> {
+    let folder = folder
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_uppercase());
+    if let Some(ref value) = folder {
+        if !matches!(
+            value.as_str(),
+            "INBOX" | "IMPORTANT" | "FOLLOW_UP" | "ARCHIVED" | "TRASH"
+        ) {
+            return Err(EmailError::InvalidPayload(
+                "Unsupported mailbox folder.".to_string(),
+            ));
+        }
+    }
+
+    let status = status
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase());
+    if let Some(ref value) = status {
+        if !matches!(
+            value.as_str(),
+            "received" | "sent" | "draft" | "failed" | "archived"
+        ) {
+            return Err(EmailError::InvalidPayload(
+                "Unsupported mailbox status.".to_string(),
+            ));
+        }
+    }
+
+    Ok((folder, status))
 }
 
 struct RawInboundMessage {
@@ -1287,7 +1365,8 @@ pub async fn list_mailbox_messages(
             m.staff_id,
             s.full_name AS staff_full_name,
             m.folder,
-            m.status
+            m.status,
+            m.is_read
         FROM mailbox_messages m
         LEFT JOIN customers c ON c.id = m.customer_id
         LEFT JOIN staff s ON s.id = m.staff_id
@@ -1325,6 +1404,7 @@ pub async fn list_mailbox_messages(
             staff_full_name: r.staff_full_name,
             folder: r.folder,
             status: r.status,
+            is_read: r.is_read,
         })
         .collect())
 }
@@ -1351,6 +1431,7 @@ struct MailboxMessageDbRow {
     staff_full_name: Option<String>,
     folder: String,
     status: String,
+    is_read: bool,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -1516,6 +1597,7 @@ impl MailboxMessageDbRow {
             staff_full_name: self.staff_full_name,
             folder: self.folder,
             status: self.status,
+            is_read: self.is_read,
         }
     }
 }
@@ -1524,6 +1606,18 @@ impl MailboxMessageDbRow {
 mod tests {
     use super::*;
     use sqlx::PgPool;
+
+    #[test]
+    fn mailbox_state_patch_accepts_trash_and_rejects_unknown_folders() {
+        let (folder, status) =
+            normalize_mailbox_state_patch(Some(" trash "), None).expect("valid trash folder");
+        assert_eq!(folder.as_deref(), Some("TRASH"));
+        assert_eq!(status, None);
+
+        let error = normalize_mailbox_state_patch(Some("spam"), None)
+            .expect_err("unknown folders must remain blocked");
+        assert!(error.to_string().contains("Unsupported mailbox folder"));
+    }
 
     async fn connect_test_db() -> PgPool {
         let _ =

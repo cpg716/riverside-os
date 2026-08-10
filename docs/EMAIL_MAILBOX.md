@@ -15,6 +15,19 @@ Outbound email sent from Operations Mailbox or Customer Messages is sent through
 
 The server also runs a background inbox sync. The default interval is 300 seconds and can be adjusted with `RIVERSIDE_EMAIL_SYNC_INTERVAL_SECS` (minimum 60 seconds). Manual **Sync inbox** remains available in Settings -> Email and Operations -> Mailbox.
 
+### Staff workflow
+
+Operations Mailbox uses a familiar three-pane mail layout: folders on the left, conversations in the middle, and the selected conversation on the right. The default folder is **Inbox**; **Important**, **Follow-up**, **Sent**, **Archived**, **Trash**, and **All mail** remain one click away. **New email** opens the composer only when staff needs it, preserving the message workspace for daily triage.
+
+- Opening an inbound conversation marks every unread message in that conversation read.
+- **Mark unread** returns a conversation to follow-up state. Checkboxes support group **Read**, **Unread**, **Archive**, and **Delete** actions.
+- **Archive** removes a conversation from Inbox without deleting its retained email record. **Restore** returns Archived or Trash conversations to Inbox.
+- **Delete** is a recoverable move to **Trash**. Riverside does not permanently erase the stored email record from this staff action.
+- **Reply**, **Forward**, **Important**, **Follow-up**, folder movement, and matched-customer access are available from the selected conversation.
+- Formatted email is shown in a sandboxed viewer that blocks scripts, forms, embedded frames, and unsafe URLs. Links open separately, and staff can switch a multipart message to **plain text** when needed.
+
+Mailbox actions apply to the complete Riverside conversation, not only the one expanded email row. This keeps a thread together when staff reads, archives, restores, or moves it.
+
 ## IONOS Settings
 
 Default settings are seeded for IONOS email:

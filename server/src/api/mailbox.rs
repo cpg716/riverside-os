@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashSet;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -104,6 +105,7 @@ pub fn router() -> Router<AppState> {
         .route("/signature", get(get_signature).patch(patch_signature))
         .route("/health", get(get_health))
         .route("/customer/{customer_id}", get(list_customer_messages))
+        .route("/bulk-state", post(patch_message_states))
         .route("/{id}", patch(patch_message_state))
 }
 
@@ -129,6 +131,7 @@ async fn get_health(
 struct PatchMailboxMessageBody {
     folder: Option<String>,
     status: Option<String>,
+    is_read: Option<bool>,
 }
 
 async fn patch_message_state(
@@ -144,6 +147,44 @@ async fn patch_message_state(
             id,
             body.folder.as_deref(),
             body.status.as_deref(),
+            body.is_read,
+        )
+        .await?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct PatchMailboxMessagesBody {
+    ids: Vec<Uuid>,
+    folder: Option<String>,
+    status: Option<String>,
+    is_read: Option<bool>,
+}
+
+async fn patch_message_states(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PatchMailboxMessagesBody>,
+) -> Result<Json<Vec<email::MailboxMessageRow>>, MailboxError> {
+    require_perm(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let ids = body
+        .ids
+        .into_iter()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    if ids.is_empty() || ids.len() > 200 {
+        return Err(MailboxError::BadRequest(
+            "Choose between 1 and 200 mailbox messages.".to_string(),
+        ));
+    }
+    Ok(Json(
+        email::update_mailbox_message_states(
+            &state.db,
+            &ids,
+            body.folder.as_deref(),
+            body.status.as_deref(),
+            body.is_read,
         )
         .await?,
     ))

@@ -49,6 +49,16 @@ Use this center for automated-message delivery and staff review only. It does no
 
 Use the search field to find a customer, message type, status, or delivery error. Use the status chips and **Reviewed archive** filter below search to separate active rows from reviewed history.
 
+## Operations Mailbox
+
+Open **Operations → Mailbox** for store email at `info@riversidemens.com`. Use the folder list for **Inbox**, **Important**, **Follow-up**, **Sent**, **Archived**, **Trash**, and **All mail**; search or **Unmatched only** narrows the conversation list.
+
+Opening inbound mail marks its conversation read. Use **Mark unread** when follow-up still belongs to another staff member. Select multiple conversation checkboxes for group **Read**, **Unread**, **Archive**, or **Delete**. Archive keeps handled mail under Archived. Delete moves email to recoverable Trash; **Restore** returns Archived or Trash conversations to Inbox.
+
+The selected conversation keeps **Reply**, **Forward**, **Important**, **Follow-up**, **Archive**, folder movement, and matched-customer access together. **New email** opens the composer only when needed. Choose **Sync** to pull recent IONOS mail.
+
+Formatted email appears inside a contained viewer. Use **View plain text** when needed. Riverside blocks email scripts, forms, embedded frames, and unsafe URLs; links open separately.
+
 ## What to check first
 
 Start with the KPI strip, then **What Changed Today** and **What Needs Attention**. These cards show current operational signals such as movement, register status, till control, blockers, warnings, weddings, alterations, pickups, and inventory work.
@@ -78,6 +88,8 @@ Operations Home is the Back Office daily command surface. Its store-wide managem
 
 - Use blockers before warnings.
 - Follow the card action links instead of searching manually when a next action is shown.
+- In Mailbox, **Delete** means a recoverable move to Trash, not permanent removal.
+- If Mailbox reports a sync or refresh failure, do not treat the visible list as current.
 - Treat ROSIE as an explanation layer, not the source of sign-off.
 
 ## Related workflows
