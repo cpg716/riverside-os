@@ -19,10 +19,23 @@ function settingsSectionFromRoute(o: Record<string, unknown>): string {
   return parts[1]?.trim().toLowerCase() || "hub";
 }
 
+function isLegacyPodiumMessageLink(o: Record<string, unknown>): boolean {
+  const channel = linkField(o, "message_channel");
+  return (
+    o.type === "customers" &&
+    linkField(o, "hub_tab") === "messages" &&
+    (channel === "sms" || channel === "email") &&
+    !!linkField(o, "customer_id")
+  );
+}
+
 export function normalizeNotificationDeepLink(
   link: NotificationDeepLink,
 ): NotificationDeepLink {
   if (!link || typeof link !== "object") return link;
+  if (isLegacyPodiumMessageLink(link as Record<string, unknown>)) {
+    return { ...link, type: "podium_inbox" };
+  }
   if (typeof link.type === "string" && link.type.trim()) return link;
   const section = settingsSectionFromRoute(link as Record<string, unknown>);
   return section ? { ...link, type: "settings", section } : link;
@@ -52,6 +65,8 @@ export function isActionableNotificationDeepLink(
       return typeof o.sync_log_id === "string" && !!o.sync_log_id.trim();
     case "staff_tasks":
       return typeof o.instance_id === "string" && !!o.instance_id.trim();
+    case "podium_inbox":
+      return !!linkField(o, "conversation_id", "customer_id");
     case "orders":
     case "settings":
     case "inventory":
@@ -76,6 +91,7 @@ export function isActionableNotificationDeepLink(
 export function notificationDestinationLabel(link: unknown): string {
   if (!link || typeof link !== "object") return "Notification";
   const raw = link as Record<string, unknown>;
+  if (isLegacyPodiumMessageLink(raw)) return "Podium Inbox";
   if (settingsSectionFromRoute(raw)) return "Settings";
   const t = raw.type;
   if (typeof t !== "string" || !t.trim()) return "Notification";
@@ -84,6 +100,8 @@ export function notificationDestinationLabel(link: unknown): string {
     case "order":
     case "orders":
       return "Orders";
+    case "podium_inbox":
+      return "Podium Inbox";
     case "wedding_party":
     case "weddings":
       return "Weddings";
@@ -120,6 +138,12 @@ export function notificationDestinationLabel(link: unknown): string {
       return "Loyalty";
     case "reports":
       return "Reports";
+    case "notification_bundle": {
+      const bundleKind = linkField(raw, "bundle_kind");
+      return bundleKind === "podium_sms_bundle" || bundleKind === "podium_email_bundle"
+        ? "Podium Inbox"
+        : "Notification";
+    }
     default:
       return "Notification";
   }

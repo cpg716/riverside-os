@@ -173,6 +173,8 @@ interface OperationalHomeProps {
   onNavigateMetric?: (target: OperationsCenterNavigateTarget) => void;
   /** Podium inbox row → open customer hub Messages. */
   onOpenInboxCustomer: (customer: Customer) => void;
+  podiumInboxFocusId?: string | null;
+  onPodiumInboxFocusConsumed?: () => void;
   /** Increment to refetch compass + activity (e.g. after wedding edits). */
   refreshSignal?: number;
   activeSection?: string;
@@ -581,6 +583,8 @@ export default function OperationalHome({
   onOpenTransactionInBackoffice,
   onNavigateMetric,
   onOpenInboxCustomer,
+  podiumInboxFocusId,
+  onPodiumInboxFocusConsumed,
   refreshSignal = 0,
   activeSection,
   registerReportsDeepLinkTxnId,
@@ -1839,6 +1843,8 @@ export default function OperationalHome({
           ) : (
             <PodiumMessagingInboxSection
               onOpenCustomerHub={onOpenInboxCustomer}
+              initialFocusId={podiumInboxFocusId}
+              onInitialFocusConsumed={onPodiumInboxFocusConsumed}
             />
           )}
         </div>

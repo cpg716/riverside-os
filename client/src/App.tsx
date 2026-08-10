@@ -234,6 +234,8 @@ function App() {
   ] = useState<string | null>(null);
   const [customersMessagingFocusHubTab, setCustomersMessagingFocusHubTab] =
     useState<string | null>(null);
+  const [podiumInboxFocusId, setPodiumInboxFocusId] =
+    useState<string | null>(null);
   const [globalSearchDrawer, setGlobalSearchDrawer] =
     useState<GlobalSearchDrawerState | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
@@ -572,7 +574,15 @@ function App() {
       setPosMode(false);
       setWeddingMode(false);
 
-      // 1. Task instance focus
+      // 1. Conversation and task focus
+      const podiumConversationId = linkStr(link, "conversation_id");
+      const podiumCustomerId = linkStr(link, "customer_id");
+      if (t === "podium_inbox" && (podiumConversationId || podiumCustomerId)) {
+        setPodiumInboxFocusId(podiumConversationId || podiumCustomerId);
+        enterBackofficeShell("home", "inbox");
+        return;
+      }
+
       const instanceId = linkStr(link, "instance_id");
       if (t === "staff_tasks" && instanceId) {
         setStaffTasksFocusInstanceId(instanceId);
@@ -1159,6 +1169,8 @@ function App() {
             setCustomersMessagingFocusCustomerId={setCustomersMessagingFocusCustomerId}
             customersMessagingFocusHubTab={customersMessagingFocusHubTab}
             setCustomersMessagingFocusHubTab={setCustomersMessagingFocusHubTab}
+            podiumInboxFocusId={podiumInboxFocusId}
+            setPodiumInboxFocusId={setPodiumInboxFocusId}
             openCustomerHubFromInbox={openCustomerHubFromInbox}
             onOpenInsights={onOpenInsights}
             onNavigateRegisterReports={onNavigateRegisterReports}
@@ -1274,6 +1286,8 @@ interface AppShellProps {
   setCustomersMessagingFocusCustomerId: (id: string | null) => void;
   customersMessagingFocusHubTab: string | null;
   setCustomersMessagingFocusHubTab: (tab: string | null) => void;
+  podiumInboxFocusId: string | null;
+  setPodiumInboxFocusId: (id: string | null) => void;
   openCustomerHubFromInbox: (c: Customer) => void;
   onOpenInsights: () => void;
   onNavigateRegisterReports: (transactionId?: string) => void;
@@ -1380,6 +1394,8 @@ function AppShell({
   setCustomersMessagingFocusCustomerId,
   customersMessagingFocusHubTab,
   setCustomersMessagingFocusHubTab,
+  podiumInboxFocusId,
+  setPodiumInboxFocusId,
   openCustomerHubFromInbox,
   onOpenInsights,
   onNavigateRegisterReports,
@@ -1659,6 +1675,10 @@ function AppShell({
                   setCustomersMessagingFocusCustomerId(null);
                   setCustomersMessagingFocusHubTab(null);
                 }}
+                podiumInboxFocusId={podiumInboxFocusId}
+                onPodiumInboxFocusConsumed={() =>
+                  setPodiumInboxFocusId(null)
+                }
                 onOpenCustomerHubFromInbox={openCustomerHubFromInbox}
                 onOpenInsights={onOpenInsights}
                 onNavigateRegisterReports={onNavigateRegisterReports}
@@ -1863,6 +1883,8 @@ type AppMainColumnProps = {
   customersMessagingFocusCustomerId: string | null;
   customersMessagingFocusHubTab: string | null;
   onCustomersMessagingFocusConsumed: () => void;
+  podiumInboxFocusId: string | null;
+  onPodiumInboxFocusConsumed: () => void;
   onOpenCustomerHubFromInbox: (customer: Customer) => void;
   onOpenInsights: () => void;
   onNavigateRegisterReports: (transactionId?: string) => void;
@@ -1913,6 +1935,8 @@ function AppMainColumn({
   customersMessagingFocusCustomerId,
   customersMessagingFocusHubTab,
   onCustomersMessagingFocusConsumed,
+  podiumInboxFocusId,
+  onPodiumInboxFocusConsumed,
   onOpenCustomerHubFromInbox,
   onOpenInsights,
   onNavigateRegisterReports,
@@ -2042,6 +2066,10 @@ function AppMainColumn({
                         }
                       }}
                       onOpenInboxCustomer={onOpenCustomerHubFromInbox}
+                      podiumInboxFocusId={podiumInboxFocusId}
+                      onPodiumInboxFocusConsumed={
+                        onPodiumInboxFocusConsumed
+                      }
                       registerReportsDeepLinkTxnId={
                         registerReportsDeepLinkTxnId
                       }

@@ -158,8 +158,6 @@ export default function StaffProfilePanel() {
   const [avatarKey, setAvatarKey] = useState("");
   const [avatarPhotoUrl, setAvatarPhotoUrl] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [podiumUserUid, setPodiumUserUid] = useState("");
-  const [podiumDisplayName, setPodiumDisplayName] = useState("");
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(
     DEFAULT_NOTIFICATION_PREFERENCES,
   );
@@ -230,8 +228,6 @@ export default function StaffProfilePanel() {
       setPhone(data.phone || "");
       setAvatarKey(data.avatar_key);
       setAvatarPhotoUrl(data.avatar_photo_url);
-      setPodiumUserUid(data.podium_user_uid || "");
-      setPodiumDisplayName(data.podium_display_name || "");
       setNotificationPreferences(
         normalizeNotificationPreferences(data.notification_preferences),
       );
@@ -260,8 +256,6 @@ export default function StaffProfilePanel() {
           email: email.trim() || null,
           phone: phone.trim() || null,
           avatar_key: avatarKey,
-          podium_user_uid: podiumUserUid.trim(),
-          podium_display_name: podiumDisplayName.trim(),
           notification_preferences: notificationPreferences,
         }),
       });
@@ -587,33 +581,20 @@ export default function StaffProfilePanel() {
                 />
               </label>
 
-              <label className="block space-y-3">
+              <div className="block space-y-3">
                 <span className="text-[11px] font-black uppercase tracking-widest text-app-text-muted ml-1 flex items-center gap-2">
                   <User size={12} className="text-app-accent" />
-                  Podium User ID
+                  Podium Staff Link
                 </span>
-                <input
-                  type="text"
-                  value={podiumUserUid}
-                  onChange={(e) => setPodiumUserUid(e.target.value)}
-                  className="ui-input w-full px-6 h-16 font-black text-sm bg-app-surface-2"
-                  placeholder="senderUid from Podium"
-                />
-              </label>
-
-              <label className="block space-y-3">
-                <span className="text-[11px] font-black uppercase tracking-widest text-app-text-muted ml-1 flex items-center gap-2">
-                  <Mail size={12} className="text-app-accent" />
-                  Podium Display Name
-                </span>
-                <input
-                  type="text"
-                  value={podiumDisplayName}
-                  onChange={(e) => setPodiumDisplayName(e.target.value)}
-                  className="ui-input w-full px-6 h-16 font-black text-sm bg-app-surface-2"
-                  placeholder="Optional"
-                />
-              </label>
+                <div className="flex min-h-16 flex-col justify-center rounded-2xl border border-app-border bg-app-surface-2 px-6 py-3">
+                  <p className="font-black text-app-text">
+                    {profile.podium_display_name || (profile.podium_user_uid ? "Linked Podium user" : "Not linked")}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                    A manager connects Podium identities in Staff → open staff profile → Linked Podium Staff Member.
+                  </p>
+                </div>
+              </div>
 
               {profile.employee_customer_code && (
                 <div className="block space-y-3">

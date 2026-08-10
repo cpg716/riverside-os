@@ -73,10 +73,13 @@ If the Timeline says a source feed did not refresh, treat it as a partial view a
 
 1. **Operations** → **Podium Inbox**.
 2. Requires **customers.hub_view**. This is the shared Podium SMS thread list, not a generic task inbox.
-3. Use **Send Text** to message a current customer or a new phone number. Sending and new-contact creation require **customers.hub_edit**.
-4. For a phone number that is not already a customer, enter first and last name before sending. ROS creates the contact and records the text.
-5. Open a row to jump into the full customer conversation in the Customer Hub.
-6. **Refresh** reloads the Riverside copy. Use **Pull from Podium** when history is missing; **History incomplete** means the provider pull did not fully finish and must not be treated as current.
+3. Search or filter the shared list, select a conversation, and reply from the text-style thread. Opening it marks that conversation read; use **Mark unread** when follow-up still belongs to another staff member.
+4. Choose **New message** to text a current customer or a new phone number. Sending and new-contact creation require **customers.hub_edit**.
+5. For a phone number that is not already a customer, enter first and last name before sending. ROS creates the contact and records the text.
+6. Podium notification items open this inbox and select the named customer's conversation. Use **Open Customer** for profile, Transaction, Fulfillment Order, or wedding follow-up.
+7. The conversation header identifies Podium assignees and whether each identity is linked to a Riverside staff profile. Managers maintain that link in **Staff → Team → Edit → Linked Podium Staff Member**.
+8. Select one or more conversation checkboxes to mark them **Read**, **Unread**, **Close**, or **Reopen**. Close uses Podium's native closed/archive state; closed threads remain available under the **Closed** filter.
+9. **Refresh** reloads the Riverside copy. Open **Status** and use **Pull from Podium** when history is missing; **History incomplete** means the provider pull did not fully finish and must not be treated as current.
 
 ## Mailbox
 

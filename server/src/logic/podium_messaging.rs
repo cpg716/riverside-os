@@ -4,7 +4,9 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::PgPool;
+use std::collections::HashMap;
 use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -31,6 +33,7 @@ pub struct PodiumMessageApiRow {
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct PodiumInboxRow {
     pub conversation_id: Uuid,
+    pub podium_conversation_uid: Option<String>,
     pub customer_id: Uuid,
     pub customer_code: String,
     pub first_name: String,
@@ -42,7 +45,28 @@ pub struct PodiumInboxRow {
     pub last_viewed_at: Option<DateTime<Utc>>,
     pub needs_reply: bool,
     pub unread: bool,
+    pub closed: bool,
+    pub provider_assignee_name: Option<String>,
     pub snippet: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PodiumConversationAssignee {
+    pub provider_user_uid: String,
+    pub provider_name: String,
+    pub staff_id: Option<Uuid>,
+    pub staff_name: Option<String>,
+    pub linked: bool,
+}
+
+#[derive(Debug, Error)]
+pub enum PodiumConversationActionError {
+    #[error(transparent)]
+    Database(#[from] sqlx::Error),
+    #[error(transparent)]
+    Provider(#[from] podium::PodiumError),
+    #[error("conversation is not linked to a Podium conversation")]
+    MissingProviderConversation,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
@@ -247,6 +271,7 @@ pub async fn list_messaging_inbox(
         r#"
         SELECT
             pc.id AS conversation_id,
+            pc.podium_conversation_uid,
             c.id AS customer_id,
             c.customer_code,
             c.first_name,
@@ -278,6 +303,8 @@ pub async fn list_messaging_inbox(
                   AND pm.direction IN ('outbound', 'automated')
             ), 'epoch'::timestamptz) AS needs_reply,
             pc.last_message_at > COALESCE(pc.last_viewed_at, 'epoch'::timestamptz) AS unread,
+            LOWER(COALESCE(pc.provider_status, '')) IN ('closed', 'archived') AS closed,
+            pc.provider_assignee_name,
             (
                 SELECT pm.body
                 FROM podium_message pm
@@ -303,6 +330,125 @@ pub async fn mark_conversation_viewed(
 ) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE podium_conversation SET last_viewed_at = NOW() WHERE id = $1")
         .bind(conversation_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn set_conversations_read_state(
+    pool: &PgPool,
+    conversation_ids: &[Uuid],
+    read: bool,
+) -> Result<Vec<Uuid>, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        UPDATE podium_conversation
+        SET last_viewed_at = CASE WHEN $2 THEN NOW() ELSE NULL END
+        WHERE id = ANY($1)
+        RETURNING id
+        "#,
+    )
+    .bind(conversation_ids)
+    .bind(read)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn provider_uid_for_conversation(
+    pool: &PgPool,
+    conversation_id: Uuid,
+) -> Result<String, PodiumConversationActionError> {
+    let provider_uid = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT podium_conversation_uid FROM podium_conversation WHERE id = $1",
+    )
+    .bind(conversation_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten()
+    .map(|uid| uid.trim().to_string())
+    .filter(|uid| !uid.is_empty());
+
+    provider_uid.ok_or(PodiumConversationActionError::MissingProviderConversation)
+}
+
+pub async fn list_conversation_assignees(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    conversation_id: Uuid,
+) -> Result<Vec<PodiumConversationAssignee>, PodiumConversationActionError> {
+    let provider_uid = provider_uid_for_conversation(pool, conversation_id).await?;
+    let provider_rows =
+        podium::fetch_conversation_assignees(pool, http, token_cache, &provider_uid).await?;
+    let mut provider_users = Vec::new();
+    for row in provider_rows {
+        let Some(uid) = text_at(&row, &["/uid", "/id", "/user/uid"]) else {
+            continue;
+        };
+        let name = text_at(
+            &row,
+            &["/name", "/displayName", "/user/name", "/user/displayName"],
+        )
+        .or_else(|| {
+            let first = text_at(&row, &["/firstName", "/user/firstName"]).unwrap_or_default();
+            let last = text_at(&row, &["/lastName", "/user/lastName"]).unwrap_or_default();
+            let full = format!("{} {}", first.trim(), last.trim())
+                .trim()
+                .to_string();
+            (!full.is_empty()).then_some(full)
+        })
+        .unwrap_or_else(|| "Podium user".to_string());
+        provider_users.push((uid, name));
+    }
+
+    let provider_uids: Vec<String> = provider_users.iter().map(|(uid, _)| uid.clone()).collect();
+    let linked_staff: Vec<(String, Uuid, String)> = if provider_uids.is_empty() {
+        Vec::new()
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT podium_user_uid, id, full_name
+            FROM staff
+            WHERE podium_user_uid = ANY($1)
+              AND is_active = TRUE
+            "#,
+        )
+        .bind(&provider_uids)
+        .fetch_all(pool)
+        .await?
+    };
+    let mapped: HashMap<String, (Uuid, String)> = linked_staff
+        .into_iter()
+        .map(|(uid, staff_id, staff_name)| (uid, (staff_id, staff_name)))
+        .collect();
+
+    Ok(provider_users
+        .into_iter()
+        .map(|(provider_user_uid, provider_name)| {
+            let staff = mapped.get(&provider_user_uid);
+            PodiumConversationAssignee {
+                provider_user_uid,
+                provider_name,
+                staff_id: staff.map(|(id, _)| *id),
+                staff_name: staff.map(|(_, name)| name.clone()),
+                linked: staff.is_some(),
+            }
+        })
+        .collect())
+}
+
+pub async fn set_conversation_closed(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    conversation_id: Uuid,
+    closed: bool,
+) -> Result<(), PodiumConversationActionError> {
+    let provider_uid = provider_uid_for_conversation(pool, conversation_id).await?;
+    podium::update_conversation_closed(pool, http, token_cache, &provider_uid, closed).await?;
+    sqlx::query("UPDATE podium_conversation SET provider_status = $2 WHERE id = $1")
+        .bind(conversation_id)
+        .bind(if closed { "closed" } else { "open" })
         .execute(pool)
         .await?;
     Ok(())
@@ -703,6 +849,11 @@ fn conversation_last_at(value: &Value) -> Option<DateTime<Utc>> {
 }
 
 fn provider_status(value: &Value) -> Option<String> {
+    for pointer in ["/closed", "/data/closed", "/conversation/closed"] {
+        if let Some(closed) = value.pointer(pointer).and_then(Value::as_bool) {
+            return Some(if closed { "closed" } else { "open" }.to_string());
+        }
+    }
     text_at(
         value,
         &[
@@ -1407,5 +1558,17 @@ mod tests {
         });
 
         assert_eq!(message_direction(&payload), "inbound");
+    }
+
+    #[test]
+    fn provider_status_reads_documented_closed_flag() {
+        assert_eq!(
+            provider_status(&json!({ "closed": true })).as_deref(),
+            Some("closed")
+        );
+        assert_eq!(
+            provider_status(&json!({ "closed": false })).as_deref(),
+            Some("open")
+        );
     }
 }

@@ -4,6 +4,7 @@ import {
   isActionableNotificationDeepLink,
   isCompletableNotification,
   isSharedReadEligibleNotification,
+  normalizeNotificationDeepLink,
   notificationDestinationLabel,
   notificationPrimaryInteraction,
   notificationRecencyBucket,
@@ -66,6 +67,38 @@ test.describe("Notification deep-link contracts", () => {
         appointment_id: "appt-1",
       }),
     ).toBe("Appointments");
+  });
+
+  test("Podium alerts open the exact inbox conversation and upgrade legacy links", async () => {
+    const directLink = {
+      type: "podium_inbox",
+      customer_id: "customer-1",
+      conversation_id: "conversation-1",
+      message_channel: "sms",
+    };
+    expect(isActionableNotificationDeepLink(directLink)).toBe(true);
+    expect(notificationDestinationLabel(directLink)).toBe("Podium Inbox");
+    expect(notificationPrimaryInteraction("podium_sms_inbound", directLink)).toBe("open");
+
+    const legacyLink = {
+      type: "customers",
+      customer_id: "customer-1",
+      hub_tab: "messages",
+      message_channel: "sms",
+    };
+    expect(normalizeNotificationDeepLink(legacyLink)).toMatchObject({
+      type: "podium_inbox",
+      customer_id: "customer-1",
+    });
+    expect(notificationDestinationLabel(legacyLink)).toBe("Podium Inbox");
+
+    expect(
+      notificationDestinationLabel({
+        type: "notification_bundle",
+        bundle_kind: "podium_sms_bundle",
+        items: [],
+      }),
+    ).toBe("Podium Inbox");
   });
 
   test("payment operation notifications route to the payments workspace", async () => {

@@ -184,7 +184,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "customers-podium-messaging-inbox-section",
     title: "Podium Inbox",
-    summary: "Review shared Podium SMS and email threads from Operations or POS, then open the full conversation in the Customer Hub.",
+    summary: "Read and reply to shared Podium conversations, show linked staff assignments, manage read state, and close or reopen threads.",
     markdown: manual_15_raw,
     tags: ["customers","podium","messaging","inbox","communications"],
   },

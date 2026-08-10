@@ -2389,6 +2389,10 @@ fn podium_assignee_payload(user_uid: Option<&str>) -> Value {
     json!({ "assigneeUids": assignee_uids })
 }
 
+fn podium_conversation_closed_payload(closed: bool) -> Value {
+    json!({ "closed": closed })
+}
+
 /// Push (create or update) a Riverside customer as a Podium contact.
 /// Uses phone or email as the identifier. Requires `write_contacts` scope.
 pub async fn upsert_podium_contact(
@@ -2616,6 +2620,40 @@ pub async fn update_conversation_assignee(
         PodiumHttpErrorKind::General,
         &[],
         |token| add_podium_headers(http.put(&url), Some(token)).json(&body),
+    )
+    .await?;
+    Ok(res.json::<Value>().await.unwrap_or_else(|_| json!({})))
+}
+
+/// Close or reopen a conversation in Podium.
+pub async fn update_conversation_closed(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    conversation_uid: &str,
+    closed: bool,
+) -> Result<Value, PodiumError> {
+    let creds = PodiumEnvCredentials::load(pool)
+        .await
+        .ok_or(PodiumError::NotConfigured)?;
+    let base = creds.api_base_url.trim_end_matches('/');
+    let url = format!(
+        "{}/v4/conversations/{}",
+        base,
+        urlencoding::encode(conversation_uid)
+    );
+
+    let res = send_authenticated_podium_request(
+        http,
+        token_cache,
+        &creds,
+        PodiumRequestSafety::Mutation,
+        PodiumHttpErrorKind::General,
+        &[],
+        |token| {
+            add_podium_headers(http.put(&url), Some(token))
+                .json(&podium_conversation_closed_payload(closed))
+        },
     )
     .await?;
     Ok(res.json::<Value>().await.unwrap_or_else(|_| json!({})))
@@ -2866,6 +2904,18 @@ mod tests {
             json!({ "assigneeUids": ["user-1"] })
         );
         assert_eq!(podium_assignee_payload(None), json!({ "assigneeUids": [] }));
+    }
+
+    #[test]
+    fn conversation_closed_payload_uses_documented_boolean() {
+        assert_eq!(
+            podium_conversation_closed_payload(true),
+            json!({ "closed": true })
+        );
+        assert_eq!(
+            podium_conversation_closed_payload(false),
+            json!({ "closed": false })
+        );
     }
 
     static PODIUM_TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

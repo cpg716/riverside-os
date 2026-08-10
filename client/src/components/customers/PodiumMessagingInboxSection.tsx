@@ -2,8 +2,12 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Archive,
+  ArchiveRestore,
+  CheckCheck,
   ChevronDown,
   ChevronUp,
+  Circle,
   Mail,
   MessageCircle,
   MessageSquare,
@@ -13,11 +17,13 @@ import {
   Send,
   UserCircle,
   UserPlus,
+  Users,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import type { Customer } from "../pos/CustomerSelector";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
+import ConfirmationModal from "../ui/ConfirmationModal";
 import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
@@ -26,6 +32,7 @@ const PROVIDER_PULL_STALE_MS = 30 * 60 * 1000;
 
 type InboxRow = {
   conversation_id: string;
+  podium_conversation_uid: string | null;
   customer_id: string;
   customer_code: string;
   first_name: string;
@@ -37,7 +44,17 @@ type InboxRow = {
   last_viewed_at: string | null;
   needs_reply: boolean;
   unread: boolean;
+  closed: boolean;
+  provider_assignee_name: string | null;
   snippet: string | null;
+};
+
+type PodiumConversationAssignee = {
+  provider_user_uid: string;
+  provider_name: string;
+  staff_id: string | null;
+  staff_name: string | null;
+  linked: boolean;
 };
 
 type PodiumHealth = {
@@ -132,6 +149,25 @@ function fullDateTime(value: string | null | undefined) {
   });
 }
 
+function messageDayLabel(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Conversation";
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (left: Date, right: Date) =>
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate();
+  if (sameDay(date, today)) return "Today";
+  if (sameDay(date, yesterday)) return "Yesterday";
+  return date.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function isOlderThan(value: string | null | undefined, maxAgeMs: number) {
   if (!value) return true;
   const date = new Date(value);
@@ -145,8 +181,13 @@ function channelIcon(channel: string) {
 
 export default function PodiumMessagingInboxSection({
   onOpenCustomerHub,
+  initialFocusId,
+  onInitialFocusConsumed,
 }: {
   onOpenCustomerHub: (customer: Customer) => void;
+  /** Conversation ID for current alerts; customer ID supports older Podium alerts. */
+  initialFocusId?: string | null;
+  onInitialFocusConsumed?: () => void;
 }) {
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
@@ -160,15 +201,24 @@ export default function PodiumMessagingInboxSection({
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [channelFilter, setChannelFilter] = useState("all");
-  const [triageFilter, setTriageFilter] = useState<"all" | "needs_reply" | "unread">("all");
+  const [triageFilter, setTriageFilter] = useState<"active" | "needs_reply" | "unread" | "closed">("active");
   const [health, setHealth] = useState<PodiumHealth | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncIssue, setSyncIssue] = useState<string | null>(null);
+  const [showSystemStatus, setShowSystemStatus] = useState(false);
+  const [showNewMessage, setShowNewMessage] = useState(false);
   const [selectedRow, setSelectedRow] = useState<InboxRow | null>(null);
   const [threadMessages, setThreadMessages] = useState<PodiumMessageRow[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
-  const [assignees, setAssignees] = useState<{ name: string; uid: string }[]>([]);
+  const [assignees, setAssignees] = useState<PodiumConversationAssignee[]>([]);
   const [assigneesLoading, setAssigneesLoading] = useState(false);
+  const [assigneeLoadError, setAssigneeLoadError] = useState(false);
+  const [selectedConversationIds, setSelectedConversationIds] = useState<Set<string>>(new Set());
+  const [conversationActionBusy, setConversationActionBusy] = useState(false);
+  const [pendingClosedState, setPendingClosedState] = useState<{
+    conversationIds: string[];
+    closed: boolean;
+  } | null>(null);
   const [replyDraft, setReplyDraft] = useState("");
   const [replySubject, setReplySubject] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
@@ -192,6 +242,7 @@ export default function PodiumMessagingInboxSection({
   const refreshInFlightRef = useRef(false);
   const refreshSeqRef = useRef(0);
   const threadScrollRef = useRef<HTMLDivElement>(null);
+  const newMessageRef = useRef<HTMLDivElement>(null);
 
   const loadHealth = useCallback(async () => {
     try {
@@ -282,8 +333,10 @@ export default function PodiumMessagingInboxSection({
     const needle = search.trim().toLowerCase();
     return rows.filter((row) => {
       if (channelFilter !== "all" && row.channel !== channelFilter) return false;
-      if (triageFilter === "needs_reply" && !row.needs_reply) return false;
-      if (triageFilter === "unread" && !row.unread) return false;
+      if (triageFilter === "active" && row.closed) return false;
+      if (triageFilter === "needs_reply" && (row.closed || !row.needs_reply)) return false;
+      if (triageFilter === "unread" && (row.closed || !row.unread)) return false;
+      if (triageFilter === "closed" && !row.closed) return false;
       if (!needle) return true;
       return [
         row.first_name,
@@ -298,12 +351,100 @@ export default function PodiumMessagingInboxSection({
     });
   }, [channelFilter, rows, search, triageFilter]);
 
+  const setConversationReadState = useCallback(async (
+    conversationIds: string[],
+    read: boolean,
+    announceSuccess = false,
+  ) => {
+    if (conversationIds.length === 0) return;
+    const idSet = new Set(conversationIds);
+    const viewedAt = read ? new Date().toISOString() : null;
+    setRows((current) =>
+      current.map((candidate) =>
+        idSet.has(candidate.conversation_id)
+          ? { ...candidate, unread: !read, last_viewed_at: viewedAt }
+          : candidate,
+      ),
+    );
+    setSelectedRow((current) =>
+      current && idSet.has(current.conversation_id)
+        ? { ...current, unread: !read, last_viewed_at: viewedAt }
+        : current,
+    );
+    setConversationActionBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/podium/conversations/read-state`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...apiAuth() },
+          body: JSON.stringify({ conversation_ids: conversationIds, read }),
+        },
+      );
+      if (!res.ok) {
+        const error = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(error.error ?? "Could not update the conversation read state.");
+      }
+      if (announceSuccess) {
+        toast(
+          `${conversationIds.length} conversation${conversationIds.length === 1 ? "" : "s"} marked ${read ? "read" : "unread"}.`,
+          "success",
+        );
+      }
+    } catch (error) {
+      toast(
+        error instanceof Error ? error.message : "Could not update the conversation read state.",
+        "error",
+      );
+      void refresh({ background: true });
+    } finally {
+      setConversationActionBusy(false);
+    }
+  }, [apiAuth, refresh, toast]);
+
   useEffect(() => {
-    if (selectedRow && visibleRows.some((row) => row.conversation_id === selectedRow.conversation_id)) {
+    if (
+      initialFocusId &&
+      rows.some(
+        (row) =>
+          row.conversation_id === initialFocusId || row.customer_id === initialFocusId,
+      )
+    ) {
       return;
     }
-    setSelectedRow(visibleRows[0] ?? null);
-  }, [selectedRow, visibleRows]);
+    const currentVisibleRow = selectedRow
+      ? visibleRows.find((row) => row.conversation_id === selectedRow.conversation_id)
+      : null;
+    if (currentVisibleRow) {
+      if (currentVisibleRow !== selectedRow) setSelectedRow(currentVisibleRow);
+      return;
+    }
+    // Keep the open conversation visible after it is marked read from the Unread filter.
+    // Otherwise removing it from the list would auto-open and mark every remaining row read.
+    if (triageFilter === "unread" && selectedRow && !selectedRow.unread) return;
+    const nextRow = visibleRows[0] ?? null;
+    setSelectedRow(nextRow);
+    if (nextRow?.unread) void setConversationReadState([nextRow.conversation_id], true);
+  }, [initialFocusId, rows, selectedRow, setConversationReadState, triageFilter, visibleRows]);
+
+  useEffect(() => {
+    if (!initialFocusId || rows.length === 0) return;
+    const focusedRow = rows.find(
+      (row) => row.conversation_id === initialFocusId || row.customer_id === initialFocusId,
+    );
+    if (!focusedRow) return;
+    setSearch("");
+    setChannelFilter("all");
+    setTriageFilter(focusedRow.closed ? "closed" : "active");
+    setSelectedConversationIds(new Set());
+    setSelectedRow(focusedRow);
+    setReplySubject("");
+    setReplyDraft("");
+    if (focusedRow.unread) {
+      void setConversationReadState([focusedRow.conversation_id], true);
+    }
+    onInitialFocusConsumed?.();
+  }, [initialFocusId, onInitialFocusConsumed, rows, setConversationReadState]);
 
   useEffect(() => {
     const el = threadScrollRef.current;
@@ -313,33 +454,42 @@ export default function PodiumMessagingInboxSection({
   }, [threadMessages, threadLoading]);
 
   useEffect(() => {
+    if (showNewMessage) {
+      newMessageRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [showNewMessage]);
+
+  useEffect(() => {
     if (!selectedRow) {
       setAssignees([]);
+      setAssigneeLoadError(false);
       return;
     }
     let cancelled = false;
     const load = async () => {
       setAssigneesLoading(true);
+      setAssigneeLoadError(false);
       try {
         const res = await fetch(
           `${baseUrl}/api/customers/podium/conversations/${encodeURIComponent(selectedRow.conversation_id)}/assignees`,
           { headers: apiAuth(), cache: "no-store" },
         );
         if (!res.ok) {
-          if (!cancelled) setAssignees([]);
+          if (!cancelled) {
+            setAssignees([]);
+            setAssigneeLoadError(true);
+          }
           return;
         }
-        const data = (await res.json()) as Array<{ name?: string; firstName?: string; lastName?: string; uid?: string }>;
+        const data = (await res.json()) as PodiumConversationAssignee[];
         if (!cancelled) {
-          setAssignees(
-            data.map((a) => ({
-              name: (a.name ?? `${a.firstName ?? ""} ${a.lastName ?? ""}`.trim()) || "Unknown",
-              uid: a.uid ?? "",
-            })),
-          );
+          setAssignees(Array.isArray(data) ? data : []);
         }
       } catch {
-        if (!cancelled) setAssignees([]);
+        if (!cancelled) {
+          setAssignees([]);
+          setAssigneeLoadError(true);
+        }
       } finally {
         if (!cancelled) setAssigneesLoading(false);
       }
@@ -470,15 +620,10 @@ export default function PodiumMessagingInboxSection({
     void runSync({ quiet: true });
   }, [historyIncomplete, providerPullDue, runSync, syncBusy]);
 
-  const markRead = async (row: InboxRow) => {
-    await fetch(`${baseUrl}/api/customers/podium/conversations/${row.conversation_id}/read`, {
-      method: "POST",
-      headers: apiAuth(),
-    }).catch(() => {});
-  };
-
   const openCustomer = async (row: InboxRow) => {
-    await markRead(row);
+    if (row.unread) {
+      await setConversationReadState([row.conversation_id], true);
+    }
     onOpenCustomerHub({
       id: row.customer_id,
       customer_code: row.customer_code,
@@ -515,12 +660,8 @@ export default function PodiumMessagingInboxSection({
       toast(channel === "email" ? "Email sent" : "Podium SMS sent", "success");
       setReplyDraft("");
       setReplySubject("");
-      await markRead(selectedRow);
-      const currentRow = selectedRow;
+      await setConversationReadState([selectedRow.conversation_id], true);
       await refresh();
-      if (currentRow) {
-        setSelectedRow(currentRow);
-      }
     } finally {
       setReplyBusy(false);
     }
@@ -660,6 +801,7 @@ export default function PodiumMessagingInboxSection({
       const result = (await res.json()) as { customer_created?: boolean };
       toast(result.customer_created ? "Contact created and SMS sent" : "Podium SMS sent", "success");
       setDirectBody("");
+      setShowNewMessage(false);
       if (!directCustomer) {
         setDirectPhone("");
         setDirectFirstName("");
@@ -671,8 +813,87 @@ export default function PodiumMessagingInboxSection({
     }
   };
 
-  const unreadCount = rows.filter((row) => row.unread).length;
-  const needsReplyCount = rows.filter((row) => row.needs_reply).length;
+  const toggleConversationSelection = (conversationId: string) => {
+    setSelectedConversationIds((current) => {
+      const next = new Set(current);
+      if (next.has(conversationId)) next.delete(conversationId);
+      else next.add(conversationId);
+      return next;
+    });
+  };
+
+  const toggleAllVisibleConversations = () => {
+    const visibleIds = visibleRows.map((row) => row.conversation_id);
+    const allVisibleSelected =
+      visibleIds.length > 0 && visibleIds.every((id) => selectedConversationIds.has(id));
+    setSelectedConversationIds((current) => {
+      const next = new Set(current);
+      for (const id of visibleIds) {
+        if (allVisibleSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const applyClosedState = async () => {
+    if (!pendingClosedState) return;
+    const { conversationIds, closed } = pendingClosedState;
+    setConversationActionBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/podium/conversations/closed-state`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify({ conversation_ids: conversationIds, closed }),
+      });
+      if (!res.ok) {
+        const error = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(error.error ?? `Could not ${closed ? "close" : "reopen"} the conversation.`);
+      }
+      const result = (await res.json()) as {
+        updated_ids?: string[];
+        failures?: Array<{ conversation_id: string; error: string }>;
+      };
+      const updatedIds = new Set(result.updated_ids ?? []);
+      setRows((current) =>
+        current.map((row) =>
+          updatedIds.has(row.conversation_id) ? { ...row, closed } : row,
+        ),
+      );
+      setSelectedRow((current) =>
+        current && updatedIds.has(current.conversation_id) ? { ...current, closed } : current,
+      );
+      setSelectedConversationIds(new Set());
+      const failureCount = result.failures?.length ?? 0;
+      if (updatedIds.size > 0) {
+        toast(
+          `${updatedIds.size} conversation${updatedIds.size === 1 ? "" : "s"} ${closed ? "closed" : "reopened"}.`,
+          failureCount > 0 ? "info" : "success",
+        );
+      }
+      if (failureCount > 0) {
+        toast(
+          `${failureCount} conversation${failureCount === 1 ? "" : "s"} could not be ${closed ? "closed" : "reopened"}.`,
+          "error",
+        );
+      }
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? error.message
+          : `Could not ${pendingClosedState.closed ? "close" : "reopen"} the conversation.`,
+        "error",
+      );
+    } finally {
+      setConversationActionBusy(false);
+      setPendingClosedState(null);
+      void refresh({ background: true });
+    }
+  };
+
+  const activeRows = rows.filter((row) => !row.closed);
+  const unreadCount = activeRows.filter((row) => row.unread).length;
+  const needsReplyCount = activeRows.filter((row) => row.needs_reply).length;
   const selectedMessages =
     selectedRow && threadMessages.length === 0 && selectedRow.snippet
       ? [
@@ -692,17 +913,15 @@ export default function PodiumMessagingInboxSection({
         ]
       : threadMessages;
   const SelectedChannelIcon = selectedRow ? channelIcon(selectedRow.channel) : MessageCircle;
+  const hasSystemIssue = Boolean(activeWebhookFailure || syncIssue || historyIncomplete);
 
   return (
-    <div className="ui-page flex flex-1 flex-col gap-4 p-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="ui-page flex flex-1 flex-col gap-3 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
-            Customer messaging
-          </p>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-black tracking-tight text-app-text">
-              Inbox
+              Messages
             </h1>
             <IntegrationBrandLogo
               brand="podium"
@@ -711,49 +930,69 @@ export default function PodiumMessagingInboxSection({
               imageClassName="h-5 w-5 object-contain"
             />
           </div>
-          <p className="mt-2 max-w-2xl text-sm font-semibold text-app-text-muted">
-            Synced Podium conversations for matched customers.
+          <p className="mt-1 text-sm font-semibold text-app-text-muted">
+            Podium Inbox · Read and reply from one shared conversation list.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {rows.length > 0 ? (
+            <div className="mr-1 hidden items-center gap-2 text-[10px] font-black uppercase tracking-wider text-app-text-muted lg:flex">
+              <span>{rows.length} conversations</span>
+              {needsReplyCount > 0 ? (
+                <span className="rounded-full bg-app-warning/10 px-2 py-1 text-app-warning">
+                  {needsReplyCount} need reply
+                </span>
+              ) : null}
+              {unreadCount > 0 ? (
+                <span className="rounded-full bg-app-accent/10 px-2 py-1 text-app-accent">
+                  {unreadCount} unread
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           <button
             type="button"
-            onClick={() => void runSync()}
-            disabled={syncBusy}
-            className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+            onClick={() => setShowNewMessage((value) => !value)}
+            className="ui-btn-primary ui-touch-target inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+            aria-expanded={showNewMessage}
           >
-            <RefreshCw size={13} className={syncBusy ? "animate-spin" : ""} aria-hidden />
-            Pull from Podium
+            <UserPlus size={14} aria-hidden />
+            New message
           </button>
           <button
             type="button"
             onClick={() => void refresh()}
-            className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+            className="ui-btn-secondary ui-touch-target inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
           >
+            <RefreshCw size={13} aria-hidden />
             Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowSystemStatus((value) => !value)}
+            className={`ui-btn-secondary ui-touch-target inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest ${
+              hasSystemIssue ? "border-app-warning/50 text-app-warning" : ""
+            }`}
+            aria-expanded={showSystemStatus}
+          >
+            {showSystemStatus ? <ChevronUp size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
+            Status
           </button>
         </div>
       </div>
 
-      {health ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {[
-            ["Conversations", `${rows.length}`],
-            ["Needs reply", `${needsReplyCount}`],
-            ["Unread", `${unreadCount}`],
-            ["Last complete history pull", health.last_sync_at ? fullDateTime(health.last_sync_at) : "Not yet"],
-          ].map(([label, value]) => (
-            <div key={label} className="rounded-xl border border-app-border bg-app-surface px-4 py-3 shadow-sm">
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                {label}
-              </p>
-              <p className="mt-1 text-xl font-black text-app-text">{value}</p>
-            </div>
-          ))}
-        </div>
+      {!showSystemStatus && hasSystemIssue ? (
+        <button
+          type="button"
+          onClick={() => setShowSystemStatus(true)}
+          className="flex w-full items-center gap-2 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-left text-xs font-semibold text-app-text"
+        >
+          <AlertTriangle size={15} className="shrink-0 text-app-warning" aria-hidden />
+          <span>Podium needs attention. Open Status for details.</span>
+        </button>
       ) : null}
 
-      {health ? (
+      {showSystemStatus && health ? (
         <div className="rounded-xl border border-app-border bg-app-surface px-4 py-3 text-sm shadow-sm">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -764,10 +1003,19 @@ export default function PodiumMessagingInboxSection({
                 Refreshes every minute while open.
               </p>
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                Podium: {fullDateTime(health.last_webhook_received_at)} · ROS: {fullDateTime(health.last_message_at)}
+                Last inbound: {fullDateTime(health.last_webhook_received_at)} · Last stored message: {fullDateTime(health.last_message_at)} · Last complete history pull: {fullDateTime(health.last_sync_at)}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void runSync()}
+                disabled={syncBusy}
+                className="ui-btn-secondary ui-touch-target inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+              >
+                <RefreshCw size={13} className={syncBusy ? "animate-spin" : ""} aria-hidden />
+                Pull from Podium
+              </button>
               <span
                 className={`ui-pill ${
                   health.webhook_secret_configured && health.inbound_ingest_enabled
@@ -808,52 +1056,6 @@ export default function PodiumMessagingInboxSection({
         </div>
       ) : null}
 
-      {rows.length > 0 ? (
-        <div className="flex flex-col gap-2 rounded-2xl border border-app-border bg-app-surface px-3 py-3 shadow-sm sm:flex-row sm:items-center">
-          <div className="relative min-w-0 flex-1">
-            <Search
-              size={14}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted"
-              aria-hidden
-            />
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Find customer, code, or message"
-              className="ui-input h-10 w-full rounded-xl pl-9 pr-3 text-xs font-bold"
-              aria-label="Search Podium inbox"
-            />
-          </div>
-          <select
-            value={channelFilter}
-            onChange={(event) => setChannelFilter(event.target.value)}
-            className="ui-input h-10 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest"
-            aria-label="Filter Podium inbox by channel"
-          >
-            <option value="all">All channels</option>
-            {channelOptions.map((channel) => (
-              <option key={channel} value={channel}>
-                {channel}
-              </option>
-            ))}
-          </select>
-          <select
-            value={triageFilter}
-            onChange={(event) => setTriageFilter(event.target.value as typeof triageFilter)}
-            className="ui-input h-10 rounded-xl px-3 text-[10px] font-black uppercase tracking-widest"
-            aria-label="Filter Podium inbox by triage state"
-          >
-            <option value="all">All states</option>
-            <option value="needs_reply">Needs reply</option>
-            <option value="unread">Unread</option>
-          </select>
-          <span className="whitespace-nowrap text-xs font-bold text-app-text-muted">
-            {visibleRows.length} / {rows.length} threads
-          </span>
-        </div>
-      ) : null}
-
       {loadError ? (
         <div className="rounded-xl border border-app-warning/40 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -881,43 +1083,171 @@ export default function PodiumMessagingInboxSection({
 
       {loading ? (
         <p className="text-sm text-app-text-muted">Loading...</p>
-      ) : visibleRows.length === 0 ? (
+      ) : rows.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-app-border/60 bg-app-surface px-6 py-10 text-center text-app-text-muted">
           <MessageSquare size={40} className="mb-3 opacity-70" />
           <p className="text-sm font-black uppercase tracking-widest italic text-app-text">
-            {loadError
-              ? "Podium inbox could not refresh"
-              : rows.length > 0
-                ? "No conversations match this view"
-                : "No Podium conversations synced"}
+            {loadError ? "Podium inbox could not refresh" : "No Podium conversations synced"}
           </p>
           <p className="mt-2 max-w-sm text-sm font-medium normal-case tracking-normal text-app-text-muted">
             {loadError
               ? "Retry is safe. Do not treat the inbox as empty until refresh succeeds."
-              : rows.length > 0
-                ? "Clear the search or switch channels to see the remaining synced conversations."
-                : "Check Podium setup if live conversations are missing."}
+              : "Check Podium setup if live conversations are missing."}
           </p>
         </div>
       ) : (
-        <div className="grid min-h-[620px] flex-1 gap-4 xl:grid-cols-[24rem_minmax(0,1fr)]">
-          <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
-            <div className="border-b border-app-border px-4 py-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Conversations
-              </p>
+        <div className="grid min-h-[360px] flex-1 gap-3 xl:h-[calc(100dvh-17rem)] xl:flex-none xl:grid-cols-[22rem_minmax(0,1fr)]">
+          <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
+            <div className="space-y-2 border-b border-app-border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Conversations
+                </p>
+                <span className="text-[10px] font-bold text-app-text-muted">
+                  {visibleRows.length} of {rows.length}
+                </span>
+              </div>
+              <div className="relative">
+                <Search
+                  size={14}
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted"
+                  aria-hidden
+                />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(event) => {
+                    setSearch(event.target.value);
+                    setSelectedConversationIds(new Set());
+                  }}
+                  placeholder="Search messages"
+                  className="ui-input h-10 w-full rounded-xl pl-9 pr-3 text-xs font-bold"
+                  aria-label="Search Podium inbox"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  value={channelFilter}
+                  onChange={(event) => {
+                    setChannelFilter(event.target.value);
+                    setSelectedConversationIds(new Set());
+                  }}
+                  className="ui-input h-9 min-w-0 rounded-xl px-2 text-[9px] font-black uppercase tracking-wider"
+                  aria-label="Filter Podium inbox by channel"
+                >
+                  <option value="all">All channels</option>
+                  {channelOptions.map((channel) => (
+                    <option key={channel} value={channel}>
+                      {channel}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={triageFilter}
+                  onChange={(event) => {
+                    setTriageFilter(event.target.value as typeof triageFilter);
+                    setSelectedConversationIds(new Set());
+                  }}
+                  className="ui-input h-9 min-w-0 rounded-xl px-2 text-[9px] font-black uppercase tracking-wider"
+                  aria-label="Filter Podium inbox by triage state"
+                >
+                  <option value="active">Open</option>
+                  <option value="needs_reply">Needs reply</option>
+                  <option value="unread">Unread</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </div>
+              {visibleRows.length > 0 ? (
+                <div className="flex items-center justify-between gap-2 border-t border-app-border/70 pt-2">
+                  <label className="flex items-center gap-2 text-[10px] font-bold text-app-text-muted">
+                    <input
+                      type="checkbox"
+                      checked={visibleRows.every((row) => selectedConversationIds.has(row.conversation_id))}
+                      onChange={toggleAllVisibleConversations}
+                      className="h-4 w-4 rounded border-app-border accent-app-accent"
+                    />
+                    Select visible
+                  </label>
+                  {selectedConversationIds.size > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedConversationIds(new Set())}
+                      className="text-[10px] font-black uppercase tracking-wider text-app-accent"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+              {selectedConversationIds.size > 0 ? (
+                <div className="rounded-xl border border-app-accent/25 bg-app-accent/5 p-2">
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-wider text-app-text">
+                    {selectedConversationIds.size} selected
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void setConversationReadState(Array.from(selectedConversationIds), true, true)}
+                      disabled={conversationActionBusy}
+                      className="ui-btn-secondary inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[9px] font-black uppercase tracking-wide disabled:opacity-50"
+                    >
+                      <CheckCheck size={12} aria-hidden /> Read
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void setConversationReadState(Array.from(selectedConversationIds), false, true)}
+                      disabled={conversationActionBusy}
+                      className="ui-btn-secondary inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[9px] font-black uppercase tracking-wide disabled:opacity-50"
+                    >
+                      <Circle size={12} aria-hidden /> Unread
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingClosedState({ conversationIds: Array.from(selectedConversationIds), closed: true })}
+                      disabled={conversationActionBusy}
+                      className="ui-btn-secondary inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[9px] font-black uppercase tracking-wide disabled:opacity-50"
+                    >
+                      <Archive size={12} aria-hidden /> Close
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingClosedState({ conversationIds: Array.from(selectedConversationIds), closed: false })}
+                      disabled={conversationActionBusy}
+                      className="ui-btn-secondary inline-flex items-center justify-center gap-1 px-2 py-1.5 text-[9px] font-black uppercase tracking-wide disabled:opacity-50"
+                    >
+                      <ArchiveRestore size={12} aria-hidden /> Reopen
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
-            <ul className="max-h-[640px] divide-y divide-app-border overflow-y-auto">
-              {visibleRows.map((r) => (
-                <li key={r.conversation_id}>
+            <ul className="min-h-0 flex-1 divide-y divide-app-border overflow-y-auto max-xl:max-h-[640px]">
+              {visibleRows.length === 0 ? (
+                <li className="px-4 py-8 text-center text-xs font-semibold text-app-text-muted">
+                  No conversations match this view.
+                </li>
+              ) : visibleRows.map((r) => (
+                <li key={r.conversation_id} className="flex items-stretch">
+                  <label className="flex shrink-0 items-start px-3 py-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedConversationIds.has(r.conversation_id)}
+                      onChange={() => toggleConversationSelection(r.conversation_id)}
+                      className="mt-3 h-4 w-4 rounded border-app-border accent-app-accent"
+                      aria-label={`Select conversation with ${customerName(r)}`}
+                    />
+                  </label>
                   <button
                     type="button"
                     onClick={() => {
                       setSelectedRow(r);
                       setReplySubject("");
                       setReplyDraft("");
+                      if (r.unread) {
+                        void setConversationReadState([r.conversation_id], true);
+                      }
                     }}
-                    className={`flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-app-surface-2/80 ${
+                    className={`flex min-w-0 flex-1 gap-3 py-3 pl-0 pr-4 text-left transition-colors hover:bg-app-surface-2/80 ${
                       selectedRow?.conversation_id === r.conversation_id ? "bg-app-accent/8" : ""
                     }`}
                   >
@@ -936,12 +1266,12 @@ export default function PodiumMessagingInboxSection({
                           {relativeTime(r.last_message_at)}
                         </span>
                       </div>
-                      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-semibold text-app-text-muted">
                         {(() => {
                           const Icon = channelIcon(r.channel);
                           return <Icon size={12} aria-hidden />;
                         })()}
-                        <span>{r.channel}</span>
+                        <span>{r.channel === "sms" ? "Text message" : "Email"}</span>
                         <span>·</span>
                         <span>{r.customer_code}</span>
                       </div>
@@ -950,11 +1280,18 @@ export default function PodiumMessagingInboxSection({
                           {r.snippet}
                         </p>
                       ) : null}
-                      {r.needs_reply ? (
-                        <span className="mt-2 inline-flex rounded-full border border-app-warning/40 bg-app-warning/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-warning">
-                          Reply needed
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                      {r.needs_reply && !r.closed ? (
+                        <span className="mt-2 inline-flex rounded-full border border-app-warning/40 bg-app-warning/10 px-2 py-0.5 text-[9px] font-black tracking-wide text-app-warning">
+                          Needs reply
                         </span>
                       ) : null}
+                      {r.closed ? (
+                        <span className="inline-flex rounded-full border border-app-border bg-app-surface-2 px-2 py-0.5 text-[9px] font-black tracking-wide text-app-text-muted">
+                          Closed
+                        </span>
+                      ) : null}
+                      </div>
                     </div>
                   </button>
                 </li>
@@ -978,59 +1315,127 @@ export default function PodiumMessagingInboxSection({
                         {selectedRow.channel === "email" ? "Email" : "Text message"} · Last activity {relativeTime(selectedRow.last_message_at)}
                       </p>
                       {assigneesLoading ? (
-                        <p className="text-[10px] font-semibold text-app-text-muted">Loading assignees...</p>
+                        <p className="mt-1 text-[10px] font-semibold text-app-text-muted">Checking assigned staff...</p>
                       ) : assignees.length > 0 ? (
-                        <p className="text-[10px] font-semibold text-app-text-muted">
-                          Assigned: {assignees.map((a) => a.name).join(", ")}
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold text-app-text-muted">
+                          <Users size={12} aria-hidden />
+                          <span>In conversation:</span>
+                          {assignees.map((assignee) => (
+                            <span
+                              key={assignee.provider_user_uid}
+                              className={`rounded-full px-2 py-0.5 font-bold ${
+                                assignee.linked
+                                  ? "bg-app-success/10 text-app-success"
+                                  : "bg-app-warning/10 text-app-warning"
+                              }`}
+                              title={
+                                assignee.linked
+                                  ? `Podium user ${assignee.provider_name} is linked to Riverside staff member ${assignee.staff_name}.`
+                                  : `Podium user ${assignee.provider_name} is not linked to a Riverside staff profile.`
+                              }
+                            >
+                              {assignee.staff_name ?? assignee.provider_name}
+                              {assignee.linked ? "" : " · Not linked"}
+                            </span>
+                          ))}
+                        </div>
+                      ) : assigneeLoadError && selectedRow.provider_assignee_name ? (
+                        <p className="mt-1 text-[10px] font-semibold text-app-warning">
+                          Assigned in last Podium sync: {selectedRow.provider_assignee_name}. Live assignment could not refresh.
+                        </p>
+                      ) : assigneeLoadError ? (
+                        <p className="mt-1 text-[10px] font-semibold text-app-warning">
+                          Could not refresh the Podium staff assignment.
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                          Unassigned in Podium
+                        </p>
+                      )}
+                      {assignees.some((assignee) => !assignee.linked) ? (
+                        <p className="mt-1 text-[10px] font-semibold text-app-warning">
+                          Managers can connect this identity in Staff → open staff profile → Linked Podium Staff Member.
                         </p>
                       ) : null}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void openCustomer(selectedRow)}
-                    className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
-                  >
-                    <UserCircle size={14} aria-hidden />
-                    Open Customer
-                  </button>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void setConversationReadState([selectedRow.conversation_id], selectedRow.unread, true)}
+                      disabled={conversationActionBusy}
+                      className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                    >
+                      {selectedRow.unread ? <CheckCheck size={14} aria-hidden /> : <Circle size={14} aria-hidden />}
+                      {selectedRow.unread ? "Mark read" : "Mark unread"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingClosedState({
+                        conversationIds: [selectedRow.conversation_id],
+                        closed: !selectedRow.closed,
+                      })}
+                      disabled={conversationActionBusy}
+                      className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                    >
+                      {selectedRow.closed ? <ArchiveRestore size={14} aria-hidden /> : <Archive size={14} aria-hidden />}
+                      {selectedRow.closed ? "Reopen" : "Close"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void openCustomer(selectedRow)}
+                      className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                    >
+                      <UserCircle size={14} aria-hidden />
+                      Open Customer
+                    </button>
+                  </div>
                 </div>
-                <div ref={threadScrollRef} className="flex min-h-[360px] flex-1 flex-col gap-3 overflow-y-auto bg-app-bg/40 px-5 py-5">
+                <div ref={threadScrollRef} className="flex min-h-[180px] flex-1 flex-col gap-2 overflow-y-auto bg-app-surface-2/40 px-4 py-5 sm:px-6">
                   {threadLoading ? (
                     <p className="text-sm font-semibold text-app-text-muted">
                       Loading conversation...
                     </p>
                   ) : selectedMessages.length > 0 ? (
-                    selectedMessages.map((message) => {
+                    selectedMessages.map((message, index) => {
                       const outbound = message.direction === "outbound";
+                      const previousMessage = selectedMessages[index - 1];
+                      const showDay =
+                        !previousMessage ||
+                        new Date(previousMessage.created_at).toDateString() !==
+                          new Date(message.created_at).toDateString();
                       return (
-                        <div
-                          key={message.id}
-                          className={`flex ${outbound ? "justify-end" : "justify-start"}`}
-                        >
-                          <div
-                            className={`max-w-[78%] rounded-3xl px-4 py-3 text-sm shadow-sm ${
-                              outbound
-                                ? "rounded-br-md bg-app-accent text-white"
-                                : "rounded-bl-md border border-app-border bg-app-surface text-app-text"
-                            }`}
-                          >
-                            <p className="whitespace-pre-wrap leading-relaxed">{message.body}</p>
-                            <p
-                              className={`mt-2 flex items-center gap-1 text-[10px] font-semibold ${
-                                outbound ? "text-white/75" : "text-app-text-muted"
+                        <div key={message.id}>
+                          {showDay ? (
+                            <div className="my-3 flex items-center gap-3" aria-label={messageDayLabel(message.created_at)}>
+                              <span className="h-px flex-1 bg-app-border/70" />
+                              <span className="text-[10px] font-bold text-app-text-muted">
+                                {messageDayLabel(message.created_at)}
+                              </span>
+                              <span className="h-px flex-1 bg-app-border/70" />
+                            </div>
+                          ) : null}
+                          <div className={`flex ${outbound ? "justify-end" : "justify-start"}`}>
+                            <div
+                              className={`max-w-[84%] rounded-[1.35rem] px-4 py-2.5 text-[15px] shadow-sm sm:max-w-[72%] ${
+                                outbound
+                                  ? "rounded-br-md bg-app-accent text-white"
+                                  : "rounded-bl-md bg-app-surface text-app-text ring-1 ring-app-border/70"
                               }`}
                             >
-                              {outbound
-                                ? message.staff_full_name ?? message.podium_sender_name ?? "Riverside"
-                                : customerName(selectedRow)}{" "}
-                              · {fullDateTime(message.created_at)}
-                              {outbound ? (
-                                <span className="ml-1 inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-white/60">
-                                  Sent
-                                </span>
-                              ) : null}
-                            </p>
+                              <p className="whitespace-pre-wrap leading-relaxed">{message.body}</p>
+                              <p
+                                className={`mt-1.5 text-[10px] font-medium ${
+                                  outbound ? "text-white/70" : "text-app-text-muted"
+                                }`}
+                              >
+                                {outbound
+                                  ? message.staff_full_name ?? message.podium_sender_name ?? "Riverside"
+                                  : customerName(selectedRow)}{" "}
+                                · {fullDateTime(message.created_at)}
+                                {outbound ? " · Sent" : ""}
+                              </p>
+                            </div>
                           </div>
                         </div>
                       );
@@ -1047,7 +1452,7 @@ export default function PodiumMessagingInboxSection({
                     </div>
                   )}
                 </div>
-                <div className="border-t border-app-border bg-app-surface px-5 py-4">
+                <div className="border-t border-app-border bg-app-surface px-4 py-3 sm:px-5">
                   {selectedRow.channel === "email" ? (
                     <input
                       value={replySubject}
@@ -1056,12 +1461,12 @@ export default function PodiumMessagingInboxSection({
                       placeholder="Email subject"
                     />
                   ) : null}
-                  <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="flex items-end gap-2">
                     <textarea
                       value={replyDraft}
                       onChange={(event) => setReplyDraft(event.target.value)}
-                      className="ui-input min-h-20 flex-1 resize-y rounded-2xl p-3 text-sm"
-                      placeholder={selectedRow.channel === "email" ? "Type an email reply..." : "Type a text message..."}
+                      className="ui-input min-h-12 flex-1 resize-y rounded-[1.4rem] px-4 py-3 text-sm"
+                      placeholder={selectedRow.channel === "email" ? "Write an email reply" : "Text message"}
                     />
                     <button
                       type="button"
@@ -1071,10 +1476,10 @@ export default function PodiumMessagingInboxSection({
                         !replyDraft.trim() ||
                         (selectedRow.channel === "email" && !replySubject.trim())
                       }
-                      className="ui-btn-primary inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50 sm:self-end"
+                      className="ui-btn-primary ui-touch-target inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-50"
+                      aria-label={replyBusy ? "Sending message" : "Send message"}
                     >
-                      <Send size={14} aria-hidden />
-                      {replyBusy ? "Sending..." : "Send"}
+                      <Send size={17} aria-hidden />
                     </button>
                   </div>
                 </div>
@@ -1091,7 +1496,8 @@ export default function PodiumMessagingInboxSection({
         </div>
       )}
 
-      <div className="rounded-xl border border-app-border bg-app-surface px-4 py-4">
+      {showNewMessage ? (
+      <div ref={newMessageRef} className="rounded-xl border border-app-accent/30 bg-app-surface px-4 py-4 shadow-sm">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <UserPlus size={16} className="text-app-accent" aria-hidden />
@@ -1104,15 +1510,24 @@ export default function PodiumMessagingInboxSection({
               </p>
             </div>
           </div>
-          {directCustomer ? (
+          <div className="flex items-center gap-2">
+            {directCustomer ? (
+              <button
+                type="button"
+                onClick={clearDirectCustomer}
+                className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+              >
+                Use New Number
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={clearDirectCustomer}
-              className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+              onClick={() => setShowNewMessage(false)}
+              className="ui-btn-ghost ui-touch-target px-3 py-2 text-[10px] font-black uppercase tracking-widest"
             >
-              Use New Number
+              Close
             </button>
-          ) : null}
+          </div>
         </div>
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -1250,6 +1665,7 @@ export default function PodiumMessagingInboxSection({
           </div>
         </div>
       </div>
+      ) : null}
 
       {unmatchedRows.length > 0 ? (
         <div className="rounded-2xl border border-app-warning/30 bg-app-warning/10 px-4 py-3">
@@ -1374,6 +1790,22 @@ export default function PodiumMessagingInboxSection({
           ) : null}
         </div>
       ) : null}
+      <ConfirmationModal
+        isOpen={pendingClosedState !== null}
+        onClose={() => {
+          if (!conversationActionBusy) setPendingClosedState(null);
+        }}
+        onConfirm={() => void applyClosedState()}
+        title={pendingClosedState?.closed ? "Close conversation" : "Reopen conversation"}
+        message={
+          pendingClosedState?.closed
+            ? `Close ${pendingClosedState.conversationIds.length} selected conversation${pendingClosedState.conversationIds.length === 1 ? "" : "s"} in Podium? Closed conversations leave the open inbox and can be reopened from the Closed filter.`
+            : `Reopen ${pendingClosedState?.conversationIds.length ?? 0} selected conversation${pendingClosedState?.conversationIds.length === 1 ? "" : "s"} in Podium?`
+        }
+        confirmLabel={pendingClosedState?.closed ? "Close" : "Reopen"}
+        variant={pendingClosedState?.closed ? "danger" : "info"}
+        loading={conversationActionBusy}
+      />
     </div>
   );
 }

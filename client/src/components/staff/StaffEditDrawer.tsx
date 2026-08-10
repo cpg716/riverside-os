@@ -780,16 +780,21 @@ export default function StaffEditDrawer({
                           `${u.firstName || ""} ${u.lastName || ""}`.trim();
                         return (
                           <option key={u.uid} value={u.uid}>
-                            {name} ({u.uid})
+                            {name || "Unnamed Podium user"}
                           </option>
                         );
                       })}
                     </select>
                     {podiumDisplayName && (
                       <p className="mt-1 text-[10px] font-semibold text-app-success">
-                        Linked Display Name: {podiumDisplayName}
+                        Messages sent by {podiumDisplayName} in Podium will be attributed to {name.trim() || "this Riverside staff member"}.
                       </p>
                     )}
+                    {!podiumDisplayName ? (
+                      <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                        Link one Podium user to this profile so assignments and Podium-sent replies show the correct Riverside staff member.
+                      </p>
+                    ) : null}
                   </label>
                 </div>
               </section>

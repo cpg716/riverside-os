@@ -4019,6 +4019,14 @@ pub fn router() -> Router<AppState> {
             post(post_podium_conversation_read),
         )
         .route(
+            "/podium/conversations/read-state",
+            post(post_podium_conversations_read_state),
+        )
+        .route(
+            "/podium/conversations/closed-state",
+            post(post_podium_conversations_closed_state),
+        )
+        .route(
             "/podium/conversations/{conversation_id}/assignees",
             get(get_podium_conversation_assignees).patch(patch_podium_conversation_assignee),
         )
@@ -6513,6 +6521,97 @@ async fn post_podium_conversation_read(
 }
 
 #[derive(Debug, Deserialize)]
+struct PodiumConversationReadStateBody {
+    conversation_ids: Vec<Uuid>,
+    read: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct PodiumConversationClosedStateBody {
+    conversation_ids: Vec<Uuid>,
+    closed: bool,
+}
+
+fn unique_podium_conversation_ids(ids: Vec<Uuid>) -> Result<Vec<Uuid>, CustomerError> {
+    let unique: Vec<Uuid> = ids
+        .into_iter()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    if unique.is_empty() {
+        return Err(CustomerError::BadRequest(
+            "at least one conversation is required".to_string(),
+        ));
+    }
+    if unique.len() > 80 {
+        return Err(CustomerError::BadRequest(
+            "no more than 80 conversations can be changed at once".to_string(),
+        ));
+    }
+    Ok(unique)
+}
+
+async fn post_podium_conversations_read_state(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PodiumConversationReadStateBody>,
+) -> Result<Json<serde_json::Value>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    let conversation_ids = unique_podium_conversation_ids(body.conversation_ids)?;
+    let updated_ids =
+        podium_messaging::set_conversations_read_state(&state.db, &conversation_ids, body.read)
+            .await?;
+    Ok(Json(
+        json!({ "updated_ids": updated_ids, "read": body.read }),
+    ))
+}
+
+async fn post_podium_conversations_closed_state(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PodiumConversationClosedStateBody>,
+) -> Result<Json<serde_json::Value>, CustomerError> {
+    let actor =
+        customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let conversation_ids = unique_podium_conversation_ids(body.conversation_ids)?;
+    let mut updated_ids = Vec::new();
+    let mut failures = Vec::new();
+
+    for conversation_id in conversation_ids {
+        match podium_messaging::set_conversation_closed(
+            &state.db,
+            &state.http_client,
+            &state.podium_token_cache,
+            conversation_id,
+            body.closed,
+        )
+        .await
+        {
+            Ok(()) => {
+                tracing::info!(
+                    %conversation_id,
+                    closed = body.closed,
+                    staff_id = ?actor.staff_id,
+                    staff_name = ?actor.sender_name,
+                    "Podium conversation state changed"
+                );
+                updated_ids.push(conversation_id);
+            }
+            Err(error) => failures.push(json!({
+                "conversation_id": conversation_id,
+                "error": error.to_string(),
+            })),
+        }
+    }
+
+    Ok(Json(json!({
+        "updated_ids": updated_ids,
+        "failures": failures,
+        "closed": body.closed,
+    })))
+}
+
+#[derive(Debug, Deserialize)]
 struct CommunicationTimelineQuery {
     limit: Option<i64>,
 }
@@ -6799,14 +6898,14 @@ async fn post_customer_podium_review_invite(
 async fn get_podium_conversation_assignees(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(conversation_id): Path<String>,
-) -> Result<Json<Vec<serde_json::Value>>, CustomerError> {
+    Path(conversation_id): Path<Uuid>,
+) -> Result<Json<Vec<podium_messaging::PodiumConversationAssignee>>, CustomerError> {
     require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
-    let rows = podium::fetch_conversation_assignees(
+    let rows = podium_messaging::list_conversation_assignees(
         &state.db,
         &state.http_client,
         &state.podium_token_cache,
-        &conversation_id,
+        conversation_id,
     )
     .await
     .map_err(|e| {
@@ -6823,15 +6922,18 @@ struct PatchPodiumAssigneeBody {
 async fn patch_podium_conversation_assignee(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(conversation_id): Path<String>,
+    Path(conversation_id): Path<Uuid>,
     Json(body): Json<PatchPodiumAssigneeBody>,
 ) -> Result<Json<serde_json::Value>, CustomerError> {
     require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let provider_uid = podium_messaging::provider_uid_for_conversation(&state.db, conversation_id)
+        .await
+        .map_err(|e| CustomerError::BadRequest(e.to_string()))?;
     let result = podium::update_conversation_assignee(
         &state.db,
         &state.http_client,
         &state.podium_token_cache,
-        &conversation_id,
+        &provider_uid,
         body.user_uid.as_deref(),
     )
     .await

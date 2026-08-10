@@ -340,6 +340,15 @@ fn truncate_body_preview(body: &str) -> String {
     s
 }
 
+fn podium_inbox_deep_link(customer_id: Uuid, conversation_id: Uuid, channel: &str) -> Value {
+    json!({
+        "type": "podium_inbox",
+        "customer_id": customer_id.to_string(),
+        "conversation_id": conversation_id.to_string(),
+        "message_channel": channel,
+    })
+}
+
 /// After `podium_webhook_delivery` ledger insert: thread rows + notification fan-out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PodiumInboundIngestOutcome {
@@ -518,6 +527,24 @@ pub async fn ingest_from_webhook(
 
     let Some(cid) = customer_id else {
         return Ok(PodiumInboundIngestOutcome::Skipped);
+    };
+
+    let notification_customer_name = if is_outbound {
+        None
+    } else {
+        let (first_name, last_name): (String, String) =
+            sqlx::query_as("SELECT first_name, last_name FROM customers WHERE id = $1")
+                .bind(cid)
+                .fetch_one(pool)
+                .await?;
+        let full_name = format!("{} {}", first_name.trim(), last_name.trim())
+            .trim()
+            .to_string();
+        Some(if full_name.is_empty() {
+            "Customer".to_string()
+        } else {
+            full_name
+        })
     };
 
     if is_opt_out {
@@ -770,28 +797,24 @@ pub async fn ingest_from_webhook(
         } else {
             "podium_sms_bundle"
         };
-        let bundle_prefix = if channel == "email" {
-            "Podium Email"
+        let channel_label = if channel == "email" {
+            "Podium email"
         } else {
             "Podium SMS"
         };
+        let customer_name = notification_customer_name.as_deref().unwrap_or("Customer");
+        let bundle_prefix = format!("{channel_label} from {customer_name}");
 
         // Real-time bundle by customer: "podium_inbound:{cid}"
         let dedupe = format!("podium_inbound:{cid}");
-        let item_deep = json!({
-            "type": "customers",
-            "subsection": "all",
-            "customer_id": cid.to_string(),
-            "hub_tab": "messages",
-            "message_channel": channel,
-        });
+        let item_deep = podium_inbox_deep_link(cid, conv_id, channel);
 
         if let Ok(nid) = crate::logic::notifications::upsert_bundle_item(
             pool,
             bundle_kind,
-            bundle_prefix,
+            &bundle_prefix,
+            "New message",
             &truncate_body_preview(&body),
-            "Tap to open conversation",
             item_deep,
             "podium_inbound",
             json!({}),
@@ -890,5 +913,17 @@ mod tests {
         assert!(is_sms_opt_out_command("opt out"));
         assert!(!is_sms_opt_out_command("Please stop by tomorrow"));
         assert!(!is_sms_opt_out_command("Do not stop my order"));
+    }
+
+    #[test]
+    fn inbound_notification_targets_the_exact_podium_conversation() {
+        let customer_id = Uuid::new_v4();
+        let conversation_id = Uuid::new_v4();
+        let link = podium_inbox_deep_link(customer_id, conversation_id, "sms");
+
+        assert_eq!(link["type"], "podium_inbox");
+        assert_eq!(link["customer_id"], customer_id.to_string());
+        assert_eq!(link["conversation_id"], conversation_id.to_string());
+        assert_eq!(link["message_channel"], "sms");
     }
 }

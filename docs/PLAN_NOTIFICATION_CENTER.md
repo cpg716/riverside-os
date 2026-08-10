@@ -162,7 +162,7 @@ Additional “due today” signals (e.g. explicit order promise dates) if added 
 
 ## Integration with Podium SMS
 
-See **[`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md)**. Inbound SMS creates `app_notification` (`sms_inbound` / `podium_sms`) + same fan-out; **SMS Module** list and **Notification Center** use the **same API** and badge counts; read/complete/audit identical. Optional later: mirror outbound automated SMS as low-priority staff notifications.
+See **[`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md)**. Inbound Podium SMS/email creates a customer-scoped bundle. Its title names the matched customer, each item carries the message preview plus `podium_inbox` deep link, and the link includes the exact Riverside `conversation_id` so Notification Center opens the shared Podium Inbox with that thread selected. The client upgrades older customer-message links to the same inbox and falls back to the matched `customer_id`. Notification Center and Podium Inbox retain the same fan-out, unread, and audit contracts. Optional later: mirror outbound automated SMS as low-priority staff notifications.
 
 ## Implementation order
 

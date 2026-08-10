@@ -41,6 +41,12 @@ const podiumMessaging = repoFile("server/src/logic/podium_messaging.rs");
 const podiumInbox = repoFile(
   "client/src/components/customers/PodiumMessagingInboxSection.tsx",
 );
+const staffEditDrawer = repoFile(
+  "client/src/components/staff/StaffEditDrawer.tsx",
+);
+const staffProfile = repoFile(
+  "client/src/components/settings/StaffProfilePanel.tsx",
+);
 const podiumWebhookMigration = repoFile(
   "migrations/183_podium_webhook_processing_queue.sql",
 );
@@ -156,4 +162,21 @@ test("Podium inbox keeps webhook and history status truthful", () => {
   expect(podiumInbox).toContain("Riverside did not mark the pull complete");
   expect(podiumInbox).toContain("ROS webhook ready");
   expect(podiumInbox).toContain("Last complete history pull");
+});
+
+test("Podium inbox maps staff identity and supports shared conversation triage", () => {
+  expect(customersApi).toContain('"/podium/conversations/read-state"');
+  expect(customersApi).toContain('"/podium/conversations/closed-state"');
+  expect(podiumMessaging).toContain("provider_uid_for_conversation");
+  expect(podiumMessaging).toContain("podium_user_uid = ANY($1)");
+  expect(podiumMessaging).toContain("set_conversations_read_state");
+  expect(podiumLogic).toContain("podium_conversation_closed_payload");
+  expect(podiumInbox).toContain("Mark unread");
+  expect(podiumInbox).toContain("Select visible");
+  expect(podiumInbox).toContain('<option value="closed">Closed</option>');
+  expect(podiumInbox).toContain("Linked Podium Staff Member");
+  expect(staffEditDrawer).toContain("Linked Podium Staff Member");
+  expect(staffEditDrawer).not.toContain("{name} ({u.uid})");
+  expect(staffProfile).toContain("A manager connects Podium identities");
+  expect(staffProfile).not.toContain('placeholder="senderUid from Podium"');
 });

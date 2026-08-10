@@ -19,7 +19,7 @@
 - Send a **manual text** from **Podium Inbox** to an existing customer or a new phone number.
 - Send **text receipts** from the POS using the standard receipt content.
 - Keep each setting with its owner: Podium SMS under **Podium**, operational email under **Email**, review policy and wording under **Customer Reviews**, receipt delivery under **Receipt Settings**, and web chat under **Online Store**.
-- Show **new customer texts** as **notifications** you can open into the right profile.
+- Show **new customer texts** as named notifications that open the matching conversation in **Podium Inbox**.
 - **Match staff to Podium users** so messages show real names, not UUIDs.
 - **Sync customers to Podium contacts** automatically and on demand from the Customer Hub.
 
@@ -37,11 +37,11 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 | **Settings → Receipt Settings** | Receipt layout plus digital delivery wording | Admins: edit the receipt itself, receipt email subjects, Podium MMS captions, and the text-receipt switch. |
 | **Settings → Online Store** | Storefront setup and Podium web chat | Admins: enable the widget and paste the exact Podium-provided snippet. |
 | **Staff → Edit** | Podium user dropdown | Managers with `staff_edit`: link each staff member to their Podium user identity. |
-| **Operations → Podium Inbox** | Conversation list, message thread, reply composer, Send Text composer, unmatched Podium queue, assignee display | Read the thread, reply in context, open the customer record, send a text to a current customer or a new phone number, and **Refresh** if the list looks stale. |
+| **Operations → Podium Inbox** | Searchable open/closed conversation list, text-style thread, reply composer, staff assignment, and optional New message form | Read or reply, mark conversations read/unread, close/reopen one or many conversations, open the customer record, and **Refresh** if the list looks stale. |
 | **POS → Podium Inbox** | Same shared inbox inside the POS shell | Read/reply without leaving POS; open the customer record when the conversation needs profile or order follow-up. |
 | **Customer hub → Messages** | Thread + compose + contact sync | Read history; send **SMS**; optional Podium conversation **URL** field for deep links; **Sync to Podium Contacts** button. |
 | **POS → Receipt summary** | Text receipt and automatic review status | Send a text receipt if the customer wants it; confirm eligible review follow-up is scheduled for five days after fulfillment. |
-| **Notification Center** | “New customer SMS” rows | Open item → deep link toward **Customers** / **Messages** when configured. |
+| **Notification Center** | Podium SMS/email alerts with the customer's name and message preview | Expand a bundle when needed, then open the item to jump directly to that conversation in **Podium Inbox**. |
 
 ---
 
@@ -73,8 +73,9 @@ If the authorization page says the Client ID and redirect URI do not match, regi
 ### Manager: link staff to Podium users
 
 1. **Staff → Team** → open a staff member → **Edit**.
-2. In the **Podium User** section, use the dropdown to select the matching Podium user. The list loads from Podium's `/v4/users` API.
-3. Save. Messages from that staff member will now show their real name instead of a UUID.
+2. Under **Linked Podium Staff Member**, select the same person they use to sign in to Podium. The list loads from Podium's user directory; staff never type a provider ID.
+3. Save. One Podium identity can link to only one active Riverside staff profile. Messages sent inside Podium and conversation assignments can now show the linked Riverside staff name.
+4. Riverside replies already record the signed-in Riverside staff member directly. The link is needed when a reply or assignment originates in Podium.
 
 ### Admin: edit customer message wording
 
@@ -110,18 +111,21 @@ ROS is still the appointment system of record. Podium sends enabled appointment 
 ### Staff: use the SMS inbox list
 
 1. **Operations** → **Podium Inbox**.
-2. Use the left conversation list to select a customer thread. The message thread opens on the right with customer and Riverside replies separated like a text conversation.
+2. Search or use the **Open**, **Needs reply**, **Unread**, or **Closed** filter, then select a customer thread. The message thread opens on the right with customer and Riverside replies separated like a text conversation.
 3. Reply from the composer at the bottom of the open thread. Email replies require a subject; SMS replies do not.
 4. Use **Open Customer** when the conversation needs profile, transaction, fulfillment, or wedding follow-up.
-5. Use **Send Text** when you need to start a new staff-initiated text. Search/select a current customer or enter a phone number.
+5. Choose **New message** when you need to start a separate staff-initiated text. Search/select a current customer or enter a phone number; the form stays closed during normal inbox work.
 6. If the phone number is not already a customer, enter the customer’s **first** and **last** name before sending. Riverside creates the new contact and records the outbound message.
 7. The thread auto-scrolls to the newest message; outbound messages show a **Sent** badge and the sender's name.
-8. The conversation header shows **assigned Podium users** when available.
-9. Use **Refresh** to reload the Riverside copy. Use **Pull from Podium** when messages are missing; that action asks Podium for current conversations and their cursor-paged history. **History current** appears only after every matched history in the pull is stored. **History incomplete** means one or more histories still need another pull or IT review.
-10. Use **Unknown Podium senders** only when matching provider threads to customers. Choose **Match customer**, search for the intended customer, verify identity, and select that record. The decision is audited against the exact provider conversation ID.
-11. When the card says multiple customers share the identifier, correct the duplicate phone/email data or deliberately choose the intended record. Riverside never silently chooses the newest customer.
+8. Opening an unread conversation marks it read. Use **Mark unread** when another staff member still needs to review it, or **Mark read** after handling it.
+9. Select the checkboxes beside multiple conversations to mark them **Read**, **Unread**, **Close**, or **Reopen** together. A partial Podium failure is reported instead of treating the whole group as successful.
+10. **Close** is Podium's native closed/archive state. Closed conversations leave the Open list but remain available under **Closed** and can be reopened.
+11. The conversation header shows who Podium assigned. A green name is linked to a Riverside staff profile; **Not linked** means a manager must complete the staff profile link.
+12. Use **Refresh** to reload the Riverside copy. Open **Status** and use **Pull from Podium** when messages are missing; that action asks Podium for current conversations and their cursor-paged history. **History current** appears only after every matched history in the pull is stored. **History incomplete** means one or more histories still need another pull or IT review.
+13. Use **Unknown Podium senders** only when matching provider threads to customers. Choose **Match customer**, search for the intended customer, verify identity, and select that record. The decision is audited against the exact provider conversation ID.
+14. When the card says multiple customers share the identifier, correct the duplicate phone/email data or deliberately choose the intended record. Riverside never silently chooses the newest customer.
 
-**Permission:** Viewing requires **`customers.hub_view`**. Sending or creating the new contact requires **`customers.hub_edit`**.
+**Permission:** Viewing and read/unread changes require **`customers.hub_view`**. Sending, creating a new contact, closing, or reopening requires **`customers.hub_edit`**.
 
 ### Staff: use the SMS inbox list from POS
 
@@ -160,7 +164,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 
 - **“Customer says they never got the text.”** Check **profile**: phone number, **operational** / **marketing** SMS flags per store policy; confirm the fulfillment work actually hit **pickup ready** (or the right trigger). Escalate if templates or Podium toggles are wrong—do not spam resends without manager approval.
 - **“This person is not in ROS yet.”** Use **Podium Inbox → Send Text**, enter the phone number plus first and last name, and send once. Riverside creates the contact with Podium as the source so staff can complete or merge it later.
-- **“Notification won’t open the right person.”** Ask them to use **Podium Inbox** or search the customer by name/code, then open **Messages** manually; IT verifies **webhook** configuration if links are consistently wrong.
+- **“Notification won’t open the right conversation.”** Open the named item inside the Podium notification bundle. It should route to **Podium Inbox** and select that conversation; IT should verify the stored conversation/customer IDs if it does not.
 - **“The customer texted STOP.”** Riverside disables marketing and operational SMS only for an exact recognized opt-out command such as `STOP`, `UNSUBSCRIBE`, or `OPT OUT`. A sentence that merely contains the word “stop” does not change consent.
 - **Never** paste Podium **secrets**, **refresh tokens**, or **webhook signing keys** into chat or bug reports—only managers/IT handle those on the server.
 
@@ -179,7 +183,9 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 | **Send Text button stays disabled** | Add message text; for new numbers add phone, first name, and last name | Manager checks **customers.hub_edit** |
 | **Send failed / Podium unavailable** | Readiness + workflow toggle + saved provider location, then **Check Health** | Manager / IT |
 | **Automated SMS never fires** | Customer **opt-in** + valid phone + workflow enabled + Podium location saved | Admin + engineering plan |
-| **Staff name shows as a UUID** | Manager must link staff to Podium user in **Staff → Edit** | Manager |
+| **Podium assignment says Not linked** | Manager opens **Staff → Team**, edits the matching staff profile, and selects **Linked Podium Staff Member** | Check the `read_users` scope and reconnect Podium if the directory does not load |
+| **Opening a conversation leaves it unread** | Use **Mark read** once and refresh | IT checks the Riverside read-state request; failures are no longer silent |
+| **Close/Reopen fails for part of a group** | Retry only the named failed conversations | Manager / IT checks `write_messages` and Podium connectivity |
 | **Review invite sent to opted-out customer** | Check profile **Opt out of review requests**; verify saved before sale completion | Manager / IT |
 | **Podium Send Test returns 400** | Confirm the Main Hub is on a release that accepts Podium's signed provider-test payload, then retry once | IT checks the recorded webhook failure reason; do not weaken signature verification |
 | **Settings says webhook needs update while Inbox says ROS webhook ready** | Treat Settings as the provider-subscription status and use **Update Webhook** there after admin confirmation | **ROS webhook ready** only confirms Riverside has its local signing secret and inbound processing enabled; it does not prove Podium's subscription is enabled or complete |
