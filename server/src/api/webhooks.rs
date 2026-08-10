@@ -141,6 +141,14 @@ fn podium_webhook_event_type(value: &Value) -> Option<&str> {
         .filter(|event| !event.is_empty())
 }
 
+fn is_podium_webhook_test_payload(value: &Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    object.len() == 1
+        && object.get("data").and_then(Value::as_str) == Some("Data for the test webhook event :)")
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct HelcimWebhookPayload {
     #[serde(rename = "type")]
@@ -308,6 +316,13 @@ async fn post_podium_webhook(
             return StatusCode::BAD_REQUEST.into_response();
         }
     };
+
+    // Podium's developer-portal test verifies reachability and signing with a
+    // signed sentinel payload rather than a normal business-event envelope.
+    if is_podium_webhook_test_payload(&value) {
+        tracing::info!(target = "podium_webhook", event = "provider_test_verified");
+        return StatusCode::OK.into_response();
+    }
 
     if podium_webhook_event_type(&value).is_none() {
         tracing::warn!(
@@ -2329,6 +2344,21 @@ mod tests {
             podium_webhook_event_type(&payload),
             Some("message.received")
         );
+    }
+
+    #[test]
+    fn podium_provider_test_payload_is_a_verified_noop() {
+        let payload = json!({ "data": "Data for the test webhook event :)" });
+
+        assert!(is_podium_webhook_test_payload(&payload));
+        assert_eq!(podium_webhook_event_type(&payload), None);
+    }
+
+    #[test]
+    fn podium_arbitrary_eventless_payload_is_not_a_provider_test() {
+        let payload = json!({ "data": "not the Podium test sentinel" });
+
+        assert!(!is_podium_webhook_test_payload(&payload));
     }
 
     fn signed_helcim_headers(

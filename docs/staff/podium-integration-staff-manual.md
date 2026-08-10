@@ -56,7 +56,8 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 5. Ensure the Podium app has all required scopes enabled: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `read_contacts`, and `write_contacts`. Existing connections must use **Reconnect Podium Account** once after `read_contacts` is enabled.
 6. Select the correct active location from the provider-backed **Podium location** list and save it. Do not type or copy a raw location UID.
 7. Save a webhook signing secret, then use **Register Webhook**. Riverside creates or updates only the subscription matching its public HTTPS URL and selected location, for the message, contact, and review-link events it processes.
-8. Use **Check Health**, then **Reconcile Contacts** under **Diagnostics and contact maintenance**. Reconciliation compares the complete Podium contact list and shows collisions that require staff review. Riverside allows one reconciliation at a time and stops safely if Podium returns an incomplete or unrecognized contact page.
+8. In the Podium developer portal, use **Send Test** for the Riverside webhook. A successful response confirms public reachability and signing-secret verification; it does not replace testing a real inbound customer reply.
+9. Use **Check Health**, then **Reconcile Contacts** under **Diagnostics and contact maintenance**. Reconciliation compares the complete Podium contact list and shows collisions that require staff review. Riverside allows one reconciliation at a time and stops safely if Podium returns an incomplete or unrecognized contact page.
 
 ### Admin / IT: know which Podium values to enter
 
@@ -180,6 +181,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 | **Automated SMS never fires** | Customer **opt-in** + valid phone + workflow enabled + Podium location saved | Admin + engineering plan |
 | **Staff name shows as a UUID** | Manager must link staff to Podium user in **Staff → Edit** | Manager |
 | **Review invite sent to opted-out customer** | Check profile **Opt out of review requests**; verify saved before sale completion | Manager / IT |
+| **Podium Send Test returns 400** | Confirm the Main Hub is on a release that accepts Podium's signed provider-test payload, then retry once | IT checks the recorded webhook failure reason; do not weaken signature verification |
 | **Inbound customer texts never appear** | Confirm the public webhook URL is registered and tunnel/public host is running | IT checks webhook secret/signature and event types |
 | **Podium Inbox shows old conversations but not current Podium rows** | Click **Sync Podium** / **Refresh** once and confirm the Settings card still says credentials configured | IT checks OAuth scopes, saved provider location, provider cursor sync, and whether Podium returned the expected conversation page |
 | **Store email fails** | IONOS mailbox settings, customer email, server logs | Settings admin |
