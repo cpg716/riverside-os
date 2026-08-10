@@ -118,6 +118,12 @@ pub struct ListGiftCardsQuery {
     pub sort: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct GiftCardCodeQuery {
+    #[serde(default)]
+    include_closed: bool,
+}
+
 #[derive(Debug, Serialize, FromRow)]
 pub struct GiftCardSummary {
     pub open_cards_count: i64,
@@ -341,9 +347,14 @@ async fn list_gift_cards_open(
 async fn get_gift_card_by_code(
     State(state): State<AppState>,
     Path(code): Path<String>,
+    Query(query): Query<GiftCardCodeQuery>,
     headers: HeaderMap,
 ) -> Result<Json<GiftCardRow>, GiftCardError> {
-    require_gift_card_lookup(&state, &headers).await?;
+    if query.include_closed {
+        require_gift_cards_manage(&state, &headers).await?;
+    } else {
+        require_gift_card_lookup(&state, &headers).await?;
+    }
     let row = sqlx::query_as::<_, GiftCardRow>(
         r#"
         SELECT
@@ -357,11 +368,17 @@ async fn get_gift_card_by_code(
         FROM gift_cards gc
         LEFT JOIN customers c ON c.id = gc.customer_id
         WHERE UPPER(BTRIM(gc.code::text)) = $1
-          AND gc.card_status = 'active'::gift_card_status
-          AND (gc.expires_at IS NULL OR gc.expires_at > now())
+          AND (
+              $2
+              OR (
+                  gc.card_status = 'active'::gift_card_status
+                  AND (gc.expires_at IS NULL OR gc.expires_at > now())
+              )
+          )
         "#,
     )
     .bind(gift_card_ops::normalize_gift_card_code(&code))
+    .bind(query.include_closed)
     .fetch_optional(&state.db)
     .await?;
 

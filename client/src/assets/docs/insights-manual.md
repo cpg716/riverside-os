@@ -16,7 +16,7 @@ tags: insights, reports, analytics, favorites, history, export, print
 
 ## What this is
 
-**Back Office → Insights** is Riverside's custom reporting workspace. It stays inside the standard Back Office layout, so the left navigation remains available while you work. Describe the report you need in plain language, then select **Build report**. Each request uses approved Riverside reporting data and follows the signed-in staff member's permissions.
+**Back Office → Insights** is Riverside's visual reporting workspace. It stays inside the standard Back Office layout, so the left navigation remains available while you work. The workspace is organized around three steps: **Ask**, **Explore**, and **Deliver**. Describe the report you need in plain language, shape the result with presentation and period controls, then favorite, export, print, or save it as a PDF. Each request uses approved Riverside reporting data and follows the signed-in staff member's permissions.
 
 There is no separate reporting login. Riverside staff access and permissions apply throughout the workspace. Cost and margin measures remain Admin-only.
 
@@ -24,8 +24,12 @@ There is no separate reporting login. Riverside staff access and permissions app
 
 1. Open **Insights** in the left rail.
 2. Describe the result you need, including the business basis and period when they matter. For example: **“Show recognized revenue by category for the last 90 days as a bar chart.”**
-3. Select **Build report**.
-4. Review the title, business-basis explanation, date range, chart, and table before using the result.
+3. Select **Build report**. A generation window confirms that ROSIE started the request.
+4. Keep working in Insights or leave for another Riverside workspace. **Generation activity** continues to show the request, and a toast appears when it is ready or if it fails.
+5. Return to Insights and open the completed job if it is not already displayed.
+6. Review the title, business-basis explanation, date range, chart, and table before using the result.
+
+Insights can run up to two report jobs at the same time. If both slots are active, wait for one to finish before starting another. Leaving Insights does not cancel a job, but closing or reloading the app is not a background-server guarantee; successful runs remain available from History.
 
 Use **booked** for activity measured when a Transaction was created. Use **recognized** for revenue measured when qualifying fulfillment or pickup occurred. If that distinction is unclear, state which business event you mean.
 
@@ -40,6 +44,8 @@ Keep the current result open and type the change you want, such as:
 
 Insights uses the current report as context when applying the change. Each successful version is recorded in report history.
 
+Select **New report** or **Start a separate report** whenever you want a clean request instead of changing the report on screen. An update that is still generating does not lock you into that report; the second available generation slot can build the new one.
+
 ## Change the period
 
 Use the **From** and **To** controls above a result, then select **Run period**. This reruns the same report definition for the new dates without rebuilding it. The rerun is also saved to report history.
@@ -49,7 +55,11 @@ Use the **From** and **To** controls above a result, then select **Run period**.
 Every successful result includes:
 
 - **Export CSV** — downloads the complete returned table using the displayed business labels.
-- **Print report** — opens a print-ready report with the title, period, generated time, basis explanation, columns, rows, and totals available in the result. Choose a physical printer or **Save as PDF** in the system print dialog.
+- **Print / PDF** — opens report options before the system preview. A visible chart is included by default with the title, period, generated time, basis explanation, columns, and rows. Turn off **Include visual chart** for a data-only report, then choose a physical printer or **Save as PDF**.
+
+## Customize the presentation
+
+Use **Presentation** to switch a compatible result among **Bar**, **Line**, **Area**, **Pie**, and **Table** views without rerunning the report. Use **Visual on/off** and **Data on/off** to focus the workspace on the chart, the detail table, or both. These display changes do not alter the governed result data.
 
 ## Favorites
 

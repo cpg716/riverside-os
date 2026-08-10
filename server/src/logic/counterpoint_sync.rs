@@ -11950,6 +11950,10 @@ pub struct CounterpointGiftCardMetadataRepairRequest {
     pub expected_payment_repair_count: Option<i32>,
     #[serde(skip)]
     pub expected_payment_repair_digest: Option<String>,
+    #[serde(skip)]
+    pub expected_original_value_repair_count: Option<i32>,
+    #[serde(skip)]
+    pub expected_original_value_repair_digest: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -11967,6 +11971,9 @@ pub struct GiftCardMetadataRepairSummary {
     pub promo: i32,
     pub customer_links_resolved: i32,
     pub would_create_issue_events: i32,
+    pub would_repair_original_values: i32,
+    pub would_repair_original_value_total: Decimal,
+    pub original_value_repair_digest: String,
     pub would_reclassify_payments: i32,
     pub would_reclassify_payment_amount: Decimal,
     pub payment_repair_digest: String,
@@ -12192,7 +12199,7 @@ async fn create_counterpoint_gift_card_issue_event_if_missing(
     Ok(inserted.rows_affected() == 1)
 }
 
-fn gift_card_payment_repair_digest(mut fingerprints: Vec<String>) -> String {
+fn gift_card_repair_digest(mut fingerprints: Vec<String>) -> String {
     fingerprints.sort();
     let mut hasher = Sha256::new();
     for fingerprint in fingerprints {
@@ -12248,6 +12255,8 @@ async fn execute_counterpoint_gift_card_metadata_repair(
     };
     let expected_payment_repair_count = request.expected_payment_repair_count;
     let expected_payment_repair_digest = request.expected_payment_repair_digest;
+    let expected_original_value_repair_count = request.expected_original_value_repair_count;
+    let expected_original_value_repair_digest = request.expected_original_value_repair_digest;
     if mode == CounterpointGiftCardMetadataRepairMode::Apply {
         let expected_count = expected_payment_repair_count.ok_or_else(|| {
             CounterpointSyncError::InvalidPayload(
@@ -12281,6 +12290,39 @@ async fn execute_counterpoint_gift_card_metadata_repair(
                     .to_string(),
             ));
         }
+        let expected_original_count = expected_original_value_repair_count.ok_or_else(|| {
+            CounterpointSyncError::InvalidPayload(
+                "gift card metadata repair apply requires the reviewed original-value repair count"
+                    .to_string(),
+            )
+        })?;
+        if expected_original_count < 0 {
+            return Err(CounterpointSyncError::InvalidPayload(
+                "gift card metadata repair original-value repair count cannot be negative"
+                    .to_string(),
+            ));
+        }
+        let original_digest = expected_original_value_repair_digest
+            .as_deref()
+            .map(str::trim)
+            .filter(|digest| {
+                digest.len() == 64
+                    && digest
+                        .chars()
+                        .all(|character| character.is_ascii_hexdigit())
+            })
+            .ok_or_else(|| {
+                CounterpointSyncError::InvalidPayload(
+                    "gift card metadata repair apply requires the reviewed original-value repair digest"
+                        .to_string(),
+                )
+            })?;
+        if original_digest != original_digest.to_ascii_lowercase() {
+            return Err(CounterpointSyncError::InvalidPayload(
+                "gift card metadata repair original-value repair digest must be lowercase hexadecimal"
+                    .to_string(),
+            ));
+        }
     }
     let mut tx = pool.begin().await?;
     let customer_id_map =
@@ -12302,6 +12344,9 @@ async fn execute_counterpoint_gift_card_metadata_repair(
         promo: 0,
         customer_links_resolved: 0,
         would_create_issue_events: 0,
+        would_repair_original_values: 0,
+        would_repair_original_value_total: Decimal::ZERO,
+        original_value_repair_digest: String::new(),
         would_reclassify_payments: 0,
         would_reclassify_payment_amount: Decimal::ZERO,
         payment_repair_digest: String::new(),
@@ -12315,6 +12360,7 @@ async fn execute_counterpoint_gift_card_metadata_repair(
     let mut seen_codes = HashSet::with_capacity(rows.len());
     let mut qbo_activity_dates_to_regenerate = BTreeSet::new();
     let mut payment_repair_fingerprints = Vec::new();
+    let mut original_value_repair_fingerprints = Vec::new();
 
     for row in rows {
         let code = gift_card_ops::normalize_gift_card_code(&row.cert_no);
@@ -12373,6 +12419,27 @@ async fn execute_counterpoint_gift_card_metadata_repair(
             repair.balance_mismatches += 1;
             continue;
         }
+        let source_original_value = row.original_value.ok_or_else(|| {
+            CounterpointSyncError::InvalidPayload(format!(
+                "gift card {code} is missing its Counterpoint original value"
+            ))
+        })?;
+        if source_original_value <= Decimal::ZERO || source_original_value < current_balance {
+            return Err(CounterpointSyncError::InvalidPayload(format!(
+                "gift card {code} has invalid Counterpoint original value {source_original_value} for current balance {current_balance}"
+            )));
+        }
+        let original_value_changed = stored_original_value != Some(source_original_value);
+        if original_value_changed {
+            repair.would_repair_original_values += 1;
+            repair.would_repair_original_value_total += source_original_value;
+            original_value_repair_fingerprints.push(format!(
+                "{gift_card_id}|{code}|{}|{source_original_value}",
+                stored_original_value
+                    .map(|value| value.to_string())
+                    .unwrap_or_default()
+            ));
+        }
         repair.verified_balance += current_balance;
         match kind.as_str() {
             gift_card_ops::GIFT_CARD_KIND_PURCHASED => repair.purchased += 1,
@@ -12393,11 +12460,7 @@ async fn execute_counterpoint_gift_card_metadata_repair(
             None
         } else {
             repair.would_create_issue_events += 1;
-            Some(row.original_value.or(stored_original_value).ok_or_else(|| {
-                CounterpointSyncError::InvalidPayload(format!(
-                    "gift card {code} cannot receive an imported issue event because its original value is missing"
-                ))
-            })?)
+            Some(source_original_value)
         };
         let canonical_sub_type = gift_card_ops::canonical_gift_card_sub_type_for_kind(&kind)
             .map_err(|error| CounterpointSyncError::InvalidPayload(error.to_string()))?;
@@ -12457,7 +12520,8 @@ async fn execute_counterpoint_gift_card_metadata_repair(
                     is_liability = $3,
                     created_at = $4,
                     expires_at = $5,
-                    customer_id = COALESCE($6, customer_id)
+                    customer_id = COALESCE($6, customer_id),
+                    original_value = $7
                 WHERE id = $1
                 "#,
             )
@@ -12467,6 +12531,7 @@ async fn execute_counterpoint_gift_card_metadata_repair(
             .bind(issued_at)
             .bind(expires_at)
             .bind(customer_id)
+            .bind(source_original_value)
             .execute(&mut *tx)
             .await?;
             updated += 1;
@@ -12485,6 +12550,34 @@ async fn execute_counterpoint_gift_card_metadata_repair(
             let (audit_staff_id, audit_reason) = audit_context
                 .as_ref()
                 .expect("apply mode validated audit context");
+            if original_value_changed {
+                sqlx::query(
+                    r#"
+                    INSERT INTO staff_access_log (staff_id, event_kind, metadata)
+                    VALUES (
+                        $1,
+                        'counterpoint_gift_card_original_value_repaired',
+                        jsonb_build_object(
+                            'gift_card_id', $2::text,
+                            'gift_card_code', $3::text,
+                            'previous_original_value', $4::text,
+                            'corrected_original_value', $5::text,
+                            'current_balance', $6::text,
+                            'reason', $7::text
+                        )
+                    )
+                    "#,
+                )
+                .bind(audit_staff_id)
+                .bind(gift_card_id)
+                .bind(&code)
+                .bind(stored_original_value)
+                .bind(source_original_value)
+                .bind(current_balance)
+                .bind(audit_reason)
+                .execute(&mut *tx)
+                .await?;
+            }
             for (
                 payment_transaction_id,
                 amount,
@@ -12556,7 +12649,9 @@ async fn execute_counterpoint_gift_card_metadata_repair(
 
     repair.qbo_activity_dates_to_regenerate =
         qbo_activity_dates_to_regenerate.into_iter().collect();
-    repair.payment_repair_digest = gift_card_payment_repair_digest(payment_repair_fingerprints);
+    repair.payment_repair_digest = gift_card_repair_digest(payment_repair_fingerprints);
+    repair.original_value_repair_digest =
+        gift_card_repair_digest(original_value_repair_fingerprints);
 
     if mode == CounterpointGiftCardMetadataRepairMode::Apply
         && (repair.missing > 0
@@ -12585,6 +12680,19 @@ async fn execute_counterpoint_gift_card_metadata_repair(
             expected_payment_repair_digest.as_deref().unwrap_or("missing"),
             repair.would_reclassify_payments,
             repair.payment_repair_digest
+        )));
+    }
+    if mode == CounterpointGiftCardMetadataRepairMode::Apply
+        && (expected_original_value_repair_count != Some(repair.would_repair_original_values)
+            || expected_original_value_repair_digest.as_deref()
+                != Some(repair.original_value_repair_digest.as_str()))
+    {
+        return Err(CounterpointSyncError::InvalidPayload(format!(
+            "gift card original values changed after preview: reviewed {} repair(s) with digest {}, current {} repair(s) with digest {}; refresh preview and review again; no changes were committed",
+            expected_original_value_repair_count.unwrap_or_default(),
+            expected_original_value_repair_digest.as_deref().unwrap_or("missing"),
+            repair.would_repair_original_values,
+            repair.original_value_repair_digest
         )));
     }
 
@@ -20685,6 +20793,7 @@ mod tests {
         let payment_transaction_id = Uuid::new_v4();
         let customer_code = format!("CP-GC-CUST-{suffix}");
         let source_balance = Decimal::new(5000, 2);
+        let source_original_value = Decimal::new(7500, 2);
         let payment_amount = Decimal::new(2500, 2);
         let audit_reason = "Correct reviewed Counterpoint gift card classifications";
         let issued_at = Utc
@@ -20773,41 +20882,52 @@ mod tests {
         .await
         .expect("insert misclassified gift card payment fixture");
 
-        let payload = |mode, balance, expected_payment_repair: Option<(i32, String)>| {
-            let (expected_payment_repair_count, expected_payment_repair_digest) =
-                expected_payment_repair
-                    .map(|(count, digest)| (Some(count), Some(digest)))
-                    .unwrap_or((None, None));
-            CounterpointGiftCardsPayload {
-                rows: vec![CounterpointGiftCardRow {
-                    cert_no: gift_code.clone(),
-                    balance,
-                    original_value: Some(source_balance),
-                    reason_cod: Some(reason_code.clone()),
-                    expires_at: None,
-                    issued_at: Some(issued_at.to_rfc3339()),
-                    customer_code: Some(customer_code.clone()),
-                    events: Vec::new(),
-                }],
-                sync: None,
-                metadata_repair: Some(CounterpointGiftCardMetadataRepairRequest {
-                    mode,
-                    source_cards: 1,
-                    source_balance: balance,
-                    require_customer_links: true,
-                    audit_staff_id: Some(repair_staff_id),
-                    audit_reason: Some(audit_reason.to_string()),
-                    expected_payment_repair_count,
-                    expected_payment_repair_digest,
-                }),
-            }
-        };
+        let payload =
+            |mode,
+             balance,
+             expected_payment_repair: Option<(i32, String)>,
+             expected_original_value_repair: Option<(i32, String)>| {
+                let (expected_payment_repair_count, expected_payment_repair_digest) =
+                    expected_payment_repair
+                        .map(|(count, digest)| (Some(count), Some(digest)))
+                        .unwrap_or((None, None));
+                let (expected_original_value_repair_count, expected_original_value_repair_digest) =
+                    expected_original_value_repair
+                        .map(|(count, digest)| (Some(count), Some(digest)))
+                        .unwrap_or((None, None));
+                CounterpointGiftCardsPayload {
+                    rows: vec![CounterpointGiftCardRow {
+                        cert_no: gift_code.clone(),
+                        balance,
+                        original_value: Some(source_original_value),
+                        reason_cod: Some(reason_code.clone()),
+                        expires_at: None,
+                        issued_at: Some(issued_at.to_rfc3339()),
+                        customer_code: Some(customer_code.clone()),
+                        events: Vec::new(),
+                    }],
+                    sync: None,
+                    metadata_repair: Some(CounterpointGiftCardMetadataRepairRequest {
+                        mode,
+                        source_cards: 1,
+                        source_balance: balance,
+                        require_customer_links: true,
+                        audit_staff_id: Some(repair_staff_id),
+                        audit_reason: Some(audit_reason.to_string()),
+                        expected_payment_repair_count,
+                        expected_payment_repair_digest,
+                        expected_original_value_repair_count,
+                        expected_original_value_repair_digest,
+                    }),
+                }
+            };
 
         let preview = execute_counterpoint_gift_card_batch(
             &pool,
             payload(
                 CounterpointGiftCardMetadataRepairMode::Preview,
                 source_balance,
+                None,
                 None,
             ),
         )
@@ -20820,6 +20940,11 @@ mod tests {
         assert_eq!(preview_repair.donated, 1);
         assert_eq!(preview_repair.customer_links_resolved, 1);
         assert_eq!(preview_repair.would_create_issue_events, 1);
+        assert_eq!(preview_repair.would_repair_original_values, 1);
+        assert_eq!(
+            preview_repair.would_repair_original_value_total,
+            source_original_value
+        );
         assert_eq!(preview_repair.would_reclassify_payments, 1);
         assert_eq!(
             preview_repair.would_reclassify_payment_amount,
@@ -20834,6 +20959,10 @@ mod tests {
         let reviewed_payment_repair = (
             preview_repair.would_reclassify_payments,
             preview_repair.payment_repair_digest.clone(),
+        );
+        let reviewed_original_value_repair = (
+            preview_repair.would_repair_original_values,
+            preview_repair.original_value_repair_digest.clone(),
         );
 
         let kind_before: String =
@@ -20857,6 +20986,7 @@ mod tests {
             CounterpointGiftCardMetadataRepairMode::Apply,
             source_balance,
             Some(reviewed_payment_repair.clone()),
+            Some(reviewed_original_value_repair.clone()),
         );
         let unaudited_request = unaudited_apply
             .metadata_repair
@@ -20877,6 +21007,7 @@ mod tests {
                 CounterpointGiftCardMetadataRepairMode::Apply,
                 source_balance + Decimal::new(1, 2),
                 Some(reviewed_payment_repair.clone()),
+                Some(reviewed_original_value_repair.clone()),
             ),
         )
         .await
@@ -20891,6 +21022,7 @@ mod tests {
                 CounterpointGiftCardMetadataRepairMode::Apply,
                 source_balance,
                 Some(reviewed_payment_repair),
+                Some(reviewed_original_value_repair),
             ),
         )
         .await
@@ -20903,8 +21035,8 @@ mod tests {
             applied_repair.would_reclassify_payment_amount,
             payment_amount
         );
-        let repaired: (String, bool, Decimal, DateTime<Utc>, DateTime<Utc>, Option<Uuid>) = sqlx::query_as(
-            "SELECT card_kind::text, is_liability, current_balance, created_at, expires_at, customer_id FROM gift_cards WHERE id = $1",
+        let repaired: (String, bool, Decimal, Decimal, DateTime<Utc>, DateTime<Utc>, Option<Uuid>) = sqlx::query_as(
+            "SELECT card_kind::text, is_liability, current_balance, original_value, created_at, expires_at, customer_id FROM gift_cards WHERE id = $1",
         )
         .bind(gift_card_id)
         .fetch_one(&pool)
@@ -20913,10 +21045,11 @@ mod tests {
         assert_eq!(repaired.0, "donated_giveaway");
         assert!(!repaired.1);
         assert_eq!(repaired.2, source_balance);
-        assert_eq!(repaired.3, issued_at);
-        assert_eq!(repaired.5, Some(customer_id));
+        assert_eq!(repaired.3, source_original_value);
+        assert_eq!(repaired.4, issued_at);
+        assert_eq!(repaired.6, Some(customer_id));
         assert_eq!(
-            repaired.4,
+            repaired.5,
             gift_card_ops::gift_card_expiration_from_issue(
                 gift_card_ops::GIFT_CARD_KIND_DONATED_GIVEAWAY,
                 issued_at,
@@ -20978,12 +21111,33 @@ mod tests {
             payment_audit.get("reason").and_then(JsonValue::as_str),
             Some(audit_reason)
         );
+        let original_value_audit: JsonValue = sqlx::query_scalar(
+            r#"
+            SELECT metadata
+            FROM staff_access_log
+            WHERE staff_id = $1
+              AND event_kind = 'counterpoint_gift_card_original_value_repaired'
+              AND metadata->>'gift_card_id' = $2
+            "#,
+        )
+        .bind(repair_staff_id)
+        .bind(gift_card_id.to_string())
+        .fetch_one(&pool)
+        .await
+        .expect("load gift card original-value repair audit");
+        assert_eq!(
+            original_value_audit
+                .get("corrected_original_value")
+                .and_then(JsonValue::as_str),
+            Some("75.00")
+        );
 
         let repeated_preview = execute_counterpoint_gift_card_batch(
             &pool,
             payload(
                 CounterpointGiftCardMetadataRepairMode::Preview,
                 source_balance,
+                None,
                 None,
             ),
         )
@@ -21001,21 +21155,21 @@ mod tests {
                     repeated_preview_repair.would_reclassify_payments,
                     repeated_preview_repair.payment_repair_digest,
                 )),
+                Some((
+                    repeated_preview_repair.would_repair_original_values,
+                    repeated_preview_repair.original_value_repair_digest,
+                )),
             ),
         )
         .await
         .expect("repeat gift card metadata repair idempotently");
         assert_eq!(repeated.events_created, 0);
-        assert_eq!(
-            repeated
-                .metadata_repair
-                .expect("repeated repair summary")
-                .would_reclassify_payments,
-            0
-        );
+        let repeated_repair = repeated.metadata_repair.expect("repeated repair summary");
+        assert_eq!(repeated_repair.would_reclassify_payments, 0);
+        assert_eq!(repeated_repair.would_repair_original_values, 0);
 
         sqlx::query(
-            "DELETE FROM staff_access_log WHERE staff_id = $1 AND event_kind = 'counterpoint_gift_card_payment_classification_repaired'",
+            "DELETE FROM staff_access_log WHERE staff_id = $1 AND event_kind IN ('counterpoint_gift_card_payment_classification_repaired', 'counterpoint_gift_card_original_value_repaired')",
         )
         .bind(repair_staff_id)
         .execute(&pool)

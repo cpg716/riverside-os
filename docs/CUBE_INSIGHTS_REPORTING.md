@@ -18,6 +18,8 @@ Insights workspace
 
 Follow-up prompts include the current validated report specification so staff can say “change this to recognized revenue” or “group by salesperson.” A direct period change uses **`POST /api/insights/reports/run`** with the existing specification and a replacement date range.
 
+The client runs report requests through a two-slot background job queue. A generating report remains active when staff move to another Riverside workspace in the same app session. Insights shows the same job in **Generation activity**, and the global toast system announces success or failure even when Insights is not open. Returning to Insights restores the newest completed result and leaves other recent jobs available to open. Browser reloads, app exits, and server restarts are not presented as durable background execution; successful server runs remain recoverable from report history.
+
 ## Business semantics
 
 Booked and recognized reporting are separate datasets. They are never implemented as a hidden toggle:
@@ -58,7 +60,7 @@ All routes are below **`/api/insights`** and require **`insights.view`** through
 | **`GET /health`** | Check both the configured loopback Cube service and the selected ROSIE report planner without exposing secrets. |
 | **`GET /cube-health`** | Compatibility alias for the combined reporting health check. |
 
-The server accepts table, bar, line, area, and pie visualization kinds. Limits are clamped to the configured maximum; Settings allows 25–500 rows, with 500 as the default ceiling.
+The server accepts table, bar, line, area, and pie visualization kinds. The workspace may switch among compatible visual presentations locally without asking ROSIE to rerun the governed query. Limits are clamped to the configured maximum; Settings allows 25–500 rows, with 500 as the default ceiling.
 
 ## Deployment
 
@@ -104,7 +106,7 @@ The planner request sends the approved member names once in its constrained tool
 
 ## Export and print
 
-The native workspace makes every successful result available as CSV and through Riverside's professional table print path. Printing includes the report title, period, generation time, basis explanation, and returned rows; the operating-system dialog can print to paper or PDF.
+The native workspace makes every successful result available as CSV and through Riverside's professional report print path. Print/PDF includes the report title, period, generation time, basis explanation, and returned rows. When a visual is shown, its application-generated SVG is included by default so the paper or PDF output matches the workspace. Staff can turn off **Include visual chart** for a data-only report before opening the operating-system print preview.
 
 ## Validation
 

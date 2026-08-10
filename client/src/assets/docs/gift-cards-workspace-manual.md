@@ -27,9 +27,10 @@ Gift Cards Workspace is the Back Office surface for looking up cards, reviewing 
 
 1. Look up the card or choose the approved issue workflow.
 2. Confirm the card subtype before issuing or reviewing activity.
-3. Review balance and history before taking action. ROS-created Loyalty and Donated activity identifies the issuing staff member when that identity is available.
+3. Review original value, remaining balance, linked customer, and history before taking action. Counterpoint-originated cards show the source issue amount and source customer after the guarded repair; ROS-created Loyalty and Donated activity identifies the issuing staff member when that identity is available.
 4. Use checkout for redemption.
 5. Scan card codes where possible; Riverside normalizes scanned codes to uppercase.
+   Back Office lookup includes depleted, voided, and expired cards so retained customer and activity history remains available even when a card is omitted from the default open-card list.
 6. Use **Previous** and **Next** beneath Card Inventory to review every matching card. The range above the controls shows the current rows and the complete filtered total.
 
 ## Gift card types

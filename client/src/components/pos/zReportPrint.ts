@@ -2389,6 +2389,8 @@ export async function openProfessionalTablePrint(opts: {
   subtitle?: string;
   columns: string[];
   rows: Record<string, unknown>[];
+  /** Trusted, application-generated SVG used by visual report workspaces. */
+  visualHtml?: string;
 }): Promise<boolean> {
   const target = createPrintDocument(opts.title);
 
@@ -2402,6 +2404,9 @@ export async function openProfessionalTablePrint(opts: {
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
+  const visualHtml = opts.visualHtml?.trim().startsWith("<svg")
+    ? opts.visualHtml.trim()
+    : "";
 
   const headerCells = opts.columns
     .map(
@@ -2457,7 +2462,9 @@ export async function openProfessionalTablePrint(opts: {
     table { width: 100%; border-collapse: collapse; margin-top: 20px; table-layout: auto; }
     th { font-size: 9px; font-weight: 800; color: #64748b; letter-spacing: 0.1em; }
     .muted { color: #64748b; }
-    @media print { body { padding: 0; } }
+    .report-visual { margin-top: 20px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 12px; break-inside: avoid; }
+    .report-visual svg { display: block; width: 100%; height: auto; max-height: 430px; }
+    @media print { body { padding: 0; } .report-visual { break-inside: avoid; } }
   </style></head><body>
   <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 4px solid #0f172a; padding-bottom: 20px;">
     <div>
@@ -2472,6 +2479,8 @@ export async function openProfessionalTablePrint(opts: {
   </div>
 
   ${opts.subtitle ? `<p style="margin-top:20px;font-weight:700;font-size:12px">${escapeHtml(opts.subtitle)}</p>` : ""}
+
+  ${visualHtml ? `<section class="report-visual" aria-label="Report visual summary">${visualHtml}</section>` : ""}
 
   <table>
     <thead><tr>${headerCells}</tr></thead>

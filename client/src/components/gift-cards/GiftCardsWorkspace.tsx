@@ -528,9 +528,10 @@ export default function GiftCardsWorkspace({
     }
     setScanBusy(true);
     try {
-      const res = await fetch(`${BASE}/api/gift-cards/code/${encodeURIComponent(code)}`, {
-        headers: backofficeHeaders(),
-      });
+      const res = await fetch(
+        `${BASE}/api/gift-cards/code/${encodeURIComponent(code)}?include_closed=true`,
+        { headers: backofficeHeaders() },
+      );
       if (!res.ok) throw new Error("Gift card not found.");
       const card = (await res.json()) as GiftCardRow;
       setScannedCard(card);

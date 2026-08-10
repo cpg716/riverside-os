@@ -1985,6 +1985,8 @@ struct CounterpointGiftCardMetadataRepairApplyBody {
     require_customer_links: bool,
     preview_payment_repair_count: i32,
     preview_payment_repair_digest: String,
+    preview_original_value_repair_count: i32,
+    preview_original_value_repair_digest: String,
     confirmation_phrase: String,
     reason: String,
 }
@@ -1999,6 +2001,8 @@ fn gift_card_metadata_repair_payload(
     audit_reason: Option<String>,
     expected_payment_repair_count: Option<i32>,
     expected_payment_repair_digest: Option<String>,
+    expected_original_value_repair_count: Option<i32>,
+    expected_original_value_repair_digest: Option<String>,
 ) -> CounterpointGiftCardsPayload {
     CounterpointGiftCardsPayload {
         rows,
@@ -2012,6 +2016,8 @@ fn gift_card_metadata_repair_payload(
             audit_reason,
             expected_payment_repair_count,
             expected_payment_repair_digest,
+            expected_original_value_repair_count,
+            expected_original_value_repair_digest,
         }),
     }
 }
@@ -2034,6 +2040,8 @@ async fn settings_gift_card_metadata_repair_preview(
             body.source_balance,
             body.require_customer_links,
             CounterpointGiftCardMetadataRepairMode::Preview,
+            None,
+            None,
             None,
             None,
             None,
@@ -2086,6 +2094,8 @@ async fn settings_gift_card_metadata_repair_apply(
             "require_customer_links": body.require_customer_links,
             "preview_payment_repair_count": body.preview_payment_repair_count,
             "preview_payment_repair_digest": &body.preview_payment_repair_digest,
+            "preview_original_value_repair_count": body.preview_original_value_repair_count,
+            "preview_original_value_repair_digest": &body.preview_original_value_repair_digest,
             "reason": reason,
         }),
     )
@@ -2104,6 +2114,8 @@ async fn settings_gift_card_metadata_repair_apply(
             Some(reason.to_string()),
             Some(body.preview_payment_repair_count),
             Some(body.preview_payment_repair_digest.clone()),
+            Some(body.preview_original_value_repair_count),
+            Some(body.preview_original_value_repair_digest.clone()),
         ),
     )
     .await
@@ -2125,6 +2137,9 @@ async fn settings_gift_card_metadata_repair_apply(
             "promo": repair.map(|summary| summary.promo),
             "customer_links_resolved": repair.map(|summary| summary.customer_links_resolved),
             "would_create_issue_events": repair.map(|summary| summary.would_create_issue_events),
+            "original_values_repaired": repair.map(|summary| summary.would_repair_original_values),
+            "original_value_total_repaired": repair.map(|summary| summary.would_repair_original_value_total),
+            "original_value_repair_digest": repair.map(|summary| &summary.original_value_repair_digest),
             "payments_reclassified": repair.map(|summary| summary.would_reclassify_payments),
             "payment_amount_reclassified": repair.map(|summary| summary.would_reclassify_payment_amount),
             "payment_repair_digest": repair.map(|summary| &summary.payment_repair_digest),

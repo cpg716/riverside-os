@@ -147,7 +147,7 @@ test.describe("PWA layout — tablet (iPad Pro 11 preset)", () => {
       timeout: 25_000,
     });
     await expect(
-      page.getByText(/describe the report you need in plain language, then select build report/i),
+      page.getByText(/ask, shape, visualize, and deliver governed riverside reports/i),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: /^history$/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /^favorites$/i })).toBeVisible();
