@@ -32,16 +32,17 @@ use crate::logic::counterpoint_sync::{
     build_counterpoint_transaction_reconciliation_snapshot, complete_counterpoint_import_run,
     execute_counterpoint_catalog_batch, execute_counterpoint_category_masters_batch,
     execute_counterpoint_customer_batch, execute_counterpoint_customer_notes_batch,
-    execute_counterpoint_gift_card_batch, execute_counterpoint_inventory_batch,
-    execute_counterpoint_loyalty_hist_batch, execute_counterpoint_open_doc_batch,
-    execute_counterpoint_sls_rep_stub_batch, execute_counterpoint_staff_batch,
-    execute_counterpoint_store_credit_opening_batch, execute_counterpoint_ticket_batch,
-    execute_counterpoint_vendor_batch, execute_counterpoint_vendor_item_batch,
-    get_counterpoint_barcode_alias_health_summary, get_counterpoint_ingest_quarantine_summary,
-    get_counterpoint_registry_health_summary, get_lightspeed_normalization_reference_health,
-    ignore_counterpoint_import_exception, import_lightspeed_normalization_reference,
-    list_counterpoint_import_exceptions, list_counterpoint_ingest_quarantine_rows,
-    persist_counterpoint_barcode_aliases, preflight_counterpoint_barcode_aliases,
+    execute_counterpoint_gift_card_batch, execute_counterpoint_historical_booking_event_batch,
+    execute_counterpoint_inventory_batch, execute_counterpoint_loyalty_hist_batch,
+    execute_counterpoint_open_doc_batch, execute_counterpoint_sls_rep_stub_batch,
+    execute_counterpoint_staff_batch, execute_counterpoint_store_credit_opening_batch,
+    execute_counterpoint_ticket_batch, execute_counterpoint_vendor_batch,
+    execute_counterpoint_vendor_item_batch, get_counterpoint_barcode_alias_health_summary,
+    get_counterpoint_ingest_quarantine_summary, get_counterpoint_registry_health_summary,
+    get_lightspeed_normalization_reference_health, ignore_counterpoint_import_exception,
+    import_lightspeed_normalization_reference, list_counterpoint_import_exceptions,
+    list_counterpoint_ingest_quarantine_rows, persist_counterpoint_barcode_aliases,
+    preflight_counterpoint_barcode_aliases,
     preview_counterpoint_lightspeed_normalization_candidates,
     record_counterpoint_import_batch_failure, record_counterpoint_import_batch_success,
     record_counterpoint_import_preflight, require_counterpoint_import_run_for_batch,
@@ -52,7 +53,8 @@ use crate::logic::counterpoint_sync::{
     CounterpointCategoryMastersPayload, CounterpointCustomerNotesPayload,
     CounterpointCustomersPayload, CounterpointFidelityDiagnosticPayload,
     CounterpointGiftCardMetadataRepairMode, CounterpointGiftCardMetadataRepairRequest,
-    CounterpointGiftCardRow, CounterpointGiftCardsPayload, CounterpointImportPreflightPayload,
+    CounterpointGiftCardRow, CounterpointGiftCardsPayload,
+    CounterpointHistoricalBookingEventsPayload, CounterpointImportPreflightPayload,
     CounterpointImportRunCompletePayload, CounterpointImportRunStartPayload,
     CounterpointInventoryPayload, CounterpointLoyaltyHistPayload,
     CounterpointNormalizationPreviewPayload, CounterpointOpenDocsPayload,
@@ -780,6 +782,36 @@ async fn cp_tickets(
             )
             .await;
             Err(cp_err(e))
+        }
+    }
+}
+
+async fn cp_historical_booking_events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CounterpointHistoricalBookingEventsPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers).await?;
+    let n = payload.rows.len();
+    validate_ingest_batch_size(n)?;
+    match execute_counterpoint_historical_booking_event_batch(&state.db, payload).await {
+        Ok(summary) => {
+            tracing::info!(
+                entity = "historical_booking_events",
+                batch_size = n,
+                applied = summary.applied,
+                "counterpoint historical booking-event batch applied"
+            );
+            Ok(Json(serde_json::to_value(summary).unwrap_or_default()))
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                entity = "historical_booking_events",
+                batch_size = n,
+                "counterpoint historical booking-event batch failed"
+            );
+            Err(cp_err(error))
         }
     }
 }
@@ -2283,6 +2315,10 @@ pub fn router() -> Router<AppState> {
             )
             .route("/gift-cards", post(cp_gift_cards))
             .route("/tickets", post(cp_tickets))
+            .route(
+                "/historical-booking-events",
+                post(cp_historical_booking_events),
+            )
             .route("/store-credit-opening", post(cp_store_credit_opening))
             .route("/open-docs", post(cp_open_docs))
             .route("/vendors", post(cp_vendors))

@@ -887,38 +887,94 @@ async fn fetch_register_sales_totals_on_connection(
 ) -> Result<RegisterSalesTotals, RegisterDayActivityError> {
     let summary_line_source = match basis {
         ReportBasis::Booked => r#"
-            SELECT
-                e.transaction_id,
-                SUM(
-                    CASE
-                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-                        THEN 0::numeric
-                        ELSE e.subtotal_delta
-                    END
-                )::numeric(14,2) AS line_subtotal,
-                SUM(
-                    CASE
-                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-                        THEN 0::numeric
-                        ELSE e.tax_delta
-                    END
-                )::numeric(14,2) AS line_tax
-            FROM transaction_line_booking_events e
-            LEFT JOIN product_variants pv
-              ON pv.id = NULLIF(e.metadata->>'variant_id', '')::uuid
-            WHERE e.booked_at >= $1
-              AND e.booked_at < $2
-              AND e.is_internal = FALSE
-              AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
-              AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
-              AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
-            GROUP BY e.transaction_id
-            HAVING SUM(e.subtotal_delta + e.tax_delta) > 0
+            WITH ros_booking_activity AS (
+                SELECT
+                    e.transaction_id,
+                    'ros:' || e.transaction_id::text AS activity_key,
+                    FALSE AS is_counterpoint_history,
+                    SUM(e.subtotal_delta + e.tax_delta) > 0 AS countable_sale,
+                    (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
+                    SUM(
+                        CASE
+                            WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                            THEN 0::numeric
+                            ELSE e.subtotal_delta
+                        END
+                    )::numeric(14,2) AS line_subtotal,
+                    SUM(
+                        CASE
+                            WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                            THEN 0::numeric
+                            ELSE e.tax_delta
+                        END
+                    )::numeric(14,2) AS line_tax
+                FROM transaction_line_booking_events e
+                INNER JOIN transactions source_transaction
+                  ON source_transaction.id = e.transaction_id
+                LEFT JOIN product_variants pv
+                  ON pv.id = NULLIF(e.metadata->>'variant_id', '')::uuid
+                WHERE e.booked_at >= $1
+                  AND e.booked_at < $2
+                  AND e.is_internal = FALSE
+                  AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
+                  AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
+                  AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
+                  AND NOT (
+                      COALESCE(source_transaction.is_counterpoint_import, FALSE)
+                      AND source_transaction.counterpoint_doc_ref IS NOT NULL
+                      AND EXISTS (
+                          SELECT 1
+                          FROM counterpoint_historical_booking_events source_event
+                          WHERE (
+                              source_event.source_document_type =
+                                  source_transaction.metadata->>'counterpoint_source_document_type'
+                              AND source_event.source_document_id =
+                                  source_transaction.metadata->>'counterpoint_source_document_id'
+                          )
+                          OR source_event.metadata->>'counterpoint_open_document_ref' =
+                              source_transaction.counterpoint_doc_ref
+                      )
+                  )
+                GROUP BY
+                    e.transaction_id,
+                    source_transaction.is_counterpoint_import,
+                    (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                HAVING SUM(e.subtotal_delta + e.tax_delta) > 0
+                    OR (
+                        COALESCE(source_transaction.is_counterpoint_import, FALSE)
+                        AND SUM(e.subtotal_delta + e.tax_delta) < 0
+                    )
+            ),
+            counterpoint_booking_activity AS (
+                SELECT
+                    NULL::uuid AS transaction_id,
+                    'counterpoint:' || e.source_document_type || ':' || e.source_document_id
+                        AS activity_key,
+                    TRUE AS is_counterpoint_history,
+                    SUM(e.subtotal_delta + e.tax_delta) > 0 AS countable_sale,
+                    (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
+                    SUM(e.subtotal_delta)::numeric(14,2) AS line_subtotal,
+                    SUM(e.tax_delta)::numeric(14,2) AS line_tax
+                FROM counterpoint_historical_booking_events e
+                WHERE e.booked_at >= $1
+                  AND e.booked_at < $2
+                GROUP BY
+                    e.source_document_type,
+                    e.source_document_id,
+                    (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                HAVING SUM(e.subtotal_delta) <> 0 OR SUM(e.tax_delta) <> 0
+            )
+            SELECT * FROM ros_booking_activity
+            UNION ALL
+            SELECT * FROM counterpoint_booking_activity
         "#
         .to_string(),
         ReportBasis::Completed => r#"
             SELECT
                 oi.transaction_id,
+                'ros:' || oi.transaction_id::text AS activity_key,
+                FALSE AS is_counterpoint_history,
+                TRUE AS countable_sale,
                 SUM(
                     CASE
                         WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
@@ -946,19 +1002,27 @@ async fn fetch_register_sales_totals_on_connection(
     let agg_sql = format!(
         r#"
         SELECT
-            COUNT(DISTINCT o.id) FILTER (
-                WHERE ln.line_subtotal <> 0 OR ln.line_tax <> 0
+            COUNT(DISTINCT ln.activity_key) FILTER (
+                WHERE ln.countable_sale
+                  AND (ln.line_subtotal <> 0 OR ln.line_tax <> 0)
             )::bigint AS sale_count,
             COALESCE(SUM(ln.line_subtotal), 0::numeric) AS subtotal_no_tax,
             COALESCE(SUM(ln.line_tax), 0::numeric) AS tax_total,
-            COUNT(DISTINCT o.id) FILTER (
-                WHERE o.sale_channel = 'web'
+            COUNT(DISTINCT ln.activity_key) FILTER (
+                WHERE NOT ln.is_counterpoint_history
+                  AND o.sale_channel = 'web'
                   AND (ln.line_subtotal <> 0 OR ln.line_tax <> 0)
             )::bigint AS web_count
-        FROM transactions o
-        INNER JOIN ({summary_line_source}) ln ON ln.transaction_id = o.id
-        WHERE {summary_order_in_range}
-        {order_session_filter}
+        FROM ({summary_line_source}) ln
+        LEFT JOIN transactions o ON o.id = ln.transaction_id
+        WHERE (
+            (ln.is_counterpoint_history AND $3::uuid IS NULL)
+            OR (
+                NOT ln.is_counterpoint_history
+                AND {summary_order_in_range}
+                {order_session_filter}
+            )
+        )
         "#,
     );
 

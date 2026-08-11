@@ -862,7 +862,8 @@ pub fn render_html(report: &DailyReport, store_name: &str) -> String {
     } else {
         "#fef2f2"
     };
-    let mtd_percent = report
+    let mtd_change_amount = signed_money(report.month_to_date.change_amount);
+    let mtd_change_percent = report
         .month_to_date
         .change_percent
         .map(signed_pct)
@@ -872,11 +873,7 @@ pub fn render_html(report: &DailyReport, store_name: &str) -> String {
     } else {
         mtd_change_color
     };
-    let mtd_percent_background = if report.month_to_date.change_percent.is_none() {
-        "#f8fafc"
-    } else {
-        mtd_change_background
-    };
+    let mtd_change_summary = format!("{mtd_change_amount} ({mtd_change_percent})");
     let booked_total_with_tax = report.booked_sales.net_sales + report.booked_sales.tax_total;
 
     let weather_section = match &report.weather {
@@ -954,13 +951,13 @@ pub fn render_html(report: &DailyReport, store_name: &str) -> String {
             <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#c2410c">MTD Booked Net</p>
             <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#9a3412;font-family:monospace">{mtd_net_sales}</p>
         </div>
-        <div style="flex:1;min-width:140px;background:{mtd_change_background};border-radius:12px;padding:16px;text-align:center">
-            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:{mtd_change_color}">MTD vs Last Year — $</p>
-            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:{mtd_change_color};font-family:monospace">{mtd_change_amount}</p>
+        <div style="flex:1;min-width:140px;background:#eff6ff;border-radius:12px;padding:16px;text-align:center">
+            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#2563eb">Last Year MTD</p>
+            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:#1d4ed8;font-family:monospace">{mtd_prior_net_sales}</p>
         </div>
-        <div style="flex:1;min-width:140px;background:{mtd_percent_background};border-radius:12px;padding:16px;text-align:center">
-            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:{mtd_percent_color}">MTD vs Last Year — %</p>
-            <p style="margin:4px 0 0;font-size:24px;font-weight:800;color:{mtd_percent_color};font-family:monospace">{mtd_change_percent}</p>
+        <div style="flex:1;min-width:140px;background:{mtd_change_background};border-radius:12px;padding:16px;text-align:center">
+            <p style="margin:0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:{mtd_change_color}">MTD vs Last Year</p>
+            <p style="margin:4px 0 0;font-size:20px;font-weight:800;color:{mtd_change_color};font-family:monospace">{mtd_change_summary}</p>
         </div>
     </div>
 
@@ -1073,12 +1070,12 @@ pub fn render_html(report: &DailyReport, store_name: &str) -> String {
         net_sales = money(report.net_sales),
         mtd_net_sales = money(report.month_to_date.current_net_sales),
         mtd_prior_net_sales = money(report.month_to_date.prior_year_net_sales),
-        mtd_change_amount = signed_money(report.month_to_date.change_amount),
-        mtd_change_percent = mtd_percent,
+        mtd_change_summary = mtd_change_summary,
         mtd_change_color = mtd_change_color,
         mtd_change_background = mtd_change_background,
+        mtd_change_amount = mtd_change_amount,
+        mtd_change_percent = mtd_change_percent,
         mtd_percent_color = mtd_percent_color,
-        mtd_percent_background = mtd_percent_background,
         mtd_current_start = report.month_to_date.current_start,
         mtd_current_end = report.month_to_date.current_end,
         mtd_prior_start = report.month_to_date.prior_year_start,
@@ -1401,12 +1398,11 @@ mod tests {
         assert!(html.contains("Booked Total With Tax"));
         assert!(html.contains("$10155.60"));
         assert!(html.contains("MTD Booked Net"));
-        assert!(html.contains("MTD vs Last Year — $"));
-        assert!(html.contains("MTD vs Last Year — %"));
+        assert!(html.contains("Last Year MTD"));
+        assert!(html.contains("MTD vs Last Year"));
         assert!(html.contains("Month-to-Date Net Comparison"));
         assert!(html.contains("2025-08-01 through 2025-08-07"));
-        assert!(html.contains("+$2000.00"));
-        assert!(html.contains("+20.0%"));
+        assert!(html.contains("+$2000.00 (+20.0%)"));
         assert!(html.contains("Business Day Weather"));
         assert!(html.contains("Rain &amp; &lt;wind&gt;"));
         assert!(html.contains("0.42 in"));

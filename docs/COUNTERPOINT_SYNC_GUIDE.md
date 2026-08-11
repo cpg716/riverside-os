@@ -26,6 +26,16 @@ The Command Center shows a business-area ingest path for Customers, Inventory, T
 
 Counterpoint can emit a history ticket with merchandise line rows but a zero ticket total and a positive tender amount when the tender belongs to an existing open document. ROS treats that source shape as payment activity, not a second sale: it attaches the tender to the matching open-document transaction, preserves the open document's line prices, and supersedes any prior duplicate history transaction on rerun. Split tenders on the same open document remain separate payment rows and are summed normally. The Bridge selects the `PS_DOC_HDR_TOT` row whose `TOT_TYP` is `O` when that column is available, so remaining/void total snapshots do not create competing open-document totals.
 
+### Closed-ticket financial line classification
+
+Ticket History requires `PS_TKT_HIST_LIN.LIN_TYP` on every source line. ROS treats only `S` (sale), `A` (adjustment), and `R` (return) rows as financial merchandise and inventory movement. `U` rows describe order lifecycle activity and must not become booked sales, recognized sales, or item movement. Return quantities, extended prices, and tax remain signed through the Bridge so a return cannot be converted into positive revenue or positive units sold.
+
+Booked history comes from Counterpoint's immutable document audit sequence, not from released-order ticket lines. The Bridge imports active `PS_DOC_AUDIT_LOG*` rows and archived `PS_ORD_HIST_AUDIT_LOG*` / `PS_LWY_HIST_AUDIT_LOG*` rows by stable `DOC_GUID`. New and reinstated documents add their source total, edits add only the change from the prior snapshot, and cancellations reverse the prior snapshot. Deposits, prints, releases, fulfillment, and close activity do not create bookings. A matching audit history replaces the imported open-document snapshot in booked reporting, so an open document is not counted again after it moves to history.
+
+An unlinked `S` or `A` ticket line is a direct booked sale. An order-linked `S` or `A` line remains available for item movement and recognized revenue but its generated booking event is excluded because the order was already booked from the document audit. An `R` line remains a signed booked reversal. This separation lets prior-year sales, forecasting, and item-velocity reporting use the same event meanings as current ROS activity without double-counting order fulfillment.
+
+After installing a build with this classification, rerun **Auto Config / Schema Alignment** before a full Ticket History and Open Orders refresh. A manually retained ticket-line query that omits `LIN_TYP AS line_type` fails closed. Rerunning Ticket History source-replaces eligible imported Counterpoint lines and creates fresh source-dated evidence. Any Transaction Record with protected returns, fulfillment/procurement links, later payment allocations, or post-import activity remains unchanged and is reported for reviewed recovery instead of being rewritten.
+
 Counterpoint SQL is the source authority for cutover customer profiles, open orders, gift cards, loyalty balances, catalog identity, and inventory quantities. ROS may add deterministic `CP-*` recovery SKUs only when Counterpoint provides a valid item/cell key without a usable `B-*` barcode/SKU. That recovery identity is additive; imports must preserve Counterpoint keys, barcode aliases, balances, quantities, and provenance rather than replacing source data with ROS-generated values.
 
 ### Imported financial-integrity manifest
@@ -226,6 +236,7 @@ Normal setup does not add entity SQL or entity flags to `.env`. The bridge probe
 | Gift-card current balances | `SY_GFT_CERT` or supported local gift-card master |
 | Historical tickets, lines, payments, notes | `PS_TKT_HIST`, `PS_TKT_HIST_LIN`, `PS_TKT_HIST_PMT`, note tables when visible |
 | Open Counterpoint docs | `PS_DOC_*` family when visible |
+| Historical booked order events | Active `PS_DOC_AUDIT_LOG*` plus archived `PS_ORD_HIST_AUDIT_LOG*` / `PS_LWY_HIST_AUDIT_LOG*` keyed by `DOC_GUID` |
 
 Use the GUI Auto Config action or `node index.mjs auto-config` after `SQL_CONNECTION_STRING` is set. Old `CP_*_QUERY` entries are ignored unless `CP_SQL_ENV_OVERRIDES=1` is explicitly set for expert recovery work.
 
@@ -441,6 +452,7 @@ For attended Main Hub maintenance, use the staff-authorized `POST /api/settings/
 | Generated identity from `PS_TKT_HIST` ticket columns | `transactions.counterpoint_ticket_ref` |
 | `PS_TKT_HIST.BUS_DAT` | `transactions.booked_at` |
 | `PS_TKT_HIST.TOT` | Source retail/gross total used to reconcile the historical ticket |
+| `PS_TKT_HIST_LIN.LIN_TYP` + `LINK_LIN_GUID` | `S`/`A`/`R` are financial movement; linked `S`/`A` fulfillment does not create a second booking; `U` is lifecycle-only |
 | `PS_TKT_HIST_PMT.AMT` + redeeming `PS_TKT_HIST_GFT.AMT` | `transactions.amount_paid` / `transactions.balance_due` when present |
 | `PS_TKT_HIST.CUST_NO` | `transactions.customer_id` (resolved via `customer_code`) |
 | `PS_TKT_HIST.USR_ID` | `transactions.processed_by_staff_id` (resolved via `counterpoint_staff_map`) |
@@ -727,7 +739,7 @@ The Fresh baseline reset preserves reviewed Counterpoint mapping configuration s
 
 Do not use `scripts/ros-wipe-business-data-keep-bootstrap-admin.sql` as the normal Counterpoint rehearsal reset. That script is a broad operational/business-data wipe; it may clear more operational setup and does not preserve the same Counterpoint rehearsal state.
 
-The server reset also clears the active ROS import-run pointer, import proof rows, exceptions, ingest quarantine, stored fidelity diagnostics, retired CSV/reference cleanup artifacts, and Counterpoint workbench step state. It does not touch bridge-local cursor files. Delete or reset `.counterpoint-bridge-state.json` on the Counterpoint PC before the next run if you need a true full replay instead of continuing from saved bridge cursors.
+The server reset also clears the active ROS import-run pointer, imported booking-event history, import proof rows, exceptions, ingest quarantine, stored fidelity diagnostics, retired CSV/reference cleanup artifacts, and Counterpoint workbench step state. It does not touch bridge-local cursor files. Delete or reset `.counterpoint-bridge-state.json` on the Counterpoint PC before the next run if you need a true full replay instead of continuing from saved bridge cursors.
 
 ### API endpoints (staff-gated, `settings.admin`)
 
@@ -750,6 +762,7 @@ The server reset also clears the active ROS import-run pointer, import proof row
 | `POST` | `/api/sync/counterpoint/catalog` | Product + variant upsert |
 | `POST` | `/api/sync/counterpoint/gift-cards` | Gift card + event ingest |
 | `POST` | `/api/sync/counterpoint/tickets` | Ticket history → Transaction Records |
+| `POST` | `/api/sync/counterpoint/historical-booking-events` | Active and archived order/layaway audit deltas → canonical booked history |
 | `POST` | `/api/sync/counterpoint/vendor-items` | `PO_VEND_ITEM` → `vendor_supplier_item` |
 | `POST` | `/api/sync/counterpoint/ack-request` | Acknowledge a pending sync request |
 | `POST` | `/api/sync/counterpoint/complete-request` | Mark a sync request as completed |

@@ -9,14 +9,15 @@ use uuid::Uuid;
 use super::counterpoint_sync::{
     execute_counterpoint_catalog_batch, execute_counterpoint_category_masters_batch,
     execute_counterpoint_customer_batch, execute_counterpoint_customer_notes_batch,
-    execute_counterpoint_gift_card_batch, execute_counterpoint_inventory_batch,
-    execute_counterpoint_loyalty_hist_batch, execute_counterpoint_open_doc_batch,
-    execute_counterpoint_receiving_batch, execute_counterpoint_sls_rep_stub_batch,
-    execute_counterpoint_staff_batch, execute_counterpoint_store_credit_opening_batch,
-    execute_counterpoint_ticket_batch, execute_counterpoint_vendor_batch,
-    execute_counterpoint_vendor_item_batch, CounterpointCatalogPayload,
-    CounterpointCategoryMastersPayload, CounterpointCustomerNotesPayload,
-    CounterpointCustomersPayload, CounterpointGiftCardsPayload, CounterpointInventoryPayload,
+    execute_counterpoint_gift_card_batch, execute_counterpoint_historical_booking_event_batch,
+    execute_counterpoint_inventory_batch, execute_counterpoint_loyalty_hist_batch,
+    execute_counterpoint_open_doc_batch, execute_counterpoint_receiving_batch,
+    execute_counterpoint_sls_rep_stub_batch, execute_counterpoint_staff_batch,
+    execute_counterpoint_store_credit_opening_batch, execute_counterpoint_ticket_batch,
+    execute_counterpoint_vendor_batch, execute_counterpoint_vendor_item_batch,
+    CounterpointCatalogPayload, CounterpointCategoryMastersPayload,
+    CounterpointCustomerNotesPayload, CounterpointCustomersPayload, CounterpointGiftCardsPayload,
+    CounterpointHistoricalBookingEventsPayload, CounterpointInventoryPayload,
     CounterpointLoyaltyHistPayload, CounterpointOpenDocsPayload, CounterpointReceivingPayload,
     CounterpointSlsRepStubPayload, CounterpointStaffPayload, CounterpointStoreCreditOpeningPayload,
     CounterpointSyncError, CounterpointTicketsPayload, CounterpointVendorItemsPayload,
@@ -306,6 +307,13 @@ pub async fn execute_counterpoint_payload(
             let p: CounterpointTicketsPayload = serde_json::from_value(payload)
                 .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
             serde_json::to_value(execute_counterpoint_ticket_batch(pool, p).await?)
+        }
+        "historical_booking_events" => {
+            let p: CounterpointHistoricalBookingEventsPayload = serde_json::from_value(payload)
+                .map_err(|e| CounterpointSyncError::InvalidPayload(e.to_string()))?;
+            serde_json::to_value(
+                execute_counterpoint_historical_booking_event_batch(pool, p).await?,
+            )
         }
         "vendors" => {
             let p: CounterpointVendorsPayload = serde_json::from_value(payload)

@@ -4731,6 +4731,7 @@ fn counterpoint_preflight_required_probe_entities() -> &'static [&'static str] {
         "tickets",
         "ticket_lines",
         "ticket_payments",
+        "historical_booking_events",
         "open_docs",
         "open_doc_lines",
         "open_doc_payments",
@@ -4747,6 +4748,7 @@ fn counterpoint_preflight_zero_block_entities() -> &'static [&'static str] {
         "inventory_quantity_rows",
         "tickets",
         "ticket_lines",
+        "historical_booking_events",
         "open_docs",
         "open_doc_lines",
         "gift_cards",
@@ -5588,6 +5590,19 @@ fn counterpoint_source_key_for_payload_row(
         "catalog" => value_text(row, "item_no"),
         "gift_cards" => value_text(row, "cert_no"),
         "tickets" => value_text(row, "ticket_ref"),
+        "historical_booking_events" => match (
+            value_text(row, "source_document_type"),
+            value_text(row, "source_document_id"),
+            value_text(row, "source_log_sequence"),
+        ) {
+            (Some(document_type), Some(document_id), Some(sequence)) => Some(format!(
+                "{}|{}|{}",
+                document_type.trim().to_ascii_lowercase(),
+                document_id.trim(),
+                sequence.trim()
+            )),
+            _ => None,
+        },
         "vendors" => value_text(row, "vend_no"),
         "vendor_items" => match (value_text(row, "vend_no"), value_text(row, "item_no")) {
             (Some(vend), Some(item)) => Some(format!(
@@ -5816,6 +5831,21 @@ async fn counterpoint_landed_targets_by_source_key(
                 .bind(source_keys)
                 .fetch_all(pool)
                 .await?;
+            for (key, table, id) in rows {
+                out.entry(key).or_default().push((table, id));
+            }
+        }
+        "historical_booking_events" => {
+            let rows: Vec<(String, String, Uuid)> = sqlx::query_as(
+                r#"
+                SELECT source_key, 'counterpoint_historical_booking_events'::text, id
+                FROM counterpoint_historical_booking_events
+                WHERE source_key = ANY($1)
+                "#,
+            )
+            .bind(source_keys)
+            .fetch_all(pool)
+            .await?;
             for (key, table, id) in rows {
                 out.entry(key).or_default().push((table, id));
             }
@@ -6189,6 +6219,10 @@ fn import_provenance_target_for_source_count(
         "ticket_payments" | "closed_ticket_payments" => {
             Some(("tickets", Some("payment_allocations")))
         }
+        "historical_booking_events" => Some((
+            "historical_booking_events",
+            Some("counterpoint_historical_booking_events"),
+        )),
         "open_docs" | "open_docs_unfulfilled_obligations" => {
             Some(("open_docs", Some("transactions")))
         }
@@ -6311,6 +6345,7 @@ fn import_run_counts_landed_ros_rows(entity_key: &str) -> bool {
             | "closed_ticket_lines"
             | "ticket_payments"
             | "closed_ticket_payments"
+            | "historical_booking_events"
             | "open_doc_lines"
             | "open_doc_payments"
             | "open_doc_deposits_payments"
@@ -9052,6 +9087,7 @@ async fn build_counterpoint_reset_scope(
                   + (SELECT COUNT(*)::bigint FROM counterpoint_import_raw_records)
                   + (SELECT COUNT(*)::bigint FROM counterpoint_import_provenance)
                   + (SELECT COUNT(*)::bigint FROM counterpoint_import_exceptions)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_historical_booking_events)
                 "#,
             )
             .await?,
@@ -10535,6 +10571,9 @@ async fn perform_counterpoint_baseline_reset_targets(
             .execute(&mut **tx)
             .await?;
     }
+    sqlx::query("DELETE FROM counterpoint_historical_booking_events")
+        .execute(&mut **tx)
+        .await?;
     if !targets.counterpoint_import_run_ids.is_empty() {
         sqlx::query("DELETE FROM counterpoint_import_runs WHERE id = ANY($1)")
             .bind(&targets.counterpoint_import_run_ids)
@@ -12862,6 +12901,11 @@ pub struct CounterpointTicketRow {
     pub sls_rep: Option<String>,
     #[serde(default)]
     pub notes: Option<String>,
+    /// Counterpoint original order/layaway identity for release-ticket lines.
+    #[serde(default)]
+    pub origin_document_type: Option<String>,
+    #[serde(default)]
+    pub origin_document_id: Option<String>,
     #[serde(default)]
     pub lines: Vec<TicketLineRow>,
     #[serde(default)]
@@ -12880,7 +12924,7 @@ pub struct TicketGiftApplicationRow {
     pub action: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct TicketLineRow {
     #[serde(default)]
     pub sku: Option<String>,
@@ -12889,6 +12933,13 @@ pub struct TicketLineRow {
     /// Ignored by ingest; bridge may send for debugging (PS_TKT_HIST_LIN.LIN_SEQ_NO).
     #[serde(default)]
     pub lin_seq_no: Option<i32>,
+    /// Counterpoint `PS_TKT_HIST_LIN.LIN_TYP`. Closed-ticket financial
+    /// merchandise is limited to S/A/R; U rows are order lifecycle context.
+    #[serde(default)]
+    pub line_type: Option<String>,
+    /// True when Counterpoint links the sale line to an original order line.
+    #[serde(default)]
+    pub is_order_linked: bool,
     pub quantity: i32,
     pub unit_price: Decimal,
     #[serde(default)]
@@ -12909,6 +12960,29 @@ pub struct TicketLineRow {
     pub reason_code: Option<String>,
 }
 
+fn counterpoint_ticket_line_is_financial(line: &TicketLineRow) -> bool {
+    matches!(
+        line.line_type
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_uppercase)
+            .as_deref(),
+        Some("S" | "A" | "R")
+    )
+}
+
+fn counterpoint_ticket_line_is_order_fulfillment(line: &TicketLineRow) -> bool {
+    line.is_order_linked
+        && matches!(
+            line.line_type
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_ascii_uppercase)
+                .as_deref(),
+            Some("S" | "A")
+        )
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TicketPaymentRow {
     pub pmt_typ: String,
@@ -12922,6 +12996,136 @@ pub struct CounterpointTicketsPayload {
     pub rows: Vec<CounterpointTicketRow>,
     #[serde(default)]
     pub sync: Option<SyncCursorIn>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CounterpointHistoricalBookingEventRow {
+    pub source_document_type: String,
+    pub source_document_id: String,
+    pub source_log_sequence: i32,
+    pub event_kind: String,
+    pub booked_at: String,
+    pub subtotal_delta: Decimal,
+    pub tax_delta: Decimal,
+    #[serde(default)]
+    pub metadata: JsonValue,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CounterpointHistoricalBookingEventsPayload {
+    pub rows: Vec<CounterpointHistoricalBookingEventRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointHistoricalBookingEventSyncSummary {
+    pub applied: i32,
+}
+
+pub async fn execute_counterpoint_historical_booking_event_batch(
+    pool: &PgPool,
+    payload: CounterpointHistoricalBookingEventsPayload,
+) -> Result<CounterpointHistoricalBookingEventSyncSummary, CounterpointSyncError> {
+    if payload.rows.is_empty() {
+        return Err(CounterpointSyncError::InvalidPayload(
+            "rows cannot be empty".into(),
+        ));
+    }
+
+    let mut normalized_rows = Vec::with_capacity(payload.rows.len());
+    for row in payload.rows {
+        let source_document_type = row.source_document_type.trim().to_ascii_lowercase();
+        if !matches!(source_document_type.as_str(), "order" | "layaway") {
+            return Err(CounterpointSyncError::InvalidPayload(format!(
+                "unsupported historical booking document type {:?}",
+                row.source_document_type
+            )));
+        }
+        let source_document_id = row.source_document_id.trim().to_string();
+        if source_document_id.is_empty() || row.source_log_sequence < 0 {
+            return Err(CounterpointSyncError::InvalidPayload(
+                "historical booking document id and non-negative log sequence are required".into(),
+            ));
+        }
+        let event_kind = row.event_kind.trim().to_ascii_uppercase();
+        if !matches!(event_kind.as_str(), "N" | "E" | "C" | "I") {
+            return Err(CounterpointSyncError::InvalidPayload(format!(
+                "unsupported historical booking event kind {:?}",
+                row.event_kind
+            )));
+        }
+        let Some(booked_at) = parse_counterpoint_source_booked_at(Some(&row.booked_at)) else {
+            return Err(CounterpointSyncError::InvalidPayload(format!(
+                "historical booking event {}|{}|{} has an invalid source timestamp",
+                source_document_type, source_document_id, row.source_log_sequence
+            )));
+        };
+        let source_key = format!(
+            "{}|{}|{}",
+            source_document_type, source_document_id, row.source_log_sequence
+        );
+        normalized_rows.push((
+            source_key,
+            source_document_type,
+            source_document_id,
+            row.source_log_sequence,
+            event_kind,
+            booked_at,
+            rounded_counterpoint_money(row.subtotal_delta),
+            rounded_counterpoint_money(row.tax_delta),
+            row.metadata,
+        ));
+    }
+
+    let mut tx = pool.begin().await?;
+    for (
+        source_key,
+        source_document_type,
+        source_document_id,
+        source_log_sequence,
+        event_kind,
+        booked_at,
+        subtotal_delta,
+        tax_delta,
+        metadata,
+    ) in &normalized_rows
+    {
+        sqlx::query(
+            r#"
+            INSERT INTO counterpoint_historical_booking_events (
+                source_key, source_document_type, source_document_id,
+                source_log_sequence, event_kind, booked_at,
+                subtotal_delta, tax_delta, metadata
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (source_key) DO UPDATE
+            SET source_document_type = EXCLUDED.source_document_type,
+                source_document_id = EXCLUDED.source_document_id,
+                source_log_sequence = EXCLUDED.source_log_sequence,
+                event_kind = EXCLUDED.event_kind,
+                booked_at = EXCLUDED.booked_at,
+                subtotal_delta = EXCLUDED.subtotal_delta,
+                tax_delta = EXCLUDED.tax_delta,
+                metadata = EXCLUDED.metadata,
+                updated_at = CURRENT_TIMESTAMP
+            "#,
+        )
+        .bind(source_key)
+        .bind(source_document_type)
+        .bind(source_document_id)
+        .bind(source_log_sequence)
+        .bind(event_kind)
+        .bind(booked_at)
+        .bind(subtotal_delta)
+        .bind(tax_delta)
+        .bind(metadata)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    Ok(CounterpointHistoricalBookingEventSyncSummary {
+        applied: normalized_rows.len() as i32,
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -13787,6 +13991,7 @@ pub async fn execute_counterpoint_ticket_batch(
     let mut bulk_line_reasons = Vec::new();
     let mut bulk_line_vendor_refs = Vec::new();
     let mut bulk_line_size_specs = Vec::new();
+    let mut order_release_transaction_ids = Vec::new();
     let mut summary = TicketSyncSummary {
         transactions_created: 0,
         transactions_skipped_existing: 0,
@@ -13839,7 +14044,92 @@ pub async fn execute_counterpoint_ticket_batch(
             continue;
         }
 
-        let ticket_lines: &[TicketLineRow] = &tkt.lines;
+        let missing_line_type_count = tkt
+            .lines
+            .iter()
+            .filter(|line| {
+                line.line_type
+                    .as_deref()
+                    .map(str::trim)
+                    .is_none_or(str::is_empty)
+            })
+            .count();
+        if missing_line_type_count > 0 {
+            record_counterpoint_import_exception(
+                pool,
+                "tickets",
+                Some(ticket_ref),
+                "error",
+                "missing_ticket_line_type",
+                &format!(
+                    "Counterpoint ticket {ticket_ref} was not imported because {missing_line_type_count} source line(s) omitted LIN_TYP."
+                ),
+                Some(
+                    "Rerun Counterpoint Bridge Auto Config so PS_TKT_HIST_LIN.LIN_TYP is sent as line_type, then rerun Ticket History.",
+                ),
+                false,
+                None,
+                None,
+                serde_json::json!({
+                    "counterpoint_ticket_ref": ticket_ref,
+                    "missing_line_type_count": missing_line_type_count,
+                    "financial_line_types": ["S", "A", "R"],
+                    "lifecycle_line_type": "U",
+                }),
+            )
+            .await;
+            record_sync_issue(
+                pool,
+                "tickets",
+                Some(ticket_ref),
+                "error",
+                "Ticket skipped: PS_TKT_HIST_LIN.LIN_TYP is required for financial classification",
+            )
+            .await;
+            summary.skipped += 1;
+            continue;
+        }
+
+        let normalized_amount_paid =
+            sum_counterpoint_ticket_tenders(&tkt.payments, &tkt.gift_applications)
+                .unwrap_or(tkt.amount_paid);
+        let is_payment_only =
+            tkt.total_price <= Decimal::ZERO && normalized_amount_paid > Decimal::ZERO;
+        let ticket_lines_storage: Vec<TicketLineRow> = if is_payment_only {
+            tkt.lines.clone()
+        } else {
+            tkt.lines
+                .iter()
+                .filter(|line| counterpoint_ticket_line_is_financial(line))
+                .cloned()
+                .collect()
+        };
+        if ticket_lines_storage.is_empty() {
+            record_counterpoint_import_exception(
+                pool,
+                "tickets",
+                Some(ticket_ref),
+                "error",
+                "missing_financial_ticket_lines",
+                &format!(
+                    "Counterpoint ticket {ticket_ref} was not imported because it has no S, A, or R financial lines."
+                ),
+                Some(
+                    "Review the Counterpoint ticket type and source line classifications. U lifecycle rows cannot be imported as merchandise sales.",
+                ),
+                false,
+                None,
+                None,
+                serde_json::json!({
+                    "counterpoint_ticket_ref": ticket_ref,
+                    "source_line_types": tkt.lines.iter().filter_map(|line| line.line_type.as_deref()).collect::<Vec<_>>(),
+                }),
+            )
+            .await;
+            summary.skipped += 1;
+            continue;
+        }
+        let ticket_lines = ticket_lines_storage.as_slice();
 
         let mut resolved_lines: Vec<(Uuid, Uuid)> = Vec::with_capacity(ticket_lines.len());
         let mut line_vendor_refs: Vec<Option<String>> = Vec::with_capacity(ticket_lines.len());
@@ -13965,9 +14255,6 @@ pub async fn execute_counterpoint_ticket_batch(
         // Counterpoint ticket imports are closed sales history. Tender offsets can span
         // related tickets/open docs, so keep source tender rows but present ticket rows
         // as fulfilled and balance-clear in ROS customer/order surfaces.
-        let normalized_amount_paid =
-            sum_counterpoint_ticket_tenders(&tkt.payments, &tkt.gift_applications)
-                .unwrap_or(tkt.amount_paid);
         let (effective_total_price, effective_line_prices, original_line_prices, ticket_line_taxes) =
             counterpoint_import_line_financials(
                 tkt.total_price,
@@ -13978,6 +14265,7 @@ pub async fn execute_counterpoint_ticket_batch(
             );
         let financial_evidence = counterpoint_ticket_financial_evidence(
             tkt,
+            ticket_lines,
             normalized_amount_paid,
             effective_total_price,
             &effective_line_prices,
@@ -14005,6 +14293,31 @@ pub async fn execute_counterpoint_ticket_batch(
                 );
             }
         }
+        let origin_document_type = tkt
+            .origin_document_type
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_uppercase)
+            .filter(|value| matches!(value.as_str(), "O" | "L"));
+        let origin_document_id = tkt
+            .origin_document_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if let (Some(origin_document_type), Some(origin_document_id)) =
+            (origin_document_type.as_deref(), origin_document_id)
+        {
+            if let Some(metadata) = counterpoint_metadata.as_object_mut() {
+                metadata.insert(
+                    "counterpoint_origin_document_type".to_string(),
+                    serde_json::json!(origin_document_type),
+                );
+                metadata.insert(
+                    "counterpoint_origin_document_id".to_string(),
+                    serde_json::json!(origin_document_id),
+                );
+            }
+        }
         // Historical tickets are closed sales, but their paid amount must remain
         // the source-of-truth tender total. Do not replace a discounted payment
         // with the retail/effective merchandise total.
@@ -14027,7 +14340,7 @@ pub async fn execute_counterpoint_ticket_batch(
         // an existing open POS transaction. It is not a second merchandise sale.
         // Match it to the existing ROS transaction by customer, paid amount, and
         // exact product/variant quantities before considering normal ticket import.
-        if tkt.total_price <= Decimal::ZERO && normalized_amount_paid > Decimal::ZERO {
+        if is_payment_only {
             if let Some(existing_transaction_id) =
                 find_existing_pos_transaction_for_counterpoint_payment(
                     &mut tx,
@@ -14191,6 +14504,13 @@ pub async fn execute_counterpoint_ticket_batch(
             transaction_id
         };
 
+        if ticket_lines
+            .iter()
+            .any(counterpoint_ticket_line_is_order_fulfillment)
+        {
+            order_release_transaction_ids.push(transaction_id);
+        }
+
         sqlx::query(
             r#"
             INSERT INTO transaction_activity_log (
@@ -14253,6 +14573,8 @@ pub async fn execute_counterpoint_ticket_batch(
                 "counterpoint_sku": line.sku.as_deref(),
                 "counterpoint_item_key": line.counterpoint_item_key.as_deref(),
                 "counterpoint_line_sequence": line.lin_seq_no,
+                "counterpoint_line_type": line.line_type.as_deref(),
+                "counterpoint_is_order_linked": line.is_order_linked,
             });
             if let Some(original_unit_price) = original_unit_price {
                 if let Some(map) = size_specs.as_object_mut() {
@@ -14438,6 +14760,29 @@ pub async fn execute_counterpoint_ticket_batch(
         .await?;
     }
 
+    if !order_release_transaction_ids.is_empty() {
+        order_release_transaction_ids.sort_unstable();
+        order_release_transaction_ids.dedup();
+        sqlx::query(
+            r#"
+            UPDATE transaction_line_booking_events e
+            SET metadata = COALESCE(e.metadata, '{}'::jsonb) || jsonb_build_object(
+                'reporting_excluded', 'counterpoint_order_fulfillment',
+                'reporting_exclusion_reason', 'order_was_booked_from_counterpoint_audit_history'
+            )
+            FROM transaction_lines tl
+            WHERE e.transaction_line_id = tl.id
+              AND tl.transaction_id = ANY($1)
+              AND e.event_kind = 'initial_booking'
+              AND UPPER(COALESCE(tl.size_specs->>'counterpoint_line_type', '')) IN ('S', 'A')
+              AND COALESCE((tl.size_specs->>'counterpoint_is_order_linked')::boolean, FALSE)
+            "#,
+        )
+        .bind(&order_release_transaction_ids)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     for (ticket_ref, transaction_id, evidence) in &financial_review_rows {
         record_counterpoint_financial_mismatch_in_tx(
             &mut tx,
@@ -14596,6 +14941,9 @@ fn fulfillment_type_for_cp_doc_typ(doc_typ: Option<&str>) -> &'static str {
 #[derive(Debug, Deserialize)]
 pub struct CounterpointOpenDocRow {
     pub doc_ref: String,
+    /// Stable Counterpoint `DOC_GUID` used to join open snapshots to audit history.
+    #[serde(default)]
+    pub source_document_id: Option<String>,
     #[serde(default)]
     pub cust_no: Option<String>,
     #[serde(default)]
@@ -15170,22 +15518,22 @@ fn counterpoint_open_doc_exact_financials(
 
 fn counterpoint_ticket_financial_evidence(
     ticket: &CounterpointTicketRow,
+    lines: &[TicketLineRow],
     source_tender_total: Decimal,
     imported_header_total: Decimal,
     imported_line_prices: &[Decimal],
     imported_line_taxes: &[(Decimal, Decimal)],
 ) -> CounterpointTicketFinancialEvidence {
-    let (source_line_prices, _) = counterpoint_line_source_prices(&ticket.lines);
+    let (source_line_prices, _) = counterpoint_line_source_prices(lines);
     let source_line_subtotal = rounded_counterpoint_money(
-        counterpoint_open_doc_line_subtotal_from_prices(&ticket.lines, &source_line_prices),
+        counterpoint_open_doc_line_subtotal_from_prices(lines, &source_line_prices),
     );
-    let source_has_explicit_line_tax = ticket.lines.iter().any(|line| {
+    let source_has_explicit_line_tax = lines.iter().any(|line| {
         line.state_tax.is_some() || line.local_tax.is_some() || line.tax_amount.is_some()
     });
     let source_line_tax_total = source_has_explicit_line_tax.then(|| {
         rounded_counterpoint_money(
-            ticket
-                .lines
+            lines
                 .iter()
                 .map(|line| {
                     let tax = if line.state_tax.is_some() || line.local_tax.is_some() {
@@ -15203,16 +15551,14 @@ fn counterpoint_ticket_financial_evidence(
         .or(ticket.tax_total.map(rounded_counterpoint_money))
         .map(|tax| rounded_counterpoint_money(source_line_subtotal + tax));
     let imported_line_subtotal = rounded_counterpoint_money(
-        ticket
-            .lines
+        lines
             .iter()
             .zip(imported_line_prices.iter())
             .map(|(line, unit_price)| Decimal::from(line.quantity) * *unit_price)
             .sum(),
     );
     let imported_line_tax = rounded_counterpoint_money(
-        ticket
-            .lines
+        lines
             .iter()
             .zip(imported_line_taxes.iter())
             .map(|(line, (state_tax, local_tax))| {
@@ -15477,6 +15823,10 @@ fn merge_counterpoint_open_doc_rows(
             if existing.tax_total.is_none() {
                 existing.tax_total = row.tax_total;
             }
+            set_if_blank(
+                &mut existing.source_document_id,
+                row.source_document_id.take(),
+            );
             set_if_blank(&mut existing.cust_no, row.cust_no.take());
             set_if_blank(&mut existing.booked_at, row.booked_at.take());
             set_if_blank(&mut existing.usr_id, row.usr_id.take());
@@ -15670,6 +16020,31 @@ pub async fn execute_counterpoint_open_doc_batch(
             summary.skipped += 1;
             continue;
         };
+        let source_document_type = match doc
+            .doc_typ
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_uppercase)
+            .as_deref()
+        {
+            Some("O") => Some("order"),
+            Some("L") => Some("layaway"),
+            _ => None,
+        };
+        let source_document_id = doc
+            .source_document_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let source_document_metadata =
+            source_document_type
+                .zip(source_document_id)
+                .map(|(document_type, document_id)| {
+                    serde_json::json!({
+                        "counterpoint_source_document_type": document_type,
+                        "counterpoint_source_document_id": document_id,
+                    })
+                });
 
         let normalized_amount_paid =
             sum_counterpoint_open_doc_tenders(&doc.payments).unwrap_or(doc.amount_paid);
@@ -15758,6 +16133,22 @@ pub async fn execute_counterpoint_open_doc_batch(
 
         if let Some(transaction_id) = existing_doc_ids.get(doc_ref).copied() {
             summary.transactions_skipped_existing += 1;
+            if let Some(source_document_metadata) = source_document_metadata.as_ref() {
+                sqlx::query(
+                    r#"
+                    UPDATE transactions
+                    SET metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
+                    WHERE id = $1
+                      AND is_counterpoint_import
+                      AND counterpoint_doc_ref = $2
+                    "#,
+                )
+                .bind(transaction_id)
+                .bind(doc_ref)
+                .bind(source_document_metadata)
+                .execute(&mut *tx)
+                .await?;
+            }
             let current: Option<(Decimal, Decimal, Decimal)> = sqlx::query_as(
                 r#"
                 SELECT total_price, amount_paid, balance_due
@@ -15940,12 +16331,12 @@ pub async fn execute_counterpoint_open_doc_batch(
                     customer_id, counterpoint_ticket_ref, counterpoint_doc_ref,
                     is_counterpoint_import,
                     status, booked_at, business_date, total_price, amount_paid, balance_due,
-                    processed_by_staff_id, primary_salesperson_id
+                    processed_by_staff_id, primary_salesperson_id, metadata
                 )
                 VALUES (
                     $1, NULL, $2, TRUE, $3::order_status, $4,
                     ($4 AT TIME ZONE reporting.effective_store_timezone())::date,
-                    $5, $6, $7, $8, $9
+                    $5, $6, $7, $8, $9, $10
                 )
                 ON CONFLICT (counterpoint_doc_ref) WHERE counterpoint_doc_ref IS NOT NULL DO NOTHING
                 RETURNING id
@@ -15960,6 +16351,11 @@ pub async fn execute_counterpoint_open_doc_batch(
             .bind(balance)
             .bind(processed_by)
             .bind(salesperson)
+            .bind(
+                source_document_metadata
+                    .clone()
+                    .unwrap_or_else(|| serde_json::json!({})),
+            )
             .fetch_optional(&mut *tx)
             .await?
             else {
@@ -17366,6 +17762,13 @@ mod tests {
                 Some(1_000),
             ),
             ("ticket_lines", "Closed ticket lines", 80_000, true, None),
+            (
+                "historical_booking_events",
+                "Order/layaway booking events",
+                40_000,
+                true,
+                None,
+            ),
             (
                 "ticket_payments",
                 "Closed ticket payments",
@@ -20286,6 +20689,8 @@ mod tests {
             sku: Some("B-1350103".into()),
             counterpoint_item_key: Some("I-102118|46306/2|42 R|J BOND".into()),
             lin_seq_no: Some(1),
+            line_type: None,
+            is_order_linked: false,
             quantity: 1,
             unit_price: Decimal::new(26000, 2),
             unit_cost: Some(Decimal::ZERO),
@@ -20312,6 +20717,8 @@ mod tests {
             sku: Some("B-1350306".into()),
             counterpoint_item_key: Some("I-102119|40901/1|40 R|2BV".into()),
             lin_seq_no: Some(2),
+            line_type: None,
+            is_order_linked: false,
             quantity: 1,
             unit_price: Decimal::new(37500, 2),
             unit_cost: Some(Decimal::ZERO),
@@ -20346,6 +20753,8 @@ mod tests {
             sku: Some("B-FINANCIAL-LOCK".into()),
             counterpoint_item_key: Some("I-FINANCIAL-LOCK".into()),
             lin_seq_no: Some(1),
+            line_type: None,
+            is_order_linked: false,
             quantity: 1,
             unit_price: Decimal::new(37500, 2),
             unit_cost: None,
@@ -20375,6 +20784,8 @@ mod tests {
             sku: Some("B-FINANCIAL-EXACT".into()),
             counterpoint_item_key: Some("I-FINANCIAL-EXACT".into()),
             lin_seq_no: Some(1),
+            line_type: None,
+            is_order_linked: false,
             quantity: 1,
             unit_price: Decimal::new(30000, 2),
             unit_cost: None,
@@ -20407,6 +20818,8 @@ mod tests {
             sku: Some("B-1350103".into()),
             counterpoint_item_key: Some("I-102118|46306/2|42 R|J BOND".into()),
             lin_seq_no: Some(1),
+            line_type: None,
+            is_order_linked: false,
             quantity: 1,
             unit_price: Decimal::new(26000, 2),
             unit_cost: Some(Decimal::ZERO),
@@ -20438,6 +20851,8 @@ mod tests {
             sku: Some("B-1471081".into()),
             counterpoint_item_key: Some("I-102120|M20001-1|16.5|2/3".into()),
             lin_seq_no: Some(1),
+            line_type: None,
+            is_order_linked: false,
             quantity: 1,
             unit_price: Decimal::new(6500, 2),
             unit_cost: Some(Decimal::new(2500, 2)),
@@ -20470,6 +20885,8 @@ mod tests {
             sku: Some("B-1471081".into()),
             counterpoint_item_key: Some("I-102120|M20001-1|16.5|2/3".into()),
             lin_seq_no: Some(1),
+            line_type: None,
+            is_order_linked: false,
             quantity: 1,
             unit_price: Decimal::new(6500, 2),
             unit_cost: Some(Decimal::new(2500, 2)),
@@ -20508,10 +20925,14 @@ mod tests {
             usr_id: None,
             sls_rep: None,
             notes: None,
+            origin_document_type: None,
+            origin_document_id: None,
             lines: vec![TicketLineRow {
                 sku: Some("B-INTEGRITY".into()),
                 counterpoint_item_key: Some("I-INTEGRITY".into()),
                 lin_seq_no: Some(1),
+                line_type: Some("S".into()),
+                is_order_linked: false,
                 quantity: 1,
                 unit_price: Decimal::new(22800, 2),
                 unit_cost: None,
@@ -20533,6 +20954,7 @@ mod tests {
 
         let evidence = counterpoint_ticket_financial_evidence(
             &ticket,
+            &ticket.lines,
             Decimal::new(25056, 2),
             Decimal::new(19609, 2),
             &[Decimal::new(22800, 2)],
@@ -20564,6 +20986,51 @@ mod tests {
     }
 
     #[test]
+    fn counterpoint_ticket_financial_line_types_exclude_lifecycle_rows() {
+        let line = |line_type: &str, is_order_linked: bool| TicketLineRow {
+            sku: Some("TYPE-TEST".into()),
+            counterpoint_item_key: Some("TYPE-TEST".into()),
+            lin_seq_no: Some(1),
+            line_type: Some(line_type.into()),
+            is_order_linked,
+            quantity: 1,
+            unit_price: Decimal::ONE,
+            unit_cost: None,
+            state_tax: None,
+            local_tax: None,
+            tax_amount: None,
+            original_unit_price: None,
+            discount_amount: None,
+            description: None,
+            reason_code: None,
+        };
+
+        for line_type in ["S", "A", "R", " s "] {
+            assert!(counterpoint_ticket_line_is_financial(&line(
+                line_type, false
+            )));
+        }
+        for line_type in ["U", "", "X"] {
+            assert!(!counterpoint_ticket_line_is_financial(&line(
+                line_type, false
+            )));
+        }
+
+        assert!(counterpoint_ticket_line_is_order_fulfillment(&line(
+            "S", true
+        )));
+        assert!(counterpoint_ticket_line_is_order_fulfillment(&line(
+            "A", true
+        )));
+        assert!(!counterpoint_ticket_line_is_order_fulfillment(&line(
+            "R", true
+        )));
+        assert!(!counterpoint_ticket_line_is_order_fulfillment(&line(
+            "S", false
+        )));
+    }
+
+    #[test]
     fn counterpoint_source_booking_date_never_falls_back_to_import_time() {
         assert_eq!(
             parse_counterpoint_source_booked_at(Some("2026-03-01T12:00:00-05:00"))
@@ -20576,6 +21043,64 @@ mod tests {
         assert!(parse_counterpoint_source_booked_at(Some("not-a-date")).is_none());
     }
 
+    #[tokio::test]
+    async fn counterpoint_historical_booking_event_rerun_updates_same_source_event() {
+        let pool = connect_test_db().await;
+        let source_document_id = Uuid::new_v4().to_string();
+        let booked_at = Utc::now().to_rfc3339();
+        let payload = |event_kind: &str, subtotal_delta: Decimal| {
+            CounterpointHistoricalBookingEventsPayload {
+                rows: vec![CounterpointHistoricalBookingEventRow {
+                    source_document_type: "order".into(),
+                    source_document_id: source_document_id.clone(),
+                    source_log_sequence: 1,
+                    event_kind: event_kind.into(),
+                    booked_at: booked_at.clone(),
+                    subtotal_delta,
+                    tax_delta: Decimal::ZERO,
+                    metadata: serde_json::json!({"fixture": true}),
+                }],
+            }
+        };
+
+        execute_counterpoint_historical_booking_event_batch(
+            &pool,
+            payload("N", Decimal::new(10000, 2)),
+        )
+        .await
+        .expect("insert source booking event");
+        execute_counterpoint_historical_booking_event_batch(
+            &pool,
+            payload("E", Decimal::new(12500, 2)),
+        )
+        .await
+        .expect("rerun source booking event");
+
+        let stored: (i64, String, Decimal) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::bigint, MAX(event_kind), MAX(subtotal_delta)
+            FROM counterpoint_historical_booking_events
+            WHERE source_document_type = 'order'
+              AND source_document_id = $1
+              AND source_log_sequence = 1
+            "#,
+        )
+        .bind(&source_document_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load source booking event");
+
+        assert_eq!(stored, (1, "E".into(), Decimal::new(12500, 2)));
+
+        sqlx::query(
+            "DELETE FROM counterpoint_historical_booking_events WHERE source_document_type = 'order' AND source_document_id = $1",
+        )
+        .bind(&source_document_id)
+        .execute(&pool)
+        .await
+        .expect("cleanup source booking event fixture");
+    }
+
     #[test]
     fn counterpoint_historical_financials_allocate_discounted_paid_total() {
         let lines = vec![
@@ -20583,6 +21108,8 @@ mod tests {
                 sku: Some("B-1449821".into()),
                 counterpoint_item_key: None,
                 lin_seq_no: Some(1),
+                line_type: None,
+                is_order_linked: false,
                 quantity: 1,
                 unit_price: Decimal::new(7000, 2),
                 unit_cost: None,
@@ -20598,6 +21125,8 @@ mod tests {
                 sku: Some("B-1632226".into()),
                 counterpoint_item_key: None,
                 lin_seq_no: Some(2),
+                line_type: None,
+                is_order_linked: false,
                 quantity: 1,
                 unit_price: Decimal::new(82500, 2),
                 unit_cost: None,
@@ -21288,10 +21817,14 @@ mod tests {
                     usr_id: None,
                     sls_rep: None,
                     notes: None,
+                    origin_document_type: None,
+                    origin_document_id: None,
                     lines: vec![TicketLineRow {
                         sku: Some(sku.clone()),
                         counterpoint_item_key: Some(cp_key.clone()),
                         lin_seq_no: Some(1),
+                        line_type: Some("S".into()),
+                        is_order_linked: false,
                         quantity: 1,
                         unit_price: Decimal::new(4000, 2),
                         unit_cost: Some(Decimal::new(1000, 2)),
@@ -21475,10 +22008,14 @@ mod tests {
                     usr_id: None,
                     sls_rep: None,
                     notes: None,
+                    origin_document_type: None,
+                    origin_document_id: None,
                     lines: vec![TicketLineRow {
                         sku: Some(sku.clone()),
                         counterpoint_item_key: Some(cp_key.clone()),
                         lin_seq_no: Some(1),
+                        line_type: Some("S".into()),
+                        is_order_linked: false,
                         quantity: 1,
                         unit_price: Decimal::new(4000, 2),
                         unit_cost: Some(Decimal::new(1000, 2)),
@@ -21709,6 +22246,8 @@ mod tests {
                     usr_id: None,
                     sls_rep: None,
                     notes: None,
+                    origin_document_type: None,
+                    origin_document_id: None,
                     lines: vec![],
                     payments: vec![TicketPaymentRow {
                         pmt_typ: "CASH".into(),
@@ -22728,6 +23267,7 @@ mod tests {
             CounterpointOpenDocsPayload {
                 rows: vec![CounterpointOpenDocRow {
                     doc_ref: doc_ref.clone(),
+                    source_document_id: None,
                     cust_no: Some(missing_customer.clone()),
                     booked_at: Some(Utc::now().to_rfc3339()),
                     total_price: Decimal::new(4000, 2),
@@ -22741,6 +23281,8 @@ mod tests {
                         sku: Some(sku.clone()),
                         counterpoint_item_key: Some(cp_key.clone()),
                         lin_seq_no: Some(1),
+                        line_type: None,
+                        is_order_linked: false,
                         quantity: 1,
                         unit_price: Decimal::new(4000, 2),
                         unit_cost: Some(Decimal::new(1000, 2)),
@@ -22888,6 +23430,7 @@ mod tests {
             CounterpointOpenDocsPayload {
                 rows: vec![CounterpointOpenDocRow {
                     doc_ref: doc_ref.clone(),
+                    source_document_id: None,
                     cust_no: None,
                     booked_at: Some(Utc::now().to_rfc3339()),
                     total_price: Decimal::new(8000, 2),
@@ -22902,6 +23445,8 @@ mod tests {
                             sku: Some(sku.clone()),
                             counterpoint_item_key: Some(cp_key.clone()),
                             lin_seq_no: Some(1),
+                            line_type: None,
+                            is_order_linked: false,
                             quantity: 1,
                             unit_price: Decimal::new(4000, 2),
                             unit_cost: Some(Decimal::new(1000, 2)),
@@ -22917,6 +23462,8 @@ mod tests {
                             sku: Some(sku.clone()),
                             counterpoint_item_key: Some(cp_key.clone()),
                             lin_seq_no: Some(2),
+                            line_type: None,
+                            is_order_linked: false,
                             quantity: 1,
                             unit_price: Decimal::new(4000, 2),
                             unit_cost: Some(Decimal::new(1000, 2)),
@@ -23054,6 +23601,7 @@ mod tests {
         let sku = format!("CP-OPEN-DUPE-SKU-{suffix}");
         let cp_key = format!("CP-OPEN-DUPE-ITEM-{suffix}");
         let doc_ref = format!("CP-OPEN-DUPE-{suffix}");
+        let source_document_id = Uuid::new_v4().to_string();
         let booked_at = Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -23090,6 +23638,8 @@ mod tests {
             sku: Some(sku.clone()),
             counterpoint_item_key: Some(cp_key.clone()),
             lin_seq_no: Some(1),
+            line_type: None,
+            is_order_linked: false,
             quantity: 1,
             unit_price: Decimal::new(4000, 2),
             unit_cost: Some(Decimal::new(1000, 2)),
@@ -23113,6 +23663,7 @@ mod tests {
                 rows: vec![
                     CounterpointOpenDocRow {
                         doc_ref: doc_ref.clone(),
+                        source_document_id: Some(source_document_id.clone()),
                         cust_no: None,
                         booked_at: Some(booked_at.clone()),
                         total_price: Decimal::new(4350, 2),
@@ -23127,6 +23678,7 @@ mod tests {
                     },
                     CounterpointOpenDocRow {
                         doc_ref: doc_ref.clone(),
+                        source_document_id: None,
                         cust_no: None,
                         booked_at: Some(booked_at.clone()),
                         total_price: Decimal::new(4000, 2),
@@ -23141,6 +23693,7 @@ mod tests {
                     },
                     CounterpointOpenDocRow {
                         doc_ref: doc_ref.clone(),
+                        source_document_id: None,
                         cust_no: None,
                         booked_at: Some(booked_at),
                         total_price: Decimal::ZERO,
@@ -23166,6 +23719,7 @@ mod tests {
             CounterpointOpenDocsPayload {
                 rows: vec![CounterpointOpenDocRow {
                     doc_ref: doc_ref.clone(),
+                    source_document_id: Some(source_document_id.clone()),
                     cust_no: None,
                     booked_at: Some(rerun_booked_at.to_rfc3339()),
                     total_price: Decimal::new(5438, 2),
@@ -23179,6 +23733,8 @@ mod tests {
                         sku: Some(sku.clone()),
                         counterpoint_item_key: Some(cp_key.clone()),
                         lin_seq_no: Some(1),
+                        line_type: None,
+                        is_order_linked: false,
                         quantity: 1,
                         unit_price: Decimal::new(5000, 2),
                         unit_cost: Some(Decimal::new(1000, 2)),
@@ -23205,6 +23761,12 @@ mod tests {
         .fetch_one(&pool)
         .await
         .expect("load imported transaction");
+        let transaction_metadata: JsonValue =
+            sqlx::query_scalar("SELECT metadata FROM transactions WHERE id = $1")
+                .bind(transaction.0)
+                .fetch_one(&pool)
+                .await
+                .expect("load imported transaction provenance");
         let line_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*)::bigint FROM transaction_lines WHERE transaction_id = $1",
         )
@@ -23333,6 +23895,18 @@ mod tests {
         assert_eq!(transaction.1, Decimal::new(4350, 2));
         assert_eq!(transaction.2, Decimal::new(2000, 2));
         assert_eq!(transaction.3, Decimal::new(2350, 2));
+        assert_eq!(
+            transaction_metadata
+                .get("counterpoint_source_document_type")
+                .and_then(JsonValue::as_str),
+            Some("order")
+        );
+        assert_eq!(
+            transaction_metadata
+                .get("counterpoint_source_document_id")
+                .and_then(JsonValue::as_str),
+            Some(source_document_id.as_str())
+        );
         assert_eq!(booking_event_evidence, (0, 0, 1, false));
         assert_eq!(financial_lock_issue_count, 1);
     }
@@ -23381,6 +23955,7 @@ mod tests {
         let payload = || CounterpointOpenDocsPayload {
             rows: vec![CounterpointOpenDocRow {
                 doc_ref: doc_ref.clone(),
+                source_document_id: None,
                 cust_no: None,
                 booked_at: Some(Utc::now().to_rfc3339()),
                 total_price: Decimal::new(28275, 2),
@@ -23394,6 +23969,8 @@ mod tests {
                     sku: Some(matrix_key.clone()),
                     counterpoint_item_key: Some(matrix_key.clone()),
                     lin_seq_no: Some(1),
+                    line_type: None,
+                    is_order_linked: false,
                     quantity: 1,
                     unit_price: Decimal::new(26000, 2),
                     unit_cost: Some(Decimal::new(10000, 2)),
@@ -23560,6 +24137,7 @@ mod tests {
             CounterpointOpenDocsPayload {
                 rows: vec![CounterpointOpenDocRow {
                     doc_ref: doc_ref.clone(),
+                    source_document_id: None,
                     cust_no: None,
                     booked_at: Some(Utc::now().to_rfc3339()),
                     total_price: Decimal::new(28275, 2),
@@ -23573,6 +24151,8 @@ mod tests {
                         sku: Some(item_no.clone()),
                         counterpoint_item_key: Some(item_no.clone()),
                         lin_seq_no: Some(1),
+                        line_type: None,
+                        is_order_linked: false,
                         quantity: 1,
                         unit_price: Decimal::new(26000, 2),
                         unit_cost: Some(Decimal::new(10000, 2)),
@@ -23815,6 +24395,7 @@ mod tests {
             CounterpointOpenDocsPayload {
                 rows: vec![CounterpointOpenDocRow {
                     doc_ref: doc_ref.clone(),
+                    source_document_id: None,
                     cust_no: Some(cust_no.clone()),
                     booked_at: Some(booked_at.to_rfc3339()),
                     total_price: Decimal::new(28275, 2),
@@ -23828,6 +24409,8 @@ mod tests {
                         sku: Some(item_no.clone()),
                         counterpoint_item_key: Some(item_no.clone()),
                         lin_seq_no: Some(1),
+                        line_type: None,
+                        is_order_linked: false,
                         quantity: 1,
                         unit_price: Decimal::new(26000, 2),
                         unit_cost: Some(Decimal::new(10000, 2)),
@@ -23932,6 +24515,7 @@ mod tests {
         let payload = || CounterpointOpenDocsPayload {
             rows: vec![CounterpointOpenDocRow {
                 doc_ref: doc_ref.clone(),
+                source_document_id: None,
                 cust_no: None,
                 booked_at: Some(Utc::now().to_rfc3339()),
                 total_price: Decimal::new(4000, 2),
@@ -23945,6 +24529,8 @@ mod tests {
                     sku: Some(missing_sku.clone()),
                     counterpoint_item_key: Some(missing_key.clone()),
                     lin_seq_no: Some(1),
+                    line_type: None,
+                    is_order_linked: false,
                     quantity: 1,
                     unit_price: Decimal::new(4000, 2),
                     unit_cost: Some(Decimal::new(1000, 2)),

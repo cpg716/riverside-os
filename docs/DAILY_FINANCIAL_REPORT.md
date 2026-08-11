@@ -28,14 +28,15 @@ Each daily report includes:
 - **Booked Sales Count** — unique booked sales reported by the canonical Daily Sales summary
 - **Average Booked Sale** — booked net sales ÷ booked sales count
 - **MTD Booked Net** — booked net sales from the first day of the report month through the report date
-- **MTD vs Last Year — $** — dollar difference from the same calendar-day month-to-date window one year earlier
-- **MTD vs Last Year — %** — percentage difference from the prior-year booked-net window; shown as `N/A` when the prior-year net baseline is zero
+- **Last Year MTD** — the prior-year booked-net baseline for the exact comparison window
+- **MTD vs Last Year** — signed dollar difference and percentage difference together; the percentage is shown as `N/A` when the prior-year net baseline is zero
 
 Headline cards, the Booked Sales Summary, and MTD comparisons use the booking-event business date. Recognized Revenue Detail, recognized item/discount figures, and recognized tax use the fulfillment/recognition date. Payment Methods and Total Tendered use the payment processing date. These are separate ledgers and are not expected to equal each other. Booked Daily Sales, recognized revenue, deposits, and processed tender must never be substituted for one another.
 
 ### Month-to-Date Net Comparison
 
 - Current MTD and prior-year MTD call the same canonical booked Daily Sales summary used by the daily **Booked Net Sales** figure.
+- Period totals preserve each source-dated business day's booked activity before summing the window; later activity on the same Transaction Record cannot net away an earlier day's booked result.
 - The comparison always ends on the report business date, not the email-send date.
 - The prior-year window uses the same month and day numbers. For a February 29 report, a non-leap prior year ends on February 28.
 - The body lists both exact date windows, both net values, the signed dollar change, and the signed percentage change.

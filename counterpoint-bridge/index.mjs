@@ -490,6 +490,7 @@ const SYNC_ANCHOR_PARENT_ENTITY = Object.freeze({
   ticket_cells: "tickets",
   ticket_notes: "tickets",
   ticket_gift: "tickets",
+  historical_booking_events: "tickets",
   open_doc_lines: "open_docs",
   open_doc_pmt: "open_docs",
   catalog_cells: "catalog",
@@ -1032,6 +1033,7 @@ function initEffectiveSqlFromConstants() {
     ticket_payments: applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_TICKET_PAYMENTS_QUERY"))),
     ticket_cells: applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_TICKET_CELLS_QUERY"))),
     ticket_gift: "",
+    historical_booking_events: "",
     gift_cards: expandImportSince(configuredSql("CP_GIFT_CARDS_QUERY")),
     gfc_hist: "",
     loyalty: "",
@@ -1473,7 +1475,7 @@ function sqlLineAmountPerUnit(alias, set, candidates, quantityColumn, outputName
   const c = pickColumn(set, candidates);
   if (!c) return `CAST(NULL AS DECIMAL(18,4)) AS ${outputName}`;
   if (!quantityColumn) return `CAST(${alias}.[${c}] AS DECIMAL(18,4)) AS ${outputName}`;
-  return `CAST(ISNULL(${alias}.[${c}], 0) / NULLIF(ABS(CAST(ISNULL(${alias}.[${quantityColumn}], 1) AS DECIMAL(18,4))), 0) AS DECIMAL(18,4)) AS ${outputName}`;
+  return `CAST(ISNULL(${alias}.[${c}], 0) / NULLIF(CAST(ISNULL(${alias}.[${quantityColumn}], 1) AS DECIMAL(18,4)), 0) AS DECIMAL(18,4)) AS ${outputName}`;
 }
 
 function sqlChargedLinePrice(alias, set, quantityColumn) {
@@ -1483,7 +1485,7 @@ function sqlChargedLinePrice(alias, set, quantityColumn) {
     ? `CAST(${alias}.[${fallback}] AS DECIMAL(18,4))`
     : "CAST(0 AS DECIMAL(18,4))";
   if (!charged || !quantityColumn) return fallbackExpr;
-  return `CAST(COALESCE(${alias}.[${charged}], 0) / NULLIF(ABS(CAST(ISNULL(${alias}.[${quantityColumn}], 1) AS DECIMAL(18,4))), 0) AS DECIMAL(18,4))`;
+  return `CAST(COALESCE(${alias}.[${charged}], 0) / NULLIF(CAST(ISNULL(${alias}.[${quantityColumn}], 1) AS DECIMAL(18,4)), 0) AS DECIMAL(18,4))`;
 }
 
 function counterpointLineFinancialSelects(alias, set, quantityColumn) {
@@ -1869,7 +1871,18 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const ticketLineExistsFilter = lin && linJoinPredicate
       ? ` AND EXISTS (SELECT 1 FROM PS_TKT_HIST_LIN line_scope WHERE ${ticketJoinPredicate("h", "line_scope", linJoinPairs)})`
       : "";
-    sqlMap.tickets = `SELECT ${ticketRefSelect}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktActivityDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${taxTotal ? `h.[${taxTotal}]` : "CAST(NULL AS DECIMAL(18,2))"} AS tax_total, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")} FROM PS_TKT_HIST h WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter} ORDER BY h.[${tktActivityDate}], h.[${tktNo}]`;
+    const origin = set("PS_TKT_HIST_ORIG_DOC");
+    const originJoinPairs = ticketJoinPairs(tkt, origin, tktJoin, "DOC_ID");
+    const originJoinPredicate = ticketJoinPredicate("h", "od_src", originJoinPairs);
+    const originType = pickColumn(origin, ["ORIG_DOC_TYP", "DOC_TYP"]);
+    const originId = pickColumn(origin, ["ORIG_DOC_ID", "DOC_ID"]);
+    const originApply = origin && originJoinPredicate && originType && originId
+      ? ` OUTER APPLY (SELECT TOP 1 ${sqlText("od_src", origin, [originType], "origin_document_type", 16)}, ${sqlText("od_src", origin, [originId], "origin_document_id", 128)} FROM PS_TKT_HIST_ORIG_DOC od_src WHERE ${originJoinPredicate} ORDER BY od_src.[${originId}]) od`
+      : "";
+    const originSelect = originApply
+      ? ", od.origin_document_type, od.origin_document_id"
+      : ", CAST(NULL AS NVARCHAR(16)) AS origin_document_type, CAST(NULL AS NVARCHAR(128)) AS origin_document_id";
+    sqlMap.tickets = `SELECT ${ticketRefSelect}, ${sqlText("h", tkt, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${tktActivityDate}], 126) + 'Z' AS booked_at, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${taxTotal ? `h.[${taxTotal}]` : "CAST(NULL AS DECIMAL(18,2))"} AS tax_total, ${total && due ? `(h.[${total}] - h.[${due}])` : total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid, ${sqlText("h", tkt, ["USR_ID"], "usr_id")}, ${sqlText("h", tkt, ["SLS_REP"], "sls_rep")}${originSelect} FROM PS_TKT_HIST h${originApply} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}${ticketLineExistsFilter} ORDER BY h.[${tktActivityDate}], h.[${tktNo}]`;
     changes.push(`PS_TKT_HIST tickets enabled; activity_date=${tktActivityDate}; key=${ticketRefColumns.join("+")}`);
 
     if (lin && linJoinPredicate) {
@@ -1897,8 +1910,13 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       const price = sqlChargedLinePrice("l", lin, qty);
       const cost = pickColumn(lin, ["UNIT_COST", "COST"]);
       const reason = pickColumn(lin, ["RET_REAS", "REAS_COD"]);
+      const lineType = pickColumn(lin, ["LIN_TYP", "LINE_TYPE"]);
+      const linkedOrderLine = pickColumn(lin, ["LINK_LIN_GUID", "ORIG_LIN_GUID"]);
       const lineFinancialSelects = counterpointLineFinancialSelects("l", lin, qty);
-      sqlMap.ticket_lines = `SELECT ${ticketRefSelect}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${lineSku} AS sku, ${lineItemKey} AS counterpoint_item_key, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description, ${lineFinancialSelects.join(", ")}${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l${lineBarcodeApply} INNER JOIN PS_TKT_HIST h ON ${linJoinPredicate} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
+      const linkedOrderSelect = linkedOrderLine
+        ? `CAST(CASE WHEN l.[${linkedOrderLine}] IS NULL THEN 0 ELSE 1 END AS BIT)`
+        : "CAST(0 AS BIT)";
+      sqlMap.ticket_lines = `SELECT ${ticketRefSelect}, ${seq ? `l.[${seq}]` : "CAST(NULL AS INT)"} AS lin_seq_no, ${lineType ? `${sqlText("l", lin, [lineType], "line_type", 16)}, ` : ""}${linkedOrderSelect} AS is_order_linked, ${lineSku} AS sku, ${lineItemKey} AS counterpoint_item_key, ${qty ? `l.[${qty}]` : "CAST(1 AS DECIMAL(18,4))"} AS quantity, ${price} AS unit_price, ${cost ? `l.[${cost}]` : "CAST(NULL AS DECIMAL(18,4))"} AS unit_cost, CAST(NULL AS NVARCHAR(255)) AS description, ${lineFinancialSelects.join(", ")}${reason ? `, ${sqlText("l", lin, [reason], "reason_code")}` : ""} FROM PS_TKT_HIST_LIN l${lineBarcodeApply} INNER JOIN PS_TKT_HIST h ON ${linJoinPredicate} WHERE h.[${tktActivityDate}] >= '__CP_IMPORT_SINCE__'${typeFilter}`;
       changes.push(`PS_TKT_HIST_LIN ticket lines enabled; join=${linJoinPairs.map(([h, l]) => `${h}=${l}`).join("+")}`);
     }
 
@@ -1924,6 +1942,139 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     }
   }
 
+  const sourceOpenDocHeader = set("PS_DOC_HDR") ?? set("PS_DOC");
+  const sourceOpenDocRefColumn = pickColumn(sourceOpenDocHeader, ["DOC_ID", "DOC_NO", "TKT_NO"]);
+  const sourceOpenDocDateColumn = pickColumn(sourceOpenDocHeader, ["TKT_DT", "DOC_DT", "BUS_DAT"]);
+  const sourceOpenDocIdentityColumns = sourceOpenDocHeader && sourceOpenDocRefColumn && sourceOpenDocDateColumn
+    ? ticketIdentityColumns(sourceOpenDocHeader, sourceOpenDocRefColumn, sourceOpenDocDateColumn)
+    : [];
+  const historicalBookingSources = [
+    ["PS_DOC_AUDIT_LOG", "PS_DOC_AUDIT_LOG_TOT", "PS_DOC_HDR", 1],
+    ["PS_ORD_HIST_AUDIT_LOG", "PS_ORD_HIST_AUDIT_LOG_TOT", "PS_ORD_HIST", 2],
+    ["PS_LWY_HIST_AUDIT_LOG", "PS_LWY_HIST_AUDIT_LOG_TOT", "PS_LWY_HIST", 2],
+  ];
+  const historicalBookingSelects = [];
+  for (const [logTable, totalTable, headerTable, sourcePriority] of historicalBookingSources) {
+    const log = set(logTable);
+    const totals = set(totalTable);
+    const documentHeader = set(headerTable);
+    const requiredLog = ["DOC_ID", "DOC_GUID", "DOC_TYP", "LOG_SEQ_NO", "CURR_DT", "ACTIV"];
+    const requiredTotals = ["DOC_ID", "LOG_SEQ_NO", "TOT_TYP", "SUB_TOT", "TAX_AMT"];
+    if (!requiredLog.every((column) => log?.has(column)) || !requiredTotals.every((column) => totals?.has(column))) {
+      continue;
+    }
+    const auditJoinColumns = ["DOC_ID", "LOG_SEQ_NO"];
+    if (log.has("BUS_DAT") && totals.has("BUS_DAT")) auditJoinColumns.unshift("BUS_DAT");
+    const auditTotalJoin = auditJoinColumns
+      .map((column) => `total_row.${column} = log_row.${column}`)
+      .join(" AND ");
+    const headerJoinColumns = ["DOC_ID"];
+    if (log.has("BUS_DAT") && documentHeader?.has("BUS_DAT")) headerJoinColumns.unshift("BUS_DAT");
+    const documentHeaderJoin = documentHeader?.has("DOC_ID")
+      ? ` LEFT JOIN ${headerTable} document_row ON ${headerJoinColumns
+        .map((column) => `document_row.${column} = log_row.${column}`)
+        .join(" AND ")}`
+      : "";
+    const sourceOpenDocumentRefParts = sourceOpenDocIdentityColumns.map((column) => {
+      if (documentHeader?.has(column)) return ticketIdentityExpr("document_row", column);
+      const auditColumn = {
+        STR_ID: "CURR_STR_ID",
+        STA_ID: "CURR_STA_ID",
+        DRW_ID: "CURR_DRW_ID",
+        DRAWER_ID: "CURR_DRW_ID",
+      }[column];
+      return auditColumn && log.has(auditColumn)
+        ? ticketIdentityExpr("log_row", auditColumn)
+        : null;
+    });
+    const sourceOpenDocumentRef =
+      sourceOpenDocumentRefParts.length > 0 && sourceOpenDocumentRefParts.every(Boolean)
+        ? `CONCAT(${sourceOpenDocumentRefParts
+          .flatMap((part, index) => (index === 0 ? [part] : ["N'|'", part]))
+          .join(", ")})`
+        : "CAST(NULL AS NVARCHAR(512))";
+    historicalBookingSelects.push(`
+      SELECT
+        CASE audit_row.DOC_TYP WHEN 'O' THEN N'order' ELSE N'layaway' END AS source_document_type,
+        CONVERT(NVARCHAR(64), audit_row.DOC_GUID) AS source_document_id,
+        audit_row.LOG_SEQ_NO AS source_log_sequence,
+        audit_row.ACTIV AS event_kind,
+        CONVERT(varchar, audit_row.CURR_DT, 126) + 'Z' AS booked_at,
+        audit_row.source_open_document_ref,
+        CAST(CASE
+          WHEN audit_row.ACTIV IN ('N', 'I') THEN audit_row.SUB_TOT
+          WHEN audit_row.ACTIV = 'E' THEN audit_row.SUB_TOT - ISNULL(audit_row.previous_subtotal, 0)
+          WHEN audit_row.ACTIV = 'C' THEN -ISNULL(audit_row.previous_subtotal, 0)
+          ELSE 0
+        END AS DECIMAL(18,2)) AS subtotal_delta,
+        CAST(CASE
+          WHEN audit_row.ACTIV IN ('N', 'I') THEN audit_row.TAX_AMT
+          WHEN audit_row.ACTIV = 'E' THEN audit_row.TAX_AMT - ISNULL(audit_row.previous_tax, 0)
+          WHEN audit_row.ACTIV = 'C' THEN -ISNULL(audit_row.previous_tax, 0)
+          ELSE 0
+        END AS DECIMAL(18,2)) AS tax_delta,
+        ${sourcePriority} AS source_priority
+      FROM (
+        SELECT
+          log_row.DOC_ID,
+          log_row.DOC_GUID,
+          UPPER(RTRIM(LTRIM(log_row.DOC_TYP))) AS DOC_TYP,
+          log_row.LOG_SEQ_NO,
+          log_row.CURR_DT,
+          UPPER(RTRIM(LTRIM(log_row.ACTIV))) AS ACTIV,
+          ${sourceOpenDocumentRef} AS source_open_document_ref,
+          total_row.SUB_TOT,
+          total_row.TAX_AMT,
+          LAG(total_row.SUB_TOT) OVER (
+            PARTITION BY log_row.DOC_GUID
+            ORDER BY log_row.LOG_SEQ_NO
+          ) AS previous_subtotal,
+          LAG(total_row.TAX_AMT) OVER (
+            PARTITION BY log_row.DOC_GUID
+            ORDER BY log_row.LOG_SEQ_NO
+          ) AS previous_tax
+        FROM ${logTable} log_row
+        INNER JOIN ${totalTable} total_row
+          ON ${auditTotalJoin}
+         AND UPPER(RTRIM(LTRIM(total_row.TOT_TYP))) = 'O'
+        ${documentHeaderJoin}
+        WHERE EXISTS (
+          SELECT 1
+          FROM ${logTable} scoped_log
+          WHERE scoped_log.DOC_GUID = log_row.DOC_GUID
+            AND scoped_log.CURR_DT >= '__CP_IMPORT_SINCE__'
+        )
+          AND UPPER(RTRIM(LTRIM(log_row.DOC_TYP))) IN ('O', 'L')
+      ) audit_row
+      WHERE audit_row.CURR_DT >= '__CP_IMPORT_SINCE__'
+        AND audit_row.ACTIV IN ('N', 'E', 'C', 'I')
+    `);
+  }
+  if (historicalBookingSelects.length > 0) {
+    sqlMap.historical_booking_events = `
+      SELECT
+        source_document_type,
+        source_document_id,
+        source_log_sequence,
+        event_kind,
+        booked_at,
+        source_open_document_ref,
+        subtotal_delta,
+        tax_delta
+      FROM (
+        SELECT
+          source_rows.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY source_document_type, source_document_id, source_log_sequence
+            ORDER BY source_priority DESC
+          ) AS source_rank
+        FROM (${historicalBookingSelects.join(" UNION ALL ")}) source_rows
+      ) ranked_source_rows
+      WHERE source_rank = 1
+    `;
+    changes.push("Counterpoint active and archived order/layaway audit booking events enabled");
+  }
+
   const psDocHdr = set("PS_DOC_HDR") ?? set("PS_DOC");
   const psDocTable = set("PS_DOC_HDR") ? "PS_DOC_HDR" : set("PS_DOC") ? "PS_DOC" : "";
   const psDocTot = set("PS_DOC_HDR_TOT");
@@ -1946,6 +2097,10 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
     const headerTaxTotal = pickColumn(psDocHdr, ["TAX_AMT", "TOT_TAX", "TOTAL_TAX", "SLS_TAX", "SLS_TAX_AMT"]);
     const paid = pickColumn(psDocHdr, ["TOT_TND", "AMT_PAID", "TOT"]);
     const docTyp = pickColumn(psDocHdr, ["DOC_TYP", "TKT_TYP"]);
+    const docGuid = pickColumn(psDocHdr, ["DOC_GUID"]);
+    const sourceDocumentIdSelect = docGuid
+      ? `, CONVERT(NVARCHAR(64), h.[${docGuid}]) AS source_document_id`
+      : ", CAST(NULL AS NVARCHAR(64)) AS source_document_id";
     const docStatus = pickColumn(psDocHdr, ["DOC_STAT", "DOC_STATUS", "STA_COD", "STATUS", "STAT"]);
     const docVoid = pickColumn(psDocHdr, ["VOID_FLG", "VOIDED", "VOID_FLAG", "IS_VOID"]);
     const docClosedAt = pickColumn(psDocHdr, ["CLOSE_DAT", "CLSD_DAT", "CLOSED_DAT", "CLOSED_AT", "FULFILL_DAT"]);
@@ -1973,8 +2128,8 @@ function buildSchemaGeneratedSql(entries, { invCost, customerPts, locId }) {
       ? ` INNER JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate}${docTotTypeFilter}`
       : "";
     sqlMap.open_docs = hasTot
-      ? `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, t.[TOT] AS total_price, ${docTaxTotal ? `t.[${docTaxTotal}]` : "CAST(NULL AS DECIMAL(18,2))"} AS tax_total, t.[TOT_TND] AS amount_paid FROM ${psDocTable} h INNER JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate}${docTotTypeFilter} WHERE ${activeDocWhere}`
-      : `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${headerTaxTotal ? `h.[${headerTaxTotal}]` : "CAST(NULL AS DECIMAL(18,2))"} AS tax_total, ${paid ? `h.[${paid}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid FROM ${psDocTable} h WHERE ${activeDocWhere}`;
+      ? `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}${sourceDocumentIdSelect}, t.[TOT] AS total_price, ${docTaxTotal ? `t.[${docTaxTotal}]` : "CAST(NULL AS DECIMAL(18,2))"} AS tax_total, t.[TOT_TND] AS amount_paid FROM ${psDocTable} h INNER JOIN PS_DOC_HDR_TOT t ON ${docTotJoinPredicate}${docTotTypeFilter} WHERE ${activeDocWhere}`
+      : `SELECT ${docRefSelect}, ${sqlText("h", psDocHdr, ["CUST_NO"], "cust_no")}, CONVERT(varchar, h.[${docDate}], 126) + 'Z' AS booked_at, ${sqlText("h", psDocHdr, ["USR_ID"], "usr_id")}, ${sqlText("h", psDocHdr, ["SLS_REP"], "sls_rep")}, ${sqlText("h", psDocHdr, ["DOC_TYP", "TKT_TYP"], "doc_typ")}${sourceDocumentIdSelect}, ${total ? `h.[${total}]` : "CAST(0 AS DECIMAL(18,2))"} AS total_price, ${headerTaxTotal ? `h.[${headerTaxTotal}]` : "CAST(NULL AS DECIMAL(18,2))"} AS tax_total, ${paid ? `h.[${paid}]` : "CAST(0 AS DECIMAL(18,2))"} AS amount_paid FROM ${psDocTable} h WHERE ${activeDocWhere}`;
     changes.push(`${psDocTable} open documents enabled; key=${docRefColumns.join("+")}`);
     const lineDoc = pickColumn(psDocLin, [docRef, "DOC_ID", "DOC_NO", "TKT_NO"]);
     const lineJoinPairs = ticketJoinPairs(psDocHdr, psDocLin, docRef, lineDoc);
@@ -2572,6 +2727,15 @@ const DISCOVER_TABLES = [
   "PS_TKT_HIST_CELL",
   "PS_TKT_HIST_LIN_CELL",
   "PS_TKT_HIST_GFT",
+  "PS_TKT_HIST_ORIG_DOC",
+  "PS_DOC_AUDIT_LOG",
+  "PS_DOC_AUDIT_LOG_TOT",
+  "PS_ORD_HIST",
+  "PS_ORD_HIST_AUDIT_LOG",
+  "PS_ORD_HIST_AUDIT_LOG_TOT",
+  "PS_LWY_HIST",
+  "PS_LWY_HIST_AUDIT_LOG",
+  "PS_LWY_HIST_AUDIT_LOG_TOT",
   "SY_GFC",
   "SY_GFC_HIST",
   "SY_GFT_CERT",
@@ -2707,6 +2871,7 @@ const ENTITY_HTTP_PATH = {
   catalog: "catalog",
   gift_cards: "gift-cards",
   tickets: "tickets",
+  historical_booking_events: "historical-booking-events",
   vendors: "vendors",
   vendor_items: "vendor-items",
   customer_notes: "customer-notes",
@@ -3068,6 +3233,12 @@ function importFirstProbePlan() {
     { entityKey: "ticket_lines", label: "Closed ticket lines", queryKey: "ticket_lines", required: true },
     { entityKey: "ticket_payments", label: "Closed ticket payments", queryKey: "ticket_payments", required: false },
     {
+      entityKey: "historical_booking_events",
+      label: "Order/layaway booking events",
+      queryKey: "historical_booking_events",
+      required: true,
+    },
+    {
       entityKey: "open_docs",
       label: "Open docs/unfulfilled obligations",
       queryKey: "open_docs",
@@ -3099,6 +3270,8 @@ function importFirstProbePlan() {
       case "ticket_lines":
       case "ticket_payments":
         return SYNC_TICKETS;
+      case "historical_booking_events":
+        return SYNC_TICKETS || SYNC_OPEN_DOCS;
       case "open_docs":
       case "open_doc_lines":
       case "open_doc_payments":
@@ -4411,20 +4584,36 @@ function mapTicketRow(r) {
     amount_paid: String(r.amount_paid ?? r.amt_paid ?? "0"),
     usr_id: r.usr_id ? String(r.usr_id).trim() : undefined,
     sls_rep: r.sls_rep ? String(r.sls_rep).trim() : undefined,
+    origin_document_type: r.origin_document_type
+      ? String(r.origin_document_type).trim().toUpperCase()
+      : undefined,
+    origin_document_id: r.origin_document_id
+      ? String(r.origin_document_id).trim()
+      : undefined,
     lines: [],
     payments: [],
     gift_applications: [],
   };
 }
 
-function mapTicketLineRow(r) {
+function mapTicketLineRow(r, requireLineType = false) {
   const counterpointItemKey = r.counterpoint_item_key
     ? canonicalCounterpointMatrixKey(r.counterpoint_item_key)
     : undefined;
+  const lineType = String(r.line_type ?? r.lin_typ ?? "").trim().toUpperCase();
+  if (requireLineType && !lineType) {
+    throw new Error(
+      "Closed ticket line query must return PS_TKT_HIST_LIN.LIN_TYP as line_type; rerun Auto Config before syncing ticket history.",
+    );
+  }
   return {
     sku: normalizeCounterpointLineSku(r.sku, counterpointItemKey),
     counterpoint_item_key: counterpointItemKey,
     lin_seq_no: r.lin_seq_no != null ? Number(r.lin_seq_no) : r.lin_seq != null ? Number(r.lin_seq) : undefined,
+    line_type: lineType || undefined,
+    is_order_linked: ["1", "true", "y", "yes"].includes(
+      String(r.is_order_linked ?? "").trim().toLowerCase(),
+    ),
     quantity: Number(r.quantity ?? r.qty ?? r.qty_sold ?? 1),
     unit_price: String(r.unit_price ?? r.prc ?? "0"),
     unit_cost: r.unit_cost != null ? String(r.unit_cost) : undefined,
@@ -4501,6 +4690,8 @@ function ticketLineDedupeKey(row) {
     tax_amount: String(r.tax_amount ?? ""),
     original_unit_price: String(r.original_unit_price ?? ""),
     discount_amount: String(r.discount_amount ?? ""),
+    line_type: String(r.line_type ?? r.lin_typ ?? "").trim().toUpperCase(),
+    is_order_linked: String(r.is_order_linked ?? "").trim().toLowerCase(),
     description: String(r.description ?? r.descr ?? "").trim(),
   });
 }
@@ -4520,6 +4711,9 @@ function ticketPaymentDedupeKey(row) {
 function mapOpenDocRow(r) {
   return {
     doc_ref: String(r.doc_ref ?? r.doc_id ?? "").trim(),
+    source_document_id: r.source_document_id
+      ? String(r.source_document_id).trim()
+      : undefined,
     cust_no: r.cust_no ? String(r.cust_no).trim() : undefined,
     booked_at: r.booked_at ?? r.doc_dat ?? r.bus_dat ?? undefined,
     total_price: String(r.total_price ?? r.tot ?? "0"),
@@ -5204,7 +5398,7 @@ async function syncTickets(pool) {
         ...nr,
         sku: itemNo || undefined,
         counterpoint_item_key: ckey,
-      });
+      }, true);
     });
     tkt.payments = (pmtLookup[ref] ?? []).map(mapTicketPaymentRow);
     tkt.gift_applications = (giftLookup[ref] ?? [])
@@ -5278,6 +5472,65 @@ async function syncTickets(pool) {
     "ticket_payments",
     sourcePaymentCount,
     scaledIntToDecimalString(sourcePaymentSum, 2),
+  );
+  return postedRows;
+}
+
+async function syncHistoricalBookingEvents(pool) {
+  if (!String(effectiveSql.historical_booking_events ?? "").trim()) {
+    console.warn(
+      "[historical_booking_events] Counterpoint active/archived order and layaway audit tables are unavailable; booked history cannot be refreshed.",
+    );
+    return 0;
+  }
+
+  const result = await pool.request().query(effectiveSql.historical_booking_events);
+  const mapped = (result.recordset ?? [])
+    .map((row) => {
+      const normalizedRow = normalizeRowKeys(row);
+      return {
+        source_document_type: String(normalizedRow.source_document_type ?? "").trim().toLowerCase(),
+        source_document_id: String(normalizedRow.source_document_id ?? "").trim(),
+        source_log_sequence: Number(normalizedRow.source_log_sequence ?? 0),
+        event_kind: String(normalizedRow.event_kind ?? "").trim().toUpperCase(),
+        booked_at: normalizedRow.booked_at,
+        subtotal_delta: String(normalizedRow.subtotal_delta ?? "0"),
+        tax_delta: String(normalizedRow.tax_delta ?? "0"),
+        metadata: {
+          counterpoint_source: "order_audit_log",
+          counterpoint_open_document_ref: normalizedRow.source_open_document_ref
+            ? String(normalizedRow.source_open_document_ref).trim()
+            : undefined,
+        },
+      };
+    })
+    .filter(
+      (row) =>
+        ["order", "layaway"].includes(row.source_document_type) &&
+        row.source_document_id &&
+        Number.isInteger(row.source_log_sequence) &&
+        ["N", "E", "C", "I"].includes(row.event_kind) &&
+        row.booked_at,
+    );
+
+  if (mapped.length === 0) {
+    console.info("[historical_booking_events] no source booking events");
+    return 0;
+  }
+
+  const batchSize = Math.min(
+    2_000,
+    Math.max(1, Number.parseInt(process.env.HISTORICAL_BOOKING_EVENT_BATCH_SIZE ?? "1000", 10)),
+  );
+  let postedRows = 0;
+  for (let i = 0; i < mapped.length; i += batchSize) {
+    const rows = mapped.slice(i, i + batchSize);
+    const summary = await rosPost("historical_booking_events", { rows });
+    console.info("[historical_booking_events] batch", summary);
+    postedRows += rows.length;
+  }
+  logToDashboard(
+    `[historical_booking_events] imported ${postedRows} authoritative booking event(s)`,
   );
   return postedRows;
 }
@@ -6230,6 +6483,7 @@ async function runSqlSmoke(pool) {
     ["ticket_lines", "ticket_lines"],
     ["ticket_payments", "ticket_payments"],
     ["ticket_notes", "ticket_notes"],
+    ["historical_booking_events", "historical_booking_events"],
     ["open_docs", "open_docs"],
     ["open_doc_lines", "open_doc_lines"],
     ["open_doc_payments", "open_doc_pmt"],
@@ -6361,6 +6615,12 @@ function getOrderedSyncSteps(poolOverride) {
     { on: SYNC_CUSTOMERS, label: "customers", hb: "customers", run: () => syncCustomers(pool) },
     { on: SYNC_CUSTOMER_NOTES, label: "customer_notes", hb: "customer_notes", run: () => syncCustomerNotes(pool) },
     { on: SYNC_TICKETS, label: "tickets", hb: "tickets", run: () => syncTickets(pool) },
+    {
+      on: SYNC_TICKETS || SYNC_OPEN_DOCS,
+      label: "historical_booking_events",
+      hb: "tickets",
+      run: () => syncHistoricalBookingEvents(pool),
+    },
     { on: SYNC_OPEN_DOCS, label: "open_docs", hb: "open_docs", run: () => syncOpenDocs(pool) },
     {
       on: SYNC_STORE_CREDIT_OPENING,

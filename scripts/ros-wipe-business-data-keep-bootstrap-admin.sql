@@ -73,6 +73,7 @@ DELETE FROM counterpoint_category_map;
 DELETE FROM counterpoint_payment_method_map;
 DELETE FROM counterpoint_gift_reason_map;
 DELETE FROM counterpoint_staging_batch;
+DELETE FROM counterpoint_historical_booking_events;
 
 -- POS parked / RMS charge
 DELETE FROM pos_parked_sale_audit;
