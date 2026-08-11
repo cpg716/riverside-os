@@ -96,7 +96,10 @@ If the Timeline says a source feed did not refresh, treat it as a partial view a
 ## Reviews
 
 1. **Operations** → **Reviews**.
-2. Requires **reviews.view**. Post-sale review invites and tracking per your deployment.
+2. Requires **reviews.view**. Open **Outbox** to see review requests waiting for their scheduled send time.
+3. Staff with **reviews.manage** can choose **Cancel Invite** while a request is still waiting. Confirm by entering a specific reason of at least 12 characters; Riverside records the staff member and reason on the Transaction Record.
+4. A request already marked **Sending**, **Sent**, or **Delivered** cannot be cancelled from Riverside. Refresh before acting if its status changed.
+5. Use **Failed** and **Retry** only after correcting the displayed contact or integration problem.
 
 ## Notifications (bell)
 

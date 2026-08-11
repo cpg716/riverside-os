@@ -61,6 +61,14 @@ Formatted email appears inside a contained viewer. Use **View plain text** when 
 
 The Mailbox sidebar badge is the current unread inbound-email count and refreshes immediately after read/unread actions. The Main Hub checks IONOS for new mail every five minutes by default. New synced mail enters Notification Center and produces an informational popup while Riverside is open; old mail does not replay as a popup when staff first signs in.
 
+## Review Request Outbox
+
+Open **Operations → Reviews → Outbox** to see review requests waiting for their scheduled send time. Staff with **reviews.manage** can choose **Cancel Invite** before delivery and must enter a specific reason of at least 12 characters. Riverside records the staff member and reason on the Transaction Record.
+
+Cancellation is available only while the status is **Waiting to send**. Once the worker changes it to **Sending**, the request may already be reaching Podium and cannot be cancelled from Riverside. Refresh the Outbox if the status changed, and use **Failed → Retry** only after correcting the displayed delivery problem.
+
+Managers with **reviews.manage** can use **Send Test** to send one immediate real SMS to an authorized test number. Riverside uses the saved Customer Reviews wording and the configured Podium delivery path, records the acting staff member and masked destination, and does not create a fake customer or Transaction.
+
 ## What to check first
 
 Start with the KPI strip, then **What Changed Today** and **What Needs Attention**. These cards show current operational signals such as movement, register status, till control, blockers, warnings, weddings, alterations, pickups, and inventory work.
@@ -92,6 +100,7 @@ Operations Home is the Back Office daily command surface. Its store-wide managem
 - Follow the card action links instead of searching manually when a next action is shown.
 - In Mailbox, **Delete** means a recoverable move to Trash, not permanent removal.
 - If Mailbox reports a sync or refresh failure, do not treat the visible list as current.
+- In Review Requests, cancel only a request still in **Outbox**; **Sending**, **Sent**, and **Delivered** cannot be recalled.
 - Treat ROSIE as an explanation layer, not the source of sign-off.
 
 ## Related workflows

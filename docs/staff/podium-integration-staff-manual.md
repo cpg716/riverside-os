@@ -152,14 +152,16 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 1. Eligible fulfilled/picked-up Transactions enter the review schedule automatically. Staff do not choose which individual customers are asked.
 2. Riverside rechecks non-internal line fulfillment, customer contact information, the **180-day** cadence, the store enable switch, and the customer review opt-out before delivery.
 3. The request is sent at **10:00 AM five days after fulfillment** (Monday when the fifth day is Sunday), using Podium text when a usable phone exists or Podium email when email is the only usable destination.
-4. **Operations → Reviews** lists scheduled, sent, failed, and suppressed outcomes. Closing or auto-closing the receipt cannot lose the scheduled request.
+4. **Operations → Reviews** lists Outbox, sent, failed, and cancelled/suppressed outcomes. Closing or auto-closing the receipt cannot lose the scheduled request.
 
 ### Manager: check review invite history
 
 1. **Operations** → **Reviews** (subsection).
-2. Scan **scheduled**, **sent**, **failed**, and **suppressed** rows; correct the displayed contact/integration problem before using **Retry** on a failed row, or open the Transaction Record in Back Office.
+2. Use **Send Test** only when a manager needs to verify the current review-request wording and real SMS delivery. Enter the authorized test mobile number and confirm. Riverside uses the saved Customer Reviews template and records the acting staff member; it does not create a customer or Transaction.
+3. Open **Outbox** to review requests waiting to send. Staff with **`reviews.manage`** may choose **Cancel Invite** and enter a specific reason of at least 12 characters; Riverside records the staff member and reason on the Transaction Record.
+4. A request already marked **Sending**, **Sent**, or **Delivered** cannot be cancelled. For **Failed** rows, correct the displayed contact/integration problem before using **Retry**, or open the Transaction Record in Back Office.
 
-**Permission:** **`reviews.view`**.
+**Permission:** **`reviews.view`** to inspect; **`reviews.manage`** to send a delivery test or cancel a scheduled request.
 
 ---
 

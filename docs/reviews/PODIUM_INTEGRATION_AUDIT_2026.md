@@ -51,8 +51,9 @@ The August 2026 audit found and corrected API-contract, delivery-truth, paginati
 - **Eligibility**: Fulfilled/picked-up sales, non-internal lines complete, 180-day cooldown per customer, valid contact info.
 - **Customer Opt-Out**: `customers.review_requests_opt_out` boolean suppresses invites at the customer level.
 - **Timing**: A Transaction entering `fulfilled` schedules delivery for 10:00 AM store time five days later (Monday when the fifth day is Sunday). This avoids an immediate checkout request while the experience is still fresh enough to recall.
-- **Unbiased Selection**: Staff do not selectively send or suppress individual eligible sales. The store-wide enable switch and customer-level opt-out remain the explicit controls.
-- **Status Tracking**: `review_invite_sent_at` is written only after the provider accepts delivery. `podium_review_invite_status` uses a leased `sending` claim, records the Podium message UID for exact `message.failed` correlation, exposes `scheduled` and `failed` rows in Operations, and refreshes provider review state in the background.
+- **Unbiased Scheduling**: Eligible sales schedule automatically. Individual cancellation is restricted to **`reviews.manage`**, requires a reason, and writes the staff identity and reason to the Transaction activity log.
+- **Audited Delivery Test**: **Operations → Reviews → Send Test** requires **`reviews.manage`**, uses the saved review template and configured Podium path, and writes the acting staff member plus masked destination to `ops_action_audit`. It does not create a customer or Transaction and does not enter the normal review cadence.
+- **Status Tracking**: `review_invite_sent_at` is written only after the provider accepts delivery. `podium_review_invite_status` uses a leased `sending` claim, records the Podium message UID for exact `message.failed` correlation, exposes Outbox, cancelled, and failed rows in Operations, and refreshes provider review state in the background. Cancellation is accepted only from `scheduled`; `sending`, sent, and delivered activity cannot be recalled.
 
 ## 4. UI/UX Exposure
 - **Operations → Inbox**: A team-wide view of all current Podium threads with auto-scroll, sent badges, and assignee display.
@@ -67,6 +68,7 @@ The August 2026 audit found and corrected API-contract, delivery-truth, paginati
 - **`CUSTOMERS_HUB_VIEW`** / **`CUSTOMERS_HUB_EDIT`**: Inbox read/send.
 - **`STAFF_EDIT`**: Podium user linking.
 - **`SETTINGS_ADMIN`**: OAuth and scope configuration.
+- **`REVIEWS_VIEW`** / **`REVIEWS_MANAGE`**: Review-request history and reason-audited Outbox cancellation.
 - **Settings Credentials**: Sensitive credentials (`CLIENT_SECRET`, `REFRESH_TOKEN`) are stored through Backoffice Settings encrypted integration credentials.
 
 ## 6. API Endpoint Coverage

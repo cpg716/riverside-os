@@ -1,6 +1,6 @@
 # Plan: Podium reviews (invites + Operations hub)
 
-**Status:** **Fully implemented** — fulfilled Transactions automatically schedule an unbiased review request for **10:00 AM five days later**, using Podium **`POST /v4/reviews/invites`** plus tracked Podium SMS or Podium email delivery. The lifecycle includes a per-customer **180-day cooldown**, customer-level opt-out via `customers.review_requests_opt_out`, leased delivery claims, exact Podium message failure correlation, **Operations → Reviews** scheduled/failed visibility, and background provider refresh.
+**Status:** **Fully implemented** — fulfilled Transactions automatically schedule an unbiased review request for **10:00 AM five days later**, using Podium **`POST /v4/reviews/invites`** plus tracked Podium SMS or Podium email delivery. The lifecycle includes a per-customer **180-day cooldown**, customer-level opt-out via `customers.review_requests_opt_out`, leased delivery claims, exact Podium message failure correlation, an audited manager cancellation boundary, a manager-only audited delivery test, **Operations → Reviews** Outbox/sent/failed visibility, and background provider refresh.
 
 **Depends on:** Podium OAuth (**`RIVERSIDE_PODIUM_*`**), **`podium_sms_config`** (**`location_uid`**, outbound toggles) — **[`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md)**. Receipt completion UX — **[`RECEIPT_BUILDER_AND_DELIVERY.md`](./RECEIPT_BUILDER_AND_DELIVERY.md)**.
 
@@ -13,7 +13,7 @@
 ## Goals
 
 1. **Post-sale review invites** for eligible Transaction Records (e.g. status **fulfilled** / picked-up / completed — product-defined).
-2. **Unbiased selection:** Do not let staff selectively solicit only apparently happy customers. Use the store-wide enable switch and customer opt-out as the explicit controls.
+2. **Unbiased selection:** Scheduling remains automatic rather than cashier-selected. A staff member with **`reviews.manage`** may cancel an individual request only while it is still in the Outbox, with a required reason and Transaction activity audit.
 3. **Trigger timing:** When a Transaction becomes **fulfilled**, schedule the invite for **10:00 AM five days later**; move Sunday targets to Monday.
 4. **Operations → Reviews:** Read reviews (sync or on-demand), **needs response** filter, deep link or in-app response if Podium API supports it.
 5. **Customer profile:** Show **invite sent** metadata; link review thread or Podium UI when IDs exist; match by **`customer_id`** / phone / email used at invite time.
@@ -73,7 +73,7 @@ Decision: schedule at **10:00 AM store time five days after fulfillment**, movin
 ## Client (implemented)
 
 - **`ReceiptSummaryModal`:** shows automatic scheduled status; no per-sale review gating.
-- **Operations:** subsection **Reviews** with sent, scheduled, failed, and suppressed filters plus an explicit failed-row **Retry** action; RBAC key **`reviews.view`**.
+- **Operations:** subsection **Reviews** with **Outbox**, sent, failed, and cancelled/suppressed filters; scheduled rows have a reason-required **Cancel Invite** action for **`reviews.manage`**, and failed rows retain **Retry**. Cancellation is server-guarded to `scheduled` so a request already claimed as `sending` cannot be ambiguously cancelled. **Send Test** lets `reviews.manage` staff confirm the saved template and delivery path against a deliberately entered mobile number without creating a fake customer or Transaction; the acting staff member and masked destination are written to the operations action audit.
 - **Customer hub:** Communication preferences includes **Opt out of review requests** checkbox; saved via **`PATCH /api/customers/{id}`**.
 
 ---
@@ -82,6 +82,7 @@ Decision: schedule at **10:00 AM store time five days after fulfillment**, movin
 
 - Review solicitation uses the dedicated **`review_requests_opt_out`** preference on every automatic and manual entry point. It does not mutate marketing, operational SMS/email, or Podium campaign consent; unsubscribe handling remains separate for the underlying channel.
 - Rate-limit and dedupe: at most one successfully sent invite per customer every **180 days**.
+- Individual cancellation requires **`reviews.manage`**, a 12–500 character reason, and records the acting staff member in `transaction_activity_log`. It never recalls a request already handed to Podium.
 
 ---
 

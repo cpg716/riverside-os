@@ -170,6 +170,8 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `payments.deposit.link` | Link actual bank deposits to expected Helcim batches. |
 | `payments.deposit.adjust` | Create manual actual deposits and accept noted variances. |
 | `insights.view` | Native **Insights** conversational reports, the curated **Reports** library, and **Staff → Commissions → Reports**. Cost and margin measures additionally require Riverside Admin. |
+| `reviews.view` | View review-request Outbox, sent, failed, cancelled, and suppressed history. |
+| `reviews.manage` | Send an audited review-delivery test, or cancel a review request while it is still scheduled in Outbox with a required audited reason. |
 | `physical_inventory.view` | List/read physical inventory sessions. |
 | `physical_inventory.mutate` | Create, count, review, publish sessions. |
 | `orders.view` | List/read orders, audit, receipt ZPL (Back Office headers; or `register_session_id` when tied to that session). |

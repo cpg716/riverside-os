@@ -50,7 +50,7 @@ When a receipt is opened from Daily Sales, Transaction History, or Staff Profile
 
 ## Review requests
 
-The review status appears only on eligible just-completed sale screens when Podium review requests are enabled. Historical receipt reprints do not change the schedule. Riverside waits five days after fulfillment, then creates the official review link through Podium and sends it at 10:00 AM by Podium text when the customer has a usable phone or by Podium email when email is the only usable destination. Staff do not selectively send or skip individual eligible sales. Riverside asks at most once per customer every 180 days, honors the customer review opt-out, and keeps scheduled, suppressed, and failed outcomes explicit in Operations → Reviews.
+The review status appears only on eligible just-completed sale screens when Podium review requests are enabled. Historical receipt reprints do not change the schedule. Riverside waits five days after fulfillment, then creates the official review link through Podium and sends it at 10:00 AM by Podium text when the customer has a usable phone or by Podium email when email is the only usable destination. Scheduling is automatic rather than cashier-selected. Authorized staff can review waiting requests in **Operations → Reviews → Outbox** and cancel one before delivery only with a recorded reason. Riverside asks at most once per customer every 180 days, honors the customer review opt-out, and keeps scheduled, cancelled, suppressed, and failed outcomes explicit in Operations → Reviews.
 
 ## Receipt preview
 

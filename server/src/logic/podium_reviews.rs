@@ -9,7 +9,10 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::logic::podium::{self, PodiumTokenCache};
+use crate::logic::{
+    ops_dev_center::{self, GuardedActionResult},
+    podium::{self, PodiumTokenCache},
+};
 
 pub const REVIEW_INVITE_DELAY_DAYS: i64 = 5;
 
@@ -196,6 +199,162 @@ impl ReviewInviteChoiceResult {
             message: "Review request accepted for delivery.".to_string(),
             provider_id: Some(provider_id),
             review_url,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReviewInviteTestResult {
+    pub ok: bool,
+    pub status: String,
+    pub channel: String,
+    pub provider_id: Option<String>,
+    pub provider_message_id: Option<String>,
+    pub review_url: Option<String>,
+}
+
+/// Send one immediate, manager-authorized delivery test through Riverside's
+/// configured Podium review and messaging path. Test sends do not create a
+/// customer or Transaction and are recorded in the operations action audit.
+pub async fn send_test_review_invite(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    podium_cache: &Arc<Mutex<PodiumTokenCache>>,
+    actor_staff_id: Uuid,
+    phone: &str,
+    first_name: Option<&str>,
+) -> Result<ReviewInviteTestResult, ReviewInviteError> {
+    let policy = load_store_review_policy(pool).await?;
+    if !policy.review_invites_enabled {
+        return Err(ReviewInviteError::Delivery(
+            "Review requests are disabled in store settings.".to_string(),
+        ));
+    }
+
+    let normalized_phone = podium::normalize_phone_e164(phone).ok_or_else(|| {
+        ReviewInviteError::Delivery("Enter a valid US or Canadian mobile number.".to_string())
+    })?;
+    let recipient_name = first_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("there");
+    let phone_last_four = normalized_phone
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+    let audit_payload = json!({
+        "recipient_phone_last_four": phone_last_four,
+        "recipient_first_name": recipient_name,
+        "source": "operations_reviews",
+    });
+    let initiated = GuardedActionResult {
+        ok: false,
+        message: "Test review request initiated; provider result pending.".to_string(),
+        data: json!({ "status": "initiated" }),
+    };
+    let audit = ops_dev_center::write_action_audit(
+        pool,
+        actor_staff_id,
+        "review_test_invite_send",
+        "Authorized delivery test from Operations > Reviews.",
+        &audit_payload,
+        &initiated,
+    )
+    .await?;
+
+    let outcome: Result<
+        (podium::PodiumReviewInviteResult, ReviewInviteDelivery),
+        ReviewInviteError,
+    > = async {
+        let invite = podium::create_podium_review_invite(
+            pool,
+            http,
+            podium_cache,
+            Some(&normalized_phone),
+            None,
+        )
+        .await?;
+        let delivery = deliver_review_invite_link(
+            pool,
+            http,
+            podium_cache,
+            Some(&normalized_phone),
+            None,
+            Some(recipient_name),
+            "TEST-REVIEW",
+            &invite,
+        )
+        .await?;
+        Ok((invite, delivery))
+    }
+    .await;
+
+    match outcome {
+        Ok((invite, delivery)) => {
+            let result = ReviewInviteTestResult {
+                ok: true,
+                status: "sent".to_string(),
+                channel: delivery.channel.to_string(),
+                provider_id: invite.provider_id.clone(),
+                provider_message_id: delivery.provider_message_id.clone(),
+                review_url: invite.review_url.clone(),
+            };
+            if let Err(error) = sqlx::query(
+                r#"
+                UPDATE ops_action_audit
+                SET result_ok = TRUE,
+                    result_message = 'Test review request accepted for SMS delivery.',
+                    result_json = $2
+                WHERE id = $1
+                "#,
+            )
+            .bind(audit.id)
+            .bind(json!({
+                "status": result.status,
+                "channel": result.channel,
+                "provider_id": result.provider_id,
+                "provider_message_id": result.provider_message_id,
+            }))
+            .execute(pool)
+            .await
+            {
+                // The provider mutation already succeeded. Preserve that result
+                // for the caller so staff do not retry and create a duplicate.
+                tracing::error!(
+                    %error,
+                    audit_id = %audit.id,
+                    "test review request sent but audit finalization failed"
+                );
+            }
+            Ok(result)
+        }
+        Err(error) => {
+            let failure = error.to_string();
+            if let Err(audit_error) = sqlx::query(
+                r#"
+                UPDATE ops_action_audit
+                SET result_ok = FALSE,
+                    result_message = LEFT($2, 1000),
+                    result_json = jsonb_build_object('status', 'failed')
+                WHERE id = $1
+                "#,
+            )
+            .bind(audit.id)
+            .bind(&failure)
+            .execute(pool)
+            .await
+            {
+                tracing::error!(
+                    error = %audit_error,
+                    audit_id = %audit.id,
+                    "test review request failure audit could not be finalized"
+                );
+            }
+            Err(error)
         }
     }
 }
@@ -895,6 +1054,80 @@ pub async fn reschedule_failed_review_invite(
     .execute(pool)
     .await?;
     Ok(result.rows_affected() > 0)
+}
+
+/// Cancel an invite only while it is still waiting for the delivery worker.
+/// The conditional update and activity log share one transaction so a worker
+/// claim wins cleanly instead of allowing a late or ambiguous cancellation.
+pub async fn cancel_scheduled_review_invite(
+    pool: &PgPool,
+    transaction_id: Uuid,
+    actor_staff_id: Uuid,
+    reason: &str,
+) -> Result<bool, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let candidate: Option<(Option<Uuid>, String, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT customer_id, display_id, podium_review_invite_id
+        FROM transactions
+        WHERE id = $1
+          AND podium_review_invite_status = 'scheduled'
+          AND review_invite_sent_at IS NULL
+          AND review_invite_suppressed_at IS NULL
+        FOR UPDATE
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some((customer_id, display_id, prior_provider_invite_id)) = candidate else {
+        tx.rollback().await?;
+        return Ok(false);
+    };
+
+    sqlx::query(
+        r#"
+        UPDATE transactions
+        SET review_invite_suppressed_at = NOW(),
+            review_invite_scheduled_for = NULL,
+            review_invite_claimed_at = NULL,
+            review_invite_last_error = NULL,
+            podium_review_invite_id = 'ros_staff_cancelled',
+            podium_review_url = NULL,
+            podium_review_invite_status = 'cancelled'
+        WHERE id = $1
+          AND podium_review_invite_status = 'scheduled'
+        "#,
+    )
+    .bind(transaction_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO transaction_activity_log (
+            transaction_id, customer_id, event_kind, summary, metadata
+        )
+        VALUES ($1, $2, 'review_invite_cancelled', $3, $4)
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(customer_id)
+    .bind(format!(
+        "Scheduled review request for {display_id} cancelled before delivery"
+    ))
+    .bind(json!({
+        "cancelled_by_staff_id": actor_staff_id,
+        "reason": reason,
+        "prior_status": "scheduled",
+        "prior_provider_invite_id": prior_provider_invite_id,
+    }))
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(true)
 }
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]

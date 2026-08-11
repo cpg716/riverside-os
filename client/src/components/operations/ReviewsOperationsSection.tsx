@@ -9,11 +9,13 @@ import {
   MessageSquareText,
   RefreshCw,
   Search,
+  Send,
   Star,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
+import PromptModal from "../ui/PromptModal";
 import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = getBaseUrl();
@@ -25,9 +27,11 @@ function reviewStatusLabel(status: string | null | undefined, sent: boolean, sup
     case "delivered":
       return "Delivered";
     case "scheduled":
-      return "Scheduled";
+      return "Waiting to send";
     case "sending":
       return "Sending";
+    case "cancelled":
+      return "Cancelled";
     case "failed":
       return "Failed";
     case "suppressed":
@@ -80,7 +84,12 @@ export default function ReviewsOperationsSection({
   deepLinkTxnId,
   onDeepLinkConsumed,
 }: ReviewsOperationsSectionProps) {
-  const { backofficeHeaders } = useBackofficeAuth();
+  const {
+    backofficeHeaders,
+    hasPermission,
+    permissionsLoaded,
+    staffDisplayName,
+  } = useBackofficeAuth();
   const { toast } = useToast();
   const auth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
@@ -90,9 +99,14 @@ export default function ReviewsOperationsSection({
   const [loading, setLoading] = useState(true);
   const [syncBusy, setSyncBusy] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<ReviewInviteRow | null>(null);
+  const [testSendOpen, setTestSendOpen] = useState(false);
   const [txDetailFullId, setTxDetailFullId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const canCancelScheduled =
+    permissionsLoaded && hasPermission("reviews.manage");
+  const canSendTest = permissionsLoaded && hasPermission("reviews.manage");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -159,6 +173,82 @@ export default function ReviewsOperationsSection({
       }
     },
     [auth, load, toast],
+  );
+
+  const cancelScheduledInvite = useCallback(
+    async (reasonInput: string) => {
+      if (!cancelTarget) return false;
+      const reason = reasonInput.trim();
+      const reasonLength = Array.from(reason).length;
+      if (reasonLength < 12 || reasonLength > 500) {
+        toast("Enter a cancellation reason between 12 and 500 characters.", "error");
+        return false;
+      }
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/reviews/invite-rows/${cancelTarget.transaction_id}/cancel`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...auth(),
+            },
+            body: JSON.stringify({ reason }),
+          },
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          toast(body.error ?? "Could not cancel the review request.", "error");
+          if (res.status === 409) {
+            await load();
+            return true;
+          }
+          return false;
+        }
+        toast("Scheduled review request cancelled.", "success");
+        await load();
+        return true;
+      } catch {
+        toast("Could not cancel the review request.", "error");
+        return false;
+      }
+    },
+    [auth, cancelTarget, load, toast],
+  );
+
+  const sendTestReviewInvite = useCallback(
+    async (phoneInput: string) => {
+      const phone = phoneInput.trim();
+      const digits = phone.replace(/\D/g, "");
+      if (![10, 11].includes(digits.length)) {
+        toast("Enter a valid US or Canadian mobile number.", "error");
+        return false;
+      }
+      try {
+        const res = await fetch(`${baseUrl}/api/reviews/test-invite`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...auth(),
+          },
+          body: JSON.stringify({
+            phone,
+            first_name: staffDisplayName.trim().split(/\s+/)[0] || null,
+          }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          toast(body.error ?? "Could not send the test review request.", "error");
+          return false;
+        }
+        toast("Test review request accepted for SMS delivery.", "success");
+        return true;
+      } catch {
+        toast("Could not send the test review request.", "error");
+        return false;
+      }
+    },
+    [auth, staffDisplayName, toast],
   );
 
   useEffect(() => {
@@ -245,7 +335,7 @@ export default function ReviewsOperationsSection({
       color: "text-app-success",
     },
     {
-      label: "Suppressed",
+      label: "Cancelled / Suppressed",
       value: stats.suppressed,
       icon: Ban,
       tint: "ui-tint-warning",
@@ -254,7 +344,7 @@ export default function ReviewsOperationsSection({
       color: "text-app-warning",
     },
     {
-      label: "Scheduled",
+      label: "Outbox",
       value: stats.scheduled,
       icon: Clock,
       tint: "ui-tint-default",
@@ -276,9 +366,9 @@ export default function ReviewsOperationsSection({
   const filterTabs: { id: StatusFilter; label: string }[] = [
     { id: "all", label: "All" },
     { id: "sent", label: "Sent" },
-    { id: "scheduled", label: "Scheduled" },
+    { id: "scheduled", label: "Outbox" },
     { id: "failed", label: "Failed" },
-    { id: "suppressed", label: "Suppressed" },
+    { id: "suppressed", label: "Cancelled / Suppressed" },
   ];
 
   return (
@@ -318,6 +408,9 @@ export default function ReviewsOperationsSection({
                 </p>
                 <p className="mt-1 text-sm font-semibold text-app-text">
                   Riverside asks customers for feedback after completed or picked-up sales. Each customer is invited at most once every 180 days.
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  Outbox shows requests waiting to send. Authorized staff can cancel one before delivery with a recorded reason.
                 </p>
               </div>
               <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -361,6 +454,17 @@ export default function ReviewsOperationsSection({
                     </button>
                   );
                 })}
+
+                {canSendTest ? (
+                  <button
+                    type="button"
+                    onClick={() => setTestSendOpen(true)}
+                    className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    <Send className="h-3.5 w-3.5" aria-hidden />
+                    Send Test
+                  </button>
+                ) : null}
 
                 <button
                   type="button"
@@ -429,6 +533,8 @@ export default function ReviewsOperationsSection({
                       );
                       const suppressed = r.review_invite_suppressed_at != null;
                       const failed = r.podium_review_invite_status === "failed";
+                      const waitingToSend =
+                        r.podium_review_invite_status === "scheduled";
                       const customer =
                         [r.first_name, r.last_name]
                           .filter(Boolean)
@@ -509,6 +615,15 @@ export default function ReviewsOperationsSection({
                           </td>
                           <td className="px-4 py-3 text-right">
                             <div className="flex justify-end gap-2">
+                              {waitingToSend && canCancelScheduled ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setCancelTarget(r)}
+                                  className="rounded-lg border border-app-danger/25 bg-app-danger/10 px-3 py-1.5 text-[10px] font-bold text-app-danger transition-colors hover:bg-app-danger/15"
+                                >
+                                  Cancel Invite
+                                </button>
+                              ) : null}
                               {failed ? (
                                 <button
                                   type="button"
@@ -553,6 +668,28 @@ export default function ReviewsOperationsSection({
         isOpen={!!txDetailFullId}
         onClose={() => setTxDetailFullId(null)}
         onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+      />
+      <PromptModal
+        isOpen={testSendOpen}
+        onClose={() => setTestSendOpen(false)}
+        onSubmit={sendTestReviewInvite}
+        title="Send test review request?"
+        message={`This immediately sends one real SMS through Riverside's configured Podium review-request path. It uses the saved review template and your signed-in first name (${staffDisplayName.trim().split(/\s+/)[0] || "there"}) for the greeting. The send is recorded with your staff identity.`}
+        placeholder="Mobile number, for example 716-555-1234"
+        confirmLabel="Send Test"
+      />
+      <PromptModal
+        isOpen={cancelTarget != null}
+        onClose={() => setCancelTarget(null)}
+        onSubmit={cancelScheduledInvite}
+        title="Cancel scheduled review request?"
+        message={
+          cancelTarget
+            ? `The review request for ${[cancelTarget.first_name, cancelTarget.last_name].filter(Boolean).join(" ") || cancelTarget.customer_code || "this customer"} (${cancelTarget.display_id}) is waiting to send at ${fmt(cancelTarget.review_invite_scheduled_for)}. Enter why it should not be sent. Riverside records your identity and reason. A request already being delivered cannot be cancelled.`
+            : "Enter why this scheduled review request should not be sent."
+        }
+        placeholder="Reason (at least 12 characters)"
+        confirmLabel="Cancel Invite"
       />
     </div>
   );
