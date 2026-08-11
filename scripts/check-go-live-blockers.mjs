@@ -1184,7 +1184,10 @@ function checkWeddingAppointmentOverrideAtomicity() {
   assert(
     updateBody.includes("let mut tx = state.db.begin().await?") &&
       updateBody.includes("appointment_schedule_override_audit") &&
-      updateBody.includes("qb.build().execute(&mut *tx)") &&
+      (updateBody.includes("qb.build().execute(&mut *tx)") ||
+        (updateBody.includes("UPDATE wedding_appointments") &&
+          updateBody.includes(".bind(cancellation_reason)") &&
+          updateBody.includes(".execute(&mut *tx)"))) &&
       updateBody.includes(".execute(&mut *tx)") &&
       updateBody.includes("tx.commit().await?"),
     "Wedding appointment updates keep schedule overrides in the same transaction",
