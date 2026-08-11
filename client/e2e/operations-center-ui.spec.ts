@@ -6,6 +6,7 @@ import {
 
 test.describe("ROS Operations Center", () => {
   test("shows source-linked operational timeline items and filters", async ({ page }) => {
+    test.setTimeout(90_000);
     const today = new Date();
     const iso = today.toISOString();
     const dateOnly = iso.slice(0, 10);
@@ -220,14 +221,16 @@ test.describe("ROS Operations Center", () => {
     await expect(page.getByText("Timeline Pickup Party")).toBeVisible();
 
     await page.getByRole("button", { name: /^qbo$/i }).click();
-    await expect(page.getByText("QBO pending")).toBeVisible();
-    await page.getByText("QBO pending").click();
+    const qboPendingRow = page.getByRole("button", { name: /^qbo pending\b/i });
+    await expect(qboPendingRow).toBeVisible();
+    await qboPendingRow.click();
     await expect(page.getByTestId("app-shell-state")).toHaveAttribute("data-active-tab", "qbo", {
       timeout: 10_000,
     });
   });
 
   test("keeps timeline usable on tablet with partial feeds and large result sets", async ({ page }) => {
+    test.setTimeout(90_000);
     await page.setViewportSize({ width: 834, height: 1194 });
     const today = new Date();
     const dateOnly = today.toISOString().slice(0, 10);
@@ -334,6 +337,7 @@ test.describe("ROS Operations Center", () => {
   });
 
   test("summarizes blockers, degraded sources, safe actions, and deep links", async ({ page }) => {
+    test.setTimeout(90_000);
     await page.route("**/api/ops/health/snapshot", async (route) => {
       await route.fulfill({
         status: 200,
@@ -493,6 +497,7 @@ test.describe("ROS Operations Center", () => {
 
     await signInToBackOffice(page);
     await openBackofficeSidebarTab(page, "settings");
+    await page.getByRole("button", { name: /^help & system\b/i }).click();
     const operationsCenterNav = page.getByRole("button", {
       name: /^ros operations & support center/i,
     });

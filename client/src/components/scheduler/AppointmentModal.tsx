@@ -389,11 +389,11 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
     <div className="ui-overlay-backdrop animate-in fade-in duration-200">
       <div
         data-testid="appointment-modal"
-        className="ui-modal w-full max-w-none sm:max-w-2xl animate-in zoom-in-95 duration-300"
+        className="ui-modal flex max-h-[calc(100dvh-2rem)] w-full max-w-none flex-col sm:max-w-2xl animate-in zoom-in-95 duration-300"
       >
         
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 p-4 sm:p-6">
+        <div className="flex shrink-0 items-center justify-between border-b border-app-border bg-app-surface-2 p-4 sm:p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-accent text-white shadow-lg shadow-app-accent/20">
               <Calendar size={24} />
@@ -413,7 +413,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-8 no-scrollbar">
+        <form onSubmit={handleSubmit} className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-8 no-scrollbar">
           {!canMutate ? (
             <div className="mb-6 rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-sm font-semibold text-app-text-muted">
               You have view-only access to this appointment.
