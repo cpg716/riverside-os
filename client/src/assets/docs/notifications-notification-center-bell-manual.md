@@ -39,6 +39,7 @@ Use the bell when you need to:
 - You need **`notifications.view`** permission to see the bell and open the drawer.
 - The same bell behavior is used across Back Office, POS, and related shells.
 - The bell opens the inbox; it does not replace the actual destination workspace.
+- New Podium and store-email alerts produce a short informational popup while Riverside is open. The popup is a prompt to use the bell or source inbox; it does not replace the durable Notification Center row.
 
 ## Steps
 
@@ -59,6 +60,7 @@ Use the bell when you need to:
 - Negative inventory is reviewed in **Inventory → Reports → Inventory Reconciliation**, not through the bell.
 - Successful pickup and shipping completion is recorded on the Transaction Record and does not create an inbox item.
 - **Announcements** are for reading, not completing.
+- Podium Inbox and Mailbox sidebar badges come from their source read state, so reviewing a message clears its source badge even when other Notification Center work remains.
 - **Complete** is only for task-like alerts. Do not use **Dismiss** when the work itself is still unfinished.
 
 ## What happens next

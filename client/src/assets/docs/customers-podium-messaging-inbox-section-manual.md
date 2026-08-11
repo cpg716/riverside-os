@@ -44,6 +44,8 @@ Use this inbox to decide who needs a response, not to replace the Customer Hub. 
 
 The screen refreshes the Riverside copy every minute while it is open. Podium webhooks are still the fastest path for new inbound messages; Riverside stores verified webhook events in a retryable queue before acknowledging them. **Refresh** reloads only the Riverside copy. Open **Status** for provider diagnostics and **Pull from Podium** when history is missing. The pull uses Podium's cursor-paged conversation and message APIs, and Riverside also refreshes provider history in the background when the last pull is more than 30 minutes old. A routine background refresh is not an error. **History current** appears when the recent provider-backed conversations have stored history. If the Inbox reports **History incomplete**, retry the pull once and escalate the displayed failure if it remains.
 
+The sidebar badge counts the same open unread conversations shown here, rather than Notification Center rows. Read/unread actions refresh that badge immediately. A newly delivered inbound Podium message also enters Notification Center and produces an informational popup while Riverside is open; the first notification refresh after sign-in establishes a baseline and does not replay old popups.
+
 ## Tips
 
 - Use this list to triage communication work quickly from either shell.

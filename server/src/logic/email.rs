@@ -971,7 +971,7 @@ pub async fn notify_new_mail(
     } else {
         "Review the mailbox for staff follow-up.".to_string()
     };
-    let notification_id = notifications::upsert_app_notification_by_dedupe(
+    let Some(notification_id) = notifications::insert_app_notification_deduped(
         pool,
         "store_email_inbound",
         &title,
@@ -984,10 +984,28 @@ pub async fn notify_new_mail(
         json!({
             "permission": CUSTOMERS_HUB_VIEW
         }),
-        "store-email-inbound-unread",
+        None,
     )
-    .await?;
+    .await?
+    else {
+        return Ok(());
+    };
     notifications::fan_out_notification_to_staff_ids(pool, notification_id, &staff_ids).await
+}
+
+/// Shared unread inbound-message count used by the Mailbox navigation badge.
+pub async fn unread_mailbox_count(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM mailbox_messages
+        WHERE direction = 'inbound'
+          AND is_read = false
+          AND folder <> 'TRASH'
+        "#,
+    )
+    .fetch_one(pool)
+    .await
 }
 
 pub async fn update_mailbox_message_state(

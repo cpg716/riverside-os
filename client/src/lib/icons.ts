@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   LayoutGrid,
   ListChecks,
+  Mail,
   MessageSquare,
   Package,
   Receipt,
@@ -53,6 +54,7 @@ export type AppIconName =
   | "tasks"
   | "notifications"
   | "inbox"
+  | "mailbox"
   | "rmsCharge"
   | "layaways"
   | "shipping"
@@ -84,6 +86,7 @@ export const APP_ICONS: Record<AppIconName, LucideIcon> = {
   tasks: ListChecks,
   notifications: BellRing,
   inbox: MessageSquare,
+  mailbox: Mail,
   rmsCharge: Wallet,
   layaways: Clock3,
   shipping: Truck,
@@ -99,6 +102,7 @@ export const APP_NAV_ICON_NAMES = {
   "rms-charge": "rmsCharge",
   "customer-notifications": "notifications",
   "podium-inbox": "inbox",
+  mailbox: "mailbox",
   alterations: "alterations",
   orders: "orders",
   inventory: "inventory",

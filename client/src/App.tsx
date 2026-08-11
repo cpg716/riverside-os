@@ -1323,6 +1323,7 @@ const POS_SHELL_TABS = new Set<SidebarTabId>([
   "rms-charge",
   "customer-notifications",
   "podium-inbox",
+  "mailbox",
   "inventory",
   "orders",
   "weddings",
@@ -1474,6 +1475,7 @@ function AppShell({
         activeTab === "rms-charge" ||
         activeTab === "customer-notifications" ||
         activeTab === "podium-inbox" ||
+        activeTab === "mailbox" ||
         activeTab === "layaways")
     ) {
       setPosMode(true);

@@ -59,12 +59,21 @@ export default function Sidebar({
     () => new Set(),
   );
   const podiumInboxUnread = notifCtx?.podiumInboxUnread ?? 0;
+  const mailboxUnread = notifCtx?.mailboxUnread ?? 0;
   const canPollNotifications = notifCtx?.canView ?? false;
   const showPodiumInboxDot =
     canPollNotifications &&
     permissionsLoaded &&
     hasPermission("customers.hub_view") &&
     podiumInboxUnread > 0;
+  const showMailboxDot =
+    canPollNotifications &&
+    permissionsLoaded &&
+    hasPermission("customers.hub_view") &&
+    mailboxUnread > 0;
+  const communicationsUnread =
+    (showPodiumInboxDot ? podiumInboxUnread : 0) +
+    (showMailboxDot ? mailboxUnread : 0);
 
   useEffect(() => {
     const subItems = SIDEBAR_SUB_SECTIONS[activeTab];
@@ -186,8 +195,8 @@ export default function Sidebar({
                   onDoubleClick={() => onToggleCollapse()}
                   aria-label={
                     collapsed
-                      ? item.id === "home" && showPodiumInboxDot
-                        ? `${item.label}, ${podiumInboxUnread} unread Inbox`
+                      ? item.id === "home" && communicationsUnread > 0
+                        ? `${item.label}, ${communicationsUnread} unread messages`
                         : item.label
                       : undefined
                   }
@@ -213,12 +222,12 @@ export default function Sidebar({
                           : "text-current group-hover:text-app-text"
                       }`}
                     />
-                    {collapsed && item.id === "home" && showPodiumInboxDot ? (
+                    {collapsed && item.id === "home" && communicationsUnread > 0 ? (
                       <span
                         className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-app-surface bg-rose-600 px-0.5 text-[9px] font-black leading-none text-white"
                         aria-hidden
                       >
-                        {podiumInboxUnread > 9 ? "9+" : podiumInboxUnread}
+                        {communicationsUnread > 9 ? "9+" : communicationsUnread}
                       </span>
                     ) : null}
                   </span>
@@ -313,6 +322,14 @@ export default function Sidebar({
                             aria-hidden
                           >
                             {podiumInboxUnread > 99 ? "99+" : podiumInboxUnread}
+                          </span>
+                        ) : null}
+                        {sub.id === "mailbox" && showMailboxDot ? (
+                          <span
+                            className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-black tabular-nums text-white"
+                            aria-hidden
+                          >
+                            {mailboxUnread > 99 ? "99+" : mailboxUnread}
                           </span>
                         ) : null}
                       </button>

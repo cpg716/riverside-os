@@ -38,10 +38,11 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 | **Settings → Online Store** | Storefront setup and Podium web chat | Admins: enable the widget and paste the exact Podium-provided snippet. |
 | **Staff → Edit** | Podium user dropdown | Managers with `staff_edit`: link each staff member to their Podium user identity. |
 | **Operations → Podium Inbox** | Searchable open/closed conversation list, text-style thread, reply composer, staff assignment, and optional New message form | Read or reply, mark conversations read/unread, close/reopen one or many conversations, open the customer record, and **Refresh** if the list looks stale. |
-| **POS → Podium Inbox** | Same shared inbox inside the POS shell | Read/reply without leaving POS; open the customer record when the conversation needs profile or order follow-up. |
+| **POS → Podium Inbox** | Same shared inbox inside the POS shell, with the authoritative unread-conversation badge | Read/reply without leaving POS; open the customer record when the conversation needs profile or order follow-up. |
+| **POS → Mailbox** | Shared first-party IONOS store email and unread-message badge | Read, reply, forward, triage, or open the matched customer without leaving POS. |
 | **Customer hub → Messages** | Thread + compose + contact sync | Read history; send **SMS**; optional Podium conversation **URL** field for deep links; **Sync to Podium Contacts** button. |
 | **POS → Receipt summary** | Text receipt and automatic review status | Send a text receipt if the customer wants it; confirm eligible review follow-up is scheduled for five days after fulfillment. |
-| **Notification Center** | Podium SMS/email alerts with the customer's name and message preview | Expand a bundle when needed, then open the item to jump directly to that conversation in **Podium Inbox**. |
+| **Notification Center** | Podium message alerts and new-store-email alerts, with short popups for newly received activity | Expand a Podium bundle when needed, then open the item to jump to **Podium Inbox**; store-email alerts open **Mailbox**. |
 
 ---
 
@@ -124,6 +125,8 @@ ROS is still the appointment system of record. Podium sends enabled appointment 
 12. Use **Refresh** to reload the Riverside copy. Open **Status** and use **Pull from Podium** when messages are missing; that action asks Podium for current conversations and their cursor-paged history. **History current** appears only after every matched history in the pull is stored. **History incomplete** means one or more histories still need another pull or IT review.
 13. Use **Unknown Podium senders** only when matching provider threads to customers. Choose **Match customer**, search for the intended customer, verify identity, and select that record. The decision is audited against the exact provider conversation ID.
 14. When the card says multiple customers share the identifier, correct the duplicate phone/email data or deliberately choose the intended record. Riverside never silently chooses the newest customer.
+
+The Podium Inbox badge counts the same open unread conversations shown in the inbox and refreshes immediately after read/unread actions. Newly delivered messages also enter Notification Center and show a short informational popup while Riverside is open. Existing alerts do not replay as popups at sign-in.
 
 **Permission:** Viewing and read/unread changes require **`customers.hub_view`**. Sending, creating a new contact, closing, or reopening requires **`customers.hub_edit`**.
 
@@ -213,4 +216,4 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 - [pos-register-cart.md](pos-register-cart.md) — Register and receipt flow.
 - [operations-home.md](operations-home.md) — Operations home and Reviews.
 
-**Last reviewed:** 2026-08-10
+**Last reviewed:** 2026-08-11

@@ -95,6 +95,12 @@ export function notificationDestinationLabel(link: unknown): string {
   if (settingsSectionFromRoute(raw)) return "Settings";
   const t = raw.type;
   if (typeof t !== "string" || !t.trim()) return "Notification";
+  if (
+    (t === "home" || t === "dashboard") &&
+    linkField(raw, "subsection") === "mailbox"
+  ) {
+    return "Mailbox";
+  }
 
   switch (t) {
     case "order":
@@ -222,6 +228,7 @@ export function isSharedReadEligibleNotification(
     case "review_invite_sent":
     case "special_order_ready_to_stage":
     case "staff_bug_report":
+    case "store_email_inbound":
       return true;
     default:
       return false;
@@ -284,6 +291,7 @@ export function notificationSeverity(
     case "podium_sms_bundle":
     case "podium_sms_inbound":
     case "review_invite_sent":
+    case "store_email_inbound":
       return "info";
     default:
       return isActionableNotificationDeepLink(link) ? "action" : "info";

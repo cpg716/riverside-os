@@ -28,8 +28,10 @@ export type NotificationCenterContextValue = {
   unread: number;
   /** Shared active preview used by dashboards so notification data has one owner. */
   notifications: NotificationRow[];
-  /** Unread Podium inbound SMS/email staff rows (Operations → Inbox); subset of `unread`. */
+  /** Shared unread Podium conversations from the authoritative inbox state. */
   podiumInboxUnread: number;
+  /** Shared unread first-party email messages (Operations/POS → Mailbox). */
+  mailboxUnread: number;
   refreshUnread: () => Promise<void>;
   drawerOpen: boolean;
   openDrawer: () => void;

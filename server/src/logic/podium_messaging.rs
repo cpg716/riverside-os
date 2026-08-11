@@ -345,7 +345,13 @@ pub async fn list_messaging_inbox(
                 WHERE pm.conversation_id = pc.id
                   AND pm.direction IN ('outbound', 'automated')
             ), 'epoch'::timestamptz) AS needs_reply,
-            pc.last_message_at > COALESCE(pc.last_viewed_at, 'epoch'::timestamptz) AS unread,
+            EXISTS (
+                SELECT 1
+                FROM podium_message unread_message
+                WHERE unread_message.conversation_id = pc.id
+                  AND unread_message.direction = 'inbound'
+                  AND unread_message.created_at > COALESCE(pc.last_viewed_at, 'epoch'::timestamptz)
+            ) AS unread,
             LOWER(COALESCE(pc.provider_status, '')) IN ('closed', 'archived') AS closed,
             pc.provider_assignee_name,
             (
@@ -366,6 +372,27 @@ pub async fn list_messaging_inbox(
     )
     .bind(lim)
     .fetch_all(pool)
+    .await
+}
+
+/// Shared unread conversation count used by the Podium Inbox navigation badge.
+/// Keep this predicate aligned with `PodiumInboxRow.unread` and the active view.
+pub async fn unread_messaging_inbox_count(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM podium_conversation pc
+        WHERE EXISTS (
+            SELECT 1
+            FROM podium_message unread_message
+            WHERE unread_message.conversation_id = pc.id
+              AND unread_message.direction = 'inbound'
+              AND unread_message.created_at > COALESCE(pc.last_viewed_at, 'epoch'::timestamptz)
+        )
+          AND LOWER(COALESCE(pc.provider_status, '')) NOT IN ('closed', 'archived')
+        "#,
+    )
+    .fetch_one(pool)
     .await
 }
 

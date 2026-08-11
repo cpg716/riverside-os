@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW, SETTINGS_ADMIN};
-use crate::logic::email;
+use crate::logic::{email, notifications};
 use crate::middleware;
 
 #[derive(Debug, Error)]
@@ -140,17 +140,22 @@ async fn patch_message_state(
     Path(id): Path<Uuid>,
     Json(body): Json<PatchMailboxMessageBody>,
 ) -> Result<Json<email::MailboxMessageRow>, MailboxError> {
-    require_perm(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
-    Ok(Json(
-        email::update_mailbox_message_state(
-            &state.db,
-            id,
-            body.folder.as_deref(),
-            body.status.as_deref(),
-            body.is_read,
-        )
-        .await?,
-    ))
+    let actor_staff_id = require_perm(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let updated = email::update_mailbox_message_state(
+        &state.db,
+        id,
+        body.folder.as_deref(),
+        body.status.as_deref(),
+        body.is_read,
+    )
+    .await?;
+    mark_mailbox_notifications_read_if_caught_up(
+        &state.db,
+        actor_staff_id,
+        body.is_read == Some(true),
+    )
+    .await?;
+    Ok(Json(updated))
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,7 +171,7 @@ async fn patch_message_states(
     headers: HeaderMap,
     Json(body): Json<PatchMailboxMessagesBody>,
 ) -> Result<Json<Vec<email::MailboxMessageRow>>, MailboxError> {
-    require_perm(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let actor_staff_id = require_perm(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
     let ids = body
         .ids
         .into_iter()
@@ -178,16 +183,40 @@ async fn patch_message_states(
             "Choose between 1 and 200 mailbox messages.".to_string(),
         ));
     }
-    Ok(Json(
-        email::update_mailbox_message_states(
-            &state.db,
-            &ids,
-            body.folder.as_deref(),
-            body.status.as_deref(),
-            body.is_read,
+    let updated = email::update_mailbox_message_states(
+        &state.db,
+        &ids,
+        body.folder.as_deref(),
+        body.status.as_deref(),
+        body.is_read,
+    )
+    .await?;
+    mark_mailbox_notifications_read_if_caught_up(
+        &state.db,
+        actor_staff_id,
+        body.is_read == Some(true),
+    )
+    .await?;
+    Ok(Json(updated))
+}
+
+async fn mark_mailbox_notifications_read_if_caught_up(
+    pool: &sqlx::PgPool,
+    actor_staff_id: Option<Uuid>,
+    read_requested: bool,
+) -> Result<(), MailboxError> {
+    if !read_requested || email::unread_mailbox_count(pool).await? > 0 {
+        return Ok(());
+    }
+    if let Some(actor_staff_id) = actor_staff_id {
+        notifications::mark_message_notifications_read_if_caught_up(
+            pool,
+            &["store_email_inbound"],
+            actor_staff_id,
         )
-        .await?,
-    ))
+        .await?;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]

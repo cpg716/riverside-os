@@ -6579,11 +6579,27 @@ async fn post_podium_conversations_read_state(
     headers: HeaderMap,
     Json(body): Json<PodiumConversationReadStateBody>,
 ) -> Result<Json<serde_json::Value>, CustomerError> {
-    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    let actor =
+        customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
     let conversation_ids = unique_podium_conversation_ids(body.conversation_ids)?;
     let updated_ids =
         podium_messaging::set_conversations_read_state(&state.db, &conversation_ids, body.read)
             .await?;
+    if body.read && podium_messaging::unread_messaging_inbox_count(&state.db).await? == 0 {
+        if let Some(actor_staff_id) = actor.staff_id {
+            crate::logic::notifications::mark_message_notifications_read_if_caught_up(
+                &state.db,
+                &[
+                    "podium_sms_bundle",
+                    "podium_email_bundle",
+                    "podium_sms_inbound",
+                    "podium_email_inbound",
+                ],
+                actor_staff_id,
+            )
+            .await?;
+        }
+    }
     Ok(Json(
         json!({ "updated_ids": updated_ids, "read": body.read }),
     ))

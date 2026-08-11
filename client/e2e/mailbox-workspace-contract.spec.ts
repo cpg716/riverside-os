@@ -14,6 +14,11 @@ const mailboxWorkspace = repoFile(
 );
 const mailboxApi = repoFile("server/src/api/mailbox.rs");
 const mailboxLogic = repoFile("server/src/logic/email.rs");
+const notificationsApi = repoFile("server/src/api/notifications.rs");
+const notificationsLogic = repoFile("server/src/logic/notifications.rs");
+const podiumLogic = repoFile("server/src/logic/podium_messaging.rs");
+const posShell = repoFile("client/src/components/layout/PosShell.tsx");
+const posSidebar = repoFile("client/src/components/pos/PosSidebar.tsx");
 const mailboxStateMigration = repoFile(
   "migrations/191_mailbox_read_and_trash.sql",
 );
@@ -44,6 +49,27 @@ test("Opening mail persists read state and bulk state is permission guarded", ()
   expect(mailboxLogic).toContain('"ARCHIVED" | "TRASH"');
   expect(mailboxStateMigration).toContain("ADD COLUMN is_read BOOLEAN NOT NULL DEFAULT false");
   expect(mailboxStateMigration).toContain("SET is_read = true");
+});
+
+test("Mailbox is available in POS and its badge uses authoritative unread mail", () => {
+  expect(posSidebar).toContain('{ id: "mailbox", label: "Mailbox"');
+  expect(posShell).toContain('activePosTab === "mailbox"');
+  expect(posShell).toContain("<MailboxOperationsSection");
+  expect(mailboxLogic).toContain("pub async fn unread_mailbox_count");
+  expect(notificationsApi).toContain('"mailbox_unread": mailbox');
+  expect(mailboxWorkspace).toContain("await refreshNavigationCounts?.()");
+});
+
+test("New inbound bundle items reopen reviewed staff notifications", () => {
+  expect(notificationsLogic).toContain("A new item makes the shared bundle actionable again");
+  expect(notificationsLogic).toContain("SET read_at = NULL");
+  expect(notificationsLogic).toContain("archived_at = NULL");
+});
+
+test("Podium unread state counts inbound customer messages, not staff replies", () => {
+  expect(podiumLogic).toContain("pub async fn unread_messaging_inbox_count");
+  expect(podiumLogic).toContain("unread_message.direction = 'inbound'");
+  expect(podiumLogic).toContain("unread_message.created_at > COALESCE(pc.last_viewed_at");
 });
 
 test("Formatted email uses a scriptless contained viewer", () => {

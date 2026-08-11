@@ -14,6 +14,10 @@ import {
   bulkArchivableNotificationIds,
   bulkReadableNotificationIds,
 } from "../src/lib/notificationLifecycle";
+import {
+  inboundMessageNotificationFingerprint,
+  inboundMessagePopupTitle,
+} from "../src/lib/inboundMessageNotifications";
 
 test.describe("Notification deep-link contracts", () => {
   test("order notifications are actionable with order_id", async () => {
@@ -99,6 +103,43 @@ test.describe("Notification deep-link contracts", () => {
         items: [],
       }),
     ).toBe("Podium Inbox");
+  });
+
+  test("Mailbox alerts identify their destination and both inboxes qualify for popups", async () => {
+    const mailboxRow = {
+      staff_notification_id: "staff-mail-1",
+      notification_id: "mail-1",
+      created_at: "2026-08-11T12:00:00.000Z",
+      kind: "store_email_inbound",
+      title: "New store email",
+      body: "Review the mailbox for staff follow-up.",
+      deep_link: { type: "home", subsection: "mailbox" },
+      source: "mailbox_sync",
+      read_at: null,
+      completed_at: null,
+      archived_at: null,
+    };
+    const podiumRow = {
+      ...mailboxRow,
+      notification_id: "podium-1",
+      kind: "notification_bundle",
+      title: "Podium SMS from Customer: New message",
+      deep_link: {
+        type: "notification_bundle",
+        bundle_kind: "podium_sms_bundle",
+        items: [],
+      },
+    };
+
+    expect(notificationDestinationLabel(mailboxRow.deep_link)).toBe("Mailbox");
+    expect(inboundMessagePopupTitle(mailboxRow)).toBe("New store email");
+    expect(inboundMessagePopupTitle(podiumRow)).toContain("Podium SMS");
+    expect(inboundMessageNotificationFingerprint(podiumRow)).not.toBe(
+      inboundMessageNotificationFingerprint({
+        ...podiumRow,
+        title: "Podium SMS from Customer (2 items)",
+      }),
+    );
   });
 
   test("payment operation notifications route to the payments workspace", async () => {

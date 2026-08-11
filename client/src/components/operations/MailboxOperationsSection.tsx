@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useNotificationCenterOptional } from "../../context/NotificationCenterContextLogic";
 import { getBaseUrl } from "../../lib/apiConfig";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -250,6 +251,8 @@ export default function MailboxOperationsSection({
 }) {
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
+  const notificationCenter = useNotificationCenterOptional();
+  const refreshNavigationCounts = notificationCenter?.refreshUnread;
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
@@ -511,6 +514,7 @@ export default function MailboxOperationsSection({
       const updated = (await res.json()) as MailboxRow[];
       const updatedById = new Map(updated.map((row) => [row.id, row]));
       setRows((current) => current.map((row) => updatedById.get(row.id) ?? row));
+      await refreshNavigationCounts?.();
       if (!quiet && successMessage) toast(successMessage, "success");
       return true;
     } catch {
@@ -519,7 +523,7 @@ export default function MailboxOperationsSection({
     } finally {
       if (!quiet) setStateBusy(false);
     }
-  }, [apiAuth, toast]);
+  }, [apiAuth, refreshNavigationCounts, toast]);
 
   useEffect(() => {
     if (!selectedThread) {
@@ -570,6 +574,7 @@ export default function MailboxOperationsSection({
         "success",
       );
       await refresh();
+      await refreshNavigationCounts?.();
     } catch {
       toast("Mailbox sync could not run.", "error");
     } finally {

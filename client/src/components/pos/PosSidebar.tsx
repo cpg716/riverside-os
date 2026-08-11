@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import SidebarRailTooltip from "../ui/SidebarRailTooltip";
 import RiversideJustLogo from "../../assets/images/logo1.png";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useNotificationCenterOptional } from "../../context/NotificationCenterContextLogic";
 import { subSectionVisible } from "../../context/BackofficeAuthPermissions";
 import { SidebarTabId } from "../layout/sidebarSections";
 import { POS_SIDEBAR_SUB_SECTIONS, type PosTabId } from "./posSidebarSections";
@@ -27,6 +28,13 @@ export default function PosSidebar({
 }: PosSidebarProps) {
   const { hasPermission, permissionsLoaded } =
     useBackofficeAuth();
+  const notificationCenter = useNotificationCenterOptional();
+  const podiumInboxUnread = notificationCenter?.canView
+    ? notificationCenter.podiumInboxUnread
+    : 0;
+  const mailboxUnread = notificationCenter?.canView
+    ? notificationCenter.mailboxUnread
+    : 0;
 
   const tabs = useMemo(() => {
     const out: {
@@ -47,6 +55,7 @@ export default function PosSidebar({
       { id: "tasks",        label: "Tasks",       icon: getAppIcon(APP_NAV_ICON_NAMES.tasks) },
       { id: "customer-notifications", label: "Customer Notifications", icon: getAppIcon(APP_NAV_ICON_NAMES["customer-notifications"]) },
       { id: "podium-inbox", label: "Podium Inbox", icon: getAppIcon(APP_NAV_ICON_NAMES["podium-inbox"]),  permission: "customers.hub_view" },
+      { id: "mailbox", label: "Mailbox", icon: getAppIcon(APP_NAV_ICON_NAMES.mailbox), permission: "customers.hub_view" },
       { id: "rms-charge",   label: "RMS Charge",  icon: getAppIcon(APP_NAV_ICON_NAMES["rms-charge"]) },
       { id: "inventory",    label: "Inventory",   icon: getAppIcon(APP_NAV_ICON_NAMES.inventory) },
       { id: "payments",     label: "Payments",    icon: getAppIcon(APP_NAV_ICON_NAMES.payments) },
@@ -82,6 +91,12 @@ export default function PosSidebar({
     const Icon = tab.icon;
     const isActive = activeTab === tab.id;
     const subItems = POS_SIDEBAR_SUB_SECTIONS[tab.id] ?? [];
+    const unreadCount =
+      tab.id === "podium-inbox"
+        ? podiumInboxUnread
+        : tab.id === "mailbox"
+          ? mailboxUnread
+          : 0;
 
     return (
       <div key={tab.id}>
@@ -91,7 +106,11 @@ export default function PosSidebar({
             data-testid={`pos-sidebar-tab-${tab.id}`}
             onClick={() => onTabChange(tab.id)}
             onDoubleClick={() => onToggleCollapse()}
-            aria-label={tab.label}
+            aria-label={
+              collapsed && unreadCount > 0
+                ? `${tab.label}, ${unreadCount} unread`
+                : tab.label
+            }
             aria-current={isActive ? "page" : undefined}
             className={`ui-touch-target group relative flex cursor-pointer items-center rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${
               collapsed
@@ -112,11 +131,29 @@ export default function PosSidebar({
                 aria-hidden
                 className={isActive ? "scale-105 text-app-accent" : "text-current"}
               />
+              {collapsed && unreadCount > 0 ? (
+                <span
+                  className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-app-surface bg-rose-600 px-0.5 text-[9px] font-black leading-none text-white"
+                  aria-hidden
+                >
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              ) : null}
             </span>
             {!collapsed ? (
-              <span className={`truncate text-sm ${isActive ? "font-black" : "font-semibold"}`}>
-                {tab.label}
-              </span>
+              <>
+                <span className={`min-w-0 flex-1 truncate text-sm ${isActive ? "font-black" : "font-semibold"}`}>
+                  {tab.label}
+                </span>
+                {unreadCount > 0 ? (
+                  <span
+                    className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-black tabular-nums text-white"
+                    aria-hidden
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                ) : null}
+              </>
             ) : null}
           </button>
         </SidebarRailTooltip>

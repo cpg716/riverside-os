@@ -7,6 +7,7 @@ Riverside OS uses first-party store email for customer email communication. SMS 
 - Store address: `info@riversidemens.com`
 - Settings location: Back Office -> Settings -> Email
 - Operations location: Back Office -> Operations -> Mailbox
+- POS location: POS -> Mailbox
 - Customer location: Customer Hub -> Messages
 
 Inbound email is pulled from the configured IMAP inbox. If the sender email matches a customer email address, Riverside records the message in both Operations Mailbox and that customer's Messages tab. If the sender is not recognized, the message remains in Operations Mailbox for staff follow-up.
@@ -14,6 +15,8 @@ Inbound email is pulled from the configured IMAP inbox. If the sender email matc
 Outbound email sent from Operations Mailbox or Customer Messages is sent through the configured SMTP account. When the recipient email matches a customer, Riverside also records that outbound message on the customer timeline.
 
 The server also runs a background inbox sync. The default interval is 300 seconds and can be adjusted with `RIVERSIDE_EMAIL_SYNC_INTERVAL_SECS` (minimum 60 seconds). Manual **Sync inbox** remains available in Settings -> Email and Operations -> Mailbox.
+
+The Mailbox navigation badge counts unread inbound `mailbox_messages` outside Trash, so it uses the same source state as the workspace. Each successful sync that inserts mail creates a fresh Notification Center alert; the client shows a short informational popup for newly observed alerts without replaying the existing inbox at sign-in.
 
 ### Staff workflow
 

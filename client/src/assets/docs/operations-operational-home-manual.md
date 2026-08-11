@@ -51,13 +51,15 @@ Use the search field to find a customer, message type, status, or delivery error
 
 ## Operations Mailbox
 
-Open **Operations → Mailbox** for store email at `info@riversidemens.com`. Use the folder list for **Inbox**, **Important**, **Follow-up**, **Sent**, **Archived**, **Trash**, and **All mail**; search or **Unmatched only** narrows the conversation list.
+Open **Operations → Mailbox** or **POS → Mailbox** for store email at `info@riversidemens.com`. Use the folder list for **Inbox**, **Important**, **Follow-up**, **Sent**, **Archived**, **Trash**, and **All mail**; search or **Unmatched only** narrows the conversation list.
 
 Opening inbound mail marks its conversation read. Use **Mark unread** when follow-up still belongs to another staff member. Select multiple conversation checkboxes for group **Read**, **Unread**, **Archive**, or **Delete**. Archive keeps handled mail under Archived. Delete moves email to recoverable Trash; **Restore** returns Archived or Trash conversations to Inbox.
 
 The selected conversation keeps **Reply**, **Forward**, **Important**, **Follow-up**, **Archive**, folder movement, and matched-customer access together. **New email** opens the composer only when needed. Choose **Sync** to pull recent IONOS mail.
 
 Formatted email appears inside a contained viewer. Use **View plain text** when needed. Riverside blocks email scripts, forms, embedded frames, and unsafe URLs; links open separately.
+
+The Mailbox sidebar badge is the current unread inbound-email count and refreshes immediately after read/unread actions. The Main Hub checks IONOS for new mail every five minutes by default. New synced mail enters Notification Center and produces an informational popup while Riverside is open; old mail does not replay as a popup when staff first signs in.
 
 ## What to check first
 

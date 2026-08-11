@@ -46,6 +46,7 @@ Use this drawer when you need to:
   - announcements expand for reading
 - Routine inventory reconciliation belongs in **Inventory → Reports → Inventory Reconciliation**.
 - Successful pickup and shipping completion remains in the related Transaction Record instead of generating a new notification.
+- New Podium and Mailbox messages can also show an informational popup. The Notification Center row remains the durable alert and opens the owning inbox.
 
 ## How to use the Inbox
 

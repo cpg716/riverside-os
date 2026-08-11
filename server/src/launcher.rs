@@ -967,7 +967,7 @@ async fn launch_server_inner(
     let email_sync_interval_secs = std::env::var("RIVERSIDE_EMAIL_SYNC_INTERVAL_SECS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(30 * 60)
+        .unwrap_or(5 * 60)
         .max(60);
     let email_state = state.clone();
     tokio::spawn(async move {

@@ -20,6 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useNotificationCenterOptional } from "../../context/NotificationCenterContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import type { Customer } from "../pos/CustomerSelector";
 import { AddCustomerDrawer } from "./CustomersWorkspace";
@@ -182,6 +183,8 @@ export default function PodiumMessagingInboxSection({
 }) {
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
+  const notificationCenter = useNotificationCenterOptional();
+  const refreshNavigationCounts = notificationCenter?.refreshUnread;
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
@@ -359,6 +362,7 @@ export default function PodiumMessagingInboxSection({
         const error = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(error.error ?? "Could not update the conversation read state.");
       }
+      await refreshNavigationCounts?.();
       if (announceSuccess) {
         toast(
           `${conversationIds.length} conversation${conversationIds.length === 1 ? "" : "s"} marked ${read ? "read" : "unread"}.`,
@@ -374,7 +378,7 @@ export default function PodiumMessagingInboxSection({
     } finally {
       setConversationActionBusy(false);
     }
-  }, [apiAuth, refresh, toast]);
+  }, [apiAuth, refresh, refreshNavigationCounts, toast]);
 
   useEffect(() => {
     if (

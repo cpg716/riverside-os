@@ -347,7 +347,8 @@ fn notification_severity_filter_key(kind: &str, deep_link: &Value) -> &'static s
         | "podium_email_inbound"
         | "podium_sms_bundle"
         | "podium_sms_inbound"
-        | "review_invite_sent" => "info",
+        | "review_invite_sent"
+        | "store_email_inbound" => "info",
         _ if is_actionable_notification_deep_link(deep_link) => "action",
         _ => "info",
     }
@@ -381,6 +382,7 @@ pub fn is_shared_read_eligible(kind: &str, deep_link: &Value) -> bool {
             | "review_invite_sent"
             | "special_order_ready_to_stage"
             | "staff_bug_report"
+            | "store_email_inbound"
     )
 }
 
@@ -593,11 +595,45 @@ pub async fn upsert_bundle_item(
     audience: Value,
     dedupe_key: &str,
 ) -> Result<Uuid, sqlx::Error> {
-    let existing: Option<(Uuid, Value)> = sqlx::query_as(
-        r#"SELECT id, deep_link FROM app_notification WHERE dedupe_key = $1 LIMIT 1"#,
+    let mut tx = pool.begin().await?;
+
+    // A reviewed bundle must not absorb a later event invisibly. Preserve the
+    // reviewed row as history, release its dedupe key, and let the next event
+    // create a fresh unread staff notification.
+    sqlx::query(
+        r#"
+        UPDATE app_notification an
+        SET dedupe_key = NULL
+        WHERE an.dedupe_key = $1
+          AND EXISTS (
+            SELECT 1
+            FROM staff_notification sn
+            WHERE sn.notification_id = an.id
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM staff_notification sn
+            WHERE sn.notification_id = an.id
+              AND sn.read_at IS NULL
+              AND sn.archived_at IS NULL
+          )
+        "#,
     )
     .bind(dedupe_key)
-    .fetch_optional(pool)
+    .execute(&mut *tx)
+    .await?;
+
+    let existing: Option<(Uuid, Value)> = sqlx::query_as(
+        r#"
+        SELECT id, deep_link
+        FROM app_notification
+        WHERE dedupe_key = $1
+        LIMIT 1
+        FOR UPDATE
+        "#,
+    )
+    .bind(dedupe_key)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let mut items = if let Some((_, ref dl)) = existing {
@@ -632,17 +668,51 @@ pub async fn upsert_bundle_item(
         "items": items,
     });
 
-    upsert_app_notification_by_dedupe(
-        pool,
-        "notification_bundle",
-        &title,
-        &body,
-        deep,
-        source,
-        audience,
-        dedupe_key,
+    let notification_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO app_notification (
+            kind, title, body, deep_link, source, audience_json, dedupe_key
+        )
+        VALUES ('notification_bundle', $1, $2, $3, $4, $5, $6)
+        ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL
+        DO UPDATE SET
+            created_at = NOW(),
+            kind = EXCLUDED.kind,
+            title = EXCLUDED.title,
+            body = EXCLUDED.body,
+            deep_link = EXCLUDED.deep_link,
+            source = EXCLUDED.source,
+            audience_json = EXCLUDED.audience_json
+        RETURNING id
+        "#,
     )
-    .await
+    .bind(&title)
+    .bind(&body)
+    .bind(&deep)
+    .bind(source)
+    .bind(&audience)
+    .bind(dedupe_key)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if existing.is_some() {
+        // A new item makes the shared bundle actionable again for every
+        // existing recipient, including staff who reviewed an earlier item.
+        sqlx::query(
+            r#"
+            UPDATE staff_notification
+            SET read_at = NULL,
+                archived_at = NULL
+            WHERE notification_id = $1
+            "#,
+        )
+        .bind(notification_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(notification_id)
 }
 
 /// Remove a canonical notification (inbox rows cascade).
@@ -1190,30 +1260,6 @@ pub async fn unread_count_for_staff(pool: &PgPool, staff_id: Uuid) -> Result<i64
     .await
 }
 
-/// Unread rows for Podium inbound SMS/email (Operations → Inbox), excluding other notification kinds.
-pub async fn unread_podium_inbox_count_for_staff(
-    pool: &PgPool,
-    staff_id: Uuid,
-) -> Result<i64, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"
-        SELECT COUNT(*)::bigint
-        FROM staff_notification sn
-        JOIN app_notification an ON an.id = sn.notification_id
-        WHERE sn.staff_id = $1
-          AND sn.read_at IS NULL
-          AND sn.archived_at IS NULL
-          AND (
-            an.kind IN ('podium_sms_inbound', 'podium_email_inbound')
-            OR an.deep_link->>'bundle_kind' IN ('podium_sms_bundle', 'podium_email_bundle')
-          )
-        "#,
-    )
-    .bind(staff_id)
-    .fetch_one(pool)
-    .await
-}
-
 pub async fn notification_health(pool: &PgPool) -> Result<NotificationHealthResponse, sqlx::Error> {
     let (
         active_inbox_rows,
@@ -1654,6 +1700,61 @@ pub async fn mark_read_for_notification_recipients(
     .await?;
 
     Ok(SharedReadOutcome::SharedRecipients(updated.max(0) as u64))
+}
+
+/// Mark shared message notifications read once their authoritative inbox has no
+/// unread work left. This keeps the bell lifecycle aligned with Mailbox/Podium
+/// without using notification rows as the source badge count.
+pub async fn mark_message_notifications_read_if_caught_up(
+    pool: &PgPool,
+    semantic_kinds: &[&str],
+    actor_staff_id: Uuid,
+) -> Result<u64, sqlx::Error> {
+    let kinds = semantic_kinds
+        .iter()
+        .map(|kind| (*kind).to_string())
+        .collect::<Vec<_>>();
+    let updated: i64 = sqlx::query_scalar(
+        r#"
+        WITH updated AS (
+            UPDATE staff_notification sn
+            SET read_at = NOW()
+            FROM app_notification an
+            WHERE sn.notification_id = an.id
+              AND sn.read_at IS NULL
+              AND sn.archived_at IS NULL
+              AND (
+                an.kind = ANY($1)
+                OR an.deep_link->>'bundle_kind' = ANY($1)
+              )
+            RETURNING sn.id, sn.notification_id
+        ),
+        logged AS (
+            INSERT INTO staff_notification_action (
+                staff_notification_id,
+                actor_staff_id,
+                action,
+                metadata
+            )
+            SELECT
+                updated.id,
+                $2,
+                'read',
+                jsonb_build_object(
+                    'shared_source_caught_up', true,
+                    'notification_id', updated.notification_id::text
+                )
+            FROM updated
+            RETURNING 1
+        )
+        SELECT COUNT(*)::bigint FROM updated
+        "#,
+    )
+    .bind(&kinds)
+    .bind(actor_staff_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(updated.max(0) as u64)
 }
 
 async fn mark_read_for_current_recipient_by_notification(

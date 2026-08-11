@@ -18,6 +18,7 @@ use crate::logic::notifications::{
     mark_read_for_notification_recipients, resolve_broadcast_audience, BroadcastAudience,
     NotificationListMode, SharedReadOutcome,
 };
+use crate::logic::{email, podium_messaging};
 use crate::middleware;
 
 #[derive(Debug, Deserialize)]
@@ -111,15 +112,20 @@ async fn unread_count(
             tracing::error!(error = %e, "unread_count_for_staff");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
-    let podium_inbox = notifications::unread_podium_inbox_count_for_staff(&state.db, staff.id)
+    let podium_inbox = podium_messaging::unread_messaging_inbox_count(&state.db)
         .await
         .map_err(|e| {
-            tracing::error!(error = %e, "unread_podium_inbox_count_for_staff");
+            tracing::error!(error = %e, "unread_messaging_inbox_count");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
+    let mailbox = email::unread_mailbox_count(&state.db).await.map_err(|e| {
+        tracing::error!(error = %e, "unread_mailbox_count");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })?;
     Ok(Json(json!({
         "unread": n,
-        "podium_inbox_unread": podium_inbox
+        "podium_inbox_unread": podium_inbox,
+        "mailbox_unread": mailbox
     })))
 }
 

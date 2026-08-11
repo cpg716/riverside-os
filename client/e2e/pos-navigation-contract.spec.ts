@@ -113,6 +113,10 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
   await expect(posNav.getByTestId("pos-sidebar-group-work")).toHaveCount(0);
   await expect(posNav.getByTestId("pos-sidebar-group-more")).toHaveCount(0);
   await expect(posNav.getByRole("button", { name: "Podium Inbox", exact: true })).toBeVisible();
+  await expect(posNav.getByRole("button", { name: "Mailbox", exact: true })).toBeVisible();
+
+  await posNav.getByRole("button", { name: "Mailbox", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Mail", exact: true })).toBeVisible();
 
   await posNav.getByRole("button", { name: "Podium Inbox", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Messages", exact: true })).toBeVisible();

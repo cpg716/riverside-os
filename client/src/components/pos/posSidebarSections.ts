@@ -6,6 +6,7 @@ export type PosTabId =
   | "rms-charge"
   | "customer-notifications"
   | "podium-inbox"
+  | "mailbox"
   | "inventory"
   | "orders"
   | "weddings"
@@ -35,6 +36,7 @@ export const POS_SIDEBAR_SUB_SECTIONS: Record<PosTabId, PosSubItem[]> = {
   "rms-charge": [],
   "customer-notifications": [],
   "podium-inbox": [],
+  mailbox: [],
   inventory: [],
   orders: [],
   weddings: [],
