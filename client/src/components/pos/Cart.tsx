@@ -245,6 +245,23 @@ function parseRefundEventId(value: unknown): string | null {
     : null;
 }
 
+function parseExchangeSettlementReplay(value: unknown): boolean {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      (value as Record<string, unknown>).idempotent_replay === true,
+  );
+}
+
+function parseDeferredRefundDueCents(value: unknown): number | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = (value as Record<string, unknown>)
+    .deferred_card_refund_due_amount;
+  if (typeof raw !== "string" && typeof raw !== "number") return null;
+  const cents = parseMoneyToCents(String(raw));
+  return cents >= 0 ? cents : null;
+}
+
 function allocateCentsByWeight(
   components: Array<{
     key: "subtotal" | "stateTax" | "localTax";
@@ -7007,6 +7024,9 @@ export default function Cart({
         customerTaxExempt={selectedCustomer?.tax_exempt ?? false}
         customerTaxExemptId={selectedCustomer?.tax_exempt_id ?? null}
         returnOnlyRefundMode={pendingReturnTender?.returnOnly ?? false}
+        exchangeRefundMode={Boolean(
+          pendingReturnTender && !pendingReturnTender.returnOnly,
+        )}
         deferCardRefund={Boolean(pendingReturnTender)}
         onProcessLinkedCardRefund={processLinkedCardRefundBeforeFinalize}
         originalHelcimTransactionIdForRefund={
@@ -7242,9 +7262,49 @@ export default function Cart({
                           ? refundTender.metadata.check_number
                           : undefined,
                       gift_card_code: refundTender.gift_card_code,
-                    };
+                  };
                 }),
               };
+              if (linkedCardRemainderCents > 0) {
+                try {
+                  const preflightRes = await fetch(
+                    `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/refunds/exchange-card-preflight`,
+                    {
+                      method: "POST",
+                      headers: {
+                        ...apiAuth(),
+                        "Content-Type": "application/json",
+                      },
+                      body: JSON.stringify({
+                        session_id: sessionId,
+                        amount: centsToFixed2(linkedCardRemainderCents),
+                      }),
+                    },
+                  );
+                  const preflightPayload = (await preflightRes
+                    .json()
+                    .catch(() => ({}))) as {
+                    available?: boolean;
+                    message?: string;
+                    error?: string;
+                  };
+                  if (!preflightRes.ok || preflightPayload.available !== true) {
+                    toast(
+                      preflightPayload.error ??
+                        preflightPayload.message ??
+                        "ROS could not verify that the original card refund is available. The exchange was not recorded. Choose Cash, Gift Card, or Store Credit, or retry after checking Helcim.",
+                      "error",
+                    );
+                    return;
+                  }
+                } catch {
+                  toast(
+                    "ROS could not reach Helcim to verify the original card refund. The exchange was not recorded. Check the connection or choose Cash, Gift Card, or Store Credit.",
+                    "error",
+                  );
+                  return;
+                }
+              }
               const replacementTransactionId = await executeCheckout(
                 checkoutApplied,
                 op,
@@ -7294,33 +7354,31 @@ export default function Cart({
                 const exchangeRefundEventId =
                   parseRefundEventId(settlementPayload);
                 if (!exchangeRefundEventId) {
-                  setLastReceiptOrderPaymentLines(orderPaymentLines);
-                  setLastReceiptExchangeReturnTransactionId(
-                    pendingReturnTender.originalTransactionId,
-                  );
-                  setLastRefundEventId(null);
-                  setLastRefundResult(null);
-                  setLastReceiptEventTransactionId(
-                    pendingReturnTender.originalTransactionId,
-                  );
-                  setLastPendingRefundAmountCents(
-                    linkedCardRemainderCents > 0 ? linkedCardRemainderCents : null,
-                  );
-                  setLastReceiptTransactionLineIds([]);
-                  setCheckoutTransactionId(replacementTransactionId);
-                  clearSaleForNextCheckout();
                   toast(
-                    "The exchange was recorded, but its refund confirmation could not be loaded. Review the Transaction Record before taking any further refund action.",
+                    "The exchange was recorded, but ROS could not verify its refund event. Pay remains open and Sale Complete is blocked. Retry this settlement before taking any further refund action.",
                     "error",
                   );
                   return;
                 }
-                let cardRefundPending = false;
-                let pendingCardRefundCents = 0;
-                let cardRefundConfirmationNeedsReview = false;
+                const settlementWasReplay =
+                  parseExchangeSettlementReplay(settlementPayload);
+                const serverDeferredRefundDueCents =
+                  parseDeferredRefundDueCents(settlementPayload);
+                const refundTendersToProcess = settlementWasReplay
+                  ? serverDeferredRefundDueCents != null &&
+                    serverDeferredRefundDueCents > 0
+                    ? effectiveRefundTenders
+                    : []
+                  : linkedCardRefunds;
+                let refundBlocked = false;
                 let refundResult: RefundProcessResult | null = null;
-                for (const [index, refundTender] of linkedCardRefunds.entries()) {
+                for (const [index, refundTender] of
+                  refundTendersToProcess.entries()) {
+                  const isCashTender = refundTender.method === "cash";
                   const tenderRefundCents = Math.abs(refundTender.amountCents);
+                  const exactRefundCents =
+                    tenderRefundCents +
+                    (isCashTender ? roundingAdjustmentCents : 0);
                   const cardRefundRes = await fetch(
                     `${baseUrl}/api/transactions/${encodeURIComponent(pendingReturnTender.originalTransactionId)}/refunds/process`,
                     {
@@ -7334,7 +7392,16 @@ export default function Cart({
                         refund_event_id: exchangeRefundEventId,
                         refund_tender_id: refundTender.id,
                         payment_method: refundTender.method,
-                        amount: centsToFixed2(tenderRefundCents),
+                        amount: centsToFixed2(exactRefundCents),
+                        tender_amount: centsToFixed2(tenderRefundCents),
+                        rounding_adjustment: centsToFixed2(
+                          isCashTender ? roundingAdjustmentCents : 0,
+                        ),
+                        final_cash_due:
+                          isCashTender && ledger.finalCashDueCents != null
+                            ? centsToFixed2(ledger.finalCashDueCents)
+                            : undefined,
+                        gift_card_code: refundTender.gift_card_code,
                         check_number: refundTender.metadata?.check_number,
                         manager_staff_id:
                           refundTender.metadata?.manager_staff_id,
@@ -7352,22 +7419,44 @@ export default function Cart({
                     .catch(() => ({}))) as unknown;
                   if (!cardRefundRes.ok) {
                     const payload = cardRefundPayload as { error?: string };
-                    cardRefundPending = true;
-                    pendingCardRefundCents = linkedCardRefunds
+                    refundBlocked = true;
+                    const pendingRefundCents = refundTendersToProcess
                       .slice(index)
                       .reduce(
                         (sum, payment) => sum + Math.abs(payment.amountCents),
                         0,
                       );
                     toast(
-                      `${payload.error ?? "The original-card refund needs attention."} The exchange and inventory return were saved; retry the remaining refund from the refund queue.`,
+                      `${payload.error ?? "The customer refund needs attention."} The exchange and inventory return were saved, but $${centsToFixed2(pendingRefundCents)} is still owed. Pay remains open; choose Cash, Original Card, Gift Card, or Store Credit and retry.`,
                       "error",
                     );
                   } else {
                     refundResult = parseRefundProcessResult(cardRefundPayload);
-                    cardRefundConfirmationNeedsReview = !refundResult;
+                    if (!refundResult) {
+                      refundBlocked = true;
+                      toast(
+                        "ROS could not verify the completed refund response. Pay remains open and Sale Complete is blocked; review the exact Transaction Record before retrying.",
+                        "error",
+                      );
+                    }
                   }
-                  if (cardRefundPending) break;
+                  if (refundBlocked) break;
+                }
+                const refundResolutionConfirmed =
+                  !refundBlocked &&
+                  (refundResult != null ||
+                    (!settlementWasReplay &&
+                      linkedCardRemainderCents === 0) ||
+                    (settlementWasReplay &&
+                      serverDeferredRefundDueCents === 0));
+                if (!refundResolutionConfirmed) {
+                  if (!refundBlocked) {
+                    toast(
+                      "The exchange is saved, but the customer refund is not confirmed. Pay remains open and Sale Complete is blocked until the exact refund is issued.",
+                      "error",
+                    );
+                  }
+                  return;
                 }
                 setLastReceiptOrderPaymentLines(orderPaymentLines);
                 setLastReceiptExchangeReturnTransactionId(
@@ -7378,20 +7467,13 @@ export default function Cart({
                 setLastReceiptEventTransactionId(
                   pendingReturnTender.originalTransactionId,
                 );
-                setLastPendingRefundAmountCents(
-                  cardRefundPending ? pendingCardRefundCents : null,
-                );
+                setLastPendingRefundAmountCents(null);
                 setLastReceiptTransactionLineIds([]);
                 setCheckoutTransactionId(replacementTransactionId);
                 clearSaleForNextCheckout();
                 if (refundResult) {
                   toast(refundResult.message, "success");
-                } else if (cardRefundConfirmationNeedsReview) {
-                  toast(
-                    "The refund was recorded, but its provider confirmation could not be loaded. Review the Transaction Record before taking any further refund action.",
-                    "error",
-                  );
-                } else if (!cardRefundPending) {
+                } else {
                   toast(
                     `Exchange settled for ${pendingReturnTender.receiptLabel}.`,
                     "success",

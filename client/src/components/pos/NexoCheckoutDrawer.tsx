@@ -634,6 +634,7 @@ export interface NexoCheckoutDrawerProps {
   refundRecipientName?: string | null;
   refundTransactionId?: string | null;
   returnOnlyRefundMode?: boolean;
+  exchangeRefundMode?: boolean;
   deferCardRefund?: boolean;
   onProcessLinkedCardRefund?: (
     line: AppliedPaymentLine,
@@ -696,6 +697,7 @@ export default function NexoCheckoutDrawer({
   refundRecipientName = null,
   refundTransactionId = null,
   returnOnlyRefundMode = false,
+  exchangeRefundMode = false,
   deferCardRefund = false,
   onProcessLinkedCardRefund,
   authoritativeDepositCents = 0,
@@ -1225,6 +1227,11 @@ export default function NexoCheckoutDrawer({
     }
     if (isRefundCheckout) {
       base = base.filter((id) => !["card_terminal", "card_manual", "card_saved", "donation"].includes(id));
+      if (exchangeRefundMode) {
+        base = base.filter((id) =>
+          ["cash", "card_credit", "gift_card", "store_credit"].includes(id),
+        );
+      }
       if (!hasOriginalHelcimRefundReference || !deferCardRefund) {
         base = base.filter((id) => id !== "card_credit");
       }
@@ -1242,7 +1249,7 @@ export default function NexoCheckoutDrawer({
       base = base.filter((id) => !id.startsWith("card_"));
     }
     return base;
-  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode, providerHealthHardFailed, hasOriginalHelcimRefundReference, deferCardRefund, refundRecipientName, staffAccount]);
+  }, [allowStoreCredit, amountDueCents, rmsPaymentCollectionMode, providerHealthHardFailed, hasOriginalHelcimRefundReference, deferCardRefund, exchangeRefundMode, refundRecipientName, staffAccount]);
 
   const paidSoFarCents = useMemo(() => applied.reduce((s, p) => s + p.amountCents, 0), [applied]);
   const depositDisplayCents = useMemo(() => Math.max(0, parseMoneyToCents(appliedDepositAmount.trim())), [appliedDepositAmount]);

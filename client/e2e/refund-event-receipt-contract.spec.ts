@@ -111,6 +111,27 @@ test("direct paid returns cannot bypass Record Sale atomicity", () => {
 });
 
 test("deferred original-card refunds retain the server event and exact provider result", () => {
+  const exchangeCardPreflightIndex = cart.indexOf(
+    "/refunds/exchange-card-preflight",
+  );
+  const replacementCheckoutIndex = cart.indexOf(
+    "const replacementTransactionId = await executeCheckout(",
+    exchangeCardPreflightIndex,
+  );
+  expect(exchangeCardPreflightIndex).toBeGreaterThan(-1);
+  expect(replacementCheckoutIndex).toBeGreaterThan(exchangeCardPreflightIndex);
+  expect(cart.slice(exchangeCardPreflightIndex, replacementCheckoutIndex)).toContain(
+    "if (!preflightRes.ok || preflightPayload.available !== true)",
+  );
+  expect(transactionsApi).toContain(
+    '"/{transaction_id}/refunds/exchange-card-preflight"',
+  );
+  expect(transactionsApi).toContain(
+    "let cards = load_helcim_card_capacities_in_tx(&mut tx, transaction_id).await?",
+  );
+  expect(transactionsApi).toContain(
+    "best.original_charge_amount_cents,\n                amount_cents,",
+  );
   expect(cart).toContain("parseRefundEventId(settlementPayload)");
   expect(cart).toContain("refund_event_id: exchangeRefundEventId");
   expect(cart).toContain("parseRefundProcessResult(cardRefundPayload)");
@@ -126,6 +147,34 @@ test("deferred original-card refunds retain the server event and exact provider 
   expect(checkoutDrawer).toContain('label: "HELCIM REFUND — PENDING APPROVAL"');
   expect(checkoutDrawer).toContain(
     "? `Refund $${centsToFixed2(Math.abs(p.amountCents))}`",
+  );
+  expect(transactionsApi).toContain("pending_card_refund_amount");
+  expect(transactionsApi).toContain('"Original card refund pending"');
+  expect(transactionsApi).toContain(
+    "balance_due: -pending_card_refund_amount",
+  );
+  expect(transactionsApi).toContain(
+    "amount_paid: (event_total + pending_card_refund_amount).round_dp(2)",
+  );
+  expect(transactionDetailDrawer).toContain('"Refund Due"');
+  expect(transactionDetailDrawer).toContain(
+    "same-day partial Helcim card refund",
+  );
+  expect(cart).toContain(
+    "Pay remains open and Sale Complete is blocked",
+  );
+  expect(cart).toContain("const refundTendersToProcess = settlementWasReplay");
+  expect(checkoutDrawer).toContain("exchangeRefundMode?: boolean");
+  expect(checkoutDrawer).toContain(
+    '["cash", "card_credit", "gift_card", "store_credit"]',
+  );
+  expect(transactionsApi).toContain(
+    "a deferred exchange refund event can only be completed by cash, the linked original card, gift card, or store credit",
+  );
+  expect(transactionsApi).toContain('"deferred_refund_resolution"');
+  expect(transactionsApi).toContain("is_deferred_exchange_event");
+  expect(transactionsApi).toContain(
+    "body.refund_event_id.is_some() || is_deferred_exchange_event",
   );
 });
 

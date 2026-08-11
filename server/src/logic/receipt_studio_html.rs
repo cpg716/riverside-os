@@ -189,7 +189,8 @@ fn build_items_table_gift(order: &ReceiptOrder) -> String {
 }
 
 fn build_tender_summary(order: &ReceiptOrder) -> String {
-    if order.is_pickup_event() || order.has_order_payments() {
+    if order.is_pickup_event() || order.has_order_payments() || order.refund_due_amount().is_some()
+    {
         return String::new();
     }
     let mut rows = if order.payments.is_empty() {
@@ -506,7 +507,12 @@ pub fn render_standard_receipt_html(
         } else {
             String::new()
         };
-        let balance = if !order.is_pickup_event()
+        let balance = if let Some(refund_due) = order.refund_due_amount() {
+            format!(
+                "<div><span>Refund pending</span><strong>{}</strong></div>",
+                money(refund_due)
+            )
+        } else if !order.is_pickup_event()
             && !order.has_order_payments()
             && order.balance_due > Decimal::ZERO
         {
@@ -1112,6 +1118,22 @@ mod tests {
             assert!(studio_without_token.contains(expected));
             assert!(studio_without_token.ends_with("<section>Receipt body</section>"));
         }
+    }
+
+    #[test]
+    fn pending_refund_html_does_not_claim_settlement() {
+        let mut order = sample_receipt_order_for_preview();
+        order.receipt_kind = ReceiptKind::ReturnExchange;
+        order.total_price = Decimal::new(-6525, 2);
+        order.amount_paid = Decimal::ZERO;
+        order.balance_due = Decimal::new(-6525, 2);
+
+        let html = render_standard_receipt_html(&order, &ReceiptConfig::default(), false);
+
+        assert!(html.contains("<span>Refund pending</span><strong>$65.25</strong>"));
+        assert!(html.contains("<strong>Status:</strong> Refund pending"));
+        assert!(!html.contains("<span>Settled</span>"));
+        assert!(!html.contains("<strong>Status:</strong> Complete"));
     }
 
     #[test]

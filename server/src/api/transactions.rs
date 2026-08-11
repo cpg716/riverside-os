@@ -1093,6 +1093,26 @@ mod tests {
     }
 
     #[test]
+    fn deferred_exchange_accepts_only_customer_refund_tenders() {
+        for method in [
+            RefundPaymentMethod::Cash,
+            RefundPaymentMethod::LinkedHelcimCard,
+            RefundPaymentMethod::GiftCard,
+            RefundPaymentMethod::StoreCredit,
+        ] {
+            assert!(method.completes_deferred_exchange());
+        }
+        for method in [
+            RefundPaymentMethod::Check,
+            RefundPaymentMethod::RecordedExternalCard,
+            RefundPaymentMethod::RmsCharge,
+            RefundPaymentMethod::StaffAccount,
+        ] {
+            assert!(!method.completes_deferred_exchange());
+        }
+    }
+
+    #[test]
     fn shared_wedding_card_refunds_keep_capacity_separate_by_member() {
         assert_eq!(
             remaining_card_refund_capacity_cents(20_000, 100_000, 0, 20_000),
@@ -3053,6 +3073,7 @@ struct ReceiptEventPaymentRow {
     method: String,
     amount: Decimal,
     payment_provider: Option<String>,
+    resolves_deferred_refund: bool,
     card_brand: Option<String>,
     card_last4: Option<String>,
 }
@@ -3230,6 +3251,26 @@ async fn build_refund_event_receipt_order(
     } else {
         None
     };
+    let deferred_card_refund_amount: Decimal = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE((
+            SELECT COALESCE(
+                NULLIF(metadata->>'deferred_card_refund_amount', '')::numeric,
+                0
+            )
+            FROM transaction_activity_log
+            WHERE transaction_id = $1
+              AND event_kind = 'exchange_settled'
+              AND metadata->>'refund_event_id' = $2
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+        ), 0)::numeric(14,2)
+        "#,
+    )
+    .bind(original_detail.transaction_id)
+    .bind(refund_event_id.to_string())
+    .fetch_one(&state.db)
+    .await?;
     let replacement_receipt = replacement_detail
         .as_ref()
         .map(|detail| detail.build_receipt_data(None))
@@ -3296,6 +3337,8 @@ async fn build_refund_event_receipt_order(
             pt.payment_method AS method,
             pa.amount_allocated::numeric(14,2) AS amount,
             pt.payment_provider,
+            COALESCE(pt.metadata->>'deferred_refund_resolution', 'false') = 'true'
+                AS resolves_deferred_refund,
             pt.card_brand,
             pt.card_last4
         FROM payment_transactions pt
@@ -3311,6 +3354,25 @@ async fn build_refund_event_receipt_order(
     .bind(refund_event_id.to_string())
     .fetch_all(&state.db)
     .await?;
+    let approved_card_refund_amount = event_payment_rows
+        .iter()
+        .filter(|payment| {
+            payment.amount < Decimal::ZERO
+                && (payment.resolves_deferred_refund
+                    || payment
+                        .payment_provider
+                        .as_deref()
+                        .is_some_and(|provider| provider.eq_ignore_ascii_case("helcim")))
+        })
+        .fold(Decimal::ZERO, |sum, payment| sum - payment.amount)
+        .round_dp(2);
+    let pending_card_refund_amount =
+        (deferred_card_refund_amount - approved_card_refund_amount).round_dp(2);
+    let pending_card_refund_amount = if pending_card_refund_amount > Decimal::ZERO {
+        pending_card_refund_amount
+    } else {
+        Decimal::ZERO
+    };
 
     let mut event_payments = replacement_detail
         .as_ref()
@@ -3381,7 +3443,11 @@ async fn build_refund_event_receipt_order(
         }
     }
     let mut payment_methods_summary = if payment_summary_parts.is_empty() {
-        "No additional tender".to_string()
+        if pending_card_refund_amount > Decimal::ZERO {
+            "Original card refund pending".to_string()
+        } else {
+            "No additional tender".to_string()
+        }
     } else {
         payment_summary_parts.join(" | ")
     };
@@ -3454,11 +3520,11 @@ async fn build_refund_event_receipt_order(
             .as_ref()
             .map(|receipt| receipt.total_savings)
             .unwrap_or(Decimal::ZERO),
-        amount_paid: event_total,
+        amount_paid: (event_total + pending_card_refund_amount).round_dp(2),
         wedding_deposit_amount: Decimal::ZERO,
         wedding_deposits: Vec::new(),
         applied_wedding_deposits: Vec::new(),
-        balance_due: Decimal::ZERO,
+        balance_due: -pending_card_refund_amount,
         payment_methods_summary,
         payment_applications: Vec::new(),
         pickup_prior_paid: None,
@@ -3934,6 +4000,23 @@ pub struct ProcessRefundRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ExchangeCardRefundPreflightRequest {
+    pub session_id: Uuid,
+    pub amount: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExchangeCardRefundPreflightResponse {
+    pub status: String,
+    pub available: bool,
+    pub provider_action: Option<String>,
+    pub batch_status: Option<String>,
+    pub retry_after_batch_close: bool,
+    pub message: String,
+    pub permitted_methods: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct RepairRefundLinesRequest {
     pub manager_staff_id: Uuid,
     pub manager_pin: String,
@@ -4104,6 +4187,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/{transaction_id}/audit", get(get_transaction_audit))
         .route("/{transaction_id}/void", post(post_transaction_void))
+        .route(
+            "/{transaction_id}/refunds/exchange-card-preflight",
+            post(preflight_exchange_card_refund),
+        )
         .route("/{transaction_id}/refunds/process", post(process_refund))
         .route(
             "/{transaction_id}/refunds/{refund_event_id}/repair-lines",
@@ -4293,6 +4380,198 @@ impl RefundPaymentMethod {
     fn is_card(self) -> bool {
         matches!(self, Self::LinkedHelcimCard | Self::RecordedExternalCard)
     }
+
+    fn completes_deferred_exchange(self) -> bool {
+        matches!(
+            self,
+            Self::Cash | Self::LinkedHelcimCard | Self::GiftCard | Self::StoreCredit
+        )
+    }
+}
+
+#[derive(Debug, FromRow)]
+struct CardCapacityRow {
+    provider_transaction_id: String,
+    original_payer_customer_id: Option<Uuid>,
+    provider_card_type: Option<String>,
+    card_brand: Option<String>,
+    card_last4: Option<String>,
+    original_amount_cents: i64,
+    original_charge_amount_cents: i64,
+    member_refunded_cents: i64,
+    provider_refunded_cents: i64,
+}
+
+async fn load_helcim_card_capacities_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+) -> Result<Vec<CardCapacityRow>, TransactionError> {
+    Ok(sqlx::query_as(
+        r#"
+        WITH eligible_sources AS (
+            SELECT
+                payment.provider_transaction_id,
+                payment.payer_id AS original_payer_customer_id,
+                payment.provider_card_type,
+                payment.card_brand,
+                payment.card_last4,
+                allocation_payment.amount AS source_amount,
+                payment.amount AS original_charge_amount
+            FROM wedding_deposit_workflow_allocations wedding_allocation
+            INNER JOIN wedding_deposit_workflow_allocation_payments allocation_payment
+                ON allocation_payment.allocation_id = wedding_allocation.id
+            INNER JOIN payment_transactions payment
+                ON payment.id = allocation_payment.source_payment_transaction_id
+            WHERE wedding_allocation.target_transaction_id = $1
+              AND wedding_allocation.destination_kind = 'existing_transaction'
+              AND allocation_payment.amount > 0
+              AND payment.payment_provider = 'helcim'
+              AND payment.status IN ('success', 'approved', 'captured')
+              AND payment.amount > 0
+              AND payment.provider_transaction_id IS NOT NULL
+
+            UNION ALL
+
+            SELECT
+                payment.provider_transaction_id,
+                payment.payer_id AS original_payer_customer_id,
+                payment.provider_card_type,
+                payment.card_brand,
+                payment.card_last4,
+                event_payment.amount AS source_amount,
+                payment.amount AS original_charge_amount
+            FROM customer_open_deposit_source_events source_event
+            INNER JOIN customer_open_deposit_ledger redemption
+                ON redemption.id = source_event.ledger_event_id
+            INNER JOIN customer_open_deposit_source_event_payments event_payment
+                ON event_payment.source_event_id = source_event.id
+            INNER JOIN payment_transactions payment
+                ON payment.id = event_payment.source_payment_transaction_id
+            WHERE source_event.event_kind = 'redemption'
+              AND redemption.reason = 'checkout_redemption'
+              AND redemption.transaction_id = $1
+              AND payment.payment_provider = 'helcim'
+              AND payment.status IN ('success', 'approved', 'captured')
+              AND payment.amount > 0
+              AND payment.provider_transaction_id IS NOT NULL
+
+            UNION ALL
+
+            SELECT
+                payment.provider_transaction_id,
+                payment.payer_id AS original_payer_customer_id,
+                payment.provider_card_type,
+                payment.card_brand,
+                payment.card_last4,
+                allocation.amount_allocated AS source_amount,
+                payment.amount AS original_charge_amount
+            FROM payment_allocations allocation
+            INNER JOIN payment_transactions payment
+                ON payment.id = allocation.transaction_id
+            WHERE allocation.target_transaction_id = $1
+              AND allocation.amount_allocated > 0
+              AND payment.payment_provider = 'helcim'
+              AND payment.status IN ('success', 'approved', 'captured')
+              AND payment.amount > 0
+              AND payment.provider_transaction_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM wedding_deposit_workflow_allocations wedding_allocation
+                  WHERE wedding_allocation.destination_kind = 'existing_transaction'
+                    AND wedding_allocation.target_transaction_id = $1
+                  UNION ALL
+                  SELECT 1
+                  FROM customer_open_deposit_source_events wedding_source_event
+                  INNER JOIN customer_open_deposit_ledger wedding_redemption
+                      ON wedding_redemption.id = wedding_source_event.ledger_event_id
+                  WHERE wedding_source_event.event_kind = 'redemption'
+                    AND wedding_redemption.reason = 'checkout_redemption'
+                    AND wedding_redemption.transaction_id = $1
+              )
+        ),
+        original_cards AS (
+            SELECT
+                source.provider_transaction_id,
+                (ARRAY_AGG(source.original_payer_customer_id)
+                    FILTER (WHERE source.original_payer_customer_id IS NOT NULL))[1]
+                    AS original_payer_customer_id,
+                MAX(source.provider_card_type) AS provider_card_type,
+                MAX(source.card_brand) AS card_brand,
+                MAX(source.card_last4) AS card_last4,
+                ROUND(SUM(source.source_amount) * 100)::bigint AS original_amount_cents,
+                ROUND(MAX(source.original_charge_amount) * 100)::bigint
+                    AS original_charge_amount_cents
+            FROM eligible_sources source
+            GROUP BY source.provider_transaction_id
+        )
+        SELECT
+            original.provider_transaction_id,
+            original.original_payer_customer_id,
+            original.provider_card_type,
+            original.card_brand,
+            original.card_last4,
+            original.original_amount_cents,
+            original.original_charge_amount_cents,
+            COALESCE(
+                (
+                    SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
+                    FROM payment_transactions ref_pt
+                    WHERE ref_pt.payment_provider = 'helcim'
+                      AND ref_pt.status IN ('success', 'approved', 'captured')
+                      AND ref_pt.amount < 0
+                      AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
+                      AND EXISTS (
+                          SELECT 1
+                          FROM payment_allocations refund_allocation
+                          WHERE refund_allocation.transaction_id = ref_pt.id
+                            AND refund_allocation.target_transaction_id = $1
+                      )
+                ),
+                0
+            )::bigint AS member_refunded_cents,
+            COALESCE(
+                (
+                    SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
+                    FROM payment_transactions ref_pt
+                    WHERE ref_pt.payment_provider = 'helcim'
+                      AND ref_pt.status IN ('success', 'approved', 'captured')
+                      AND ref_pt.amount < 0
+                      AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
+                ),
+                0
+            )::bigint AS provider_refunded_cents
+        FROM original_cards original
+        ORDER BY
+            LEAST(
+                original.original_amount_cents - COALESCE((
+                    SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
+                    FROM payment_transactions ref_pt
+                    WHERE ref_pt.payment_provider = 'helcim'
+                      AND ref_pt.status IN ('success', 'approved', 'captured')
+                      AND ref_pt.amount < 0
+                      AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
+                      AND EXISTS (
+                          SELECT 1
+                          FROM payment_allocations refund_allocation
+                          WHERE refund_allocation.transaction_id = ref_pt.id
+                            AND refund_allocation.target_transaction_id = $1
+                      )
+                ), 0)::bigint,
+                original.original_charge_amount_cents - COALESCE((
+                    SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
+                    FROM payment_transactions ref_pt
+                    WHERE ref_pt.payment_provider = 'helcim'
+                      AND ref_pt.status IN ('success', 'approved', 'captured')
+                      AND ref_pt.amount < 0
+                      AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
+                ), 0)::bigint
+            ) DESC,
+            original.provider_transaction_id ASC
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_all(&mut **tx)
+    .await?)
 }
 
 fn required_refund_check_number(
@@ -4359,7 +4638,10 @@ async fn validate_deferred_refund_event_in_tx(
         INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
         WHERE pa.target_transaction_id = $1
           AND pt.metadata->>'refund_event_id' = $2
-          AND pt.payment_provider = 'helcim'
+          AND (
+              pt.payment_provider = 'helcim'
+              OR COALESCE(pt.metadata->>'deferred_refund_resolution', 'false') = 'true'
+          )
           AND pa.amount_allocated < 0
           AND pt.status IN ('success', 'approved', 'captured')
         "#,
@@ -7920,6 +8202,201 @@ async fn post_transaction_void(
     }))
 }
 
+fn exchange_card_preflight_response(
+    available: bool,
+    provider_action: Option<&str>,
+    batch_status: Option<String>,
+    retry_after_batch_close: bool,
+    message: String,
+) -> Json<ExchangeCardRefundPreflightResponse> {
+    Json(ExchangeCardRefundPreflightResponse {
+        status: if available { "available" } else { "blocked" }.to_string(),
+        available,
+        provider_action: provider_action.map(str::to_string),
+        batch_status,
+        retry_after_batch_close,
+        message,
+        permitted_methods: ["cash", "card_credit", "gift_card", "store_credit"]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+    })
+}
+
+async fn preflight_exchange_card_refund(
+    State(state): State<AppState>,
+    Path(transaction_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<ExchangeCardRefundPreflightRequest>,
+) -> Result<Json<ExchangeCardRefundPreflightResponse>, TransactionError> {
+    middleware::require_staff_with_permission(&state, &headers, ORDERS_REFUND_PROCESS)
+        .await
+        .map_err(map_perm_err)?;
+
+    if body.amount <= Decimal::ZERO {
+        return Err(TransactionError::InvalidPayload(
+            "amount must be positive".to_string(),
+        ));
+    }
+    let amount = body.amount.round_dp(2);
+    let amount_cents = (amount * Decimal::from(100)).to_i64().ok_or_else(|| {
+        TransactionError::InvalidPayload("refund amount is not valid".to_string())
+    })?;
+
+    let mut tx = state.db.begin().await?;
+    let session_open: Option<bool> = sqlx::query_scalar(
+        r#"
+        SELECT lifecycle_status = 'open'
+        FROM register_sessions
+        WHERE id = $1
+        "#,
+    )
+    .bind(body.session_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if session_open != Some(true) {
+        return Err(TransactionError::InvalidPayload(
+            "register session is not open".to_string(),
+        ));
+    }
+
+    let cards = load_helcim_card_capacities_in_tx(&mut tx, transaction_id).await?;
+    tx.rollback().await?;
+    let Some(best) = cards.first() else {
+        return Ok(exchange_card_preflight_response(
+            false,
+            None,
+            None,
+            false,
+            "No linked original Helcim card charge is available for this exchange refund. Choose Cash, Gift Card, or Store Credit."
+                .to_string(),
+        ));
+    };
+
+    let original_provider_card_type = best
+        .provider_card_type
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if original_provider_card_type == "db"
+        || original_provider_card_type.contains("debit")
+        || original_provider_card_type.contains("interac")
+    {
+        return Ok(exchange_card_preflight_response(
+            false,
+            None,
+            None,
+            false,
+            "The linked original payment is a debit card and cannot use the Helcim credit-card refund path. Choose Cash, Gift Card, or Store Credit."
+                .to_string(),
+        ));
+    }
+
+    let per_card_remaining = remaining_card_refund_capacity_cents(
+        best.original_amount_cents,
+        best.original_charge_amount_cents,
+        best.member_refunded_cents,
+        best.provider_refunded_cents,
+    );
+    if per_card_remaining <= 0 || amount_cents > per_card_remaining {
+        return Ok(exchange_card_preflight_response(
+            false,
+            None,
+            None,
+            false,
+            format!(
+                "The linked original card has ${:.2} of refundable capacity, which is not enough for this ${:.2} exchange refund. Choose Cash, Gift Card, or Store Credit.",
+                Decimal::new(per_card_remaining.max(0), 2),
+                Decimal::new(amount_cents, 2),
+            ),
+        ));
+    }
+
+    let original_transaction_id =
+        best.provider_transaction_id
+            .trim()
+            .parse::<i64>()
+            .map_err(|_| {
+                TransactionError::InvalidPayload(
+                    "original Helcim transaction id is not valid for provider refund".to_string(),
+                )
+            })?;
+    let config = helcim::HelcimConfig::from_env();
+    let provider_transaction = helcim::fetch_card_transaction(
+        &state.http_client,
+        &config,
+        &original_transaction_id.to_string(),
+    )
+    .await
+    .map_err(|error| {
+        TransactionError::BadGateway(format!(
+            "Helcim transaction lookup failed; the exchange was not recorded: {}",
+            helcim::redact_provider_text(&error)
+        ))
+    })?;
+    let Some(batch_id) =
+        helcim::HelcimFeeDetails::from_card_transaction(&provider_transaction).card_batch_id
+    else {
+        return Err(TransactionError::BadGateway(
+            "Helcim transaction lookup did not return a card batch; the exchange was not recorded"
+                .to_string(),
+        ));
+    };
+    let batch = helcim::fetch_card_batch(&state.http_client, &config, &batch_id)
+        .await
+        .map_err(|error| {
+            TransactionError::BadGateway(format!(
+                "Helcim batch lookup failed; the exchange was not recorded: {}",
+                helcim::redact_provider_text(&error)
+            ))
+        })?;
+    let batch_status = batch.status.clone();
+    match helcim::card_return_action(
+        batch.status.as_deref(),
+        best.original_charge_amount_cents,
+        amount_cents,
+        best.provider_refunded_cents,
+    ) {
+        Ok(helcim::HelcimCardReturnAction::Refund) => Ok(exchange_card_preflight_response(
+            true,
+            Some("refund"),
+            batch_status,
+            false,
+            "The linked original card is ready for this exchange refund.".to_string(),
+        )),
+        Ok(helcim::HelcimCardReturnAction::Reverse) => Ok(exchange_card_preflight_response(
+            true,
+            Some("reverse"),
+            batch_status,
+            false,
+            "The full linked original card charge is ready to be reversed for this exchange."
+                .to_string(),
+        )),
+        Err(message) => {
+            let normalized_status = batch
+                .status
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+            let retry_after_batch_close = matches!(
+                normalized_status.as_str(),
+                "open" | "opened" | "active" | "pending"
+            );
+            Ok(exchange_card_preflight_response(
+                false,
+                None,
+                batch_status,
+                retry_after_batch_close,
+                format!(
+                    "{message} The exchange has not been recorded. Choose Cash, Gift Card, or Store Credit, or wait until the Helcim batch closes."
+                ),
+            ))
+        }
+    }
+}
+
 async fn process_refund(
     State(state): State<AppState>,
     Path(transaction_id): Path<Uuid>,
@@ -7953,9 +8430,9 @@ async fn process_refund(
                 "an exchange refund event cannot cancel the original transaction".to_string(),
             ));
         }
-        if refund_method != RefundPaymentMethod::LinkedHelcimCard {
+        if !refund_method.completes_deferred_exchange() {
             return Err(TransactionError::InvalidPayload(
-                "a deferred exchange refund event can only be completed through the linked original-card workflow"
+                "a deferred exchange refund event can only be completed by cash, the linked original card, gift card, or store credit"
                     .to_string(),
             ));
         }
@@ -8116,7 +8593,26 @@ async fn process_refund(
         }
     }
 
-    let deferred_event_context = if body.refund_event_id.is_some() {
+    let is_deferred_exchange_event: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM transaction_activity_log
+            WHERE transaction_id = $1
+              AND event_kind = 'exchange_settled'
+              AND metadata->>'refund_event_id' = $2
+              AND COALESCE(
+                  NULLIF(metadata->>'deferred_card_refund_amount', '')::numeric,
+                  0
+              ) > 0
+        )
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(refund_event_id.to_string())
+    .fetch_one(&mut *tx)
+    .await?;
+    let deferred_event_context = if body.refund_event_id.is_some() || is_deferred_exchange_event {
         Some(
             validate_deferred_refund_event_in_tx(
                 &mut tx,
@@ -8129,6 +8625,12 @@ async fn process_refund(
     } else {
         None
     };
+    if deferred_event_context.is_some() && !refund_method.completes_deferred_exchange() {
+        return Err(TransactionError::InvalidPayload(
+            "a deferred exchange refund event can only be completed by cash, the linked original card, gift card, or store credit"
+                .to_string(),
+        ));
+    }
     if let Some(existing) = completed_refund_event_in_tx(
         &mut tx,
         transaction_id,
@@ -8348,6 +8850,7 @@ async fn process_refund(
             json!(context.exchange_group_id),
         );
         object.insert("kind".to_string(), json!("exchange_refund_remainder"));
+        object.insert("deferred_refund_resolution".to_string(), json!(true));
     }
     if let (Some(object), Some((manager_id, reference, reason))) = (
         refund_metadata.as_object_mut(),
@@ -8476,185 +8979,7 @@ async fn process_refund(
         // is intentionally deferred: it would require committing Card A's ledger rows before Card B's
         // provider call, creating a partial-commit hazard on provider failure. Staff can issue two
         // sequential refund calls to handle such splits safely.
-        #[derive(sqlx::FromRow)]
-        struct CardCapacityRow {
-            provider_transaction_id: String,
-            original_payer_customer_id: Option<Uuid>,
-            provider_card_type: Option<String>,
-            card_brand: Option<String>,
-            card_last4: Option<String>,
-            original_amount_cents: i64,
-            original_charge_amount_cents: i64,
-            member_refunded_cents: i64,
-            provider_refunded_cents: i64,
-        }
-
-        let cards: Vec<CardCapacityRow> = sqlx::query_as(
-            r#"
-            WITH eligible_sources AS (
-                SELECT
-                    payment.provider_transaction_id,
-                    payment.payer_id AS original_payer_customer_id,
-                    payment.provider_card_type,
-                    payment.card_brand,
-                    payment.card_last4,
-                    allocation_payment.amount AS source_amount,
-                    payment.amount AS original_charge_amount
-                FROM wedding_deposit_workflow_allocations wedding_allocation
-                INNER JOIN wedding_deposit_workflow_allocation_payments allocation_payment
-                    ON allocation_payment.allocation_id = wedding_allocation.id
-                INNER JOIN payment_transactions payment
-                    ON payment.id = allocation_payment.source_payment_transaction_id
-                WHERE wedding_allocation.target_transaction_id = $1
-                  AND wedding_allocation.destination_kind = 'existing_transaction'
-                  AND allocation_payment.amount > 0
-                  AND payment.payment_provider = 'helcim'
-                  AND payment.status IN ('success', 'approved', 'captured')
-                  AND payment.amount > 0
-                  AND payment.provider_transaction_id IS NOT NULL
-
-                UNION ALL
-
-                SELECT
-                    payment.provider_transaction_id,
-                    payment.payer_id AS original_payer_customer_id,
-                    payment.provider_card_type,
-                    payment.card_brand,
-                    payment.card_last4,
-                    event_payment.amount AS source_amount,
-                    payment.amount AS original_charge_amount
-                FROM customer_open_deposit_source_events source_event
-                INNER JOIN customer_open_deposit_ledger redemption
-                    ON redemption.id = source_event.ledger_event_id
-                INNER JOIN customer_open_deposit_source_event_payments event_payment
-                    ON event_payment.source_event_id = source_event.id
-                INNER JOIN payment_transactions payment
-                    ON payment.id = event_payment.source_payment_transaction_id
-                WHERE source_event.event_kind = 'redemption'
-                  AND redemption.reason = 'checkout_redemption'
-                  AND redemption.transaction_id = $1
-                  AND payment.payment_provider = 'helcim'
-                  AND payment.status IN ('success', 'approved', 'captured')
-                  AND payment.amount > 0
-                  AND payment.provider_transaction_id IS NOT NULL
-
-                UNION ALL
-
-                SELECT
-                    payment.provider_transaction_id,
-                    payment.payer_id AS original_payer_customer_id,
-                    payment.provider_card_type,
-                    payment.card_brand,
-                    payment.card_last4,
-                    allocation.amount_allocated AS source_amount,
-                    payment.amount AS original_charge_amount
-                FROM payment_allocations allocation
-                INNER JOIN payment_transactions payment
-                    ON payment.id = allocation.transaction_id
-                WHERE allocation.target_transaction_id = $1
-                  AND allocation.amount_allocated > 0
-                  AND payment.payment_provider = 'helcim'
-                  AND payment.status IN ('success', 'approved', 'captured')
-                  AND payment.amount > 0
-                  AND payment.provider_transaction_id IS NOT NULL
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM wedding_deposit_workflow_allocations wedding_allocation
-                      WHERE wedding_allocation.destination_kind = 'existing_transaction'
-                        AND wedding_allocation.target_transaction_id = $1
-                      UNION ALL
-                      SELECT 1
-                      FROM customer_open_deposit_source_events wedding_source_event
-                      INNER JOIN customer_open_deposit_ledger wedding_redemption
-                          ON wedding_redemption.id = wedding_source_event.ledger_event_id
-                      WHERE wedding_source_event.event_kind = 'redemption'
-                        AND wedding_redemption.reason = 'checkout_redemption'
-                        AND wedding_redemption.transaction_id = $1
-                  )
-            ),
-            original_cards AS (
-                SELECT
-                    source.provider_transaction_id,
-                    (ARRAY_AGG(source.original_payer_customer_id)
-                        FILTER (WHERE source.original_payer_customer_id IS NOT NULL))[1]
-                        AS original_payer_customer_id,
-                    MAX(source.provider_card_type) AS provider_card_type,
-                    MAX(source.card_brand) AS card_brand,
-                    MAX(source.card_last4) AS card_last4,
-                    ROUND(SUM(source.source_amount) * 100)::bigint AS original_amount_cents,
-                    ROUND(MAX(source.original_charge_amount) * 100)::bigint
-                        AS original_charge_amount_cents
-                FROM eligible_sources source
-                GROUP BY source.provider_transaction_id
-            )
-            SELECT
-                original.provider_transaction_id,
-                original.original_payer_customer_id,
-                original.provider_card_type,
-                original.card_brand,
-                original.card_last4,
-                original.original_amount_cents,
-                original.original_charge_amount_cents,
-                COALESCE(
-                    (
-                        SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
-                        FROM payment_transactions ref_pt
-                        WHERE ref_pt.payment_provider = 'helcim'
-                          AND ref_pt.status IN ('success', 'approved', 'captured')
-                          AND ref_pt.amount < 0
-                          AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
-                          AND EXISTS (
-                              SELECT 1
-                              FROM payment_allocations refund_allocation
-                              WHERE refund_allocation.transaction_id = ref_pt.id
-                                AND refund_allocation.target_transaction_id = $1
-                          )
-                    ),
-                    0
-                )::bigint AS member_refunded_cents,
-                COALESCE(
-                    (
-                        SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
-                        FROM payment_transactions ref_pt
-                        WHERE ref_pt.payment_provider = 'helcim'
-                          AND ref_pt.status IN ('success', 'approved', 'captured')
-                          AND ref_pt.amount < 0
-                          AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
-                    ),
-                    0
-                )::bigint AS provider_refunded_cents
-            FROM original_cards original
-            ORDER BY
-                LEAST(
-                    original.original_amount_cents - COALESCE((
-                        SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
-                        FROM payment_transactions ref_pt
-                        WHERE ref_pt.payment_provider = 'helcim'
-                          AND ref_pt.status IN ('success', 'approved', 'captured')
-                          AND ref_pt.amount < 0
-                          AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
-                          AND EXISTS (
-                              SELECT 1
-                              FROM payment_allocations refund_allocation
-                              WHERE refund_allocation.transaction_id = ref_pt.id
-                                AND refund_allocation.target_transaction_id = $1
-                          )
-                    ), 0)::bigint,
-                    original.original_charge_amount_cents - COALESCE((
-                        SELECT ROUND(SUM(ABS(ref_pt.amount)) * 100)::bigint
-                        FROM payment_transactions ref_pt
-                        WHERE ref_pt.payment_provider = 'helcim'
-                          AND ref_pt.status IN ('success', 'approved', 'captured')
-                          AND ref_pt.amount < 0
-                          AND (ref_pt.metadata->>'original_provider_transaction_id') = original.provider_transaction_id
-                    ), 0)::bigint
-                ) DESC,
-                original.provider_transaction_id ASC
-            "#,
-        )
-        .bind(transaction_id)
-        .fetch_all(&mut *tx)
-        .await?;
+        let cards = load_helcim_card_capacities_in_tx(&mut tx, transaction_id).await?;
 
         if cards.is_empty() || manual_external_card_refund {
             // Check if this is a governed manual legacy refund override.
@@ -9604,7 +9929,7 @@ async fn process_refund(
             };
             let provider_return_action = match helcim::card_return_action(
                 batch.status.as_deref(),
-                best.original_amount_cents,
+                best.original_charge_amount_cents,
                 amount_cents,
                 per_card_already_cents,
             ) {
@@ -10770,11 +11095,15 @@ async fn execute_exchange_settlement(
                 "resolved exchange recovery does not match this posting Register audit".to_string(),
             ));
         }
-        let settlement_identity: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+        let settlement_identity: Option<(Uuid, Option<Uuid>, Decimal)> = sqlx::query_as(
             r#"
             SELECT
                 NULLIF(metadata->>'exchange_group_id', '')::uuid,
-                NULLIF(metadata->>'refund_event_id', '')::uuid
+                NULLIF(metadata->>'refund_event_id', '')::uuid,
+                COALESCE(
+                    NULLIF(metadata->>'deferred_card_refund_amount', '')::numeric,
+                    0
+                )::numeric(14,2)
             FROM transaction_activity_log
             WHERE transaction_id = $1
               AND event_kind = 'exchange_settled'
@@ -10787,15 +11116,12 @@ async fn execute_exchange_settlement(
         .bind(body.replacement_transaction_id.to_string())
         .fetch_optional(&mut *tx)
         .await?;
-        let (exchange_group_id, refund_event_id) = settlement_identity.ok_or_else(|| {
-            TransactionError::InvalidPayload(
-                "resolved exchange recovery is missing its settlement audit".to_string(),
-            )
-        })?;
-        let deferred_card_refund_amount = body
-            .deferred_card_refund_amount
-            .unwrap_or(Decimal::ZERO)
-            .round_dp(2);
+        let (exchange_group_id, refund_event_id, deferred_card_refund_amount) = settlement_identity
+            .ok_or_else(|| {
+                TransactionError::InvalidPayload(
+                    "resolved exchange recovery is missing its settlement audit".to_string(),
+                )
+            })?;
         let deferred_card_refund_due_amount =
             deferred_card_refund_due_in_tx(&mut tx, transaction_id, deferred_card_refund_amount)
                 .await?;
@@ -10904,11 +11230,15 @@ async fn execute_exchange_settlement(
             "return transaction was not found".to_string(),
         ));
     }
-    let settled_exchange_identity: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+    let settled_exchange_identity: Option<(Uuid, Option<Uuid>, Decimal)> = sqlx::query_as(
         r#"
         SELECT
             NULLIF(metadata->>'exchange_group_id', '')::uuid,
-            NULLIF(metadata->>'refund_event_id', '')::uuid
+            NULLIF(metadata->>'refund_event_id', '')::uuid,
+            COALESCE(
+                NULLIF(metadata->>'deferred_card_refund_amount', '')::numeric,
+                0
+            )::numeric(14,2)
         FROM transaction_activity_log
         WHERE transaction_id = $1
           AND event_kind = 'exchange_settled'
@@ -10921,9 +11251,11 @@ async fn execute_exchange_settlement(
     .bind(body.replacement_transaction_id.to_string())
     .fetch_optional(&mut *tx)
     .await?;
-    if let Some((exchange_group_id, settled_refund_event_id)) = settled_exchange_identity {
+    if let Some((exchange_group_id, settled_refund_event_id, stored_deferred_refund_amount)) =
+        settled_exchange_identity
+    {
         let deferred_card_refund_due_amount =
-            deferred_card_refund_due_in_tx(&mut tx, transaction_id, deferred_card_refund_amount)
+            deferred_card_refund_due_in_tx(&mut tx, transaction_id, stored_deferred_refund_amount)
                 .await?;
         resolve_exchange_recovery_job_in_tx(
             &mut tx,
@@ -10941,7 +11273,7 @@ async fn execute_exchange_settlement(
             "refund_event_id": settled_refund_event_id,
             "exchange_credit_amount": body.exchange_credit_amount,
             "refund_remainder_amount": refund_remainder_amount,
-            "deferred_card_refund_amount": deferred_card_refund_amount,
+            "deferred_card_refund_amount": stored_deferred_refund_amount,
             "deferred_card_refund_due_amount": deferred_card_refund_due_amount,
             "idempotent_replay": true,
         })));

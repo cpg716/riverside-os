@@ -457,12 +457,17 @@ fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
     if d.show_paid_line() {
         push_line(out, &right_pair(d.paid_label(), &money(d.amount_paid)));
     }
+    if let Some(refund_due) = d.refund_due_amount() {
+        push_line(out, &right_pair("Refund pending", &money(refund_due)));
+    }
     if !d.is_pickup_event() && !d.has_order_payments() && d.balance_due > Decimal::ZERO {
         push_line(out, &right_pair("Balance remaining", &money(d.balance_due)));
     }
     if d.is_pickup_event() || d.has_order_payments() {
         // Tender and order allocation are combined below so they are not
         // presented as separate, competing payment sections.
+    } else if d.refund_due_amount().is_some() {
+        // A pending refund is an obligation, not a completed tender.
     } else if d.payments.is_empty() {
         push_line(out, &format!("Tender: {}", d.payment_methods_summary));
     } else {
@@ -1088,7 +1093,7 @@ fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
 }
 
 fn receiptline_tender_lines(d: &ReceiptOrder, gift: bool) -> String {
-    if gift {
+    if gift || d.refund_due_amount().is_some() {
         return String::new();
     }
     if d.is_pickup_event() || d.has_order_payments() {
@@ -1282,12 +1287,14 @@ pub fn build_receiptline_markdown(
     } else {
         format!("---\n{payment_lines}")
     };
-    let balance_line = if !gift
-        && !d.is_pickup_event()
-        && !d.has_order_payments()
-        && d.balance_due > Decimal::ZERO
-    {
-        format!("Balance remaining | {}", money(d.balance_due))
+    let balance_line = if !gift {
+        if let Some(refund_due) = d.refund_due_amount() {
+            format!("Refund pending | {}", money(refund_due))
+        } else if !d.is_pickup_event() && !d.has_order_payments() && d.balance_due > Decimal::ZERO {
+            format!("Balance remaining | {}", money(d.balance_due))
+        } else {
+            String::new()
+        }
     } else {
         String::new()
     };
@@ -1833,6 +1840,37 @@ mod tests {
 
         assert!(markdown.contains("Cash Tendered | $100.00"));
         assert!(markdown.contains("Change | $50.00"));
+    }
+
+    #[test]
+    fn pending_refund_is_not_printed_as_settled_or_complete() {
+        let mut order = receipt_order_with(vec![receipt_line("Exchange Item", "EX-1", None)]);
+        order.receipt_kind = ReceiptKind::ReturnExchange;
+        order.total_price = Decimal::new(-6525, 2);
+        order.amount_paid = Decimal::new(-6525, 2);
+        order.balance_due = Decimal::new(-6525, 2);
+        order.payment_methods_summary = "Original card refund pending".to_string();
+
+        let thermal = String::from_utf8_lossy(&build_receipt_escpos(
+            &order,
+            &ReceiptConfig::default(),
+            HashMap::new(),
+        ))
+        .into_owned();
+        let markdown = build_receiptline_markdown(
+            &order,
+            &ReceiptConfig::default(),
+            &HashMap::new(),
+            &LoyaltyReceiptData::default(),
+        );
+
+        for output in [thermal, markdown] {
+            assert!(output.contains("Refund pending"));
+            assert!(output.contains("$65.25"));
+            assert!(!output.contains("Settled"));
+            assert!(!output.contains("Status: Complete"));
+            assert!(!output.contains("Status | Complete"));
+        }
     }
 
     #[test]

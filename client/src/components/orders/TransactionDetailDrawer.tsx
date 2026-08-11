@@ -1961,10 +1961,16 @@ export default function TransactionDetailDrawer({
                   </div>
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Balance Due
+                      {parseMoneyToCents(detail.balance_due) < 0
+                        ? "Refund Due"
+                        : "Balance Due"}
                     </p>
                     <p className="mt-1 text-xl font-black text-app-warning">
-                      {fmtMoney(detail.balance_due)}
+                      {parseMoneyToCents(detail.balance_due) < 0
+                        ? formatUsdFromCents(
+                            Math.abs(parseMoneyToCents(detail.balance_due)),
+                          )
+                        : fmtMoney(detail.balance_due)}
                     </p>
                   </div>
                   <div>
@@ -1987,6 +1993,14 @@ export default function TransactionDetailDrawer({
                     </p>
                   </div>
                 </div>
+                {parseMoneyToCents(detail.balance_due) < 0 ? (
+                  <p className="mt-3 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
+                    This amount is still owed to the customer. Use Process
+                    Refund to return it to the verified original tender. For a
+                    same-day partial Helcim card refund, retry after the card
+                    batch closes; do not send a second refund outside ROS.
+                  </p>
+                ) : null}
                 <div className="mt-3 space-y-2 border-t border-app-border/50 pt-3">
                   <div className="flex items-start justify-between gap-3 text-[11px]">
                     <span className="font-black uppercase tracking-widest text-app-text-muted">

@@ -249,6 +249,9 @@ impl ReceiptOrder {
     }
 
     pub fn customer_status_label(&self) -> &'static str {
+        if self.refund_due_amount().is_some() {
+            return "Refund pending";
+        }
         let all_takeaway = !self.items.is_empty()
             && self
                 .items
@@ -302,7 +305,11 @@ impl ReceiptOrder {
     }
 
     pub fn show_paid_line(&self) -> bool {
-        !self.is_pickup_event()
+        !self.is_pickup_event() && self.refund_due_amount().is_none()
+    }
+
+    pub fn refund_due_amount(&self) -> Option<Decimal> {
+        (self.balance_due < Decimal::ZERO).then(|| -self.balance_due)
     }
 
     pub fn order_payment_heading(&self) -> &'static str {

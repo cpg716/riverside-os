@@ -126,6 +126,8 @@ If payment saves but pickup or alteration pickup follow-up does not complete, Ri
 
 For an exchange, Riverside commits the replacement Transaction Record and a durable exchange-settlement recovery record together. The recovery record remains a Z-close warning until the original return, inventory reversal, refund remainder, and exchange link all settle. If the screen is interrupted after the replacement saves, restore the sale and finish the existing exchange; do not ring a second replacement.
 
+When a same-day exchange returns only part of a multi-item Helcim card sale, do not reverse the full original card charge because the customer is keeping the other merchandise. Apply the returned item's value to the replacement and issue only the exact difference to **Cash**, **Original Card**, **Gift Card**, or **Store Credit**. Before ROS records a replacement sale with an Original Card refund, it checks the linked card's live Helcim batch and refundable capacity. If the partial refund cannot run while that batch is open, ROS leaves the entire exchange unrecorded; wait until the batch closes or choose Cash, Gift Card, or Store Credit. After a successful check, ROS still revalidates the refund during final settlement. Pay stays open and **Sale Complete** remains blocked until the exact refund is confirmed. A **Refund pending** state is not proof of a completed refund; never send a second refund outside ROS.
+
 ## What to watch for
 
 - Do not run the same card twice when the reader may already have approved it. Use **Recover payment** to attach a verified approval; unresolved audit evidence does not otherwise lock the Register.

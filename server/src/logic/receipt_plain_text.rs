@@ -192,12 +192,17 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig
             money(order.amount_paid)
         ));
     }
+    if let Some(refund_due) = order.refund_due_amount() {
+        lines.push(format!("Refund pending: {}", money(refund_due)));
+    }
     if !order.is_pickup_event() && !order.has_order_payments() && order.balance_due > Decimal::ZERO
     {
         lines.push(format!("Balance remaining: {}", money(order.balance_due)));
     }
     if order.is_pickup_event() || order.has_order_payments() {
         // Tender and allocation are combined below for order-payment receipts.
+    } else if order.refund_due_amount().is_some() {
+        // A pending refund is an obligation, not a completed tender.
     } else if order.payments.is_empty() {
         lines.push(format!("Tender: {}", order.payment_methods_summary.trim()));
     } else {
@@ -403,6 +408,22 @@ mod tests {
             let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
             assert!(text.lines().any(|line| line == expected));
         }
+    }
+
+    #[test]
+    fn pending_refund_text_does_not_claim_settlement() {
+        let mut order = sample_receipt_order_for_preview();
+        order.receipt_kind = ReceiptKind::ReturnExchange;
+        order.total_price = Decimal::new(-6525, 2);
+        order.amount_paid = Decimal::ZERO;
+        order.balance_due = Decimal::new(-6525, 2);
+
+        let text = format_pos_receipt_text_message(&order, &ReceiptConfig::default());
+
+        assert!(text.contains("Refund pending: $65.25"));
+        assert!(text.contains("Status: Refund pending"));
+        assert!(!text.contains("Settled"));
+        assert!(!text.contains("Status: Complete"));
     }
 
     #[test]
