@@ -16,9 +16,10 @@ Inspected `/api/qbo`, `/api/auth/qbo`, QBO staging routes, explicit mapping gate
 | POST | `/api/qbo/tokens/refresh` | `qbo.rs` | QuickBooks settings | `qbo.mapping_edit` | Staff Access | Yes external/token | encrypted credentials, `qbo_integration` | Not traced | High | Refreshes OAuth token. |
 | GET | `/api/qbo/accounts-cache` | `qbo.rs` | QBO mapping UI | `qbo.view` | Staff Access | No | `qbo_accounts_cache` | Not traced | Medium | Mapping source list. |
 | POST | `/api/qbo/accounts-cache/refresh` | `qbo.rs` | QBO mapping UI | `qbo.mapping_edit` | Staff Access | Yes external/cache | `qbo_accounts_cache`, `qbo_integration` | Not traced | High | Replaces active account cache in a transaction. |
+| GET | `/api/qbo/ros-gl-accounts` | `qbo.rs` | QBO mapping UI | `qbo.view` | Staff Access | No | `ros_gl_accounts` | `qbo-gl-crosswalk-contract.spec.ts` | Medium | Riverside GL reference list; includes the full catalog while the UI disables non-posting rows. |
 | GET | `/api/qbo/mapping-categories` | `qbo.rs` | QBO mapping UI | `qbo.view` | Staff Access | No | `categories` | Not traced | Medium | Category mapping source. |
-| GET/POST/DELETE | `/api/qbo/mappings` | `qbo.rs` | QBO mapping UI | GET `qbo.view`; write `qbo.mapping_edit` | Staff Access | Write yes | `ledger_mappings`, access log | Not traced | Critical | Explicit account mapping source for journals. |
-| GET/POST/DELETE | `/api/qbo/granular-mappings` | `qbo.rs` | QBO mapping UI | GET `qbo.view`; write `qbo.mapping_edit` | Staff Access | Write yes | `qbo_mappings`, access log | Not traced | Critical | Validates account IDs against active cache. |
+| GET/POST/DELETE | `/api/qbo/mappings` | `qbo.rs` | QBO mapping UI | GET `qbo.view`; write `qbo.mapping_edit` | Staff Access | Write yes | `ledger_mappings`, `ros_gl_accounts`, access log | `qbo-gl-crosswalk-contract.spec.ts` | Critical | Pairs an optional ROS GL# with the QBO posting account; validates both catalogs and preserves the ROS reference for older QBO-only clients. |
+| GET/POST/DELETE | `/api/qbo/granular-mappings` | `qbo.rs` | QBO mapping UI | GET `qbo.view`; write `qbo.mapping_edit` | Staff Access | Write yes | `qbo_mappings`, `ros_gl_accounts`, access log | `qbo-gl-crosswalk-contract.spec.ts` | Critical | Allows ROS-only review rows, but journal lookup requires a server-validated active QBO account ID/name pair. |
 | GET | `/api/qbo/staging` | `qbo.rs` | QBO workspace, operations | `qbo.view` | Staff Access | No | `qbo_sync_logs` | Not traced | High | Shows staged journal payloads. |
 | POST | `/api/qbo/staging/propose` | `qbo.rs`, `logic/qbo_journal.rs` | QBO workspace | `qbo.mapping_edit` | Staff Access | Yes | `qbo_sync_logs`, access log | QBO journal tests exist | Critical | Generates pending daily journal. |
 | GET | `/api/qbo/staging/{id}/drilldown` | `qbo.rs` | QBO workspace | `qbo.view` | Staff Access | No | `qbo_sync_logs`, transactions/payments | Not traced | High | Explains journal contributors. |
@@ -34,6 +35,7 @@ Inspected `/api/qbo`, `/api/auth/qbo`, QBO staging routes, explicit mapping gate
 
 - QBO staging payloads carry journal lines, account IDs, account names, line detail, and totals.
 - Approval validates the staged journal is balanced and accounts are active.
+- ROS GL# is a staff-reviewed reconciliation reference. The QBO account ID/name pair remains the posting identity, and QBO account names are resolved server-side from the active cache rather than trusted from client input.
 - Mappings are explicit; fallback mappings were removed in v0.90.0.
 - Date semantics depend on activity date, booked vs fulfilled recognition, and effective store timezone.
 
@@ -67,6 +69,7 @@ Inspected `/api/qbo`, `/api/auth/qbo`, QBO staging routes, explicit mapping gate
 
 - `server/src/api/qbo.rs` includes balanced staging payload tests and credential key tests.
 - `server/src/logic/qbo_journal.rs` includes journal generation tests.
+- `client/e2e/qbo-gl-crosswalk-contract.spec.ts` verifies the 387-row ROS catalog, API separation between ROS reference and QBO posting identity, paired UI labels, and inline-mapping preservation.
 - `cargo test -p riverside-server` compiles and runs the QBO background worker module in the full server suite.
 - Missing: endpoint-level permission tests, OAuth callback state/CSRF validation tests, sync/retry/void duplicate-click tests.
 

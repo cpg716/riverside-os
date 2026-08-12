@@ -32,10 +32,12 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 
 **Purpose:** Map ROS **accounts**, **products**, **tenders**, and **expense** paths to QBO entities.
 
-1. **Mappings** → work tab by tab. Map category revenue/inventory/COGS, Custom garment overrides, tenders, tax, deposit holding, gift card liability, loyalty/promo expense, **donated gift card expense**, store credit liability, refund queue clearing, forfeited deposit income, alterations income, customer shipping income, receiving clearing, and supplier inbound freight. Map **Helcim card clearing** once for Helcim card, manual, vault, and web checkout tenders. If your store takes **R2S payment collections** on the register (**PAYMENT** line), ensure **ledger** includes **`RMS_R2S_PAYMENT_CLEARING`** (pass-through) and the **tender** matrix includes **Check** if you use checks — **[`../POS_PARKED_SALES_AND_RMS_CHARGES.md`](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
-2. **Save** after each section; screenshot or export **before** large changes.
-3. Use the blank option to clear a wrong mapping, then save. Cleared mappings are removed from ROS and future staging will warn if that account is required.
-4. After mapping change, expect **new** staging rows to reflect the new chart.
+1. **Mappings** → work tab by tab. Every route has a selectable **ROS GL#** from Riverside's approved catalog and a **QBO GL#** loaded from the live Intuit account list. The QBO account remains the posting destination; the ROS number is the visible reconciliation reference.
+2. Confirm **GL# match** when the numbers should agree. Treat **Review** as an accounting check: the numbers differ, the QBO account has no number, or one side is missing. Pre-populated ROS GL# values are reviewable suggestions, not automatic approval.
+3. Map category revenue/inventory/COGS, Custom garment overrides, tenders, tax, deposit holding, gift card liability, loyalty/promo expense, **donated gift card expense**, store credit liability, refund queue clearing, forfeited deposit income, alterations income, customer shipping income, receiving clearing, and supplier inbound freight. Map **Helcim card clearing** once for Helcim card, manual, vault, and web checkout tenders. If your store takes **R2S payment collections** on the register (**PAYMENT** line), ensure **ledger** includes **`RMS_R2S_PAYMENT_CLEARING`** (pass-through) and the **tender** matrix includes **Check** if you use checks — **[`../POS_PARKED_SALES_AND_RMS_CHARGES.md`](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
+4. **Save** after each section; screenshot or export **before** large changes.
+5. Use the blank QBO option to clear a wrong posting destination. The ROS GL# can remain visible so the missing QBO mapping is easy to finish; future staging will warn if a required QBO account is absent.
+6. After mapping change, expect **new** staging rows to reflect the new chart.
 
 ## Staging
 
@@ -131,4 +133,4 @@ See [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md) for full config
 - [../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md](../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md)
 - [../DAILY_FINANCIAL_REPORT.md](../DAILY_FINANCIAL_REPORT.md)
 
-**Last reviewed:** 2026-07-17
+**Last reviewed:** 2026-08-12

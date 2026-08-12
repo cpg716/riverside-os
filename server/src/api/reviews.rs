@@ -39,6 +39,7 @@ fn default_limit() -> i64 {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/invite-rows", get(list_review_invite_rows))
+        .route("/provider-reviews", get(list_provider_reviews))
         .route("/sync", post(post_sync_review_invites))
         .route("/test-invite", post(post_test_review_invite))
         .route(
@@ -49,6 +50,27 @@ pub fn router() -> Router<AppState> {
             "/invite-rows/{transaction_id}/cancel",
             post(post_cancel_review_invite),
         )
+}
+
+async fn list_provider_reviews(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ListQuery>,
+) -> Result<Json<Vec<crate::logic::podium_review_activity::PodiumReviewActivityRow>>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, REVIEWS_VIEW)
+        .await
+        .map_err(|e| e.into_response())?;
+    crate::logic::podium_review_activity::list_reviews_for_operations(&state.db, q.limit)
+        .await
+        .map(Json)
+        .map_err(|error| {
+            tracing::error!(%error, "list_provider_reviews");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(json!({ "error": "database" })),
+            )
+                .into_response()
+        })
 }
 
 async fn post_test_review_invite(

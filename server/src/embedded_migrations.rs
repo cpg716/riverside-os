@@ -194,4 +194,8 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("191_mailbox_read_and_trash.sql", include_str!("../../migrations/191_mailbox_read_and_trash.sql")),
     ("192_appointment_system_hardening.sql", include_str!("../../migrations/192_appointment_system_hardening.sql")),
     ("193_counterpoint_historical_booking_events.sql", include_str!("../../migrations/193_counterpoint_historical_booking_events.sql")),
+    ("194_podium_conversation_responder.sql", include_str!("../../migrations/194_podium_conversation_responder.sql")),
+    ("195_ros_qbo_gl_crosswalk.sql", include_str!("../../migrations/195_ros_qbo_gl_crosswalk.sql")),
+    ("196_podium_call_events.sql", include_str!("../../migrations/196_podium_call_events.sql")),
+    ("197_podium_review_activity.sql", include_str!("../../migrations/197_podium_review_activity.sql")),
 ];

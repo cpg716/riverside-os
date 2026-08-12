@@ -17,8 +17,9 @@ interface GranularMapping {
   id: string;
   source_type: string;
   source_id: string;
-  qbo_account_id: string;
-  qbo_account_name: string;
+  qbo_account_id: string | null;
+  qbo_account_name: string | null;
+  ros_gl_account_number: string | null;
 }
 
 interface LedgerMapping {
@@ -26,6 +27,7 @@ interface LedgerMapping {
   internal_key: string;
   internal_description: string | null;
   qbo_account_id: string | null;
+  ros_gl_account_number: string | null;
 }
 
 interface CredentialsPublic {
@@ -178,10 +180,12 @@ function getResolvableMappingKeys(message: string): { key: string; label: string
 function InlineMappingResolver({
   resKey,
   accounts,
+  existingRosGlAccountNumber,
   onSave,
 }: {
   resKey: { key: string; label: string; type: "granular" | "ledger"; source_type?: string; source_id?: string };
   accounts: QboAccount[];
+  existingRosGlAccountNumber?: string | null;
   onSave: () => Promise<void>;
 }) {
   const [selectedId, setSelectedId] = useState("");
@@ -207,6 +211,7 @@ function InlineMappingResolver({
             source_id: resKey.source_id,
             qbo_account_id: selectedId,
             qbo_account_name: name,
+            ros_gl_account_number: existingRosGlAccountNumber ?? null,
           }),
         });
         if (!res.ok) throw new Error("Could not save mapping");
@@ -221,6 +226,7 @@ function InlineMappingResolver({
             internal_key: resKey.key,
             internal_description: `Mapped inline from staging warning for ${resKey.label}`,
             qbo_account_id: selectedId,
+            ros_gl_account_number: existingRosGlAccountNumber ?? null,
           }),
         });
         if (!res.ok) throw new Error("Could not save mapping");
@@ -246,7 +252,9 @@ function InlineMappingResolver({
         <option value="">Select account...</option>
         {accounts.map((acct) => (
           <option key={acct.id} value={acct.id}>
-            {acct.name}
+            {acct.account_number
+              ? `${acct.account_number} · ${acct.name}`
+              : `No GL# · ${acct.name}`}
           </option>
         ))}
       </select>
@@ -470,8 +478,9 @@ export default function QboWorkspace({
   );
   const mappingsReady = useMemo(
     () =>
-      granular.length > 0 || ledger.some((row) => !!row.qbo_account_id?.trim()),
-    [granular.length, ledger],
+      granular.some((row) => !!row.qbo_account_id?.trim()) ||
+      ledger.some((row) => !!row.qbo_account_id?.trim()),
+    [granular, ledger],
   );
   const accountingSummary = useMemo(() => {
     const rowWarnings = staging.map((row) => ({
@@ -801,12 +810,34 @@ export default function QboWorkspace({
     currentSection === "connection"
       ? "Confirm QuickBooks is connected before sending daily journals. Setup changes are managed in Settings."
       : currentSection === "mappings"
-        ? "Confirm Riverside accounts have QuickBooks accounts assigned before review and send."
+        ? "Confirm each Riverside GL# is paired with the intended live QuickBooks GL# before review and send."
         : currentSection === "history"
           ? "Review what was sent to QuickBooks, who approved it, and any posting problem details."
           : "Pick a business date, review the daily totals, then send the approved journal to QuickBooks.";
   const mappedLedgerCount = ledger.filter((row) => !!row.qbo_account_id?.trim()).length;
   const unmappedLedgerCount = Math.max(ledger.length - mappedLedgerCount, 0);
+  const mappedGranularCount = granular.filter((row) => !!row.qbo_account_id?.trim()).length;
+  const qboAccountNumberById = new Map(
+    accounts.map((account) => [account.id, account.account_number?.trim() ?? ""]),
+  );
+  const crosswalkRows = [...granular, ...ledger];
+  const rosGlSelectedCount = crosswalkRows.filter(
+    (row) => !!row.ros_gl_account_number?.trim(),
+  ).length;
+  const glMatchCount = crosswalkRows.filter((row) => {
+    const rosNumber = row.ros_gl_account_number?.trim();
+    const qboNumber = row.qbo_account_id
+      ? qboAccountNumberById.get(row.qbo_account_id)
+      : "";
+    return Boolean(rosNumber && qboNumber && rosNumber === qboNumber);
+  }).length;
+  const glReviewCount = crosswalkRows.filter((row) => {
+    const rosNumber = row.ros_gl_account_number?.trim();
+    const qboId = row.qbo_account_id?.trim();
+    if (!rosNumber && !qboId) return false;
+    const qboNumber = qboId ? qboAccountNumberById.get(qboId) : "";
+    return !rosNumber || !qboNumber || rosNumber !== qboNumber;
+  }).length;
 
   return (
     <div className="ui-page overflow-auto">
@@ -918,22 +949,28 @@ export default function QboWorkspace({
               {mappingsReady ? "Ready" : "Needs mapping"}
             </p>
             <p className="mt-2 text-xs font-semibold text-app-text-muted">
-              Account mapping tells Riverside where revenue, tax, tenders, deposits, refunds, and gift cards belong in QuickBooks.
+              QBO accounts control posting. The paired ROS GL# makes each destination easy to verify against Riverside&apos;s approved account list.
             </p>
           </div>
           <div className="ui-card bg-app-surface-2 px-5 py-4 xl:col-span-2">
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               Mapping counts
             </p>
-            <div className="mt-3 grid gap-2 text-xs font-semibold text-app-text sm:grid-cols-3">
+            <div className="mt-3 grid gap-2 text-xs font-semibold text-app-text sm:grid-cols-2 xl:grid-cols-5">
               <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
-                Product/category rules <span className="block text-2xl font-black">{granular.length}</span>
+                QBO posting rules <span className="block text-2xl font-black">{mappedGranularCount}</span>
               </p>
               <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
                 Ledger accounts mapped <span className="block text-2xl font-black">{mappedLedgerCount}</span>
               </p>
               <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
                 Ledger accounts missing <span className="block text-2xl font-black text-amber-700">{unmappedLedgerCount}</span>
+              </p>
+              <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                ROS GL# selected <span className="block text-2xl font-black">{rosGlSelectedCount}</span>
+              </p>
+              <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                GL# match / review <span className="block text-2xl font-black"><span className="text-emerald-700">{glMatchCount}</span> / <span className="text-amber-700">{glReviewCount}</span></span>
               </p>
             </div>
             <p className="mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
@@ -1331,6 +1368,21 @@ export default function QboWorkspace({
                                             key={`${r.id}-resolve-${resKey.key}`}
                                             resKey={resKey}
                                             accounts={accounts}
+                                            existingRosGlAccountNumber={
+                                              resKey.type === "granular"
+                                                ? granular.find(
+                                                    (mapping) =>
+                                                      mapping.source_type ===
+                                                        resKey.source_type &&
+                                                      mapping.source_id ===
+                                                        resKey.source_id,
+                                                  )?.ros_gl_account_number
+                                                : ledger.find(
+                                                    (mapping) =>
+                                                      mapping.internal_key ===
+                                                      resKey.key,
+                                                  )?.ros_gl_account_number
+                                            }
                                             onSave={refreshCore}
                                           />
                                         ))}

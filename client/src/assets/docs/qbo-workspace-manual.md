@@ -4,7 +4,7 @@ title: "QBO Workspace"
 order: 1082
 summary: "Review QuickBooks Online staging, balanced proposals, drilldown evidence, and liability tender treatment."
 source: client/src/components/qbo/QboWorkspace.tsx
-last_scanned: 2026-07-17
+last_scanned: 2026-08-12
 tags: qbo, quickbooks, accounting, journal, staging, finance
 status: approved
 ---
@@ -24,6 +24,8 @@ status: approved
 QBO Workspace is the review and staging area for QuickBooks Online journal proposals. It is designed for auditability before anything is synced to the accounting system.
 
 Before posting is enabled, an admin connects QuickBooks from Settings by saving the Intuit Client ID, Client Secret, and Webhook Verifier Token, choosing sandbox or production, clicking **Connect to QuickBooks**, approving the Riverside app in Intuit, refreshing QBO accounts, and mapping accounts. Intuit's webhook URL must point to the public Riverside `/api/auth/qbo/webhook` route; Riverside validates `intuit-signature` before storing an event and returns an error when durable storage fails so Intuit can retry delivery.
+
+The **Mappings** status also summarizes the ROS-to-QBO GL-number crosswalk. **ROS GL# selected** counts Riverside references, while **GL# match / review** shows exact number parity versus mappings that still need accounting review. QBO accounts—not ROS references—remain the posting destination.
 
 ## How to use it
 
@@ -105,6 +107,7 @@ Historical imported Counterpoint activity should remain auditable but should not
 To accelerate troubleshooting, the QBO Workspace staging review panel displays **Inline Mapping Resolvers** directly underneath any missing mapping warnings:
 - When a proposal fails validation because an account mapping is missing (e.g. `income_gift_card_breakage`, `liability_gift_card`, `COGS_FREIGHT`), a dropdown selector preloaded with the QBO Chart of Accounts appears directly on the warnings line.
 - Select the appropriate QuickBooks account and click **Save Mapping** to commit the configuration immediately.
+- Inline resolution preserves the existing ROS GL# reference. Return to Settings → Integrations → QuickBooks Online if the paired numbers still show **Review**.
 - Once saved, click **Stage journal** to regenerate the proposal using the newly established mapping.
 
 ## Related workflows

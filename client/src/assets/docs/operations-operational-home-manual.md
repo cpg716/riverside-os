@@ -101,6 +101,7 @@ Operations Home is the Back Office daily command surface. Its store-wide managem
 - In Mailbox, **Delete** means a recoverable move to Trash, not permanent removal.
 - If Mailbox reports a sync or refresh failure, do not treat the visible list as current.
 - In Review Requests, cancel only a request still in **Outbox**; **Sending**, **Sent**, and **Delivered** cannot be recalled.
+- In **Reviews**, published Podium reviews appear above request activity. Open the provider link for the full review; prioritize rows marked **Needs response**. A review without a Riverside match remains visible instead of being guessed onto a customer.
 - Treat ROSIE as an explanation layer, not the source of sign-off.
 
 ## Related workflows

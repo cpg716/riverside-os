@@ -184,7 +184,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "customers-podium-messaging-inbox-section",
     title: "Podium Inbox",
-    summary: "Read and reply to shared Podium conversations, show linked staff assignments, manage read state, and close or reopen threads.",
+    summary: "Read messages, calls, and linked review activity in shared Podium conversations, assign linked staff, manage read state, and close or reopen threads.",
     markdown: manual_15_raw,
     tags: ["customers","podium","messaging","inbox","communications"],
   },

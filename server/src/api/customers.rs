@@ -3995,6 +3995,10 @@ pub fn router() -> Router<AppState> {
         .route("/browse", get(browse_customers))
         .route("/pipeline-stats", get(browse_customer_pipeline_stats))
         .route("/podium/messaging-inbox", get(list_podium_messaging_inbox))
+        .route(
+            "/podium/assignment-staff",
+            get(list_podium_assignment_staff),
+        )
         .route("/podium/messaging-health", get(get_podium_messaging_health))
         .route(
             "/podium/messaging-unmatched",
@@ -4007,6 +4011,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/podium/contact-reconciliation-issues",
             get(list_podium_contact_reconciliation_issues),
+        )
+        .route(
+            "/podium/contact-sync-overview",
+            get(get_podium_contact_sync_overview),
         )
         .route(
             "/podium/contact-reconcile",
@@ -4031,8 +4039,20 @@ pub fn router() -> Router<AppState> {
             get(get_podium_conversation_assignees).patch(patch_podium_conversation_assignee),
         )
         .route(
+            "/podium/conversations/{conversation_id}/responder",
+            post(post_podium_conversation_responder),
+        )
+        .route(
             "/podium/conversations/{conversation_id}/messages",
             get(get_podium_conversation_messages),
+        )
+        .route(
+            "/podium/conversations/{conversation_id}/calls",
+            get(get_podium_conversation_calls),
+        )
+        .route(
+            "/podium/conversations/{conversation_id}/reviews",
+            get(get_podium_conversation_reviews),
         )
         .route("/rms-charge/customers", get(list_rms_charge_customers))
         .route("/rms-charge/records", get(list_rms_charge_records))
@@ -6259,6 +6279,50 @@ async fn get_podium_conversation_messages(
     ))
 }
 
+async fn get_podium_conversation_calls(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<Uuid>,
+) -> Result<Json<Vec<crate::logic::podium_calls::PodiumCallEventApiRow>>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM podium_conversation WHERE id = $1)")
+            .bind(conversation_id)
+            .fetch_one(&state.db)
+            .await?;
+    if !exists {
+        return Err(CustomerError::NotFound);
+    }
+    Ok(Json(
+        crate::logic::podium_calls::list_call_events_for_conversation(&state.db, conversation_id)
+            .await?,
+    ))
+}
+
+async fn get_podium_conversation_reviews(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<Uuid>,
+) -> Result<Json<Vec<crate::logic::podium_review_activity::PodiumReviewActivityRow>>, CustomerError>
+{
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM podium_conversation WHERE id = $1)")
+            .bind(conversation_id)
+            .fetch_one(&state.db)
+            .await?;
+    if !exists {
+        return Err(CustomerError::NotFound);
+    }
+    Ok(Json(
+        crate::logic::podium_review_activity::list_reviews_for_conversation(
+            &state.db,
+            conversation_id,
+        )
+        .await?,
+    ))
+}
+
 async fn list_podium_unmatched_conversations(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -6321,28 +6385,66 @@ async fn list_podium_contact_reconciliation_issues(
     ))
 }
 
+async fn get_podium_contact_sync_overview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<podium_contacts::PodiumContactSyncOverview>, CustomerError> {
+    require_podium_settings_admin(&state, &headers).await?;
+    Ok(Json(
+        podium_contacts::contact_sync_overview(&state.db).await?,
+    ))
+}
+
 async fn post_podium_contact_reconciliation(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<podium_contacts::PodiumContactReconciliationResult>, CustomerError> {
+) -> Result<(StatusCode, Json<Value>), CustomerError> {
     require_podium_settings_admin(&state, &headers).await?;
-    let result = podium_contacts::reconcile_all_contacts(
-        &state.db,
-        &state.http_client,
-        &state.podium_token_cache,
-        state.meilisearch.as_ref(),
-    )
-    .await
-    .map_err(|error| {
-        if error == podium_contacts::RECONCILIATION_ALREADY_RUNNING {
-            CustomerError::Conflict(error)
-        } else {
-            CustomerError::PodiumUnavailable(format!(
-                "Could not reconcile Podium contacts ({error}). Confirm read_contacts authorization and Integration credentials."
-            ))
+    let run_id = podium_contacts::begin_contact_reconciliation(&state.db)
+        .await
+        .map_err(|error| {
+            if error == podium_contacts::RECONCILIATION_ALREADY_RUNNING {
+                CustomerError::Conflict(error)
+            } else {
+                CustomerError::PodiumUnavailable(format!(
+                    "Could not reconcile Podium contacts ({error}). Confirm read_contacts authorization and Integration credentials."
+                ))
+            }
+        })?;
+    let background_state = state.clone();
+    tokio::spawn(async move {
+        match podium_contacts::run_contact_reconciliation(
+            &background_state.db,
+            &background_state.http_client,
+            &background_state.podium_token_cache,
+            background_state.meilisearch.as_ref(),
+            run_id,
+        )
+        .await
+        {
+            Ok(result) => tracing::info!(
+                target: "podium",
+                %run_id,
+                contacts_seen = result.contacts_seen,
+                contacts_matched = result.contacts_matched,
+                customers_created = result.customers_created,
+                customers_updated = result.customers_updated,
+                conflicts = result.conflicts,
+                outbound_queued = result.outbound_queued,
+                "Manual Podium contact reconciliation completed"
+            ),
+            Err(error) => tracing::warn!(
+                target: "podium",
+                %run_id,
+                error = %error,
+                "Manual Podium contact reconciliation failed"
+            ),
         }
-    })?;
-    Ok(Json(result))
+    });
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "started": true, "run_id": run_id })),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -6733,9 +6835,55 @@ struct PostCustomerPodiumReplyBody {
     channel: String,
     body: String,
     #[serde(default)]
+    conversation_id: Option<Uuid>,
+    #[serde(default)]
     subject: Option<String>,
     #[serde(default)]
     attachment_png_base64: Option<String>,
+}
+
+async fn resolve_podium_reply_actor(
+    state: &AppState,
+    customer_id: Uuid,
+    channel: &str,
+    conversation_id: Option<Uuid>,
+    fallback_actor: CustomerMessageActor,
+) -> Result<(CustomerMessageActor, Option<Uuid>), CustomerError> {
+    let Some(conversation_id) = conversation_id else {
+        return Ok((fallback_actor, None));
+    };
+    let context =
+        podium_messaging::podium_reply_context(&state.db, conversation_id, customer_id, channel)
+            .await?
+            .ok_or_else(|| {
+                CustomerError::BadRequest(
+                    "The selected Podium conversation does not match this customer and channel."
+                        .to_string(),
+                )
+            })?;
+
+    if let (Some(staff_id), Some(sender_name)) =
+        (context.responder_staff_id, context.responder_staff_name)
+    {
+        return Ok((
+            CustomerMessageActor {
+                staff_id: Some(staff_id),
+                sender_name: Some(sender_name),
+            },
+            Some(context.conversation_id),
+        ));
+    }
+
+    if let Some(fallback_staff_id) = fallback_actor.staff_id {
+        let _ = podium_messaging::remember_conversation_responder(
+            &state.db,
+            conversation_id,
+            fallback_staff_id,
+            Some(fallback_staff_id),
+        )
+        .await?;
+    }
+    Ok((fallback_actor, Some(context.conversation_id)))
 }
 
 async fn post_customer_podium_reply(
@@ -6744,13 +6892,35 @@ async fn post_customer_podium_reply(
     Path(customer_id): Path<Uuid>,
     Json(body): Json<PostCustomerPodiumReplyBody>,
 ) -> Result<Json<serde_json::Value>, CustomerError> {
-    let actor =
+    let operator =
         customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
     let ch = body.channel.trim().to_ascii_lowercase();
+    let normalized_channel = match ch.as_str() {
+        "sms" | "phone" => "sms",
+        "email" | "e-mail" => "email",
+        _ => {
+            return Err(CustomerError::BadRequest(
+                "channel must be sms or email".to_string(),
+            ));
+        }
+    };
     let text = body.body.trim();
     if text.is_empty() {
         return Err(CustomerError::BadRequest("body is required".to_string()));
     }
+    if normalized_channel == "email" && body.subject.as_deref().unwrap_or("").trim().is_empty() {
+        return Err(CustomerError::BadRequest(
+            "subject is required for email".to_string(),
+        ));
+    }
+    let (actor, reply_conversation_id) = resolve_podium_reply_actor(
+        &state,
+        customer_id,
+        normalized_channel,
+        body.conversation_id,
+        operator,
+    )
+    .await?;
     let row = load_customer_profile_row(&state.db, customer_id).await?;
     match ch.as_str() {
         "sms" | "phone" => {
@@ -6780,13 +6950,14 @@ async fn post_customer_podium_reply(
                         "attachment image is too large".to_string(),
                     ));
                 }
-                podium::send_podium_phone_message_with_png_attachment_tracked(
+                podium::send_podium_phone_message_with_png_attachment_with_sender_tracked(
                     &state.db,
                     &state.http_client,
                     &state.podium_token_cache,
                     ph,
                     text,
                     png,
+                    actor.sender_name.as_deref(),
                 )
                 .await
                 .map_err(|e| {
@@ -6811,28 +6982,36 @@ async fn post_customer_podium_reply(
                 })?
             };
             let e164 = podium::normalize_phone_e164(ph.as_str());
-            podium_messaging::record_outbound_message(
-                &state.db,
-                customer_id,
-                "sms",
-                text,
-                actor.staff_id,
-                e164.as_deref(),
-                None,
-                "outbound",
-                send_result.provider_message_id.as_deref(),
-                Some(&send_result.raw_response),
-            )
-            .await
-            .map_err(CustomerError::Database)?;
+            if let Some(conversation_id) = reply_conversation_id {
+                podium_messaging::record_outbound_message_for_conversation(
+                    &state.db,
+                    conversation_id,
+                    "sms",
+                    text,
+                    actor.staff_id,
+                    "outbound",
+                    send_result.provider_message_id.as_deref(),
+                    Some(&send_result.raw_response),
+                )
+                .await?;
+            } else {
+                podium_messaging::record_outbound_message(
+                    &state.db,
+                    customer_id,
+                    "sms",
+                    text,
+                    actor.staff_id,
+                    e164.as_deref(),
+                    None,
+                    "outbound",
+                    send_result.provider_message_id.as_deref(),
+                    Some(&send_result.raw_response),
+                )
+                .await?;
+            }
         }
         "email" | "e-mail" => {
             let sub = body.subject.as_deref().unwrap_or("").trim();
-            if sub.is_empty() {
-                return Err(CustomerError::BadRequest(
-                    "subject is required for email".to_string(),
-                ));
-            }
             let Some(ref em) = row.email else {
                 return Err(CustomerError::BadRequest(
                     "Customer has no email on file".to_string(),
@@ -6866,7 +7045,11 @@ async fn post_customer_podium_reply(
             ));
         }
     }
-    Ok(Json(json!({ "ok": true })))
+    Ok(Json(json!({
+        "ok": true,
+        "responder_staff_id": actor.staff_id,
+        "responder_name": actor.sender_name,
+    })))
 }
 
 async fn post_customer_podium_contact_sync(
@@ -6953,9 +7136,82 @@ async fn get_podium_conversation_assignees(
     Ok(Json(rows))
 }
 
+async fn list_podium_assignment_staff(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<podium_messaging::PodiumAssignmentStaff>>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    Ok(Json(
+        podium_messaging::list_assignment_staff(&state.db).await?,
+    ))
+}
+
 #[derive(Debug, Deserialize)]
 struct PatchPodiumAssigneeBody {
+    #[serde(default)]
+    staff_id: Option<Uuid>,
+    #[serde(default)]
     user_uid: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PostPodiumResponderBody {
+    staff_id: Uuid,
+    pin: String,
+}
+
+async fn post_podium_conversation_responder(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<Uuid>,
+    Json(body): Json<PostPodiumResponderBody>,
+) -> Result<Json<podium_messaging::PodiumConversationResponder>, CustomerError> {
+    let operator =
+        customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let pin = body.pin.trim();
+    if !crate::auth::pins::is_valid_staff_credential(pin) {
+        return Err(CustomerError::BadRequest(
+            "Access PIN must be exactly 4 digits.".to_string(),
+        ));
+    }
+    let responder =
+        crate::auth::pins::authenticate_staff_by_id(&state.db, body.staff_id, Some(pin))
+            .await
+            .map_err(|_| {
+                CustomerError::Unauthorized(
+                    "That Access PIN does not match the selected staff member.".to_string(),
+                )
+            })?;
+    let selected_by_staff_id = operator.staff_id.or(Some(responder.id));
+    let remembered = podium_messaging::remember_conversation_responder(
+        &state.db,
+        conversation_id,
+        responder.id,
+        selected_by_staff_id,
+    )
+    .await?
+    .ok_or_else(|| CustomerError::BadRequest("Podium conversation was not found.".to_string()))?;
+
+    if let Err(error) = crate::auth::pins::log_staff_access(
+        &state.db,
+        responder.id,
+        "podium_conversation_responder_verified",
+        json!({
+            "conversation_id": conversation_id,
+            "selected_by_staff_id": selected_by_staff_id,
+        }),
+    )
+    .await
+    {
+        tracing::error!(
+            %error,
+            %conversation_id,
+            responder_staff_id = %responder.id,
+            "Could not record Podium responder verification audit"
+        );
+    }
+
+    Ok(Json(remembered))
 }
 
 async fn patch_podium_conversation_assignee(
@@ -6964,7 +7220,40 @@ async fn patch_podium_conversation_assignee(
     Path(conversation_id): Path<Uuid>,
     Json(body): Json<PatchPodiumAssigneeBody>,
 ) -> Result<Json<serde_json::Value>, CustomerError> {
-    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let actor =
+        customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let legacy_user_uid = body
+        .user_uid
+        .as_deref()
+        .map(str::trim)
+        .filter(|uid| !uid.is_empty());
+    if body.staff_id.is_some() && legacy_user_uid.is_some() {
+        return Err(CustomerError::BadRequest(
+            "Choose a Riverside staff member or a Podium user, not both.".to_string(),
+        ));
+    }
+    let selected_staff = if let Some(staff_id) = body.staff_id {
+        podium_messaging::assignment_staff_by_id(&state.db, staff_id)
+            .await?
+            .ok_or_else(|| {
+                CustomerError::BadRequest(
+                    "That active staff member is not linked to a Podium user.".to_string(),
+                )
+            })?
+            .into()
+    } else if let Some(user_uid) = legacy_user_uid {
+        podium_messaging::assignment_staff_by_provider_uid(&state.db, user_uid)
+            .await?
+            .ok_or_else(|| {
+                CustomerError::BadRequest(
+                    "That Podium user is not linked to an active Riverside staff member."
+                        .to_string(),
+                )
+            })?
+            .into()
+    } else {
+        None
+    };
     let provider_uid = podium_messaging::provider_uid_for_conversation(&state.db, conversation_id)
         .await
         .map_err(|e| CustomerError::BadRequest(e.to_string()))?;
@@ -6973,12 +7262,40 @@ async fn patch_podium_conversation_assignee(
         &state.http_client,
         &state.podium_token_cache,
         &provider_uid,
-        body.user_uid.as_deref(),
+        selected_staff
+            .as_ref()
+            .map(|staff: &podium_messaging::PodiumAssignmentStaff| {
+                staff.provider_user_uid.as_str()
+            }),
     )
     .await
     .map_err(|e| {
         CustomerError::PodiumUnavailable(format!("Could not update conversation assignee ({e})."))
     })?;
+    let assignee_name = selected_staff
+        .as_ref()
+        .map(|staff: &podium_messaging::PodiumAssignmentStaff| staff.staff_name.as_str());
+    if let Err(error) = podium_messaging::remember_conversation_assignee_name(
+        &state.db,
+        conversation_id,
+        assignee_name,
+    )
+    .await
+    {
+        tracing::error!(
+            %error,
+            %conversation_id,
+            "Podium assignment changed but the local assignee cache could not be updated"
+        );
+    }
+    tracing::info!(
+        %conversation_id,
+        assigned_staff_id = ?selected_staff.as_ref().map(|staff| staff.staff_id),
+        assigned_staff_name = ?assignee_name,
+        staff_id = ?actor.staff_id,
+        staff_name = ?actor.sender_name,
+        "Podium conversation assignment changed"
+    );
     Ok(Json(result))
 }
 

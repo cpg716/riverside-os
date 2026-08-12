@@ -1,5 +1,6 @@
 export interface AccountMapping {
   ros_id: string;
+  ros_gl_account_number: string;
   qbo_account_id: string;
   qbo_account_name: string;
 }
@@ -7,6 +8,15 @@ export interface AccountMapping {
 export interface QboMatrixAccount {
   id: string;
   name: string;
+  account_number: string | null;
+  account_type: string | null;
+}
+
+export interface RosGlAccount {
+  account_number: string;
+  account_name: string;
+  account_type: string;
+  income_tax_line: string | null;
 }
 
 export const QBO_MATRIX_TENDERS = [
@@ -32,6 +42,12 @@ export const QBO_MATRIX_CUSTOM_TYPES = [
 ] as const;
 
 export const QBO_MATRIX_FINANCIAL_ACCOUNTS = [
+  {
+    key: "merchant_fee",
+    label: "Merchant fee expense",
+    help: "Reconciled card-processing fees, separate from the gross card-clearing amount.",
+    placeholder: "Merchant fee expense",
+  },
   {
     key: "shipping_income",
     label: "Shipping income",
@@ -179,8 +195,9 @@ export function buildMatrixInitialFromGranular(
   granular: {
     source_type: string;
     source_id: string;
-    qbo_account_id: string;
-    qbo_account_name: string;
+    qbo_account_id: string | null;
+    qbo_account_name: string | null;
+    ros_gl_account_number: string | null;
   }[],
 ): Record<string, AccountMapping> {
   const out: Record<string, AccountMapping> = {};
@@ -189,8 +206,9 @@ export function buildMatrixInitialFromGranular(
     if (!key) continue;
     out[key] = {
       ros_id: key,
-      qbo_account_id: g.qbo_account_id,
-      qbo_account_name: g.qbo_account_name,
+      ros_gl_account_number: g.ros_gl_account_number ?? "",
+      qbo_account_id: g.qbo_account_id ?? "",
+      qbo_account_name: g.qbo_account_name ?? "",
     };
   }
   return out;

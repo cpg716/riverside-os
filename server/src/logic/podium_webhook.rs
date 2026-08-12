@@ -321,11 +321,27 @@ pub async fn process_pending_podium_webhooks(
         let process_result = async {
             crate::logic::podium_reviews::apply_review_invite_webhook(pool, &delivery.raw_payload)
                 .await?;
+            if matches!(
+                crate::logic::podium_review_activity::apply_review_webhook(
+                    pool,
+                    &delivery.raw_payload,
+                )
+                .await?,
+                crate::logic::podium_review_activity::PodiumReviewWebhookOutcome::Processed
+            ) {
+                return Ok(crate::logic::podium_inbound::PodiumInboundIngestOutcome::Processed);
+            }
             crate::logic::customer_notifications::apply_podium_failure_webhook(
                 pool,
                 &delivery.raw_payload,
             )
             .await?;
+            if matches!(
+                crate::logic::podium_calls::apply_call_webhook(pool, &delivery.raw_payload).await?,
+                crate::logic::podium_calls::PodiumCallWebhookOutcome::Processed
+            ) {
+                return Ok(crate::logic::podium_inbound::PodiumInboundIngestOutcome::Processed);
+            }
             if matches!(
                 crate::logic::podium_contacts::apply_contact_webhook(
                     pool,

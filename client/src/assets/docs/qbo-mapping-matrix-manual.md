@@ -4,7 +4,7 @@ title: "QBO Mapping Matrix (qbo)"
 order: 1081
 summary: "Guide to linking Riverside OS accounts (Revenue, Inventory, Tenders) to your QuickBooks Online Chart of Accounts."
 source: client/src/components/qbo/QboMappingMatrix.tsx
-last_scanned: 2026-07-17
+last_scanned: 2026-08-12
 tags: qbo, mapping, accounting, chart-of-accounts, coa, setup
 ---
 
@@ -18,15 +18,18 @@ tags: qbo, mapping, accounting, chart-of-accounts, coa, setup
 
 ![QBO staging queue](../images/help/qbo-mapping-matrix/workflow-3.png)
 
-The Mapping Matrix is the configuration engine that tells Riverside OS where to "post" every dollar. Correct mappings are essential for automated reconciliation with QuickBooks Online.
+The Mapping Matrix is the configuration engine that tells Riverside OS where to post each accounting route. Correct mappings are essential for reconciliation with QuickBooks Online.
 
 ## What this is
 
-Use the **Mapping Matrix** to link Riverside categories and payment tenders to your QuickBooks Online Chart of Accounts.
+Use this matrix to pair Riverside categories and tenders with the correct QuickBooks Online chart-of-accounts records. Required default accounts are configured in the **Required default mappings** table directly below the matrix.
 
-## What this is
+Each mapping has two sides:
 
-Use this matrix to map Riverside categories and tenders to the correct QuickBooks Online chart-of-accounts records. Required default accounts are configured in the **Required default mappings** table directly below the matrix.
+- **ROS GL#** comes from Riverside's approved GL catalog. Riverside pre-populates high-confidence roles and exact number matches where possible, but accounting must review them.
+- **QBO GL#** comes from the live QuickBooks Online integration after **Refresh QBO accounts**. This selected QBO account remains the actual posting destination.
+
+**GL# match** means both selected numbers agree. **Review** means they differ, the QBO account has no account number, or one side is missing. A review status does not silently reroute a journal; verify the pair before staging.
 
 ## Mapping categories
 
@@ -57,15 +60,19 @@ These are explicit accounts used by global financial logic:
 
 ## How to map an account
 
-1. Navigate to **Back Office → Settings → QBO Bridge → Mappings**.
+1. Navigate to **Back Office → Settings → Integrations → QuickBooks Online**.
 2. Locate the row you wish to update.
-3. Select the matching account from the **QBO Account** dropdown.
-4. Tapping "Save Matrix" persists category, tender, and liability mappings. Required default mappings save from their own row controls below the matrix.
+3. Pick the approved account in **ROS GL#**.
+4. Pick the live account in **QBO GL#**. The dropdown shows the QBO account number returned by Intuit beside its name.
+5. Confirm **GL# match**, or review and document why a deliberate cross-number mapping is correct.
+6. Select **Save mappings**. Required default mappings save from their own row controls below the matrix.
 
 ## Tips
 
 - **Balanced Journals**: If you leave a required account unmapped, the daily journal includes a warning in the staging queue and must be resolved before posting.
 - **New Accounts**: If you create a new account in QuickBooks, you must click **"Refresh QBO accounts"** at the top of the matrix to see it in the list.
+- **Pre-populated ROS GL#s**: Treat these as reviewable Riverside references, not automatic accounting approval. Clearing a QBO selection keeps the ROS reference visible so the missing posting account remains obvious.
+- **Non-posting references**: The full ROS catalog includes Estimates, Purchase Orders, and Sales Orders for completeness, but those non-posting rows are disabled in journal mapping pickers.
 - **Clearing Account Reconcile**: Use the "Transfer" feature in QuickBooks to move funds from your "Merchant Clearing" account to your "Checking" account once the daily settlement hits your bank statement.
 
 ## What happens next

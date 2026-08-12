@@ -129,6 +129,24 @@ test("known CNP decline and close outcomes finalize the exact attempt before ret
   expect(outcomeFlow).not.toContain("provider_client_secret = NULL");
 });
 
+test("an unresolved CNP attempt can leave the sale without losing provider evidence", () => {
+  expect(drawer).toContain("detachUnresolvedHostedAttemptConfirmed");
+  expect(drawer).toContain(
+    'query.set("detach_unresolved_hosted_attempt_confirmed", "true")',
+  );
+  expect(drawer).toContain("Release unresolved card attempt from this sale");
+  expect(drawer).toContain("Release from sale");
+  expect(drawer).toContain(
+    "This does not mean the customer was not charged; verify the provider result before retrying that card.",
+  );
+  expect(paymentsApi).toContain("unresolved_hosted_attempt_detached");
+  expect(paymentsApi).toContain("superseded_by_confirmed_helcim_approval");
+  expect(paymentsApi).toContain("older.provider_payment_id IS NOT NULL");
+  expect(paymentsApi).toContain("older.provider_transaction_id IS NULL");
+  expect(checkoutLogic).toContain("'unresolved_hosted_attempt_detached'");
+  expect(checkoutLogic).toContain("'superseded_by_confirmed_helcim_approval'");
+});
+
 test("CNP and Manual Card retain distinct ledger and reporting identities", () => {
   const cnpTabStart = drawer.indexOf("  card_manual: {");
   const cnpTabEnd = drawer.indexOf("  card_saved:", cnpTabStart);
@@ -414,7 +432,7 @@ test("only an exact register-session and checkout Helcim attempt can import or l
   );
   expect(drawer).toContain("providerSettings?.helcim.simulator_enabled &&");
   expect(drawer).toContain("Release simulated request");
-  expect(drawer).not.toContain("Release & use another tender");
+  expect(drawer).toContain("Release from sale");
   expect(drawer).not.toContain("forceExitPendingHelcimAttempt");
   expect(drawer).not.toContain("Close & use another tender");
 

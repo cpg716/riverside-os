@@ -22,13 +22,21 @@ pub const PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES: &[&str] = &[
     "message.failed",
     "message.received",
     "message.sent",
+    "call.completed",
+    "call.missed",
+    "call.received",
+    "call.voicemail_left",
     "contact.created",
     "contact.deleted",
     "contact.merged",
     "contact.unchanged",
     "contact.updated",
+    "review.created",
     "review.invite_link_created",
     "review.invite_link_updated",
+    "review.response_created",
+    "review.response_updated",
+    "review.updated",
 ];
 
 fn podium_retry_delay(attempt: u32) -> StdDuration {
@@ -1710,11 +1718,12 @@ pub async fn fetch_all_podium_contacts(
             PodiumHttpErrorKind::General,
             &[],
             |token| {
+                let mut request =
+                    add_podium_headers(http.get(&url), Some(token)).query(&[("limit", 100_u8)]);
                 if let Some(cursor) = page_cursor.as_deref() {
-                    add_podium_headers(http.get(&url), Some(token)).query(&[("cursor", cursor)])
-                } else {
-                    add_podium_headers(http.get(&url), Some(token)).query(&[("limit", 100_u8)])
+                    request = request.query(&[("cursor", cursor)]);
                 }
+                request
             },
         )
         .await?;
@@ -1929,6 +1938,32 @@ pub async fn send_podium_phone_message_with_attachment_tracked(
     attachment_filename: &str,
     attachment_content_type: &str,
 ) -> Result<PodiumMessageSendResult, PodiumError> {
+    send_podium_phone_message_with_attachment_with_sender_tracked(
+        pool,
+        http,
+        token_cache,
+        to_phone_raw,
+        body,
+        attachment_bytes,
+        attachment_filename,
+        attachment_content_type,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn send_podium_phone_message_with_attachment_with_sender_tracked(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    to_phone_raw: &str,
+    body: &str,
+    attachment_bytes: Vec<u8>,
+    attachment_filename: &str,
+    attachment_content_type: &str,
+    sender_name: Option<&str>,
+) -> Result<PodiumMessageSendResult, PodiumError> {
     let creds = PodiumEnvCredentials::load(pool)
         .await
         .ok_or(PodiumError::NotConfigured)?;
@@ -1959,7 +1994,7 @@ pub async fn send_podium_phone_message_with_attachment_tracked(
     let Some(e164) = normalize_phone_e164(to_phone_raw) else {
         return Err(PodiumError::NotConfigured);
     };
-    let data = json!({
+    let mut data = json!({
         "body": body_t,
         "channel": {
             "type": "phone",
@@ -1967,6 +2002,9 @@ pub async fn send_podium_phone_message_with_attachment_tracked(
         },
         "locationUid": loc,
     });
+    if let Some(sender_name) = sender_name.map(str::trim).filter(|value| !value.is_empty()) {
+        data["senderName"] = json!(sender_name);
+    }
     let data_str = serde_json::to_string(&data).map_err(|_| PodiumError::NotConfigured)?;
 
     let attachment_filename = attachment_filename.trim().to_string();
@@ -2039,6 +2077,29 @@ pub async fn send_podium_phone_message_with_png_attachment_tracked(
         attachment_png,
         "receipt.png",
         "image/png",
+    )
+    .await
+}
+
+pub async fn send_podium_phone_message_with_png_attachment_with_sender_tracked(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    to_phone_raw: &str,
+    body: &str,
+    attachment_png: Vec<u8>,
+    sender_name: Option<&str>,
+) -> Result<PodiumMessageSendResult, PodiumError> {
+    send_podium_phone_message_with_attachment_with_sender_tracked(
+        pool,
+        http,
+        token_cache,
+        to_phone_raw,
+        body,
+        attachment_png,
+        "receipt.png",
+        "image/png",
+        sender_name,
     )
     .await
 }

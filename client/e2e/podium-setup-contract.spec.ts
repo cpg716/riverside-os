@@ -34,14 +34,22 @@ const oauthHelpers = repoFile("client/src/lib/podiumOAuth.ts");
 const settingsApi = repoFile("server/src/api/settings.rs");
 const customersApi = repoFile("server/src/api/customers.rs");
 const podiumLogic = repoFile("server/src/logic/podium.rs");
+const podiumContacts = repoFile("server/src/logic/podium_contacts.rs");
 const podiumReviews = repoFile("server/src/logic/podium_reviews.rs");
 const reviewsApi = repoFile("server/src/api/reviews.rs");
 const podiumWebhook = repoFile("server/src/logic/podium_webhook.rs");
 const podiumWebhookApi = repoFile("server/src/api/webhooks.rs");
 const podiumInbound = repoFile("server/src/logic/podium_inbound.rs");
 const podiumMessaging = repoFile("server/src/logic/podium_messaging.rs");
+const podiumCalls = repoFile("server/src/logic/podium_calls.rs");
+const podiumReviewActivity = repoFile(
+  "server/src/logic/podium_review_activity.rs",
+);
 const podiumInbox = repoFile(
   "client/src/components/customers/PodiumMessagingInboxSection.tsx",
+);
+const podiumResponderModal = repoFile(
+  "client/src/components/customers/PodiumResponderPinModal.tsx",
 );
 const staffEditDrawer = repoFile(
   "client/src/components/staff/StaffEditDrawer.tsx",
@@ -54,6 +62,15 @@ const podiumWebhookMigration = repoFile(
 );
 const podiumReviewMigration = repoFile(
   "migrations/184_schedule_podium_review_invites.sql",
+);
+const podiumResponderMigration = repoFile(
+  "migrations/194_podium_conversation_responder.sql",
+);
+const podiumCallMigration = repoFile(
+  "migrations/196_podium_call_events.sql",
+);
+const podiumReviewActivityMigration = repoFile(
+  "migrations/197_podium_review_activity.sql",
 );
 const receiptSummary = repoFile(
   "client/src/components/pos/ReceiptSummaryModal.tsx",
@@ -221,4 +238,100 @@ test("Podium inbox maps staff identity and supports shared conversation triage",
   expect(staffEditDrawer).not.toContain("{name} ({u.uid})");
   expect(staffProfile).toContain("A manager connects Podium identities");
   expect(staffProfile).not.toContain('placeholder="senderUid from Podium"');
+});
+
+test("Podium inbox assigns conversations only to linked staff without sending a reply", () => {
+  expect(customersApi).toContain('"/podium/assignment-staff"');
+  expect(customersApi).toContain("assignment_staff_by_id");
+  expect(podiumMessaging).toContain("pub async fn list_assignment_staff");
+  expect(podiumMessaging).toContain("NULLIF(TRIM(podium_user_uid), '') IS NOT NULL");
+  expect(podiumInbox).toContain("Assigned to");
+  expect(podiumInbox).toContain('method: "PATCH"');
+  expect(podiumInbox).toContain("body: JSON.stringify({ staff_id:");
+  expect(podiumInbox).toContain("Saves immediately without sending a reply");
+});
+
+test("Podium inbox remembers a PIN-verified responder per conversation", () => {
+  expect(customersApi).toContain(
+    '"/podium/conversations/{conversation_id}/responder"',
+  );
+  expect(customersApi).toContain("authenticate_staff_by_id");
+  expect(customersApi).toContain("body.conversation_id");
+  expect(customersApi).toContain("resolve_podium_reply_actor");
+  expect(podiumMessaging).toContain("remember_conversation_responder");
+  expect(podiumLogic).toContain('data["senderName"] = json!(sender_name)');
+  expect(podiumInbox).toContain("Replying as");
+  expect(podiumInbox).toContain("Access PIN only when changing");
+  expect(podiumResponderModal).toContain("Future replies in this conversation");
+  expect(podiumResponderModal).toContain("<NumericPinKeypad");
+  expect(podiumResponderMigration).toContain("responder_staff_id");
+  expect(podiumResponderMigration).toContain("responder_verified_at");
+});
+
+test("Podium call webhooks appear as durable conversation activity", () => {
+  for (const eventType of [
+    "call.received",
+    "call.completed",
+    "call.missed",
+    "call.voicemail_left",
+  ]) {
+    expect(podiumLogic).toContain(`"${eventType}"`);
+    expect(podiumCallMigration).toContain(`'${eventType}'`);
+  }
+  expect(podiumWebhook).toContain("podium_calls::apply_call_webhook");
+  expect(podiumCalls).toContain("raw_payload");
+  expect(podiumCalls).toContain("list_call_events_for_conversation");
+  expect(customersApi).toContain(
+    '"/podium/conversations/{conversation_id}/calls"',
+  );
+  expect(podiumMessaging).toContain("podium_call_event unread_call");
+  expect(podiumInbox).toContain("Voicemail received");
+  expect(podiumInbox).toContain('kind: "call"');
+});
+
+test("Podium review lifecycle appears in Operations and linked Inbox conversations", () => {
+  for (const eventType of [
+    "review.created",
+    "review.updated",
+    "review.response_created",
+    "review.response_updated",
+  ]) {
+    expect(podiumLogic).toContain(`"${eventType}"`);
+    expect(podiumReviewActivityMigration).toContain(`'${eventType}'`);
+  }
+  expect(podiumWebhook).toContain(
+    "podium_review_activity::apply_review_webhook",
+  );
+  expect(podiumReviewActivity).toContain("reviewInvitationUid");
+  expect(podiumReviewActivity).toContain("needs_response");
+  expect(reviewsApi).toContain('"/provider-reviews"');
+  expect(customersApi).toContain(
+    '"/podium/conversations/{conversation_id}/reviews"',
+  );
+  expect(podiumMessaging).toContain("podium_review unread_review");
+  expect(reviewsOperations).toContain("Published Reviews");
+  expect(reviewsOperations).toContain("Needs response");
+  expect(podiumInbox).toContain("Riverside response:");
+  expect(podiumInbox).toContain("No messages, calls, or reviews loaded");
+});
+
+test("Podium contact reconciliation is backgrounded, observable, and avoids redundant work", () => {
+  const contactFetcher = podiumLogic.slice(
+    podiumLogic.indexOf("pub async fn fetch_all_podium_contacts"),
+    podiumLogic.indexOf("pub async fn send_podium_phone_message"),
+  );
+
+  expect(contactFetcher).toContain('query(&[("limit", 100_u8)])');
+  expect(contactFetcher).toContain('request.query(&[("cursor", cursor)])');
+  expect(customersApi).toContain('"/podium/contact-sync-overview"');
+  expect(customersApi).toContain("begin_contact_reconciliation");
+  expect(customersApi).toContain("StatusCode::ACCEPTED");
+  expect(podiumContacts).toContain("pub async fn contact_sync_overview");
+  expect(podiumContacts).toContain(
+    "state.customer_id IS NULL OR state.status = 'failed'",
+  );
+  expect(podiumContacts).toContain("if created || updated");
+  expect(panel).toContain("Reconciliation Running");
+  expect(panel).toContain("Needs first sync");
+  expect(panel).toContain("You can leave this page while it runs");
 });

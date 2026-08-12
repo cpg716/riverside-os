@@ -8,13 +8,17 @@ import {
   ChevronDown,
   ChevronUp,
   Circle,
+  ExternalLink,
   Mail,
   MessageCircle,
   MessageSquare,
   Phone,
+  PhoneCall,
+  PhoneMissed,
   RefreshCw,
   Search,
   Send,
+  Star,
   UserCircle,
   UserPlus,
   Users,
@@ -27,10 +31,12 @@ import { AddCustomerDrawer } from "./CustomersWorkspace";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useToast } from "../ui/ToastProviderLogic";
+import PodiumResponderPinModal from "./PodiumResponderPinModal";
 
 const baseUrl = getBaseUrl();
 const INBOX_LOCAL_REFRESH_MS = 60_000;
 const PROVIDER_PULL_STALE_MS = 30 * 60 * 1000;
+const MULTIPLE_ASSIGNMENT_VALUE = "__multiple_podium_assignees__";
 
 type InboxRow = {
   conversation_id: string;
@@ -50,7 +56,14 @@ type InboxRow = {
   unread: boolean;
   closed: boolean;
   provider_assignee_name: string | null;
+  responder_staff_id: string | null;
+  responder_staff_name: string | null;
   snippet: string | null;
+};
+
+type ResponderStaff = {
+  id: string;
+  full_name: string;
 };
 
 type PodiumConversationAssignee = {
@@ -59,6 +72,13 @@ type PodiumConversationAssignee = {
   staff_id: string | null;
   staff_name: string | null;
   linked: boolean;
+};
+
+type PodiumAssignmentStaff = {
+  staff_id: string;
+  staff_name: string;
+  provider_user_uid: string;
+  provider_name: string;
 };
 
 type PodiumHealth = {
@@ -92,6 +112,50 @@ type PodiumMessageRow = {
   podium_sender_name: string | null;
   created_at: string;
 };
+
+type PodiumCallEventRow = {
+  id: string;
+  conversation_id: string | null;
+  provider_call_uid: string;
+  event_type: string;
+  direction: string;
+  contact_phone_e164: string | null;
+  contact_name: string | null;
+  duration_seconds: number | null;
+  has_voicemail: boolean;
+  occurred_at: string;
+};
+
+type PodiumReviewActivityRow = {
+  id: string;
+  provider_review_uid: string;
+  last_event_type: string;
+  transaction_id: string | null;
+  display_id: string | null;
+  customer_id: string | null;
+  customer_code: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  conversation_id: string | null;
+  author_name: string | null;
+  rating: number | null;
+  review_body: string | null;
+  review_url: string | null;
+  site_name: string | null;
+  is_recommendation: boolean;
+  needs_response: boolean;
+  published_at: string;
+  last_activity_at: string;
+  response_count: number;
+  latest_response_body: string | null;
+  latest_response_author_name: string | null;
+  latest_response_at: string | null;
+};
+
+type PodiumThreadActivity =
+  | { kind: "message"; id: string; created_at: string; message: PodiumMessageRow }
+  | { kind: "call"; id: string; created_at: string; call: PodiumCallEventRow }
+  | { kind: "review"; id: string; created_at: string; review: PodiumReviewActivityRow };
 
 type DirectSmsCustomerResult = {
   id: string;
@@ -171,6 +235,23 @@ function channelIcon(channel: string) {
   return channel === "email" ? Mail : Phone;
 }
 
+function callEventLabel(call: PodiumCallEventRow) {
+  if (call.event_type === "call.voicemail_left" || call.has_voicemail) {
+    return "Voicemail received";
+  }
+  if (call.event_type === "call.missed") return "Missed call";
+  if (call.event_type === "call.received") return "Incoming call";
+  if (call.direction === "outbound") return "Outgoing call completed";
+  return "Call completed";
+}
+
+function callDurationLabel(seconds: number | null) {
+  if (seconds === null || seconds < 0) return null;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
+}
+
 export default function PodiumMessagingInboxSection({
   onOpenCustomerHub,
   initialFocusId,
@@ -181,7 +262,7 @@ export default function PodiumMessagingInboxSection({
   initialFocusId?: string | null;
   onInitialFocusConsumed?: () => void;
 }) {
-  const { backofficeHeaders } = useBackofficeAuth();
+  const { backofficeHeaders, staffId, staffDisplayName } = useBackofficeAuth();
   const { toast } = useToast();
   const notificationCenter = useNotificationCenterOptional();
   const refreshNavigationCounts = notificationCenter?.refreshUnread;
@@ -203,10 +284,21 @@ export default function PodiumMessagingInboxSection({
   const [showNewMessage, setShowNewMessage] = useState(false);
   const [selectedRow, setSelectedRow] = useState<InboxRow | null>(null);
   const [threadMessages, setThreadMessages] = useState<PodiumMessageRow[]>([]);
+  const [threadCalls, setThreadCalls] = useState<PodiumCallEventRow[]>([]);
+  const [threadReviews, setThreadReviews] = useState<PodiumReviewActivityRow[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
   const [assignees, setAssignees] = useState<PodiumConversationAssignee[]>([]);
   const [assigneesLoading, setAssigneesLoading] = useState(false);
   const [assigneeLoadError, setAssigneeLoadError] = useState(false);
+  const [assignmentRoster, setAssignmentRoster] = useState<PodiumAssignmentStaff[]>([]);
+  const [assignmentRosterLoading, setAssignmentRosterLoading] = useState(true);
+  const [assignmentRosterLoadError, setAssignmentRosterLoadError] = useState(false);
+  const [assignmentBusy, setAssignmentBusy] = useState(false);
+  const [responderRoster, setResponderRoster] = useState<ResponderStaff[]>([]);
+  const [pendingResponder, setPendingResponder] = useState<{
+    conversationId: string;
+    staff: ResponderStaff;
+  } | null>(null);
   const [selectedConversationIds, setSelectedConversationIds] = useState<Set<string>>(new Set());
   const [conversationActionBusy, setConversationActionBusy] = useState(false);
   const [pendingClosedState, setPendingClosedState] = useState<{
@@ -236,6 +328,8 @@ export default function PodiumMessagingInboxSection({
   const refreshSeqRef = useRef(0);
   const threadScrollRef = useRef<HTMLDivElement>(null);
   const newMessageRef = useRef<HTMLDivElement>(null);
+  const selectedConversationIdRef = useRef<string | null>(null);
+  selectedConversationIdRef.current = selectedRow?.conversation_id ?? null;
 
   const loadHealth = useCallback(async () => {
     try {
@@ -290,6 +384,58 @@ export default function PodiumMessagingInboxSection({
     void refresh();
     void loadHealth();
   }, [loadHealth, refresh]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadResponderRoster = async () => {
+      try {
+        const res = await fetch(`${baseUrl}/api/staff/list-for-pos`, {
+          headers: apiAuth(),
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as ResponderStaff[];
+        if (!cancelled) setResponderRoster(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setResponderRoster([]);
+      }
+    };
+    void loadResponderRoster();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAuth]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadAssignmentRoster = async () => {
+      setAssignmentRosterLoading(true);
+      setAssignmentRosterLoadError(false);
+      try {
+        const res = await fetch(`${baseUrl}/api/customers/podium/assignment-staff`, {
+          headers: apiAuth(),
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          if (!cancelled) setAssignmentRosterLoadError(true);
+          return;
+        }
+        const data = (await res.json()) as PodiumAssignmentStaff[];
+        if (!cancelled) setAssignmentRoster(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) {
+          setAssignmentRoster([]);
+          setAssignmentRosterLoadError(true);
+        }
+      } finally {
+        if (!cancelled) setAssignmentRosterLoading(false);
+      }
+    };
+    void loadAssignmentRoster();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAuth]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -429,7 +575,7 @@ export default function PodiumMessagingInboxSection({
     if (el) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }
-  }, [threadMessages, threadLoading]);
+  }, [threadCalls, threadMessages, threadReviews, threadLoading]);
 
   useEffect(() => {
     if (showNewMessage) {
@@ -481,26 +627,43 @@ export default function PodiumMessagingInboxSection({
   useEffect(() => {
     if (!selectedRow) {
       setThreadMessages([]);
+      setThreadCalls([]);
+      setThreadReviews([]);
       return;
     }
     let cancelled = false;
+    setThreadMessages([]);
+    setThreadCalls([]);
+    setThreadReviews([]);
     const loadThread = async () => {
       setThreadLoading(true);
       try {
-        const res = await fetch(
-          `${baseUrl}/api/customers/podium/conversations/${encodeURIComponent(selectedRow.conversation_id)}/messages`,
-          { headers: apiAuth(), cache: "no-store" },
-        );
-        if (!res.ok) {
-          if (!cancelled) setThreadMessages([]);
-          return;
-        }
-        const data = (await res.json()) as PodiumMessageRow[];
+        const conversationUrl = `${baseUrl}/api/customers/podium/conversations/${encodeURIComponent(selectedRow.conversation_id)}`;
+        const [messagesResponse, callsResponse, reviewsResponse] = await Promise.all([
+          fetch(`${conversationUrl}/messages`, { headers: apiAuth(), cache: "no-store" }),
+          fetch(`${conversationUrl}/calls`, { headers: apiAuth(), cache: "no-store" }),
+          fetch(`${conversationUrl}/reviews`, { headers: apiAuth(), cache: "no-store" }),
+        ]);
+        const messages = messagesResponse.ok
+          ? ((await messagesResponse.json()) as PodiumMessageRow[])
+          : [];
+        const calls = callsResponse.ok
+          ? ((await callsResponse.json()) as PodiumCallEventRow[])
+          : [];
+        const reviews = reviewsResponse.ok
+          ? ((await reviewsResponse.json()) as PodiumReviewActivityRow[])
+          : [];
         if (!cancelled) {
-          setThreadMessages(Array.isArray(data) ? data : []);
+          setThreadMessages(Array.isArray(messages) ? messages : []);
+          setThreadCalls(Array.isArray(calls) ? calls : []);
+          setThreadReviews(Array.isArray(reviews) ? reviews : []);
         }
       } catch {
-        if (!cancelled) setThreadMessages([]);
+        if (!cancelled) {
+          setThreadMessages([]);
+          setThreadCalls([]);
+          setThreadReviews([]);
+        }
       } finally {
         if (!cancelled) setThreadLoading(false);
       }
@@ -639,10 +802,16 @@ export default function PodiumMessagingInboxSection({
       const res = await fetch(`${baseUrl}/api/customers/${selectedRow.customer_id}/podium/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify({ channel, subject, body }),
+        body: JSON.stringify({
+          channel,
+          subject,
+          body,
+          conversation_id: selectedRow.conversation_id,
+        }),
       });
       if (!res.ok) {
-        toast("Could not send Podium reply.", "error");
+        const error = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(error.error ?? "Could not send Podium reply.", "error");
         return;
       }
       toast(channel === "email" ? "Email sent" : "Podium SMS sent", "success");
@@ -652,6 +821,91 @@ export default function PodiumMessagingInboxSection({
       await refresh();
     } finally {
       setReplyBusy(false);
+    }
+  };
+
+  const confirmResponder = async (pin: string) => {
+    const pending = pendingResponder;
+    if (!pending) return;
+    const res = await fetch(
+      `${baseUrl}/api/customers/podium/conversations/${encodeURIComponent(pending.conversationId)}/responder`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify({ staff_id: pending.staff.id, pin }),
+      },
+    );
+    const result = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      staff_id?: string;
+      full_name?: string;
+    };
+    if (!res.ok || !result.staff_id || !result.full_name) {
+      throw new Error(result.error ?? "Access PIN could not be verified.");
+    }
+    const applyResponder = (row: InboxRow): InboxRow =>
+      row.conversation_id === pending.conversationId
+        ? {
+            ...row,
+            responder_staff_id: result.staff_id ?? null,
+            responder_staff_name: result.full_name ?? null,
+          }
+        : row;
+    setRows((current) => current.map(applyResponder));
+    setSelectedRow((current) => (current ? applyResponder(current) : current));
+    setPendingResponder(null);
+    toast(`${result.full_name} will be credited on replies in this conversation.`, "success");
+  };
+
+  const assignConversation = async (staff: PodiumAssignmentStaff | null) => {
+    if (!selectedRow || assignmentBusy) return;
+    const conversationId = selectedRow.conversation_id;
+    setAssignmentBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/podium/conversations/${encodeURIComponent(conversationId)}/assignees`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...apiAuth() },
+          body: JSON.stringify({ staff_id: staff?.staff_id ?? null }),
+        },
+      );
+      const result = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        toast(result.error ?? "Could not update the Podium assignment.", "error");
+        return;
+      }
+
+      const nextAssignees: PodiumConversationAssignee[] = staff
+        ? [
+            {
+              provider_user_uid: staff.provider_user_uid,
+              provider_name: staff.provider_name,
+              staff_id: staff.staff_id,
+              staff_name: staff.staff_name,
+              linked: true,
+            },
+          ]
+        : [];
+      if (selectedConversationIdRef.current === conversationId) {
+        setAssignees(nextAssignees);
+      }
+      const applyAssignment = (row: InboxRow): InboxRow =>
+        row.conversation_id === conversationId
+          ? { ...row, provider_assignee_name: staff?.staff_name ?? null }
+          : row;
+      setRows((current) => current.map(applyAssignment));
+      setSelectedRow((current) => (current ? applyAssignment(current) : current));
+      toast(
+        staff
+          ? `Conversation assigned to ${staff.staff_name}.`
+          : "Conversation is now unassigned.",
+        "success",
+      );
+    } catch {
+      toast("Could not update the Podium assignment.", "error");
+    } finally {
+      setAssignmentBusy(false);
     }
   };
 
@@ -886,8 +1140,44 @@ export default function PodiumMessagingInboxSection({
   const activeRows = rows.filter((row) => !row.closed);
   const unreadCount = activeRows.filter((row) => row.unread).length;
   const needsReplyCount = activeRows.filter((row) => row.needs_reply).length;
+  const currentResponderId = selectedRow?.responder_staff_id ?? staffId;
+  const currentResponderName = selectedRow?.responder_staff_name ?? staffDisplayName;
+  const responderOptions = [...responderRoster];
+  if (
+    currentResponderId &&
+    currentResponderName &&
+    !responderOptions.some((staff) => staff.id === currentResponderId)
+  ) {
+    responderOptions.unshift({ id: currentResponderId, full_name: currentResponderName });
+  }
+  const assignmentOptions = [...assignmentRoster];
+  for (const assignee of assignees) {
+    if (
+      assignee.linked &&
+      assignee.staff_id &&
+      assignee.staff_name &&
+      !assignmentOptions.some(
+        (candidate) => candidate.provider_user_uid === assignee.provider_user_uid,
+      )
+    ) {
+      assignmentOptions.push({
+        staff_id: assignee.staff_id,
+        staff_name: assignee.staff_name,
+        provider_user_uid: assignee.provider_user_uid,
+        provider_name: assignee.provider_name,
+      });
+    }
+  }
+  const currentAssignmentValue =
+    assignees.length > 1
+      ? MULTIPLE_ASSIGNMENT_VALUE
+      : assignees[0]?.provider_user_uid ?? "";
   const selectedMessages =
-    selectedRow && threadMessages.length === 0 && selectedRow.snippet
+    selectedRow &&
+    threadMessages.length === 0 &&
+    threadCalls.length === 0 &&
+    threadReviews.length === 0 &&
+    selectedRow.snippet
       ? [
           {
             id: `${selectedRow.conversation_id}-preview`,
@@ -904,6 +1194,28 @@ export default function PodiumMessagingInboxSection({
           } satisfies PodiumMessageRow,
         ]
       : threadMessages;
+  const selectedActivity: PodiumThreadActivity[] = [
+    ...selectedMessages.map((message) => ({
+      kind: "message" as const,
+      id: message.id,
+      created_at: message.created_at,
+      message,
+    })),
+    ...threadCalls.map((call) => ({
+      kind: "call" as const,
+      id: call.id,
+      created_at: call.occurred_at,
+      call,
+    })),
+    ...threadReviews.map((review) => ({
+      kind: "review" as const,
+      id: review.id,
+      created_at: review.last_activity_at,
+      review,
+    })),
+  ].sort(
+    (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime(),
+  );
   const SelectedChannelIcon = selectedRow ? channelIcon(selectedRow.channel) : MessageCircle;
   const hasSystemIssue = Boolean(activeWebhookFailure || syncIssue || historyIncomplete);
 
@@ -923,7 +1235,7 @@ export default function PodiumMessagingInboxSection({
             />
           </div>
           <p className="mt-1 text-sm font-semibold text-app-text-muted">
-            Podium Inbox · Read and reply from one shared conversation list.
+            Podium Inbox · Messages, calls, and linked reviews in one shared conversation list.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1306,32 +1618,63 @@ export default function PodiumMessagingInboxSection({
                         <SelectedChannelIcon size={13} aria-hidden />
                         {selectedRow.channel === "email" ? "Email" : "Text message"} · Last activity {relativeTime(selectedRow.last_message_at)}
                       </p>
-                      {assigneesLoading ? (
-                        <p className="mt-1 text-[10px] font-semibold text-app-text-muted">Checking assigned staff...</p>
-                      ) : assignees.length > 0 ? (
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] font-semibold text-app-text-muted">
-                          <Users size={12} aria-hidden />
-                          <span>In conversation:</span>
-                          {assignees.map((assignee) => (
-                            <span
-                              key={assignee.provider_user_uid}
-                              className={`rounded-full px-2 py-0.5 font-bold ${
-                                assignee.linked
-                                  ? "bg-app-success/10 text-app-success"
-                                  : "bg-app-warning/10 text-app-warning"
-                              }`}
-                              title={
-                                assignee.linked
-                                  ? `Podium user ${assignee.provider_name} is linked to Riverside staff member ${assignee.staff_name}.`
-                                  : `Podium user ${assignee.provider_name} is not linked to a Riverside staff profile.`
-                              }
-                            >
-                              {assignee.staff_name ?? assignee.provider_name}
-                              {assignee.linked ? "" : " · Not linked"}
-                            </span>
-                          ))}
-                        </div>
-                      ) : assigneeLoadError && selectedRow.provider_assignee_name ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <label className="flex min-w-0 items-center gap-2 text-xs font-black text-app-text">
+                          <Users size={13} className="shrink-0" aria-hidden />
+                          <span className="shrink-0">Assigned to</span>
+                          <select
+                            value={currentAssignmentValue}
+                            onChange={(event) => {
+                              if (event.target.value === MULTIPLE_ASSIGNMENT_VALUE) return;
+                              const next = assignmentOptions.find(
+                                (staff) => staff.provider_user_uid === event.target.value,
+                              );
+                              void assignConversation(next ?? null);
+                            }}
+                            disabled={
+                              assignmentBusy || assigneesLoading || assignmentRosterLoading
+                            }
+                            className="ui-input h-9 min-w-44 rounded-xl px-3 text-xs font-black disabled:opacity-60"
+                            aria-label="Assign Podium conversation to staff member"
+                          >
+                            <option value="">Unassigned</option>
+                            {assignees.length > 1 ? (
+                              <option value={MULTIPLE_ASSIGNMENT_VALUE} disabled>
+                                Multiple Podium users
+                              </option>
+                            ) : null}
+                            {assignmentOptions.map((staff) => (
+                              <option key={staff.provider_user_uid} value={staff.provider_user_uid}>
+                                {staff.staff_name}
+                              </option>
+                            ))}
+                            {assignees
+                              .filter(
+                                (assignee) =>
+                                  !assignee.linked &&
+                                  !assignmentOptions.some(
+                                    (staff) =>
+                                      staff.provider_user_uid === assignee.provider_user_uid,
+                                  ),
+                              )
+                              .map((assignee) => (
+                                <option
+                                  key={assignee.provider_user_uid}
+                                  value={assignee.provider_user_uid}
+                                  disabled
+                                >
+                                  {assignee.provider_name} · Not linked
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+                        <span className="text-[10px] font-semibold text-app-text-muted">
+                          {assignmentBusy
+                            ? "Saving assignment..."
+                            : "Saves immediately without sending a reply"}
+                        </span>
+                      </div>
+                      {assigneeLoadError && selectedRow.provider_assignee_name ? (
                         <p className="mt-1 text-[10px] font-semibold text-app-warning">
                           Assigned in last Podium sync: {selectedRow.provider_assignee_name}. Live assignment could not refresh.
                         </p>
@@ -1339,14 +1682,18 @@ export default function PodiumMessagingInboxSection({
                         <p className="mt-1 text-[10px] font-semibold text-app-warning">
                           Could not refresh the Podium staff assignment.
                         </p>
-                      ) : (
-                        <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                          Unassigned in Podium
+                      ) : assignmentRosterLoadError ? (
+                        <p className="mt-1 text-[10px] font-semibold text-app-warning">
+                          Linked staff choices could not be loaded. The current Podium assignment is unchanged.
                         </p>
-                      )}
+                      ) : !assignmentRosterLoading && assignmentOptions.length === 0 ? (
+                        <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                          No active staff profiles have a Linked Podium Staff Member yet.
+                        </p>
+                      ) : null}
                       {assignees.some((assignee) => !assignee.linked) ? (
                         <p className="mt-1 text-[10px] font-semibold text-app-warning">
-                          Managers can connect this identity in Staff → open staff profile → Linked Podium Staff Member.
+                          The current Podium identity is not a selectable Riverside staff member. Managers can connect it in Staff → open staff profile → Linked Podium Staff Member.
                         </p>
                       ) : null}
                     </div>
@@ -1485,14 +1832,137 @@ export default function PodiumMessagingInboxSection({
                     <p className="text-sm font-semibold text-app-text-muted">
                       Loading conversation...
                     </p>
-                  ) : selectedMessages.length > 0 ? (
-                    selectedMessages.map((message, index) => {
-                      const outbound = message.direction === "outbound";
-                      const previousMessage = selectedMessages[index - 1];
+                  ) : selectedActivity.length > 0 ? (
+                    selectedActivity.map((activity, index) => {
+                      const previousActivity = selectedActivity[index - 1];
                       const showDay =
-                        !previousMessage ||
-                        new Date(previousMessage.created_at).toDateString() !==
-                          new Date(message.created_at).toDateString();
+                        !previousActivity ||
+                        new Date(previousActivity.created_at).toDateString() !==
+                          new Date(activity.created_at).toDateString();
+                      if (activity.kind === "review") {
+                        const review = activity.review;
+                        const reviewTitle = review.rating
+                          ? `${review.rating}-star ${review.site_name ?? "customer"} review`
+                          : `${review.site_name ?? "Customer"} review`;
+                        return (
+                          <div key={`review-${review.id}`}>
+                            {showDay ? (
+                              <div className="my-3 flex items-center gap-3" aria-label={messageDayLabel(review.last_activity_at)}>
+                                <span className="h-px flex-1 bg-app-border/70" />
+                                <span className="text-[10px] font-bold text-app-text-muted">
+                                  {messageDayLabel(review.last_activity_at)}
+                                </span>
+                                <span className="h-px flex-1 bg-app-border/70" />
+                              </div>
+                            ) : null}
+                            <div className="flex justify-center py-1">
+                              <div className={`max-w-[94%] rounded-2xl border px-4 py-3 shadow-sm sm:max-w-[82%] ${
+                                review.needs_response
+                                  ? "border-amber-300/70 bg-amber-50 text-amber-950"
+                                  : "border-app-border bg-app-surface text-app-text"
+                              }`}>
+                                <div className="flex items-start gap-3">
+                                  <span className={`rounded-xl p-2 ${review.needs_response ? "bg-amber-100" : "bg-app-surface-muted"}`}>
+                                    <Star size={18} fill="currentColor" aria-hidden />
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="text-sm font-black">{reviewTitle}</p>
+                                      {review.needs_response ? (
+                                        <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-amber-900">
+                                          Needs response
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    {review.review_body ? (
+                                      <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed">
+                                        {review.review_body}
+                                      </p>
+                                    ) : null}
+                                    <p className={`mt-1.5 text-[10px] font-semibold ${review.needs_response ? "text-amber-800" : "text-app-text-muted"}`}>
+                                      {review.author_name ?? customerName(selectedRow)} · {fullDateTime(review.published_at)}
+                                    </p>
+                                    {review.latest_response_body ? (
+                                      <div className="mt-2 rounded-xl border border-app-border/70 bg-app-surface/80 px-3 py-2 text-xs text-app-text">
+                                        <span className="font-black">Riverside response: </span>
+                                        {review.latest_response_body}
+                                        {review.latest_response_at ? (
+                                          <span className="ml-1 text-app-text-muted">
+                                            · {fullDateTime(review.latest_response_at)}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+                                    {review.review_url ? (
+                                      <a
+                                        href={review.review_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="mt-2 inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-app-accent underline underline-offset-4"
+                                      >
+                                        Open review
+                                        <ExternalLink size={11} aria-hidden />
+                                      </a>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (activity.kind === "call") {
+                        const call = activity.call;
+                        const missedOrVoicemail =
+                          call.event_type === "call.missed" ||
+                          call.event_type === "call.voicemail_left" ||
+                          call.has_voicemail;
+                        const CallIcon = missedOrVoicemail ? PhoneMissed : PhoneCall;
+                        const duration = callDurationLabel(call.duration_seconds);
+                        return (
+                          <div key={`call-${call.id}`}>
+                            {showDay ? (
+                              <div className="my-3 flex items-center gap-3" aria-label={messageDayLabel(call.occurred_at)}>
+                                <span className="h-px flex-1 bg-app-border/70" />
+                                <span className="text-[10px] font-bold text-app-text-muted">
+                                  {messageDayLabel(call.occurred_at)}
+                                </span>
+                                <span className="h-px flex-1 bg-app-border/70" />
+                              </div>
+                            ) : null}
+                            <div className="flex justify-center py-1">
+                              <div
+                                className={`flex max-w-[92%] items-center gap-3 rounded-2xl border px-4 py-3 shadow-sm sm:max-w-[76%] ${
+                                  missedOrVoicemail
+                                    ? "border-amber-300/70 bg-amber-50 text-amber-950"
+                                    : "border-app-border bg-app-surface text-app-text"
+                                }`}
+                              >
+                                <span className={`rounded-xl p-2 ${missedOrVoicemail ? "bg-amber-100" : "bg-app-surface-muted"}`}>
+                                  <CallIcon size={18} aria-hidden />
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-black">{callEventLabel(call)}</span>
+                                  <span className={`block text-[11px] font-semibold ${missedOrVoicemail ? "text-amber-800" : "text-app-text-muted"}`}>
+                                    {[
+                                      call.contact_name ??
+                                        (selectedRow.customer_id ? customerName(selectedRow) : null),
+                                      call.contact_phone_e164,
+                                      duration,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ") ||
+                                      (call.direction === "outbound" ? "Outbound" : "Inbound")}
+                                    {" · "}{fullDateTime(call.occurred_at)}
+                                  </span>
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      const message = activity.message;
+                      const outbound = message.direction === "outbound";
                       return (
                         <div key={message.id}>
                           {showDay ? (
@@ -1533,7 +2003,7 @@ export default function PodiumMessagingInboxSection({
                     <div className="flex flex-1 flex-col items-center justify-center text-center text-app-text-muted">
                       <MessageCircle size={36} className="mb-3 opacity-70" aria-hidden />
                       <p className="text-sm font-black text-app-text">
-                        No messages loaded for this conversation yet.
+                        No messages, calls, or reviews loaded for this conversation yet.
                       </p>
                       <p className="mt-1 max-w-sm text-xs font-semibold">
                         Pull from Podium or open the customer record if this thread needs more history.
@@ -1543,6 +2013,39 @@ export default function PodiumMessagingInboxSection({
                 </div>
                 {selectedRow.customer_id ? (
                   <div className="border-t border-app-border bg-app-surface px-4 py-3 sm:px-5">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <label className="flex min-w-0 items-center gap-2 text-xs font-black text-app-text">
+                        <span className="shrink-0">Replying as</span>
+                        <select
+                          value={currentResponderId}
+                          onChange={(event) => {
+                            const next = responderOptions.find(
+                              (staff) => staff.id === event.target.value,
+                            );
+                            if (!next || next.id === currentResponderId) return;
+                            setPendingResponder({
+                              conversationId: selectedRow.conversation_id,
+                              staff: next,
+                            });
+                          }}
+                          disabled={replyBusy}
+                          className="ui-input h-9 min-w-44 rounded-xl px-3 text-xs font-black disabled:opacity-60"
+                          aria-label="Replying as staff member"
+                        >
+                          {!currentResponderId ? (
+                            <option value="">Current register staff</option>
+                          ) : null}
+                          {responderOptions.map((staff) => (
+                            <option key={staff.id} value={staff.id}>
+                              {staff.full_name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <p className="text-[10px] font-semibold text-app-text-muted">
+                        Remembered for this conversation · Access PIN only when changing
+                      </p>
+                    </div>
                     {selectedRow.channel === "email" ? (
                       <input
                         value={replySubject}
@@ -1788,6 +2291,12 @@ export default function PodiumMessagingInboxSection({
         confirmLabel={pendingClosedState?.closed ? "Close" : "Reopen"}
         variant={pendingClosedState?.closed ? "danger" : "info"}
         loading={conversationActionBusy}
+      />
+      <PodiumResponderPinModal
+        isOpen={pendingResponder !== null}
+        staffName={pendingResponder?.staff.full_name ?? "Staff member"}
+        onClose={() => setPendingResponder(null)}
+        onConfirm={confirmResponder}
       />
     </div>
   );

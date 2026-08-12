@@ -9,6 +9,7 @@ import IntegrationCredentialsCard from "./IntegrationCredentialsCard";
 import QboMappingMatrix from "../qbo/QboMappingMatrix";
 import {
   type AccountMapping,
+  type RosGlAccount,
   buildMatrixInitialFromGranular,
   matrixKeyToGranular,
   QBO_MATRIX_CUSTOM_TYPES,
@@ -48,8 +49,9 @@ interface GranularMapping {
   id: string;
   source_type: string;
   source_id: string;
-  qbo_account_id: string;
-  qbo_account_name: string;
+  qbo_account_id: string | null;
+  qbo_account_name: string | null;
+  ros_gl_account_number: string | null;
 }
 
 interface LedgerMapping {
@@ -57,6 +59,7 @@ interface LedgerMapping {
   internal_key: string;
   internal_description: string | null;
   qbo_account_id: string | null;
+  ros_gl_account_number: string | null;
 }
 
 interface QboTokenHealth {
@@ -197,6 +200,7 @@ export default function QuickBooksSettingsPanel({
   const [busy, setBusy] = useState(false);
   const [mappingBusy, setMappingBusy] = useState(false);
   const [accounts, setAccounts] = useState<QboAccount[]>([]);
+  const [rosAccounts, setRosAccounts] = useState<RosGlAccount[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [granular, setGranular] = useState<GranularMapping[]>([]);
   const [ledger, setLedger] = useState<LedgerMapping[]>([]);
@@ -227,14 +231,17 @@ export default function QuickBooksSettingsPanel({
 
   const loadMappingData = useCallback(async () => {
     const h = backofficeHeaders();
-    const [accountsRes, categoriesRes, granularRes, ledgerRes] =
+    const [accountsRes, rosAccountsRes, categoriesRes, granularRes, ledgerRes] =
       await Promise.all([
         fetch(`${baseUrl}/api/qbo/accounts-cache`, { headers: h }),
+        fetch(`${baseUrl}/api/qbo/ros-gl-accounts`, { headers: h }),
         fetch(`${baseUrl}/api/qbo/mapping-categories`, { headers: h }),
         fetch(`${baseUrl}/api/qbo/granular-mappings`, { headers: h }),
         fetch(`${baseUrl}/api/qbo/mappings`, { headers: h }),
       ]);
     if (accountsRes.ok) setAccounts((await accountsRes.json()) as QboAccount[]);
+    if (rosAccountsRes.ok)
+      setRosAccounts((await rosAccountsRes.json()) as RosGlAccount[]);
     if (categoriesRes.ok)
       setCategories((await categoriesRes.json()) as CategoryRow[]);
     if (granularRes.ok)
@@ -292,6 +299,10 @@ export default function QuickBooksSettingsPanel({
 
   const accountNameById = useMemo(
     () => new Map(accounts.map((a) => [a.id, a.name])),
+    [accounts],
+  );
+  const accountNumberById = useMemo(
+    () => new Map(accounts.map((a) => [a.id, a.account_number?.trim() ?? ""])),
     [accounts],
   );
 
@@ -413,9 +424,12 @@ export default function QuickBooksSettingsPanel({
     await Promise.all([
       ...Object.values(m).map(async (val) => {
         const parsed = matrixKeyToGranular(val.ros_id);
-        if (!parsed || !val.qbo_account_id.trim()) return;
-        const name =
-          accountNameById.get(val.qbo_account_id) ?? val.qbo_account_name;
+        const qboAccountId = val.qbo_account_id.trim();
+        const rosGlAccountNumber = val.ros_gl_account_number.trim();
+        if (!parsed || (!qboAccountId && !rosGlAccountNumber)) return;
+        const name = qboAccountId
+          ? accountNameById.get(qboAccountId) ?? val.qbo_account_name
+          : "";
         const res = await fetch(`${baseUrl}/api/qbo/granular-mappings`, {
           method: "POST",
           headers: {
@@ -425,8 +439,10 @@ export default function QuickBooksSettingsPanel({
           body: JSON.stringify({
             source_type: parsed.source_type,
             source_id: parsed.source_id,
-            qbo_account_id: val.qbo_account_id,
-            qbo_account_name: name,
+            qbo_account_id: qboAccountId || null,
+            qbo_account_name: name || null,
+            ros_gl_account_number: rosGlAccountNumber || null,
+            clear_ros_gl_account_number: !rosGlAccountNumber,
           }),
         });
         if (!res.ok) {
@@ -457,7 +473,11 @@ export default function QuickBooksSettingsPanel({
     toast("QuickBooks mappings saved.", "success");
   };
 
-  const saveLegacy = async (internal_key: string, qbo_account_id: string) => {
+  const saveLegacy = async (
+    internal_key: string,
+    qbo_account_id: string,
+    ros_gl_account_number: string,
+  ) => {
     const row = LEGACY_ROWS.find((r) => r.key === internal_key);
     const res = await fetch(`${baseUrl}/api/qbo/mappings`, {
       method: "POST",
@@ -468,28 +488,14 @@ export default function QuickBooksSettingsPanel({
       body: JSON.stringify({
         internal_key,
         internal_description: row?.description,
-        qbo_account_id,
+        qbo_account_id: qbo_account_id.trim() || null,
+        ros_gl_account_number: ros_gl_account_number.trim() || null,
+        clear_ros_gl_account_number: !ros_gl_account_number.trim(),
       }),
     });
     if (!res.ok) {
       const j = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(j.error ?? "Could not save default mapping");
-    }
-    await loadMappingData();
-  };
-
-  const clearLegacy = async (internal_key: string) => {
-    const res = await fetch(`${baseUrl}/api/qbo/mappings`, {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-        ...(backofficeHeaders() as Record<string, string>),
-      },
-      body: JSON.stringify({ internal_key }),
-    });
-    if (!res.ok) {
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(j.error ?? "Could not clear default mapping");
     }
     await loadMappingData();
   };
@@ -812,12 +818,13 @@ export default function QuickBooksSettingsPanel({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h3 className="text-xl font-black uppercase tracking-tight text-app-text">
-              QBO account mapping
+              ROS ↔ QBO account mapping
             </h3>
             <p className="mt-1 max-w-3xl text-sm font-medium text-app-text-muted">
-              Map Riverside categories, tenders, tax, deposits, and gift-card
-              liability accounts here. The QBO workspace uses these settings
-              when staging and sending daily journals.
+              Pick Riverside&apos;s reference GL# beside the live QBO GL# for every
+              category, tender, tax, deposit, and liability route. The QBO
+              account remains the posting destination; the paired numbers make
+              reconciliation visible before daily journals are sent.
             </p>
           </div>
           <button
@@ -842,11 +849,19 @@ export default function QuickBooksSettingsPanel({
           </div>
         ) : null}
 
+        {rosAccounts.length === 0 ? (
+          <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-xs font-semibold text-app-text">
+            Riverside&apos;s GL catalog is unavailable. Confirm the Main Hub has
+            applied the latest database migration before editing mappings.
+          </div>
+        ) : null}
+
         <QboMappingMatrix
           categories={categories}
           customTypes={QBO_MATRIX_CUSTOM_TYPES}
           tenders={QBO_MATRIX_TENDERS}
           accounts={accounts}
+          rosAccounts={rosAccounts}
           initialMappings={initialMatrixMappings}
           onSave={async (m: Record<string, AccountMapping>) => {
             try {
@@ -861,22 +876,30 @@ export default function QuickBooksSettingsPanel({
           }}
         />
 
-        <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface-2 shadow-sm">
+        <div className="overflow-x-auto rounded-2xl border border-app-border bg-app-surface-2 shadow-sm">
           <div className="border-b border-app-border px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
             Required default mappings
           </div>
-          <table className="w-full text-left text-sm">
+          <table className="w-full min-w-[900px] text-left text-sm">
             <thead className="bg-app-surface text-[9px] font-black uppercase tracking-widest text-app-text-muted">
               <tr>
                 <th className="px-4 py-2">Purpose</th>
-                <th className="px-4 py-2">Account</th>
-                <th className="px-4 py-2" />
+                <th className="px-4 py-2">ROS GL#</th>
+                <th className="px-4 py-2">QBO GL#</th>
+                <th className="px-4 py-2">Verification</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border">
               {LEGACY_ROWS.map((row) => {
                 const mapped = ledger.find((m) => m.internal_key === row.key);
-                const val = mapped?.qbo_account_id ?? "";
+                const qboValue = mapped?.qbo_account_id ?? "";
+                const rosValue = mapped?.ros_gl_account_number ?? "";
+                const qboNumber = qboValue
+                  ? accountNumberById.get(qboValue) ?? ""
+                  : "";
+                const numbersMatch = Boolean(
+                  rosValue && qboNumber && rosValue === qboNumber,
+                );
                 return (
                   <tr key={row.key}>
                     <td className="px-4 py-3">
@@ -889,13 +912,46 @@ export default function QuickBooksSettingsPanel({
                     </td>
                     <td className="px-4 py-2">
                       <select
-                        value={val}
+                        value={rosValue}
+                        aria-label={`${row.label} ROS GL number`}
+                        onChange={(event) => {
+                          void saveLegacy(
+                            row.key,
+                            qboValue,
+                            event.target.value,
+                          ).catch((error) =>
+                            toast(
+                              error instanceof Error
+                                ? error.message
+                                : "Could not update default ROS GL mapping",
+                              "error",
+                            ),
+                          );
+                        }}
+                        className="ui-input w-full min-w-52 py-1.5 text-xs font-semibold"
+                      >
+                        <option value="">Select ROS GL#</option>
+                        {rosAccounts.map((account) => (
+                          <option
+                            key={account.account_number}
+                            value={account.account_number}
+                            disabled={account.account_type === "Non-Posting"}
+                          >
+                            {account.account_number} · {account.account_name}
+                            {account.account_type === "Non-Posting"
+                              ? " (non-posting)"
+                              : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-2">
+                      <select
+                        value={qboValue}
+                        aria-label={`${row.label} QBO GL number`}
                         onChange={(e) => {
                           const v = e.target.value;
-                          const action = v
-                            ? saveLegacy(row.key, v)
-                            : clearLegacy(row.key);
-                          void action.catch((ex) =>
+                          void saveLegacy(row.key, v, rosValue).catch((ex) =>
                             toast(
                               ex instanceof Error
                                 ? ex.message
@@ -906,16 +962,28 @@ export default function QuickBooksSettingsPanel({
                         }}
                         className="ui-input w-full max-w-xs py-1.5 text-xs font-semibold"
                       >
-                        <option value="">Select...</option>
+                        <option value="">Select QBO GL#</option>
                         {accounts.map((a) => (
                           <option key={a.id} value={a.id}>
-                            {a.name}
+                            {a.account_number
+                              ? `${a.account_number} · ${a.name}`
+                              : `No GL# · ${a.name}`}
                           </option>
                         ))}
                       </select>
                     </td>
-                    <td className="px-4 py-2 text-right text-[10px] text-app-text-muted">
-                      {val ? accountNameById.get(val) : "-"}
+                    <td
+                      className={`px-4 py-2 text-[10px] font-bold ${
+                        numbersMatch ? "text-emerald-700" : "text-amber-700"
+                      }`}
+                    >
+                      {numbersMatch
+                        ? `GL# match · ${rosValue}`
+                        : rosValue && qboValue
+                          ? qboNumber
+                            ? `Review · ROS ${rosValue} / QBO ${qboNumber}`
+                            : "Review · QBO account has no GL#"
+                          : "Select both sides"}
                     </td>
                   </tr>
                 );

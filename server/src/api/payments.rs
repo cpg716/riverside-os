@@ -1022,6 +1022,8 @@ struct ReleaseHelcimTerminalAttemptQuery {
     physical_terminal_cancel_confirmed: bool,
     #[serde(default)]
     ros_error_recovery_requested: bool,
+    #[serde(default)]
+    detach_unresolved_hosted_attempt_confirmed: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -11323,14 +11325,15 @@ async fn confirm_helcim_pay_attempt(
         i64,
         String,
         Option<Uuid>,
+        Option<Uuid>,
         Option<String>,
         Option<String>,
         Option<String>,
         DateTime<Utc>,
     )> = sqlx::query_as(
         r#"
-        SELECT status, amount_cents, currency, register_session_id, provider_client_secret,
-               raw_audit_reference, provider_transaction_id, created_at
+        SELECT status, amount_cents, currency, register_session_id, checkout_client_id,
+               provider_client_secret, raw_audit_reference, provider_transaction_id, created_at
         FROM payment_provider_attempts
         WHERE id = $1
           AND provider = 'helcim'
@@ -11347,6 +11350,7 @@ async fn confirm_helcim_pay_attempt(
         amount_cents,
         attempt_currency,
         register_session_id,
+        checkout_client_id,
         client_secret,
         raw_audit_reference,
         stored_provider_transaction_id,
@@ -11465,6 +11469,43 @@ async fn confirm_helcim_pay_attempt(
     .execute(&mut *tx)
     .await
     .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    if normalized_status == "approved" {
+        // A confirmed, exact CNP approval must not leave an older hosted
+        // attempt on the same sale as a permanent checkout lock. The older
+        // provider token and audit evidence remain intact for Payments Health,
+        // and a late signed callback can still promote that older attempt.
+        sqlx::query(
+            r#"
+            UPDATE payment_provider_attempts older
+            SET status = 'expired',
+                error_code = 'superseded_by_confirmed_helcim_approval',
+                error_message = CONCAT_WS(
+                    ' ',
+                    NULLIF(BTRIM(older.error_message), ''),
+                    'ROS detached this older unresolved Card Not Present attempt after a later exact approval on the same sale. Provider evidence remains retained for Payments Health reconciliation.'
+                ),
+                raw_audit_reference = 'helcim-pay-js:superseded-by-confirmed-approval',
+                completed_at = COALESCE(older.completed_at, now())
+            FROM payment_provider_attempts confirmed
+            WHERE confirmed.id = $1
+              AND confirmed.provider = 'helcim'
+              AND older.provider = 'helcim'
+              AND older.id <> confirmed.id
+              AND older.checkout_client_id = confirmed.checkout_client_id
+              AND older.checkout_client_id = $2
+              AND older.status = 'pending'
+              AND older.raw_audit_reference = 'helcim-pay-js'
+              AND older.provider_payment_id IS NOT NULL
+              AND older.provider_transaction_id IS NULL
+              AND older.created_at < confirmed.created_at
+            "#,
+        )
+        .bind(payload.attempt_id)
+        .bind(checkout_client_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
+    }
     tx.commit()
         .await
         .map_err(|e| PaymentError::InvalidPayload(e.to_string()))?;
@@ -11837,7 +11878,9 @@ async fn release_helcim_terminal_attempt(
     };
     let refreshed = load_helcim_attempt(&state, attempt_id, session_id).await?;
     if refreshed.status != "pending" {
-        if (query.physical_terminal_cancel_confirmed || query.ros_error_recovery_requested)
+        if (query.physical_terminal_cancel_confirmed
+            || query.ros_error_recovery_requested
+            || query.detach_unresolved_hosted_attempt_confirmed)
             && matches!(refreshed.status.as_str(), "failed" | "canceled" | "expired")
         {
             return Ok(Json(refreshed));
@@ -11881,6 +11924,73 @@ async fn release_helcim_terminal_attempt(
             )
         })?
     };
+    if query.detach_unresolved_hosted_attempt_confirmed {
+        if !is_detachable_unresolved_hosted_attempt(&attempt) {
+            return Err(PaymentError::Conflict(
+                "ROS can detach only a hosted Card Not Present attempt whose final provider outcome is already marked for manual reconciliation. Recover Payment first; approved or otherwise identified provider evidence remains protected."
+                    .to_string(),
+            ));
+        }
+
+        let mut tx = state
+            .db
+            .begin()
+            .await
+            .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+        if session_id.is_some() {
+            lock_register_session_open_for_payment(&mut tx, attempt.register_session_id).await?;
+        }
+        let result = sqlx::query(
+            r#"
+            UPDATE payment_provider_attempts
+            SET status = 'expired',
+                error_code = 'unresolved_hosted_attempt_detached',
+                error_message = 'Staff detached this unresolved Card Not Present attempt from the active sale. ROS did not assume approval, decline, or cancellation; provider evidence remains retained for Payments Health reconciliation.',
+                raw_audit_reference = 'helcim-pay-js:detached-unresolved',
+                completed_at = COALESCE(completed_at, now())
+            WHERE id = $1
+              AND provider = 'helcim'
+              AND status = 'pending'
+              AND checkout_client_id IS NOT NULL
+              AND raw_audit_reference = 'helcim-pay-js'
+              AND provider_payment_id IS NOT NULL
+              AND provider_transaction_id IS NULL
+              AND error_code = 'manual_reconciliation_required'
+            "#,
+        )
+        .bind(attempt_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+        if result.rows_affected() != 1 {
+            let _ = tx.rollback().await;
+            return Err(PaymentError::Conflict(
+                "The Card Not Present attempt changed while ROS was detaching it. Recover Payment again before continuing."
+                    .to_string(),
+            ));
+        }
+        crate::auth::pins::log_staff_access_once(
+            &mut *tx,
+            recovery_actor_staff_id,
+            "helcim_hosted_attempt_restore",
+            json!({
+                "action": "detach_unresolved_hosted_attempt_from_sale",
+                "payment_provider_attempt_id": attempt_id,
+                "attempt_register_session_id": attempt.register_session_id,
+                "attempt_checkout_client_id": attempt.checkout_client_id,
+                "acting_register_session_id": session_id,
+            }),
+            &format!("helcim-hosted-restore:{attempt_id}:detach-unresolved"),
+        )
+        .await
+        .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+        tx.commit()
+            .await
+            .map_err(|error| PaymentError::InvalidPayload(error.to_string()))?;
+        return load_helcim_attempt(&state, attempt_id, session_id)
+            .await
+            .map(Json);
+    }
     if query.ros_error_recovery_requested {
         let invoice_recoverable_terminal_reservation = !is_helcim_return_attempt(&attempt)
             && attempt.status == "pending"
@@ -12257,11 +12367,16 @@ fn is_locally_finalized_helcim_pay_handoff(
     attempt_status: &str,
     audit_reference: Option<&str>,
 ) -> bool {
-    matches!(attempt_status, "failed" | "canceled")
-        && matches!(
-            audit_reference,
-            Some("helcim-pay-js:client-aborted") | Some("helcim-pay-js:client-hidden")
-        )
+    matches!(
+        (attempt_status, audit_reference),
+        ("failed", Some("helcim-pay-js:client-aborted"))
+            | ("canceled", Some("helcim-pay-js:client-hidden"))
+            | ("expired", Some("helcim-pay-js:detached-unresolved"))
+            | (
+                "expired",
+                Some("helcim-pay-js:superseded-by-confirmed-approval")
+            )
+    )
 }
 
 fn cents_to_decimal_string(amount_cents: i64) -> String {
@@ -12294,6 +12409,16 @@ fn is_hosted_manual_helcim_attempt(attempt: &HelcimAttemptRow) -> bool {
         .raw_audit_reference
         .as_deref()
         .is_some_and(|reference| reference.to_ascii_lowercase().starts_with("helcim-pay-js"))
+}
+
+fn is_detachable_unresolved_hosted_attempt(attempt: &HelcimAttemptRow) -> bool {
+    is_hosted_manual_helcim_attempt(attempt)
+        && attempt.status == "pending"
+        && attempt.checkout_client_id.is_some()
+        && attempt.provider_payment_id.is_some()
+        && attempt.provider_transaction_id.is_none()
+        && attempt.raw_audit_reference.as_deref() == Some("helcim-pay-js")
+        && attempt.error_code.as_deref() == Some("manual_reconciliation_required")
 }
 
 fn is_saved_card_helcim_attempt(attempt: &HelcimAttemptRow) -> bool {
@@ -14604,6 +14729,21 @@ mod tests {
     }
 
     #[test]
+    fn unresolved_hosted_attempt_detach_requires_exact_review_state_without_approval() {
+        let mut attempt = sample_helcim_attempt_row("pending");
+        attempt.checkout_client_id = Some(Uuid::new_v4());
+        attempt.provider_payment_id = Some("checkout-token".to_string());
+        attempt.provider_transaction_id = None;
+        attempt.raw_audit_reference = Some("helcim-pay-js".to_string());
+        attempt.error_code = Some("manual_reconciliation_required".to_string());
+
+        assert!(is_detachable_unresolved_hosted_attempt(&attempt));
+
+        attempt.provider_transaction_id = Some("53042102".to_string());
+        assert!(!is_detachable_unresolved_hosted_attempt(&attempt));
+    }
+
+    #[test]
     fn completed_hosted_manual_reference_remains_card_not_present() {
         let mut attempt = sample_helcim_attempt_row("approved");
         attempt.raw_audit_reference = Some("helcim-pay-js:51754655".to_string());
@@ -14657,7 +14797,7 @@ mod tests {
     }
 
     #[test]
-    fn hosted_handoff_only_reopens_known_local_decline_or_close_for_signed_confirmation() {
+    fn hosted_handoff_reopens_known_local_outcomes_for_signed_confirmation() {
         assert!(is_locally_finalized_helcim_pay_handoff(
             "failed",
             Some("helcim-pay-js:client-aborted")
@@ -14665,6 +14805,14 @@ mod tests {
         assert!(is_locally_finalized_helcim_pay_handoff(
             "canceled",
             Some("helcim-pay-js:client-hidden")
+        ));
+        assert!(is_locally_finalized_helcim_pay_handoff(
+            "expired",
+            Some("helcim-pay-js:detached-unresolved")
+        ));
+        assert!(is_locally_finalized_helcim_pay_handoff(
+            "expired",
+            Some("helcim-pay-js:superseded-by-confirmed-approval")
         ));
         assert!(!is_locally_finalized_helcim_pay_handoff(
             "approved",
@@ -14716,7 +14864,7 @@ mod tests {
     }
 
     #[test]
-    fn live_release_requires_stale_initialization_or_confirmed_physical_cancel() {
+    fn live_release_requires_audited_evidence_for_each_supported_path() {
         let source = include_str!("payments.rs");
         let release = source
             .split_once("async fn release_helcim_terminal_attempt(")
@@ -14733,6 +14881,10 @@ mod tests {
         assert!(release.contains("HELCIM_PAY_INITIALIZATION_STALE_MINUTES"));
         assert!(release.contains("physical_terminal_cancel_confirmed"));
         assert!(release.contains("ros_error_recovery_requested"));
+        assert!(release.contains("detach_unresolved_hosted_attempt_confirmed"));
+        assert!(release.contains("error_code = 'manual_reconciliation_required'"));
+        assert!(release.contains("unresolved_hosted_attempt_detached"));
+        assert!(release.contains("detach_unresolved_hosted_attempt_from_sale"));
         assert!(release.contains("HELCIM_ROS_ERROR_RECOVERY_MIN_SECONDS"));
         assert!(release.contains("operator_recovered_ros_reservation"));
         assert!(release.contains("HelcimInvoiceRecovery::NoMatch"));
@@ -14756,6 +14908,25 @@ mod tests {
         assert!(ros_error_recovery.contains("HelcimInvoiceRecovery::NoMatch"));
         assert!(ros_error_recovery.contains("release_provider_no_match_reservation"));
         assert!(!ros_error_recovery.contains("AND raw_audit_reference IS NULL"));
+    }
+
+    #[test]
+    fn confirmed_hosted_approval_detaches_only_older_unresolved_cnp_attempts() {
+        let source = include_str!("payments.rs");
+        let confirmation = source
+            .split_once("async fn confirm_helcim_pay_attempt(")
+            .expect("hosted confirmation")
+            .1
+            .split_once("fn helcim_pay_response_identity_mismatch(")
+            .expect("end of hosted confirmation")
+            .0;
+
+        assert!(confirmation.contains("superseded_by_confirmed_helcim_approval"));
+        assert!(confirmation.contains("older.checkout_client_id = confirmed.checkout_client_id"));
+        assert!(confirmation.contains("older.raw_audit_reference = 'helcim-pay-js'"));
+        assert!(confirmation.contains("older.provider_payment_id IS NOT NULL"));
+        assert!(confirmation.contains("older.provider_transaction_id IS NULL"));
+        assert!(confirmation.contains("older.created_at < confirmed.created_at"));
     }
 
     #[test]

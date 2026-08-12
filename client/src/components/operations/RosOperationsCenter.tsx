@@ -1319,7 +1319,6 @@ export default function RosOperationsCenter({
           : ("Ready" as const),
     };
   }, [
-    alerts,
     bugsOverview,
     counterpoint.data,
     fulfillment.data,

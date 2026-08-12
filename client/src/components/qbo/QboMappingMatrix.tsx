@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { Info, Settings2, ShieldCheck } from "lucide-react";
-import type { AccountMapping, QboMatrixAccount } from "./QboMappingLogic";
+import type {
+  AccountMapping,
+  QboMatrixAccount,
+  RosGlAccount,
+} from "./QboMappingLogic";
 import { QBO_MATRIX_FINANCIAL_ACCOUNTS } from "./QboMappingLogic";
 
 export interface QboMappingMatrixProps {
@@ -8,20 +12,23 @@ export interface QboMappingMatrixProps {
   customTypes: readonly { id: string; label: string }[];
   tenders: readonly { id: string; label: string }[];
   accounts: QboMatrixAccount[];
+  rosAccounts: RosGlAccount[];
   initialMappings: Record<string, AccountMapping>;
   onSave: (mappings: Record<string, AccountMapping>) => Promise<void>;
 }
 
-function AccountSelect({
+function QboAccountSelect({
   valueId,
   accounts,
   onPick,
   placeholder,
+  ariaLabel,
 }: {
   valueId: string;
   accounts: QboMatrixAccount[];
   onPick: (id: string, name: string) => void;
   placeholder: string;
+  ariaLabel: string;
 }) {
   return (
     <select
@@ -35,15 +42,116 @@ function AccountSelect({
         const name = accounts.find((a) => a.id === id)?.name ?? id;
         onPick(id, name);
       }}
+      aria-label={ariaLabel}
       className="ui-input w-full min-w-[10rem] max-w-full px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-app-accent-2/25"
     >
       <option value="">{placeholder}</option>
       {accounts.map((a) => (
         <option key={a.id} value={a.id}>
-          {a.name}
+          {a.account_number ? `${a.account_number} · ${a.name}` : `No GL# · ${a.name}`}
         </option>
       ))}
     </select>
+  );
+}
+
+function RosAccountSelect({
+  value,
+  accounts,
+  onPick,
+  ariaLabel,
+}: {
+  value: string;
+  accounts: RosGlAccount[];
+  onPick: (accountNumber: string) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(event) => onPick(event.target.value)}
+      aria-label={ariaLabel}
+      className="ui-input w-full min-w-[10rem] max-w-full px-3 py-2 text-xs font-semibold focus:ring-2 focus:ring-app-accent-2/25"
+    >
+      <option value="">Select ROS GL#</option>
+      {accounts.map((account) => (
+        <option
+          key={account.account_number}
+          value={account.account_number}
+          disabled={account.account_type === "Non-Posting"}
+        >
+          {account.account_number} · {account.account_name}
+          {account.account_type === "Non-Posting" ? " (non-posting)" : ""}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function MappingPair({
+  label,
+  mapping,
+  rosAccounts,
+  qboAccounts,
+  qboPlaceholder,
+  onRosPick,
+  onQboPick,
+}: {
+  label: string;
+  mapping: AccountMapping | undefined;
+  rosAccounts: RosGlAccount[];
+  qboAccounts: QboMatrixAccount[];
+  qboPlaceholder: string;
+  onRosPick: (accountNumber: string) => void;
+  onQboPick: (id: string, name: string) => void;
+}) {
+  const qboAccount = qboAccounts.find(
+    (account) => account.id === mapping?.qbo_account_id,
+  );
+  const rosNumber = mapping?.ros_gl_account_number ?? "";
+  const qboNumber = qboAccount?.account_number?.trim() ?? "";
+  const hasBothAccounts = Boolean(rosNumber && mapping?.qbo_account_id);
+  const numbersMatch = Boolean(hasBothAccounts && qboNumber === rosNumber);
+
+  return (
+    <div className="min-w-[12rem] space-y-2">
+      <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+        ROS GL#
+      </label>
+      <RosAccountSelect
+        value={rosNumber}
+        accounts={rosAccounts}
+        onPick={onRosPick}
+        ariaLabel={`${label} ROS GL number`}
+      />
+      <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+        QBO GL#
+      </label>
+      <QboAccountSelect
+        valueId={mapping?.qbo_account_id ?? ""}
+        accounts={qboAccounts}
+        onPick={onQboPick}
+        placeholder={qboPlaceholder}
+        ariaLabel={`${label} QBO GL number`}
+      />
+      {hasBothAccounts ? (
+        <p
+          className={`text-[10px] font-bold ${
+            numbersMatch ? "text-emerald-700" : "text-amber-700"
+          }`}
+        >
+          {numbersMatch
+            ? `GL# match · ${rosNumber}`
+            : qboNumber
+              ? `Review · ROS ${rosNumber} / QBO ${qboNumber}`
+              : `Review · QBO account has no GL#`}
+        </p>
+      ) : (
+        <p className="text-[10px] font-semibold text-app-text-muted">
+          Select both sides to verify the GL# crosswalk.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -52,6 +160,7 @@ export default function QboMappingMatrix({
   customTypes,
   tenders,
   accounts,
+  rosAccounts,
   initialMappings,
   onSave,
 }: QboMappingMatrixProps) {
@@ -63,24 +172,38 @@ export default function QboMappingMatrix({
     setMappings(initialMappings);
   }, [initialMappings]);
 
-  const updateMapping = (key: string, qboId: string, qboName: string) => {
+  const updateMapping = (
+    key: string,
+    updates: Partial<Omit<AccountMapping, "ros_id">>,
+  ) => {
     setMappings((prev) => {
+      const current = prev[key] ?? {
+        ros_id: key,
+        ros_gl_account_number: "",
+        qbo_account_id: "",
+        qbo_account_name: "",
+      };
+      const updated = { ...current, ...updates };
       const next = { ...prev };
-      if (!qboId) {
+      if (!updated.ros_gl_account_number && !updated.qbo_account_id) {
         delete next[key];
         return next;
       }
-      next[key] = {
-        ros_id: key,
-        qbo_account_id: qboId,
-        qbo_account_name: qboName,
-      };
+      next[key] = updated;
       return next;
     });
   };
 
   return (
     <div className="space-y-8">
+      <div className="rounded-2xl border border-app-accent/20 bg-app-accent/5 px-5 py-4">
+        <p className="text-sm font-black text-app-text">ROS GL# ↔ QBO GL# review</p>
+        <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
+          ROS GL# comes from Riverside&apos;s approved account list. QBO GL# comes from the live
+          QuickBooks connection and remains the posting destination. A matching badge confirms the
+          numbers agree; a review badge asks accounting to verify the crosswalk before staging.
+        </p>
+      </div>
       <section className="overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
         <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 px-5 py-4">
           <div>
@@ -95,13 +218,13 @@ export default function QboMappingMatrix({
         </div>
 
         <div className="w-full min-w-0 overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left text-sm md:min-w-[640px] xl:min-w-[720px]">
+          <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="border-b border-app-border bg-app-surface-2/50 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               <tr>
                 <th className="px-5 py-3">Category</th>
-                <th className="px-5 py-3">Revenue (income)</th>
-                <th className="px-5 py-3">Inventory (asset)</th>
-                <th className="px-5 py-3">COGS (expense)</th>
+                <th className="px-5 py-3">Revenue GL mapping</th>
+                <th className="px-5 py-3">Inventory GL mapping</th>
+                <th className="px-5 py-3">COGS GL mapping</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border">
@@ -126,39 +249,63 @@ export default function QboMappingMatrix({
                       {cat.name}
                     </td>
                     <td className="px-5 py-4">
-                      <AccountSelect
-                        valueId={
-                          mappings[`rev_${cat.id}`]?.qbo_account_id ?? ""
+                      <MappingPair
+                        label={`${cat.name} revenue`}
+                        mapping={mappings[`rev_${cat.id}`]}
+                        rosAccounts={rosAccounts}
+                        qboAccounts={accounts}
+                        onRosPick={(accountNumber) =>
+                          updateMapping(`rev_${cat.id}`, {
+                            ros_gl_account_number: accountNumber,
+                          })
                         }
-                        accounts={accounts}
-                        onPick={(id, name) =>
-                          updateMapping(`rev_${cat.id}`, id, name)
+                        onQboPick={(id, name) =>
+                          updateMapping(`rev_${cat.id}`, {
+                            qbo_account_id: id,
+                            qbo_account_name: name,
+                          })
                         }
-                        placeholder="e.g. 4010 Sales"
+                        qboPlaceholder="Select QBO revenue account"
                       />
                     </td>
                     <td className="px-5 py-4">
-                      <AccountSelect
-                        valueId={
-                          mappings[`inv_${cat.id}`]?.qbo_account_id ?? ""
+                      <MappingPair
+                        label={`${cat.name} inventory`}
+                        mapping={mappings[`inv_${cat.id}`]}
+                        rosAccounts={rosAccounts}
+                        qboAccounts={accounts}
+                        onRosPick={(accountNumber) =>
+                          updateMapping(`inv_${cat.id}`, {
+                            ros_gl_account_number: accountNumber,
+                          })
                         }
-                        accounts={accounts}
-                        onPick={(id, name) =>
-                          updateMapping(`inv_${cat.id}`, id, name)
+                        onQboPick={(id, name) =>
+                          updateMapping(`inv_${cat.id}`, {
+                            qbo_account_id: id,
+                            qbo_account_name: name,
+                          })
                         }
-                        placeholder="e.g. 1200 Inventory"
+                        qboPlaceholder="Select QBO inventory account"
                       />
                     </td>
                     <td className="px-5 py-4">
-                      <AccountSelect
-                        valueId={
-                          mappings[`cogs_${cat.id}`]?.qbo_account_id ?? ""
+                      <MappingPair
+                        label={`${cat.name} COGS`}
+                        mapping={mappings[`cogs_${cat.id}`]}
+                        rosAccounts={rosAccounts}
+                        qboAccounts={accounts}
+                        onRosPick={(accountNumber) =>
+                          updateMapping(`cogs_${cat.id}`, {
+                            ros_gl_account_number: accountNumber,
+                          })
                         }
-                        accounts={accounts}
-                        onPick={(id, name) =>
-                          updateMapping(`cogs_${cat.id}`, id, name)
+                        onQboPick={(id, name) =>
+                          updateMapping(`cogs_${cat.id}`, {
+                            qbo_account_id: id,
+                            qbo_account_name: name,
+                          })
                         }
-                        placeholder="e.g. 5000 COGS"
+                        qboPlaceholder="Select QBO COGS account"
                       />
                     </td>
                   </tr>
@@ -184,13 +331,13 @@ export default function QboMappingMatrix({
         </div>
 
         <div className="w-full min-w-0 overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left text-sm md:min-w-[640px] xl:min-w-[720px]">
+          <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="border-b border-app-border bg-app-surface-2/50 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               <tr>
                 <th className="px-5 py-3">Custom type</th>
-                <th className="px-5 py-3">Revenue (income)</th>
-                <th className="px-5 py-3">Inventory (asset)</th>
-                <th className="px-5 py-3">COGS (expense)</th>
+                <th className="px-5 py-3">Revenue GL mapping</th>
+                <th className="px-5 py-3">Inventory GL mapping</th>
+                <th className="px-5 py-3">COGS GL mapping</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border">
@@ -203,42 +350,63 @@ export default function QboMappingMatrix({
                     {customType.label}
                   </td>
                   <td className="px-5 py-4">
-                    <AccountSelect
-                      valueId={
-                        mappings[`custom_rev_${customType.id}`]
-                          ?.qbo_account_id ?? ""
+                    <MappingPair
+                      label={`${customType.label} revenue`}
+                      mapping={mappings[`custom_rev_${customType.id}`]}
+                      rosAccounts={rosAccounts}
+                      qboAccounts={accounts}
+                      onRosPick={(accountNumber) =>
+                        updateMapping(`custom_rev_${customType.id}`, {
+                          ros_gl_account_number: accountNumber,
+                        })
                       }
-                      accounts={accounts}
-                      onPick={(id, name) =>
-                        updateMapping(`custom_rev_${customType.id}`, id, name)
+                      onQboPick={(id, name) =>
+                        updateMapping(`custom_rev_${customType.id}`, {
+                          qbo_account_id: id,
+                          qbo_account_name: name,
+                        })
                       }
-                      placeholder="Optional custom revenue account"
+                      qboPlaceholder="Optional QBO custom revenue account"
                     />
                   </td>
                   <td className="px-5 py-4">
-                    <AccountSelect
-                      valueId={
-                        mappings[`custom_inv_${customType.id}`]
-                          ?.qbo_account_id ?? ""
+                    <MappingPair
+                      label={`${customType.label} inventory`}
+                      mapping={mappings[`custom_inv_${customType.id}`]}
+                      rosAccounts={rosAccounts}
+                      qboAccounts={accounts}
+                      onRosPick={(accountNumber) =>
+                        updateMapping(`custom_inv_${customType.id}`, {
+                          ros_gl_account_number: accountNumber,
+                        })
                       }
-                      accounts={accounts}
-                      onPick={(id, name) =>
-                        updateMapping(`custom_inv_${customType.id}`, id, name)
+                      onQboPick={(id, name) =>
+                        updateMapping(`custom_inv_${customType.id}`, {
+                          qbo_account_id: id,
+                          qbo_account_name: name,
+                        })
                       }
-                      placeholder="Optional custom inventory account"
+                      qboPlaceholder="Optional QBO custom inventory account"
                     />
                   </td>
                   <td className="px-5 py-4">
-                    <AccountSelect
-                      valueId={
-                        mappings[`custom_cogs_${customType.id}`]
-                          ?.qbo_account_id ?? ""
+                    <MappingPair
+                      label={`${customType.label} COGS`}
+                      mapping={mappings[`custom_cogs_${customType.id}`]}
+                      rosAccounts={rosAccounts}
+                      qboAccounts={accounts}
+                      onRosPick={(accountNumber) =>
+                        updateMapping(`custom_cogs_${customType.id}`, {
+                          ros_gl_account_number: accountNumber,
+                        })
                       }
-                      accounts={accounts}
-                      onPick={(id, name) =>
-                        updateMapping(`custom_cogs_${customType.id}`, id, name)
+                      onQboPick={(id, name) =>
+                        updateMapping(`custom_cogs_${customType.id}`, {
+                          qbo_account_id: id,
+                          qbo_account_name: name,
+                        })
                       }
-                      placeholder="Optional custom COGS account"
+                      qboPlaceholder="Optional QBO custom COGS account"
                     />
                   </td>
                 </tr>
@@ -265,13 +433,23 @@ export default function QboMappingMatrix({
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   {t.label}
                 </label>
-                <AccountSelect
-                  valueId={mappings[`tender_${t.id}`]?.qbo_account_id ?? ""}
-                  accounts={accounts}
-                  onPick={(id, name) =>
-                    updateMapping(`tender_${t.id}`, id, name)
+                <MappingPair
+                  label={t.label}
+                  mapping={mappings[`tender_${t.id}`]}
+                  rosAccounts={rosAccounts}
+                  qboAccounts={accounts}
+                  onRosPick={(accountNumber) =>
+                    updateMapping(`tender_${t.id}`, {
+                      ros_gl_account_number: accountNumber,
+                    })
                   }
-                  placeholder="Select QBO account"
+                  onQboPick={(id, name) =>
+                    updateMapping(`tender_${t.id}`, {
+                      qbo_account_id: id,
+                      qbo_account_name: name,
+                    })
+                  }
+                  qboPlaceholder="Select QBO GL#"
                 />
               </div>
             ))}
@@ -290,11 +468,23 @@ export default function QboMappingMatrix({
                 Sales tax payable
                 <Info size={12} className="text-app-accent-2" aria-hidden />
               </label>
-              <AccountSelect
-                valueId={mappings.tax_sales?.qbo_account_id ?? ""}
-                accounts={accounts}
-                onPick={(id, name) => updateMapping("tax_sales", id, name)}
-                placeholder="2100 · Sales tax payable"
+              <MappingPair
+                label="Sales tax payable"
+                mapping={mappings.tax_sales}
+                rosAccounts={rosAccounts}
+                qboAccounts={accounts}
+                onRosPick={(accountNumber) =>
+                  updateMapping("tax_sales", {
+                    ros_gl_account_number: accountNumber,
+                  })
+                }
+                onQboPick={(id, name) =>
+                  updateMapping("tax_sales", {
+                    qbo_account_id: id,
+                    qbo_account_name: name,
+                  })
+                }
+                qboPlaceholder="Select QBO sales-tax account"
               />
             </div>
             <div className="flex flex-col gap-1">
@@ -302,13 +492,23 @@ export default function QboMappingMatrix({
                 Customer deposit holding
                 <Info size={12} className="text-app-accent-2" aria-hidden />
               </label>
-              <AccountSelect
-                valueId={mappings.deposit_holding?.qbo_account_id ?? ""}
-                accounts={accounts}
-                onPick={(id, name) =>
-                  updateMapping("deposit_holding", id, name)
+              <MappingPair
+                label="Customer deposit holding"
+                mapping={mappings.deposit_holding}
+                rosAccounts={rosAccounts}
+                qboAccounts={accounts}
+                onRosPick={(accountNumber) =>
+                  updateMapping("deposit_holding", {
+                    ros_gl_account_number: accountNumber,
+                  })
                 }
-                placeholder="2050 · Customer deposits"
+                onQboPick={(id, name) =>
+                  updateMapping("deposit_holding", {
+                    qbo_account_id: id,
+                    qbo_account_name: name,
+                  })
+                }
+                qboPlaceholder="Select QBO deposit liability"
               />
             </div>
             <div className="flex flex-col gap-1">
@@ -316,33 +516,69 @@ export default function QboMappingMatrix({
                 Gift card liability
                 <Info size={12} className="text-app-accent-2" aria-hidden />
               </label>
-              <AccountSelect
-                valueId={mappings.gc_liability?.qbo_account_id ?? ""}
-                accounts={accounts}
-                onPick={(id, name) => updateMapping("gc_liability", id, name)}
-                placeholder="2110 · Gift card liability"
+              <MappingPair
+                label="Gift card liability"
+                mapping={mappings.gc_liability}
+                rosAccounts={rosAccounts}
+                qboAccounts={accounts}
+                onRosPick={(accountNumber) =>
+                  updateMapping("gc_liability", {
+                    ros_gl_account_number: accountNumber,
+                  })
+                }
+                onQboPick={(id, name) =>
+                  updateMapping("gc_liability", {
+                    qbo_account_id: id,
+                    qbo_account_name: name,
+                  })
+                }
+                qboPlaceholder="Select QBO gift-card liability"
               />
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Loyalty / promo gift card expense
               </label>
-              <AccountSelect
-                valueId={mappings.gc_marketing?.qbo_account_id ?? ""}
-                accounts={accounts}
-                onPick={(id, name) => updateMapping("gc_marketing", id, name)}
-                placeholder="6200 · Marketing expense"
+              <MappingPair
+                label="Loyalty or promo gift card expense"
+                mapping={mappings.gc_marketing}
+                rosAccounts={rosAccounts}
+                qboAccounts={accounts}
+                onRosPick={(accountNumber) =>
+                  updateMapping("gc_marketing", {
+                    ros_gl_account_number: accountNumber,
+                  })
+                }
+                onQboPick={(id, name) =>
+                  updateMapping("gc_marketing", {
+                    qbo_account_id: id,
+                    qbo_account_name: name,
+                  })
+                }
+                qboPlaceholder="Select QBO marketing expense"
               />
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Donated gift card expense
               </label>
-              <AccountSelect
-                valueId={mappings.gc_donated?.qbo_account_id ?? ""}
-                accounts={accounts}
-                onPick={(id, name) => updateMapping("gc_donated", id, name)}
-                placeholder="Charitable giving expense"
+              <MappingPair
+                label="Donated gift card expense"
+                mapping={mappings.gc_donated}
+                rosAccounts={rosAccounts}
+                qboAccounts={accounts}
+                onRosPick={(accountNumber) =>
+                  updateMapping("gc_donated", {
+                    ros_gl_account_number: accountNumber,
+                  })
+                }
+                onQboPick={(id, name) =>
+                  updateMapping("gc_donated", {
+                    qbo_account_id: id,
+                    qbo_account_name: name,
+                  })
+                }
+                qboPlaceholder="Select QBO charitable expense"
               />
             </div>
             <div className="border-t border-app-border pt-4">
@@ -359,11 +595,23 @@ export default function QboMappingMatrix({
                 <p className="text-[10px] font-semibold text-app-text-muted">
                   {row.help}
                 </p>
-                <AccountSelect
-                  valueId={mappings[row.key]?.qbo_account_id ?? ""}
-                  accounts={accounts}
-                  onPick={(id, name) => updateMapping(row.key, id, name)}
-                  placeholder={row.placeholder}
+                <MappingPair
+                  label={row.label}
+                  mapping={mappings[row.key]}
+                  rosAccounts={rosAccounts}
+                  qboAccounts={accounts}
+                  onRosPick={(accountNumber) =>
+                    updateMapping(row.key, {
+                      ros_gl_account_number: accountNumber,
+                    })
+                  }
+                  onQboPick={(id, name) =>
+                    updateMapping(row.key, {
+                      qbo_account_id: id,
+                      qbo_account_name: name,
+                    })
+                  }
+                  qboPlaceholder={row.placeholder}
                 />
               </div>
             ))}

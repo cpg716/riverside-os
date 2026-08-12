@@ -187,6 +187,8 @@ async fn qbo_map_name(
         SELECT qbo_account_id, qbo_account_name
         FROM qbo_mappings
         WHERE source_type = $1 AND source_id = $2
+          AND qbo_account_id IS NOT NULL
+          AND qbo_account_name IS NOT NULL
         "#,
     )
     .bind(source_type)

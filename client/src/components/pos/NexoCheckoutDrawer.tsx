@@ -773,6 +773,7 @@ export default function NexoCheckoutDrawer({
   const [linkedRefundProcessing, setLinkedRefundProcessing] = useState(false);
   const [earlierTerminalAttemptRefreshing, setEarlierTerminalAttemptRefreshing] = useState(false);
   const [physicalTerminalCancelAttemptId, setPhysicalTerminalCancelAttemptId] = useState<string | null>(null);
+  const [unresolvedHostedDetachAttemptId, setUnresolvedHostedDetachAttemptId] = useState<string | null>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const originalHelcimRefundReference = String(originalHelcimTransactionIdForRefund ?? "").trim();
   const hasOriginalHelcimRefundReference = originalHelcimRefundReference.length > 0;
@@ -1062,6 +1063,7 @@ export default function NexoCheckoutDrawer({
     setTerminalPickerOpen(false);
     setRestoreOpen(false);
     setPhysicalTerminalCancelAttemptId(null);
+    setUnresolvedHostedDetachAttemptId(null);
     setTerminalOverrideConfirmed(false);
     setTerminalOverrideApproval(null);
     setTerminalOverrideApprovalOpen(false);
@@ -2434,10 +2436,23 @@ export default function NexoCheckoutDrawer({
   );
 
   const releaseHelcimAttempt = useCallback(
-    async (attemptId: string, physicalTerminalCancelConfirmed = false) => {
+    async (
+      attemptId: string,
+      options: {
+        physicalTerminalCancelConfirmed?: boolean;
+        detachUnresolvedHostedAttemptConfirmed?: boolean;
+      } = {},
+    ) => {
+      const query = new URLSearchParams();
+      if (options.physicalTerminalCancelConfirmed) {
+        query.set("physical_terminal_cancel_confirmed", "true");
+      }
+      if (options.detachUnresolvedHostedAttemptConfirmed) {
+        query.set("detach_unresolved_hosted_attempt_confirmed", "true");
+      }
       const res = await fetch(
         `${baseUrl}/api/payments/providers/helcim/attempts/${attemptId}/release${
-          physicalTerminalCancelConfirmed ? "?physical_terminal_cancel_confirmed=true" : ""
+          query.size > 0 ? `?${query.toString()}` : ""
         }`,
         {
           method: "POST",
@@ -2464,7 +2479,9 @@ export default function NexoCheckoutDrawer({
     if (!attemptId) return;
     setHelcimAttemptLoading(true);
     try {
-      const attempt = await releaseHelcimAttempt(attemptId, true);
+      const attempt = await releaseHelcimAttempt(attemptId, {
+        physicalTerminalCancelConfirmed: true,
+      });
       if (!["failed", "canceled", "expired"].includes(attempt.status)) {
         throw new Error(
           "Helcim did not confirm a canceled or failed request. ROS kept the attempt for review.",
@@ -2496,6 +2513,52 @@ export default function NexoCheckoutDrawer({
     physicalTerminalCancelAttemptId,
     releaseHelcimAttempt,
     toast,
+  ]);
+
+  const confirmUnresolvedHostedDetach = useCallback(async () => {
+    const attemptId = unresolvedHostedDetachAttemptId;
+    if (!attemptId) return;
+    setHelcimAttemptLoading(true);
+    try {
+      const attempt = await releaseHelcimAttempt(attemptId, {
+        detachUnresolvedHostedAttemptConfirmed: true,
+      });
+      if (attempt.status !== "expired") {
+        throw new Error(
+          "ROS found a final Helcim result and kept it protected. Recover the payment instead of releasing it.",
+        );
+      }
+      if (helcimAttemptBelongsToCurrentCheckout && helcimAttempt.id === attemptId) {
+        clearHelcimAttemptForRetry(attempt, { quiet: true });
+      }
+      setUnresolvedHostedDetachAttemptId(null);
+      setRestoreOpen(false);
+      setTab("cash");
+      setKeypad(remainingCents > 0 ? centsToFixed2(Math.abs(remainingCents)) : "");
+      await loadProviderSettings();
+      toast(
+        "The unresolved Card Not Present attempt was released from this sale and remains in Payments Health. Verify it before retrying that card.",
+        "warning",
+      );
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? error.message
+          : "Could not release the unresolved Card Not Present attempt from this sale.",
+        "error",
+      );
+    } finally {
+      setHelcimAttemptLoading(false);
+    }
+  }, [
+    clearHelcimAttemptForRetry,
+    helcimAttempt?.id,
+    helcimAttemptBelongsToCurrentCheckout,
+    loadProviderSettings,
+    releaseHelcimAttempt,
+    remainingCents,
+    toast,
+    unresolvedHostedDetachAttemptId,
   ]);
 
   const releasePendingTerminalAttempt = useCallback(async (
@@ -4068,6 +4131,21 @@ export default function NexoCheckoutDrawer({
                 Reader stopped / no approval
               </button>
             ) : null}
+            {hostedManualActive &&
+            helcimAttempt?.status === "pending" &&
+            !providerSettings?.helcim.simulator_enabled ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRestoreOpen(false);
+                  setUnresolvedHostedDetachAttemptId(helcimAttempt.id);
+                }}
+                disabled={helcimAttemptLoading || earlierTerminalAttemptRefreshing}
+                className="min-h-11 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 font-black uppercase tracking-widest text-app-warning disabled:opacity-50"
+              >
+                Release from sale
+              </button>
+            ) : null}
             {hostedManualActive && currentManualCardHandoffUrl ? (
               <button
                 type="button"
@@ -4477,6 +4555,7 @@ export default function NexoCheckoutDrawer({
                       : "Review Terminal"}
                 </button>
                 {terminalRecoveryAttemptId &&
+                !hostedManualActive &&
                 !providerSettings?.helcim.simulator_enabled ? (
                   <button
                     type="button"
@@ -4487,6 +4566,20 @@ export default function NexoCheckoutDrawer({
                     className="min-h-10 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-warning disabled:opacity-50"
                   >
                     Reader stopped / no approval
+                  </button>
+                ) : null}
+                {hostedManualActive &&
+                helcimAttempt?.status === "pending" &&
+                !providerSettings?.helcim.simulator_enabled ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setUnresolvedHostedDetachAttemptId(helcimAttempt.id)
+                    }
+                    disabled={helcimAttemptLoading || earlierTerminalAttemptRefreshing}
+                    className="min-h-10 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-warning disabled:opacity-50"
+                  >
+                    Release from sale
                   </button>
                 ) : null}
                 {helcimAttempt?.status === "pending" &&
@@ -5930,6 +6023,17 @@ export default function NexoCheckoutDrawer({
           setOfflineCardReason("");
           return true;
         }}
+      />
+      <ConfirmationModal
+        isOpen={unresolvedHostedDetachAttemptId != null}
+        onClose={() => setUnresolvedHostedDetachAttemptId(null)}
+        onConfirm={() => void confirmUnresolvedHostedDetach()}
+        title="Release unresolved card attempt from this sale"
+        message="Use this only after Recover Payment cannot confirm whether Helcim approved, declined, or canceled the Card Not Present request. ROS will let this sale continue but will keep the unresolved attempt in Payments Health. This does not mean the customer was not charged; verify the provider result before retrying that card."
+        confirmLabel="Release from sale"
+        cancelLabel="Go back"
+        variant="danger"
+        loading={helcimAttemptLoading}
       />
       <ConfirmationModal
         isOpen={physicalTerminalCancelAttemptId != null}

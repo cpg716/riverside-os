@@ -5,6 +5,7 @@ import {
   Ban,
   CheckCircle2,
   Clock,
+  ExternalLink,
   Inbox,
   MessageSquareText,
   RefreshCw,
@@ -69,6 +70,32 @@ export interface ReviewInviteRow {
   podium_review_invite_status: string | null;
 }
 
+type PodiumReviewActivityRow = {
+  id: string;
+  provider_review_uid: string;
+  last_event_type: string;
+  transaction_id: string | null;
+  display_id: string | null;
+  customer_id: string | null;
+  customer_code: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  conversation_id: string | null;
+  author_name: string | null;
+  rating: number | null;
+  review_body: string | null;
+  review_url: string | null;
+  site_name: string | null;
+  is_recommendation: boolean;
+  needs_response: boolean;
+  published_at: string;
+  last_activity_at: string;
+  response_count: number;
+  latest_response_body: string | null;
+  latest_response_author_name: string | null;
+  latest_response_at: string | null;
+};
+
 type StatusFilter = "all" | "sent" | "scheduled" | "failed" | "suppressed";
 
 export interface ReviewsOperationsSectionProps {
@@ -96,6 +123,7 @@ export default function ReviewsOperationsSection({
     [backofficeHeaders],
   );
   const [rows, setRows] = useState<ReviewInviteRow[]>([]);
+  const [providerReviews, setProviderReviews] = useState<PodiumReviewActivityRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncBusy, setSyncBusy] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
@@ -103,7 +131,9 @@ export default function ReviewsOperationsSection({
   const [testSendOpen, setTestSendOpen] = useState(false);
   const [txDetailFullId, setTxDetailFullId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [reviewSearch, setReviewSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [reviewNeedsResponseOnly, setReviewNeedsResponseOnly] = useState(false);
   const canCancelScheduled =
     permissionsLoaded && hasPermission("reviews.manage");
   const canSendTest = permissionsLoaded && hasPermission("reviews.manage");
@@ -111,18 +141,27 @@ export default function ReviewsOperationsSection({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${baseUrl}/api/reviews/invite-rows?limit=200`, {
-        headers: auth(),
-        cache: "no-store",
-      });
-      if (res.ok) {
-        const data = (await res.json()) as ReviewInviteRow[];
-        setRows(Array.isArray(data) ? data : []);
-      } else {
-        setRows([]);
-      }
+      const [invitesResponse, reviewsResponse] = await Promise.all([
+        fetch(`${baseUrl}/api/reviews/invite-rows?limit=200`, {
+          headers: auth(),
+          cache: "no-store",
+        }),
+        fetch(`${baseUrl}/api/reviews/provider-reviews?limit=200`, {
+          headers: auth(),
+          cache: "no-store",
+        }),
+      ]);
+      const invites = invitesResponse.ok
+        ? ((await invitesResponse.json()) as ReviewInviteRow[])
+        : [];
+      const reviews = reviewsResponse.ok
+        ? ((await reviewsResponse.json()) as PodiumReviewActivityRow[])
+        : [];
+      setRows(Array.isArray(invites) ? invites : []);
+      setProviderReviews(Array.isArray(reviews) ? reviews : []);
     } catch {
       setRows([]);
+      setProviderReviews([]);
     } finally {
       setLoading(false);
     }
@@ -136,7 +175,7 @@ export default function ReviewsOperationsSection({
         headers: auth(),
       });
       if (!res.ok) {
-        toast("Could not update Podium review status.", "error");
+        toast("Could not update Podium review-invite status.", "error");
         return;
       }
       const result = (await res.json()) as {
@@ -144,7 +183,7 @@ export default function ReviewsOperationsSection({
         rows_updated: number;
       };
       toast(
-        `Podium reviews updated: ${result.rows_updated} rows refreshed from ${result.provider_rows_seen} Podium rows.`,
+        `Podium review invites updated: ${result.rows_updated} rows refreshed from ${result.provider_rows_seen} provider rows.`,
         "success",
       );
       await load();
@@ -315,6 +354,34 @@ export default function ReviewsOperationsSection({
     return filtered;
   }, [rows, statusFilter, search]);
 
+  const filteredProviderReviews = useMemo(() => {
+    const statusFiltered = reviewNeedsResponseOnly
+      ? providerReviews.filter((review) => review.needs_response)
+      : providerReviews;
+    const q = reviewSearch.trim().toLowerCase();
+    if (!q) return statusFiltered;
+    return statusFiltered.filter((review) =>
+      [
+        review.author_name,
+        review.review_body,
+        review.site_name,
+        review.display_id,
+        review.customer_code,
+        review.first_name,
+        review.last_name,
+        review.provider_review_uid,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [providerReviews, reviewNeedsResponseOnly, reviewSearch]);
+
+  const reviewsNeedingResponse = providerReviews.filter(
+    (review) => review.needs_response,
+  ).length;
+
   const statCards = [
     {
       label: "Total Invites",
@@ -404,25 +471,188 @@ export default function ReviewsOperationsSection({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                  Review Requests
+                  Customer Reviews & Requests
                 </p>
                 <p className="mt-1 text-sm font-semibold text-app-text">
-                  Riverside asks customers for feedback after completed or picked-up sales. Each customer is invited at most once every 180 days.
+                  Published Podium reviews appear here when the signed webhook arrives. Riverside separately asks customers for feedback after completed or picked-up sales.
                 </p>
                 <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                  Outbox shows requests waiting to send. Authorized staff can cancel one before delivery with a recorded reason.
+                  Reviews marked Needs response stay visible for follow-up. Outbox shows requests waiting to send; authorized staff can cancel one before delivery with a recorded reason.
                 </p>
               </div>
-              <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                {filteredRows.length} {filteredRows.length === 1 ? "record" : "records"}
-              </span>
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  {providerReviews.length} posted
+                </span>
+                <span className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+                  reviewsNeedingResponse > 0
+                    ? "border-app-warning/30 bg-app-warning/10 text-app-warning"
+                    : "border-app-border bg-app-surface-3 text-app-text-muted"
+                }`}>
+                  {reviewsNeedingResponse} need response
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Data table section */}
-        <div className="flex flex-1 flex-col p-3 sm:p-6 lg:p-8 animate-workspace-snap">
+        <div className="flex flex-1 flex-col gap-4 p-3 sm:p-6 lg:p-8 animate-workspace-snap">
           <div className="ui-card flex flex-col overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-app-border bg-app-surface-2 px-4 py-4 lg:px-5">
+              <div>
+                <p className="text-sm font-black text-app-text">Published Reviews</p>
+                <p className="mt-0.5 text-xs font-semibold text-app-text-muted">
+                  Reviews and Riverside responses received through the signed Podium webhook.
+                </p>
+              </div>
+              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+                <div className="relative min-w-52 flex-1 sm:max-w-xs">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted" size={14} />
+                  <input
+                    value={reviewSearch}
+                    onChange={(event) => setReviewSearch(event.target.value)}
+                    placeholder="Search published reviews…"
+                    aria-label="Search published reviews"
+                    className="ui-input h-9 w-full pl-9 text-xs font-bold"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReviewNeedsResponseOnly((current) => !current)}
+                  aria-pressed={reviewNeedsResponseOnly}
+                  className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+                    reviewNeedsResponseOnly
+                      ? "border-app-warning/30 bg-app-warning/10 text-app-warning"
+                      : "border-app-border bg-app-surface-3 text-app-text-muted"
+                  }`}
+                >
+                  Needs response
+                </button>
+                <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  {filteredProviderReviews.length} shown
+                </span>
+              </div>
+            </div>
+            {loading ? (
+              <div className="p-8 text-center text-sm font-semibold text-app-text-muted">
+                Loading published reviews…
+              </div>
+            ) : filteredProviderReviews.length === 0 ? (
+              <div className="p-8 text-center">
+                <Star size={36} className="mx-auto mb-2 opacity-20" />
+                <p className="text-sm font-black text-app-text">
+                  {reviewSearch.trim() ? "No published reviews match this search." : "No published Podium reviews received yet."}
+                </p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  New reviews appear after Podium delivers the signed review webhook.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-auto">
+                <table className="w-full min-w-[820px] text-left text-sm">
+                  <thead className="bg-app-surface-3 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
+                    <tr>
+                      <th className="px-4 py-3">Review</th>
+                      <th className="px-4 py-3">Customer / Record</th>
+                      <th className="px-4 py-3">Follow-up</th>
+                      <th className="px-4 py-3">Latest activity</th>
+                      <th className="px-4 py-3 text-right">Provider</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-app-border bg-app-surface">
+                    {filteredProviderReviews.map((review) => {
+                      const customer =
+                        [review.first_name, review.last_name].filter(Boolean).join(" ").trim() ||
+                        review.author_name ||
+                        review.customer_code ||
+                        "Not linked";
+                      return (
+                        <tr key={review.id} className="align-top hover:bg-app-surface-2/50">
+                          <td className="max-w-xl px-4 py-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="inline-flex items-center gap-1 font-black text-app-text">
+                                <Star size={14} fill="currentColor" className="text-amber-500" />
+                                {review.rating ?? "—"}/5
+                              </span>
+                              <span className="text-xs font-bold text-app-text-muted">
+                                {review.site_name ?? "Podium"}
+                              </span>
+                            </div>
+                            <p className="mt-1 whitespace-pre-wrap text-sm text-app-text">
+                              {review.review_body ?? "No written comment"}
+                            </p>
+                            <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                              {review.author_name ?? "Reviewer"} · {fmt(review.published_at)}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3">
+                            <p className="font-bold text-app-text">{customer}</p>
+                            <p className="mt-1 text-xs text-app-text-muted">
+                              {review.display_id ?? review.customer_code ?? "No Riverside match"}
+                            </p>
+                            {review.transaction_id ? (
+                              <button
+                                type="button"
+                                onClick={() => setTxDetailFullId(review.transaction_id)}
+                                className="mt-2 text-[10px] font-black uppercase tracking-wider text-app-accent underline underline-offset-4"
+                              >
+                                Open Transaction Record
+                              </button>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-3">
+                            {review.needs_response ? (
+                              <span className="inline-flex rounded-full border border-app-warning/30 bg-app-warning/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-app-warning">
+                                Needs response
+                              </span>
+                            ) : (
+                              <span className="inline-flex rounded-full border border-app-success/20 bg-app-success/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-app-success">
+                                Responded / no action
+                              </span>
+                            )}
+                            {review.latest_response_body ? (
+                              <p className="mt-2 max-w-sm text-xs text-app-text-muted">
+                                <span className="font-black text-app-text">Latest response:</span>{" "}
+                                {review.latest_response_body}
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-app-text-muted">
+                            {fmt(review.last_activity_at)}
+                            <p className="mt-1">{review.response_count} {review.response_count === 1 ? "response" : "responses"}</p>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            {review.review_url ? (
+                              <a
+                                href={review.review_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-xs font-bold text-app-accent underline underline-offset-4"
+                              >
+                                Open review
+                                <ExternalLink size={12} aria-hidden />
+                              </a>
+                            ) : (
+                              <span className="text-xs text-app-text-muted">No link</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="ui-card flex flex-col overflow-hidden">
+            <div className="border-b border-app-border bg-app-surface px-4 py-4 lg:px-5">
+              <p className="text-sm font-black text-app-text">Review Request Activity</p>
+              <p className="mt-0.5 text-xs font-semibold text-app-text-muted">
+                Scheduled, delivered, cancelled, and failed review invitations.
+              </p>
+            </div>
             {/* Toolbar */}
             <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-2 px-4 py-4 lg:flex-row lg:flex-wrap lg:items-center lg:gap-4 lg:px-5">
               <div className="relative group min-w-0 flex-1">
@@ -476,7 +706,7 @@ export default function ReviewsOperationsSection({
                     className={`h-3.5 w-3.5 ${syncBusy ? "animate-spin" : ""}`}
                     aria-hidden
                   />
-                  Podium
+                  Sync Invites
                 </button>
                 <button
                   type="button"

@@ -149,11 +149,20 @@ pub struct QboAccount {
 }
 
 #[derive(Debug, Serialize, FromRow)]
+pub struct RosGlAccount {
+    pub account_number: String,
+    pub account_name: String,
+    pub account_type: String,
+    pub income_tax_line: Option<String>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
 pub struct LedgerMapping {
     pub id: Uuid,
     pub internal_key: String,
     pub internal_description: Option<String>,
     pub qbo_account_id: Option<String>,
+    pub ros_gl_account_number: Option<String>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -162,8 +171,9 @@ pub struct GranularMappingRow {
     pub id: Uuid,
     pub source_type: String,
     pub source_id: String,
-    pub qbo_account_id: String,
-    pub qbo_account_name: String,
+    pub qbo_account_id: Option<String>,
+    pub qbo_account_name: Option<String>,
+    pub ros_gl_account_number: Option<String>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -177,14 +187,23 @@ pub struct QboMappingCategoryRow {
 pub struct SaveGranularMappingRequest {
     pub source_type: String,
     pub source_id: String,
-    pub qbo_account_id: String,
-    pub qbo_account_name: String,
+    #[serde(default)]
+    pub qbo_account_id: Option<String>,
+    #[serde(default)]
+    pub ros_gl_account_number: Option<String>,
+    #[serde(default)]
+    pub clear_ros_gl_account_number: bool,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SaveMappingRequest {
     pub internal_key: String,
-    pub qbo_account_id: String,
+    #[serde(default)]
+    pub qbo_account_id: Option<String>,
+    #[serde(default)]
+    pub ros_gl_account_number: Option<String>,
+    #[serde(default)]
+    pub clear_ros_gl_account_number: bool,
     pub internal_description: Option<String>,
 }
 
@@ -254,6 +273,7 @@ pub fn router() -> Router<AppState> {
         .route("/tokens/refresh", post(refresh_tokens_stub))
         .route("/accounts-cache", get(list_accounts_cache))
         .route("/accounts-cache/refresh", post(refresh_accounts_cache))
+        .route("/ros-gl-accounts", get(list_ros_gl_accounts))
         .route("/mapping-categories", get(list_mapping_categories))
         .route(
             "/mappings",
@@ -1374,6 +1394,32 @@ async fn list_accounts_cache(
     Ok(Json(rows))
 }
 
+async fn list_ros_gl_accounts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<RosGlAccount>>, QboError> {
+    require_staff_with_permission(&state, &headers, QBO_VIEW)
+        .await
+        .map_err(|_| QboError::Forbidden)?;
+    let rows = sqlx::query_as::<_, RosGlAccount>(
+        r#"
+        SELECT account_number, account_name, account_type, income_tax_line
+        FROM ros_gl_accounts
+        WHERE is_active = true
+        ORDER BY
+            LENGTH(SPLIT_PART(account_number, '-', 1)),
+            SPLIT_PART(account_number, '-', 1),
+            CASE WHEN STRPOS(account_number, '-') = 0 THEN 0 ELSE 1 END,
+            LENGTH(SPLIT_PART(account_number, '-', 2)),
+            SPLIT_PART(account_number, '-', 2),
+            account_name
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
 async fn refresh_accounts_cache(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1527,7 +1573,8 @@ async fn list_mappings(
         .map_err(|_| QboError::Forbidden)?;
     let rows = sqlx::query_as::<_, LedgerMapping>(
         r#"
-        SELECT id, internal_key, internal_description, qbo_account_id, updated_at
+        SELECT id, internal_key, internal_description, qbo_account_id,
+               ros_gl_account_number, updated_at
         FROM ledger_mappings
         ORDER BY internal_key
         "#,
@@ -1551,28 +1598,74 @@ async fn save_mapping(
             "internal_key is required".to_string(),
         ));
     }
-    let account_id = payload.qbo_account_id.trim();
-    if account_id.is_empty() {
-        return Err(QboError::InvalidPayload(
-            "qbo_account_id is required".to_string(),
-        ));
+    let account_id = payload
+        .qbo_account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let ros_gl_account_number = payload
+        .ros_gl_account_number
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    if let Some(account_id) = account_id {
+        let account_is_active: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM qbo_accounts_cache WHERE id = $1 AND is_active = true)",
+        )
+        .bind(account_id)
+        .fetch_one(&state.db)
+        .await?;
+        if !account_is_active {
+            return Err(QboError::InvalidPayload(
+                "qbo_account_id must exist in the active accounts cache (refresh QBO accounts first)"
+                    .to_string(),
+            ));
+        }
+    }
+
+    if let Some(ros_gl_account_number) = ros_gl_account_number {
+        let ros_account_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM ros_gl_accounts WHERE account_number = $1 AND is_active = true AND account_type <> 'Non-Posting')",
+        )
+        .bind(ros_gl_account_number)
+        .fetch_one(&state.db)
+        .await?;
+        if !ros_account_exists {
+            return Err(QboError::InvalidPayload(
+                "ros_gl_account_number must be a postable account in the Riverside GL catalog"
+                    .to_string(),
+            ));
+        }
     }
 
     let row = sqlx::query_as::<_, LedgerMapping>(
         r#"
-        INSERT INTO ledger_mappings (internal_key, internal_description, qbo_account_id, updated_at)
-        VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+        INSERT INTO ledger_mappings (
+            internal_key, internal_description, qbo_account_id,
+            ros_gl_account_number, updated_at
+        )
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
         ON CONFLICT (internal_key) DO UPDATE
         SET
             internal_description = COALESCE(EXCLUDED.internal_description, ledger_mappings.internal_description),
             qbo_account_id = EXCLUDED.qbo_account_id,
+            ros_gl_account_number = CASE
+                WHEN $5 THEN NULL
+                WHEN EXCLUDED.ros_gl_account_number IS NOT NULL
+                    THEN EXCLUDED.ros_gl_account_number
+                ELSE ledger_mappings.ros_gl_account_number
+            END,
             updated_at = CURRENT_TIMESTAMP
-        RETURNING id, internal_key, internal_description, qbo_account_id, updated_at
+        RETURNING id, internal_key, internal_description, qbo_account_id,
+                  ros_gl_account_number, updated_at
         "#,
     )
     .bind(key)
     .bind(payload.internal_description.as_deref().map(str::trim).filter(|s| !s.is_empty()))
     .bind(account_id)
+    .bind(ros_gl_account_number)
+    .bind(payload.clear_ros_gl_account_number)
     .fetch_one(&state.db)
     .await?;
 
@@ -1583,6 +1676,7 @@ async fn save_mapping(
         json!({
             "internal_key": row.internal_key,
             "qbo_account_id": row.qbo_account_id,
+            "ros_gl_account_number": row.ros_gl_account_number,
             "mapping_id": row.id
         }),
     )
@@ -1632,7 +1726,8 @@ async fn list_granular_mappings(
         .map_err(|_| QboError::Forbidden)?;
     let rows = sqlx::query_as::<_, GranularMappingRow>(
         r#"
-        SELECT id, source_type, source_id, qbo_account_id, qbo_account_name, updated_at
+        SELECT id, source_type, source_id, qbo_account_id, qbo_account_name,
+               ros_gl_account_number, updated_at
         FROM qbo_mappings
         ORDER BY source_type, source_id
         "#,
@@ -1652,42 +1747,89 @@ async fn save_granular_mapping(
         .map_err(|_| QboError::Forbidden)?;
     let st = body.source_type.trim();
     let sid = body.source_id.trim();
-    let aid = body.qbo_account_id.trim();
-    let aname = body.qbo_account_name.trim();
-    if st.is_empty() || sid.is_empty() || aid.is_empty() || aname.is_empty() {
+    let aid = body
+        .qbo_account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let ros_gl_account_number = body
+        .ros_gl_account_number
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if st.is_empty() || sid.is_empty() {
         return Err(QboError::InvalidPayload(
-            "source_type, source_id, qbo_account_id, qbo_account_name are required".to_string(),
+            "source_type and source_id are required".to_string(),
+        ));
+    }
+    if aid.is_none() && ros_gl_account_number.is_none() {
+        return Err(QboError::InvalidPayload(
+            "Select a Riverside GL number, a QBO account, or both".to_string(),
         ));
     }
 
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM qbo_accounts_cache WHERE id = $1 AND is_active = true)",
-    )
-    .bind(aid)
-    .fetch_one(&state.db)
-    .await?;
-    if !exists {
-        return Err(QboError::InvalidPayload(
-            "qbo_account_id must exist in accounts cache (refresh accounts first)".to_string(),
-        ));
+    let qbo_account_name = if let Some(aid) = aid {
+        Some(
+            sqlx::query_scalar::<_, String>(
+                "SELECT name FROM qbo_accounts_cache WHERE id = $1 AND is_active = true",
+            )
+            .bind(aid)
+            .fetch_optional(&state.db)
+            .await?
+            .ok_or_else(|| {
+                QboError::InvalidPayload(
+                    "qbo_account_id must exist in the active accounts cache (refresh QBO accounts first)"
+                        .to_string(),
+                )
+            })?,
+        )
+    } else {
+        None
+    };
+
+    if let Some(ros_gl_account_number) = ros_gl_account_number {
+        let ros_account_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM ros_gl_accounts WHERE account_number = $1 AND is_active = true AND account_type <> 'Non-Posting')",
+        )
+        .bind(ros_gl_account_number)
+        .fetch_one(&state.db)
+        .await?;
+        if !ros_account_exists {
+            return Err(QboError::InvalidPayload(
+                "ros_gl_account_number must be a postable account in the Riverside GL catalog"
+                    .to_string(),
+            ));
+        }
     }
 
     let row = sqlx::query_as::<_, GranularMappingRow>(
         r#"
-        INSERT INTO qbo_mappings (source_type, source_id, qbo_account_id, qbo_account_name, updated_at)
-        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+        INSERT INTO qbo_mappings (
+            source_type, source_id, qbo_account_id, qbo_account_name,
+            ros_gl_account_number, updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
         ON CONFLICT (source_type, source_id) DO UPDATE
         SET
             qbo_account_id = EXCLUDED.qbo_account_id,
             qbo_account_name = EXCLUDED.qbo_account_name,
+            ros_gl_account_number = CASE
+                WHEN $6 THEN NULL
+                WHEN EXCLUDED.ros_gl_account_number IS NOT NULL
+                    THEN EXCLUDED.ros_gl_account_number
+                ELSE qbo_mappings.ros_gl_account_number
+            END,
             updated_at = CURRENT_TIMESTAMP
-        RETURNING id, source_type, source_id, qbo_account_id, qbo_account_name, updated_at
+        RETURNING id, source_type, source_id, qbo_account_id, qbo_account_name,
+                  ros_gl_account_number, updated_at
         "#,
     )
     .bind(st)
     .bind(sid)
     .bind(aid)
-    .bind(aname)
+    .bind(qbo_account_name)
+    .bind(ros_gl_account_number)
+    .bind(body.clear_ros_gl_account_number)
     .fetch_one(&state.db)
     .await?;
 
@@ -1699,6 +1841,7 @@ async fn save_granular_mapping(
             "source_type": row.source_type,
             "source_id": row.source_id,
             "qbo_account_id": row.qbo_account_id,
+            "ros_gl_account_number": row.ros_gl_account_number,
             "mapping_id": row.id
         }),
     )

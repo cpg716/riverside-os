@@ -605,6 +605,31 @@ async fn apply_provider_contact(
         }
     }
 
+    if action == "reconcile" {
+        if let Some((existing_customer_id, _)) = customer_id {
+            let already_current: bool = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM podium_contact_sync_state
+                    WHERE customer_id = $1
+                      AND provider_contact_uid = $2
+                      AND status = 'succeeded'
+                      AND last_provider_payload = $3
+                )
+                "#,
+            )
+            .bind(existing_customer_id)
+            .bind(&contact.uid)
+            .bind(&contact.raw)
+            .fetch_one(pool)
+            .await?;
+            if already_current {
+                return Ok(ProviderApplyOutcome::Matched(existing_customer_id));
+            }
+        }
+    }
+
     if let Some((existing_customer_id, _)) = customer_id {
         let existing_status: Option<String> = sqlx::query_scalar(
             "SELECT status FROM podium_contact_sync_state WHERE customer_id = $1",
@@ -870,8 +895,11 @@ async fn apply_provider_contact(
     )
     .await?;
     tx.commit().await?;
-    if let Some(client) = meilisearch {
-        crate::logic::meilisearch_sync::upsert_customer_document(client, pool, customer_id).await;
+    if created || updated {
+        if let Some(client) = meilisearch {
+            crate::logic::meilisearch_sync::upsert_customer_document(client, pool, customer_id)
+                .await;
+        }
     }
 
     Ok(if created {
@@ -1274,12 +1302,7 @@ pub async fn recover_interrupted_reconciliation_runs(pool: &PgPool) -> Result<u6
     .rows_affected())
 }
 
-pub async fn reconcile_all_contacts(
-    pool: &PgPool,
-    http: &reqwest::Client,
-    token_cache: &Arc<Mutex<PodiumTokenCache>>,
-    meilisearch: Option<&MeilisearchClient>,
-) -> Result<PodiumContactReconciliationResult, String> {
+pub async fn begin_contact_reconciliation(pool: &PgPool) -> Result<Uuid, String> {
     sqlx::query(
         r#"
         UPDATE podium_contact_reconciliation_run
@@ -1292,13 +1315,13 @@ pub async fn reconcile_all_contacts(
     .execute(pool)
     .await
     .map_err(|error| error.to_string())?;
-    let run_id: Uuid = match sqlx::query_scalar(
+    match sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO podium_contact_reconciliation_run DEFAULT VALUES RETURNING id",
     )
     .fetch_one(pool)
     .await
     {
-        Ok(run_id) => run_id,
+        Ok(run_id) => Ok(run_id),
         Err(error)
             if error
                 .as_database_error()
@@ -1307,7 +1330,16 @@ pub async fn reconcile_all_contacts(
             return Err(RECONCILIATION_ALREADY_RUNNING.to_string());
         }
         Err(error) => return Err(error.to_string()),
-    };
+    }
+}
+
+pub async fn run_contact_reconciliation(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    meilisearch: Option<&MeilisearchClient>,
+    run_id: Uuid,
+) -> Result<PodiumContactReconciliationResult, String> {
     let reconciliation_result: Result<PodiumContactReconciliationResult, String> = async {
         let config = podium::load_store_podium_config(pool)
             .await
@@ -1405,15 +1437,17 @@ pub async fn reconcile_all_contacts(
         result.outbound_queued = sqlx::query(
             r#"
             INSERT INTO podium_contact_sync_state (customer_id, status, pending_reason, next_attempt_at)
-            SELECT id, 'pending', 'full_reconciliation', NOW()
-            FROM customers
-            WHERE is_active = TRUE
-              AND (NULLIF(TRIM(phone), '') IS NOT NULL OR NULLIF(TRIM(email), '') IS NOT NULL)
+            SELECT c.id, 'pending', 'full_reconciliation', NOW()
+            FROM customers c
+            LEFT JOIN podium_contact_sync_state state ON state.customer_id = c.id
+            WHERE c.is_active = TRUE
+              AND (NULLIF(TRIM(c.phone), '') IS NOT NULL OR NULLIF(TRIM(c.email), '') IS NOT NULL)
+              AND (state.customer_id IS NULL OR state.status = 'failed')
             ON CONFLICT (customer_id)
             DO UPDATE SET status = 'pending', pending_reason = 'full_reconciliation',
                 attempts = 0, next_attempt_at = NOW(), updated_at = NOW()
             WHERE podium_contact_sync_state.sync_suppressed = FALSE
-              AND podium_contact_sync_state.status <> 'conflict'
+              AND podium_contact_sync_state.status = 'failed'
             "#,
         )
         .execute(pool)
@@ -1447,6 +1481,16 @@ pub async fn reconcile_all_contacts(
         fail_reconciliation_run(pool, run_id, error).await;
     }
     reconciliation_result
+}
+
+pub async fn reconcile_all_contacts(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    token_cache: &Arc<Mutex<PodiumTokenCache>>,
+    meilisearch: Option<&MeilisearchClient>,
+) -> Result<PodiumContactReconciliationResult, String> {
+    let run_id = begin_contact_reconciliation(pool).await?;
+    run_contact_reconciliation(pool, http, token_cache, meilisearch, run_id).await
 }
 
 fn webhook_event_type(value: &Value) -> String {
@@ -1631,6 +1675,109 @@ pub async fn list_contact_issues(
     .bind(limit.clamp(1, 100))
     .fetch_all(pool)
     .await
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct PodiumContactReconciliationRunSummary {
+    pub id: Uuid,
+    pub status: String,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub contacts_seen: i32,
+    pub contacts_matched: i32,
+    pub customers_created: i32,
+    pub customers_updated: i32,
+    pub conflicts: i32,
+    pub outbound_queued: i32,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct PodiumContactSyncCounts {
+    eligible_customers: i64,
+    mapped_customers: i64,
+    succeeded_customers: i64,
+    pending_customers: i64,
+    processing_customers: i64,
+    failed_customers: i64,
+    conflict_customers: i64,
+    suppressed_customers: i64,
+    unsynchronized_customers: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PodiumContactSyncOverview {
+    pub eligible_customers: i64,
+    pub mapped_customers: i64,
+    pub succeeded_customers: i64,
+    pub pending_customers: i64,
+    pub processing_customers: i64,
+    pub failed_customers: i64,
+    pub conflict_customers: i64,
+    pub suppressed_customers: i64,
+    pub unsynchronized_customers: i64,
+    pub open_issues: i64,
+    pub last_reconciliation: Option<PodiumContactReconciliationRunSummary>,
+}
+
+pub async fn contact_sync_overview(
+    pool: &PgPool,
+) -> Result<PodiumContactSyncOverview, sqlx::Error> {
+    let counts = sqlx::query_as::<_, PodiumContactSyncCounts>(
+        r#"
+        SELECT
+            COUNT(*) AS eligible_customers,
+            COUNT(*) FILTER (
+                WHERE NULLIF(TRIM(sync_state.provider_contact_uid), '') IS NOT NULL
+            ) AS mapped_customers,
+            COUNT(*) FILTER (WHERE sync_state.status = 'succeeded') AS succeeded_customers,
+            COUNT(*) FILTER (WHERE sync_state.status = 'pending') AS pending_customers,
+            COUNT(*) FILTER (WHERE sync_state.status = 'processing') AS processing_customers,
+            COUNT(*) FILTER (WHERE sync_state.status = 'failed') AS failed_customers,
+            COUNT(*) FILTER (WHERE sync_state.status = 'conflict') AS conflict_customers,
+            COUNT(*) FILTER (WHERE sync_state.sync_suppressed = TRUE) AS suppressed_customers,
+            COUNT(*) FILTER (WHERE sync_state.customer_id IS NULL) AS unsynchronized_customers
+        FROM customers customer
+        LEFT JOIN podium_contact_sync_state sync_state ON sync_state.customer_id = customer.id
+        WHERE customer.is_active = TRUE
+          AND (
+              NULLIF(TRIM(customer.phone), '') IS NOT NULL
+              OR NULLIF(TRIM(customer.email), '') IS NOT NULL
+          )
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+    let open_issues: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM podium_contact_reconciliation_issue WHERE resolved_at IS NULL",
+    )
+    .fetch_one(pool)
+    .await?;
+    let last_reconciliation = sqlx::query_as::<_, PodiumContactReconciliationRunSummary>(
+        r#"
+        SELECT id, status, started_at, completed_at, contacts_seen, contacts_matched,
+            customers_created, customers_updated, conflicts, outbound_queued, error
+        FROM podium_contact_reconciliation_run
+        ORDER BY started_at DESC
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(PodiumContactSyncOverview {
+        eligible_customers: counts.eligible_customers,
+        mapped_customers: counts.mapped_customers,
+        succeeded_customers: counts.succeeded_customers,
+        pending_customers: counts.pending_customers,
+        processing_customers: counts.processing_customers,
+        failed_customers: counts.failed_customers,
+        conflict_customers: counts.conflict_customers,
+        suppressed_customers: counts.suppressed_customers,
+        unsynchronized_customers: counts.unsynchronized_customers,
+        open_issues,
+        last_reconciliation,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]

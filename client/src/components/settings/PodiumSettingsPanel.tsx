@@ -68,13 +68,32 @@ type PodiumProviderSetup = {
   message: string;
 };
 
-type PodiumContactReconciliationResult = {
+type PodiumContactReconciliationRun = {
+  id: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
   contacts_seen: number;
   contacts_matched: number;
   customers_created: number;
   customers_updated: number;
   conflicts: number;
   outbound_queued: number;
+  error: string | null;
+};
+
+type PodiumContactSyncOverview = {
+  eligible_customers: number;
+  mapped_customers: number;
+  succeeded_customers: number;
+  pending_customers: number;
+  processing_customers: number;
+  failed_customers: number;
+  conflict_customers: number;
+  suppressed_customers: number;
+  unsynchronized_customers: number;
+  open_issues: number;
+  last_reconciliation: PodiumContactReconciliationRun | null;
 };
 
 type PodiumContactIssue = {
@@ -83,6 +102,12 @@ type PodiumContactIssue = {
   phone_e164: string | null;
   email: string | null;
   reason: string;
+  candidate_customer_ids: string[];
+};
+
+type PodiumContactReconciliationStart = {
+  started: boolean;
+  run_id: string;
 };
 
 const PODIUM_OAUTH_SCOPE = [
@@ -116,9 +141,11 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
   const [webhookBusy, setWebhookBusy] = useState(false);
   const [webhookConfirmOpen, setWebhookConfirmOpen] = useState(false);
   const [contactBusy, setContactBusy] = useState(false);
-  const [contactResult, setContactResult] =
-    useState<PodiumContactReconciliationResult | null>(null);
+  const [contactOverview, setContactOverview] =
+    useState<PodiumContactSyncOverview | null>(null);
   const [contactIssues, setContactIssues] = useState<PodiumContactIssue[]>([]);
+  const reconciliationRunning =
+    contactOverview?.last_reconciliation?.status === "running";
   const redirectUri = getPodiumOAuthRedirectUri();
   const callbackReady = isPodiumOAuthBrowserOriginReady(redirectUri);
   const appCredentialsReady = Boolean(
@@ -142,19 +169,13 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
   const loadProviderSetup = useCallback(async () => {
     setProviderError("");
     try {
-      const [providerResponse, issuesResponse] = await Promise.all([
-        fetch(`${baseUrl}/api/settings/podium/provider-setup`, {
+      const providerResponse = await fetch(
+        `${baseUrl}/api/settings/podium/provider-setup`,
+        {
           headers: backofficeHeaders() as Record<string, string>,
           cache: "no-store",
-        }),
-        fetch(
-          `${baseUrl}/api/customers/podium/contact-reconciliation-issues?limit=50`,
-          {
-            headers: backofficeHeaders() as Record<string, string>,
-            cache: "no-store",
-          },
-        ),
-      ]);
+        },
+      );
       if (!providerResponse.ok) {
         const body = (await providerResponse.json().catch(() => ({}))) as {
           error?: string;
@@ -164,13 +185,38 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
       } else {
         setProviderSetup((await providerResponse.json()) as PodiumProviderSetup);
       }
+    } catch {
+      setProviderSetup(null);
+      setProviderError("Podium provider setup could not be read.");
+    }
+  }, [backofficeHeaders, baseUrl]);
+
+  const loadContactDiagnostics = useCallback(async () => {
+    try {
+      const [issuesResponse, overviewResponse] = await Promise.all([
+        fetch(
+          `${baseUrl}/api/customers/podium/contact-reconciliation-issues?limit=50`,
+          {
+            headers: backofficeHeaders() as Record<string, string>,
+            cache: "no-store",
+          },
+        ),
+        fetch(`${baseUrl}/api/customers/podium/contact-sync-overview`, {
+          headers: backofficeHeaders() as Record<string, string>,
+          cache: "no-store",
+        }),
+      ]);
       if (issuesResponse.ok) {
         const issues = (await issuesResponse.json()) as PodiumContactIssue[];
         setContactIssues(Array.isArray(issues) ? issues : []);
       }
+      if (overviewResponse.ok) {
+        setContactOverview(
+          (await overviewResponse.json()) as PodiumContactSyncOverview,
+        );
+      }
     } catch {
-      setProviderSetup(null);
-      setProviderError("Podium provider setup could not be read.");
+      setContactOverview(null);
     }
   }, [backofficeHeaders, baseUrl]);
 
@@ -178,20 +224,36 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
     await loadCommunicationSettings();
     const nextReadiness = await loadReadiness();
     if (nextReadiness?.credentials_configured) {
-      await loadProviderSetup();
+      await Promise.all([loadProviderSetup(), loadContactDiagnostics()]);
     } else {
       setProviderSetup(null);
       setProviderError("");
+      setContactOverview(null);
     }
-  }, [loadCommunicationSettings, loadProviderSetup, loadReadiness]);
+  }, [
+    loadCommunicationSettings,
+    loadContactDiagnostics,
+    loadProviderSetup,
+    loadReadiness,
+  ]);
 
   useEffect(() => {
     void loadReadiness();
   }, [loadReadiness]);
 
   useEffect(() => {
-    if (settings?.credentials_configured) void loadProviderSetup();
-  }, [loadProviderSetup, settings?.credentials_configured]);
+    if (settings?.credentials_configured) {
+      void Promise.all([loadProviderSetup(), loadContactDiagnostics()]);
+    }
+  }, [loadContactDiagnostics, loadProviderSetup, settings?.credentials_configured]);
+
+  useEffect(() => {
+    if (contactOverview?.last_reconciliation?.status !== "running") return;
+    const intervalId = window.setInterval(() => {
+      void loadContactDiagnostics();
+    }, 5000);
+    return () => window.clearInterval(intervalId);
+  }, [contactOverview?.last_reconciliation?.status, loadContactDiagnostics]);
 
   const startOAuth = async () => {
     if (!appCredentialsReady) {
@@ -302,7 +364,7 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
         },
       );
       const body = (await response.json().catch(() => ({}))) as
-        | PodiumContactReconciliationResult
+        | PodiumContactReconciliationStart
         | { error?: string };
       if (!response.ok) {
         if (response.status === 409) {
@@ -310,6 +372,7 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
             "A Podium contact reconciliation is already running. Try again after it finishes.",
             "info",
           );
+          await loadContactDiagnostics();
           return;
         }
         toast(
@@ -320,13 +383,11 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
         );
         return;
       }
-      const result = body as PodiumContactReconciliationResult;
-      setContactResult(result);
       toast(
-        `Compared ${result.contacts_seen} Podium contacts; ${result.conflicts} require review.`,
-        result.conflicts ? "info" : "success",
+        "Podium contact reconciliation started. You can leave this page while it runs.",
+        "success",
       );
-      await loadProviderSetup();
+      await loadContactDiagnostics();
     } catch {
       toast("Podium contact reconciliation could not run.", "error");
     } finally {
@@ -627,8 +688,9 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
             Diagnostics and contact maintenance
           </summary>
           <p className="mt-2 text-xs font-semibold leading-5 text-app-text-muted">
-            Health checks are read-only. Contact reconciliation compares the full Podium contact
-            list and queues safe Riverside synchronization; ambiguous matches stay unresolved.
+            Health checks are read-only. Contact reconciliation runs in the background, compares
+            the full Podium contact list, and queues only missing or failed Riverside contacts.
+            Ambiguous matches stay unresolved for safe review.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
@@ -642,12 +704,16 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
             </button>
             <button
               type="button"
-              disabled={contactBusy || !settings.credentials_configured}
+              disabled={
+                contactBusy || reconciliationRunning || !settings.credentials_configured
+              }
               onClick={() => void reconcileContacts()}
               className="ui-btn-secondary inline-flex h-10 items-center gap-2 px-4 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
             >
-              <RefreshCw className={`h-4 w-4 ${contactBusy ? "animate-spin" : ""}`} />
-              Reconcile Contacts
+              <RefreshCw
+                className={`h-4 w-4 ${contactBusy || reconciliationRunning ? "animate-spin" : ""}`}
+              />
+              {reconciliationRunning ? "Reconciliation Running" : "Reconcile Contacts"}
             </button>
           </div>
           {health ? (
@@ -669,25 +735,79 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
               <p className="mt-1 text-app-text-muted">{health.message}</p>
             </div>
           ) : null}
-          {contactResult ? (
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <Metric label="Podium contacts" value={String(contactResult.contacts_seen)} />
+          {contactOverview ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
               <Metric
-                label="Riverside updates"
-                value={String(contactResult.customers_created + contactResult.customers_updated)}
+                label="Eligible ROS customers"
+                value={String(contactOverview.eligible_customers)}
               />
-              <Metric label="Needs review" value={String(contactResult.conflicts)} />
+              <Metric
+                label="Mapped to Podium"
+                value={String(contactOverview.mapped_customers)}
+              />
+              <Metric
+                label="Needs first sync"
+                value={String(contactOverview.unsynchronized_customers)}
+              />
+              <Metric
+                label="Queued"
+                value={String(
+                  contactOverview.pending_customers +
+                    contactOverview.processing_customers,
+                )}
+              />
+              <Metric label="Failed" value={String(contactOverview.failed_customers)} />
+              <Metric
+                label="Conflicts"
+                value={String(contactOverview.conflict_customers)}
+              />
+            </div>
+          ) : null}
+          {contactOverview?.last_reconciliation ? (
+            <div
+              className={`mt-4 rounded-xl border p-4 text-xs font-semibold ${
+                contactOverview.last_reconciliation.status === "failed"
+                  ? "border-app-warning/30 bg-app-warning/10"
+                  : "border-app-border bg-app-surface-2/60"
+              }`}
+            >
+              <p className="font-black uppercase tracking-widest text-app-text">
+                Last reconciliation: {contactOverview.last_reconciliation.status}
+              </p>
+              <p className="mt-1 text-app-text-muted">
+                Started {formatContactTimestamp(contactOverview.last_reconciliation.started_at)}.
+                {contactOverview.last_reconciliation.status === "succeeded"
+                  ? ` Compared ${contactOverview.last_reconciliation.contacts_seen} Podium contacts and queued ${contactOverview.last_reconciliation.outbound_queued} Riverside contacts.`
+                  : contactOverview.last_reconciliation.status === "running"
+                    ? " Progress refreshes automatically while it runs."
+                    : " The run stopped before completing; review the reason below and retry."}
+              </p>
+              {contactOverview.last_reconciliation.error ? (
+                <p className="mt-2 text-app-warning">
+                  {contactOverview.last_reconciliation.error}
+                </p>
+              ) : null}
             </div>
           ) : null}
           {contactIssues.length > 0 ? (
             <div className="mt-4 rounded-xl border border-app-warning/30 bg-app-warning/10 p-4">
               <p className="text-xs font-black uppercase tracking-widest text-app-warning">
-                {contactIssues.length} unresolved contact {contactIssues.length === 1 ? "match" : "matches"}
+                {contactOverview?.open_issues ?? contactIssues.length} unresolved contact{" "}
+                {(contactOverview?.open_issues ?? contactIssues.length) === 1
+                  ? "match"
+                  : "matches"}
               </p>
               <ul className="mt-2 space-y-2 text-xs font-semibold text-app-text-muted">
                 {contactIssues.slice(0, 8).map((issue) => (
                   <li key={issue.id}>
-                    {issue.provider_name || issue.phone_e164 || issue.email || "Podium contact"}: {issue.reason}
+                    <span className="font-black text-app-text">
+                      {issue.provider_name ||
+                        issue.phone_e164 ||
+                        issue.email ||
+                        "Podium contact"}
+                      :
+                    </span>{" "}
+                    {describeContactIssue(issue)}
                   </li>
                 ))}
               </ul>
@@ -719,4 +839,23 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="mt-1 truncate text-xs font-black text-app-text">{value}</p>
     </div>
   );
+}
+
+function formatContactTimestamp(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "at an unknown time" : date.toLocaleString();
+}
+
+function describeContactIssue(issue: PodiumContactIssue) {
+  const candidateCount = issue.candidate_customer_ids.length;
+  switch (issue.reason) {
+    case "provider_uid_identity_conflict":
+      return "Podium's saved identity conflicts with a different Riverside customer.";
+    case "ambiguous_identity":
+      return `${candidateCount} Riverside customers share this phone or email.`;
+    case "multiple_provider_contacts_match_customer":
+      return "More than one Podium contact appears to match this Riverside customer.";
+    default:
+      return issue.reason.replaceAll("_", " ");
+  }
 }

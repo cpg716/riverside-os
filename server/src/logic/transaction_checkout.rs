@@ -2833,7 +2833,9 @@ where
                   AND COALESCE(ppa.error_code, '') NOT IN (
                       'physical_terminal_cancel_confirmed',
                       'orphaned_pre_dispatch_reservation',
-                      'operator_recovered_ros_reservation'
+                      'operator_recovered_ros_reservation',
+                      'unresolved_hosted_attempt_detached',
+                      'superseded_by_confirmed_helcim_approval'
                   )
               )
               OR (ppa.status = 'failed' AND ppa.error_code = 'outcome_unknown')
@@ -7829,6 +7831,8 @@ mod tests {
         assert!(guard.contains("'physical_terminal_cancel_confirmed'"));
         assert!(guard.contains("'orphaned_pre_dispatch_reservation'"));
         assert!(guard.contains("'operator_recovered_ros_reservation'"));
+        assert!(guard.contains("'unresolved_hosted_attempt_detached'"));
+        assert!(guard.contains("'superseded_by_confirmed_helcim_approval'"));
     }
 
     #[test]

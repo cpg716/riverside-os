@@ -49,7 +49,22 @@ pub struct PodiumInboxRow {
     pub unread: bool,
     pub closed: bool,
     pub provider_assignee_name: Option<String>,
+    pub responder_staff_id: Option<Uuid>,
+    pub responder_staff_name: Option<String>,
     pub snippet: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct PodiumConversationResponder {
+    pub staff_id: Uuid,
+    pub full_name: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PodiumReplyContext {
+    pub conversation_id: Uuid,
+    pub responder_staff_id: Option<Uuid>,
+    pub responder_staff_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,6 +74,14 @@ pub struct PodiumConversationAssignee {
     pub staff_id: Option<Uuid>,
     pub staff_name: Option<String>,
     pub linked: bool,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct PodiumAssignmentStaff {
+    pub staff_id: Uuid,
+    pub staff_name: String,
+    pub provider_user_uid: String,
+    pub provider_name: String,
 }
 
 #[derive(Debug, Error)]
@@ -334,35 +357,114 @@ pub async fn list_messaging_inbox(
                   AND pm.direction IN ('outbound', 'automated')
             ) AS last_outbound_at,
             pc.last_viewed_at,
-            COALESCE((
-                SELECT MAX(pm.created_at)
-                FROM podium_message pm
-                WHERE pm.conversation_id = pc.id
-                  AND pm.direction = 'inbound'
-            ), 'epoch'::timestamptz) > COALESCE((
-                SELECT MAX(pm.created_at)
-                FROM podium_message pm
-                WHERE pm.conversation_id = pc.id
-                  AND pm.direction IN ('outbound', 'automated')
-            ), 'epoch'::timestamptz) AS needs_reply,
-            EXISTS (
-                SELECT 1
-                FROM podium_message unread_message
-                WHERE unread_message.conversation_id = pc.id
-                  AND unread_message.direction = 'inbound'
-                  AND unread_message.created_at > COALESCE(pc.last_viewed_at, 'epoch'::timestamptz)
+            (
+                COALESCE((
+                    SELECT MAX(pm.created_at)
+                    FROM podium_message pm
+                    WHERE pm.conversation_id = pc.id
+                      AND pm.direction = 'inbound'
+                ), 'epoch'::timestamptz) > COALESCE((
+                    SELECT MAX(pm.created_at)
+                    FROM podium_message pm
+                    WHERE pm.conversation_id = pc.id
+                      AND pm.direction IN ('outbound', 'automated')
+                ), 'epoch'::timestamptz)
+                OR EXISTS (
+                    SELECT 1
+                    FROM podium_call_event call_event
+                    WHERE call_event.conversation_id = pc.id
+                      AND call_event.direction <> 'outbound'
+                      AND call_event.event_type IN ('call.missed', 'call.voicemail_left')
+                      AND call_event.occurred_at > COALESCE((
+                          SELECT MAX(pm.created_at)
+                          FROM podium_message pm
+                          WHERE pm.conversation_id = pc.id
+                            AND pm.direction IN ('outbound', 'automated')
+                      ), 'epoch'::timestamptz)
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM podium_review review_activity
+                    WHERE review_activity.conversation_id = pc.id
+                      AND review_activity.needs_response = TRUE
+                )
+            ) AS needs_reply,
+            (
+                EXISTS (
+                    SELECT 1
+                    FROM podium_message unread_message
+                    WHERE unread_message.conversation_id = pc.id
+                      AND unread_message.direction = 'inbound'
+                      AND unread_message.created_at > COALESCE(pc.last_viewed_at, 'epoch'::timestamptz)
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM podium_call_event unread_call
+                    WHERE unread_call.conversation_id = pc.id
+                      AND unread_call.direction <> 'outbound'
+                      AND unread_call.occurred_at > COALESCE(pc.last_viewed_at, 'epoch'::timestamptz)
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM podium_review unread_review
+                    WHERE unread_review.conversation_id = pc.id
+                      AND unread_review.needs_response = TRUE
+                      AND unread_review.last_activity_at > COALESCE(
+                          pc.last_viewed_at,
+                          'epoch'::timestamptz
+                      )
+                )
             ) AS unread,
             LOWER(COALESCE(pc.provider_status, '')) IN ('closed', 'archived') AS closed,
             pc.provider_assignee_name,
+            CASE WHEN responder_staff.is_active = TRUE THEN responder_staff.id END AS responder_staff_id,
+            CASE WHEN responder_staff.is_active = TRUE THEN responder_staff.full_name END AS responder_staff_name,
             (
-                SELECT pm.body
-                FROM podium_message pm
-                WHERE pm.conversation_id = pc.id
-                ORDER BY pm.created_at DESC
+                SELECT activity.preview
+                FROM (
+                    SELECT pm.body AS preview, pm.created_at
+                    FROM podium_message pm
+                    WHERE pm.conversation_id = pc.id
+                    UNION ALL
+                    SELECT
+                        CASE call_event.event_type
+                            WHEN 'call.voicemail_left' THEN 'Voicemail received'
+                            WHEN 'call.missed' THEN 'Missed call'
+                            WHEN 'call.received' THEN 'Incoming call'
+                            WHEN 'call.completed' THEN CASE
+                                WHEN call_event.direction = 'outbound' THEN 'Outgoing call completed'
+                                ELSE 'Call completed'
+                            END
+                            ELSE 'Call activity'
+                        END AS preview,
+                        call_event.occurred_at AS created_at
+                    FROM podium_call_event call_event
+                    WHERE call_event.conversation_id = pc.id
+                    UNION ALL
+                    SELECT
+                        CASE
+                            WHEN review_activity.last_event_type LIKE 'review.response_%'
+                                THEN 'Review response posted'
+                            WHEN review_activity.rating IS NOT NULL
+                                THEN CONCAT(
+                                    'New ',
+                                    review_activity.rating,
+                                    '-star ',
+                                    COALESCE(NULLIF(review_activity.site_name, ''), 'customer'),
+                                    ' review'
+                                )
+                            ELSE 'New customer review'
+                        END AS preview,
+                        review_activity.last_activity_at AS created_at
+                    FROM podium_review review_activity
+                    WHERE review_activity.conversation_id = pc.id
+                ) activity
+                ORDER BY activity.created_at DESC
                 LIMIT 1
             ) AS snippet
         FROM podium_conversation pc
         LEFT JOIN customers c ON c.id = pc.customer_id
+        LEFT JOIN staff responder_staff ON responder_staff.id = pc.responder_staff_id
         LEFT JOIN podium_sync_unmatched_conversation unmatched
           ON unmatched.provider_conversation_uid = pc.podium_conversation_uid
          AND unmatched.resolved_at IS NULL
@@ -375,6 +477,59 @@ pub async fn list_messaging_inbox(
     .await
 }
 
+pub async fn podium_reply_context(
+    pool: &PgPool,
+    conversation_id: Uuid,
+    customer_id: Uuid,
+    channel: &str,
+) -> Result<Option<PodiumReplyContext>, sqlx::Error> {
+    let channel = if channel == "email" { "email" } else { "sms" };
+    sqlx::query_as::<_, PodiumReplyContext>(
+        r#"
+        SELECT
+            pc.id AS conversation_id,
+            CASE WHEN responder.is_active = TRUE THEN responder.id END AS responder_staff_id,
+            CASE WHEN responder.is_active = TRUE THEN responder.full_name END AS responder_staff_name
+        FROM podium_conversation pc
+        LEFT JOIN staff responder ON responder.id = pc.responder_staff_id
+        WHERE pc.id = $1
+          AND pc.customer_id = $2
+          AND pc.channel = $3
+        "#,
+    )
+    .bind(conversation_id)
+    .bind(customer_id)
+    .bind(channel)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn remember_conversation_responder(
+    pool: &PgPool,
+    conversation_id: Uuid,
+    responder_staff_id: Uuid,
+    selected_by_staff_id: Option<Uuid>,
+) -> Result<Option<PodiumConversationResponder>, sqlx::Error> {
+    sqlx::query_as::<_, PodiumConversationResponder>(
+        r#"
+        UPDATE podium_conversation pc
+        SET responder_staff_id = responder.id,
+            responder_verified_at = NOW(),
+            responder_selected_by_staff_id = $3
+        FROM staff responder
+        WHERE pc.id = $1
+          AND responder.id = $2
+          AND responder.is_active = TRUE
+        RETURNING responder.id AS staff_id, responder.full_name
+        "#,
+    )
+    .bind(conversation_id)
+    .bind(responder_staff_id)
+    .bind(selected_by_staff_id)
+    .fetch_optional(pool)
+    .await
+}
+
 /// Shared unread conversation count used by the Podium Inbox navigation badge.
 /// Keep this predicate aligned with `PodiumInboxRow.unread` and the active view.
 pub async fn unread_messaging_inbox_count(pool: &PgPool) -> Result<i64, sqlx::Error> {
@@ -382,12 +537,31 @@ pub async fn unread_messaging_inbox_count(pool: &PgPool) -> Result<i64, sqlx::Er
         r#"
         SELECT COUNT(*)::bigint
         FROM podium_conversation pc
-        WHERE EXISTS (
-            SELECT 1
-            FROM podium_message unread_message
-            WHERE unread_message.conversation_id = pc.id
-              AND unread_message.direction = 'inbound'
-              AND unread_message.created_at > COALESCE(pc.last_viewed_at, 'epoch'::timestamptz)
+        WHERE (
+            EXISTS (
+                SELECT 1
+                FROM podium_message unread_message
+                WHERE unread_message.conversation_id = pc.id
+                  AND unread_message.direction = 'inbound'
+                  AND unread_message.created_at > COALESCE(pc.last_viewed_at, 'epoch'::timestamptz)
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM podium_call_event unread_call
+                WHERE unread_call.conversation_id = pc.id
+                  AND unread_call.direction <> 'outbound'
+                  AND unread_call.occurred_at > COALESCE(pc.last_viewed_at, 'epoch'::timestamptz)
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM podium_review unread_review
+                WHERE unread_review.conversation_id = pc.id
+                  AND unread_review.needs_response = TRUE
+                  AND unread_review.last_activity_at > COALESCE(
+                      pc.last_viewed_at,
+                      'epoch'::timestamptz
+                  )
+            )
         )
           AND LOWER(COALESCE(pc.provider_status, '')) NOT IN ('closed', 'archived')
         "#,
@@ -441,6 +615,82 @@ pub async fn provider_uid_for_conversation(
     .filter(|uid| !uid.is_empty());
 
     provider_uid.ok_or(PodiumConversationActionError::MissingProviderConversation)
+}
+
+pub async fn list_assignment_staff(
+    pool: &PgPool,
+) -> Result<Vec<PodiumAssignmentStaff>, sqlx::Error> {
+    sqlx::query_as::<_, PodiumAssignmentStaff>(
+        r#"
+        SELECT
+            id AS staff_id,
+            full_name AS staff_name,
+            TRIM(podium_user_uid) AS provider_user_uid,
+            COALESCE(NULLIF(TRIM(podium_display_name), ''), full_name) AS provider_name
+        FROM staff
+        WHERE is_active = TRUE
+          AND NULLIF(TRIM(podium_user_uid), '') IS NOT NULL
+        ORDER BY full_name ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn assignment_staff_by_id(
+    pool: &PgPool,
+    staff_id: Uuid,
+) -> Result<Option<PodiumAssignmentStaff>, sqlx::Error> {
+    sqlx::query_as::<_, PodiumAssignmentStaff>(
+        r#"
+        SELECT
+            id AS staff_id,
+            full_name AS staff_name,
+            TRIM(podium_user_uid) AS provider_user_uid,
+            COALESCE(NULLIF(TRIM(podium_display_name), ''), full_name) AS provider_name
+        FROM staff
+        WHERE id = $1
+          AND is_active = TRUE
+          AND NULLIF(TRIM(podium_user_uid), '') IS NOT NULL
+        "#,
+    )
+    .bind(staff_id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn assignment_staff_by_provider_uid(
+    pool: &PgPool,
+    provider_user_uid: &str,
+) -> Result<Option<PodiumAssignmentStaff>, sqlx::Error> {
+    sqlx::query_as::<_, PodiumAssignmentStaff>(
+        r#"
+        SELECT
+            id AS staff_id,
+            full_name AS staff_name,
+            TRIM(podium_user_uid) AS provider_user_uid,
+            COALESCE(NULLIF(TRIM(podium_display_name), ''), full_name) AS provider_name
+        FROM staff
+        WHERE is_active = TRUE
+          AND TRIM(podium_user_uid) = $1
+        "#,
+    )
+    .bind(provider_user_uid)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn remember_conversation_assignee_name(
+    pool: &PgPool,
+    conversation_id: Uuid,
+    assignee_name: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE podium_conversation SET provider_assignee_name = $2 WHERE id = $1")
+        .bind(conversation_id)
+        .bind(assignee_name)
+        .execute(pool)
+        .await?;
+    Ok(())
 }
 
 pub async fn list_conversation_assignees(
@@ -716,7 +966,16 @@ pub async fn record_outbound_message(
                         customer_id = COALESCE(customer_id, $2),
                         podium_conversation_uid = COALESCE(podium_conversation_uid, $3),
                         contact_phone_e164 = COALESCE(contact_phone_e164, $4),
-                        contact_email = COALESCE(contact_email, $5)
+                        contact_email = COALESCE(contact_email, $5),
+                        responder_staff_id = COALESCE(responder_staff_id, $6),
+                        responder_verified_at = CASE
+                            WHEN responder_staff_id IS NULL AND $6::uuid IS NOT NULL THEN NOW()
+                            ELSE responder_verified_at
+                        END,
+                        responder_selected_by_staff_id = COALESCE(
+                            responder_selected_by_staff_id,
+                            $6
+                        )
                     WHERE id = $1
                     "#,
                 )
@@ -725,6 +984,7 @@ pub async fn record_outbound_message(
                 .bind(provider_conversation_uid.as_deref())
                 .bind(phone_e164)
                 .bind(email)
+                .bind(staff_id)
                 .execute(&mut *tx)
                 .await?;
                 id
@@ -734,9 +994,10 @@ pub async fn record_outbound_message(
                     r#"
                     INSERT INTO podium_conversation (
                         customer_id, channel, podium_conversation_uid,
-                        contact_phone_e164, contact_email
+                        contact_phone_e164, contact_email, responder_staff_id,
+                        responder_verified_at, responder_selected_by_staff_id
                     )
-                    VALUES ($1, $2, $3, $4, $5)
+                    VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $6::uuid IS NOT NULL THEN NOW() END, $6)
                     RETURNING id
                     "#,
                 )
@@ -745,6 +1006,7 @@ pub async fn record_outbound_message(
                 .bind(provider_conversation_uid.as_deref())
                 .bind(phone_e164)
                 .bind(email)
+                .bind(staff_id)
                 .fetch_one(&mut *tx)
                 .await?
             }
@@ -827,12 +1089,19 @@ pub async fn record_outbound_message_for_conversation(
         r#"
         UPDATE podium_conversation
         SET last_message_at = NOW(),
-            podium_conversation_uid = COALESCE(podium_conversation_uid, $2)
+            podium_conversation_uid = COALESCE(podium_conversation_uid, $2),
+            responder_staff_id = COALESCE(responder_staff_id, $3),
+            responder_verified_at = CASE
+                WHEN responder_staff_id IS NULL AND $3::uuid IS NOT NULL THEN NOW()
+                ELSE responder_verified_at
+            END,
+            responder_selected_by_staff_id = COALESCE(responder_selected_by_staff_id, $3)
         WHERE id = $1
         "#,
     )
     .bind(conversation_id)
     .bind(provider_conversation_uid.as_deref())
+    .bind(staff_id)
     .execute(&mut *tx)
     .await?;
     sqlx::query(
