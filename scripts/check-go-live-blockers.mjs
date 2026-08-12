@@ -909,11 +909,15 @@ function checkReleaseWorkflowPreBuildGates() {
   assert(
     retagWrapper.includes("git([\"status\", \"--porcelain\"]") &&
       retagWrapper.includes("npm\", [\"run\", \"check:pre-retag\"]") &&
+      retagWrapper.includes('git(["tag", "-a", "-f"') &&
+      retagWrapper.includes('git(["cat-file", "-t", `refs/tags/${tag}`]') &&
+      retagWrapper.includes('git(["ls-remote", "--tags", "origin"') &&
+      retagWrapper.includes("remoteTagCommit !== head") &&
       retagWrapper.includes("gh([") &&
       retagWrapper.includes("--latest"),
-    "Guarded retag wrapper refuses dirty releases and runs pre-retag checks",
+    "Guarded retag wrapper creates and verifies annotated release tags",
     retagWrapperFile,
-    "Manual same-version retags should be replaced by npm run release:retag -- <tag>.",
+    "Same-version retags must remain clean-tree gated and publish a verified annotated tag through npm run release:retag -- <tag>.",
   );
 
   const workflowFiles = [

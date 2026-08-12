@@ -76,8 +76,39 @@ console.log(`[release:retag] Pushing main to origin...`);
 git(["push", "origin", "main"]);
 
 console.log(`[release:retag] Moving ${tag} to ${shortHead}...`);
-git(["tag", "-f", tag, head]);
+const tagMessage = `Release ${tag} - build ${shortHead}`;
+git(["tag", "-a", "-f", "-m", tagMessage, tag, head]);
+
+const localTagType = git(["cat-file", "-t", `refs/tags/${tag}`], { capture: true });
+const localTagCommit = git(["rev-parse", `${tag}^{commit}`], { capture: true });
+if (localTagType !== "tag" || localTagCommit !== head) {
+  throw new Error(
+    `Failed to create annotated ${tag} for ${head}: type=${localTagType}, commit=${localTagCommit}`,
+  );
+}
+
 git(["push", "--force", "origin", `refs/tags/${tag}`]);
+
+const remoteTagRef = `refs/tags/${tag}`;
+const remotePeeledRef = `${remoteTagRef}^{}`;
+const remoteTagRefs = new Map(
+  git(["ls-remote", "--tags", "origin", remoteTagRef, remotePeeledRef], {
+    capture: true,
+  })
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, ref] = line.trim().split(/\s+/, 2);
+      return [ref, sha];
+    }),
+);
+const remoteTagObject = remoteTagRefs.get(remoteTagRef);
+const remoteTagCommit = remoteTagRefs.get(remotePeeledRef);
+if (!remoteTagObject || remoteTagObject === head || remoteTagCommit !== head) {
+  throw new Error(
+    `Remote ${tag} is not an annotated tag for ${head}: object=${remoteTagObject ?? "missing"}, commit=${remoteTagCommit ?? "missing"}`,
+  );
+}
 
 const title = `Riverside OS ${tag} - latest build ${shortHead}`;
 const releaseExists = spawnSync(
