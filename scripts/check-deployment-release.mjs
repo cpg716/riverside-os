@@ -510,11 +510,29 @@ for (const copy of [
     "Windows deployment packages must include the pinned non-Docker Cube Core runtime",
   );
 }
-assertIncludes(
-  ".github/workflows/windows-deployment-package.yml",
+const cubeInstallScript = "scripts/install-cube-runtime.ps1";
+const cubeInstallCommand = `./${cubeInstallScript}`;
+const cubeInstallCallCount =
+  windowsReleaseWorkflow.split(cubeInstallCommand).length - 1;
+if (cubeInstallCallCount !== 2) {
+  fail(
+    `.github/workflows/windows-deployment-package.yml: expected two ${cubeInstallCommand} calls, found ${cubeInstallCallCount} (both Windows package assembly paths must install Cube with bounded retries)`,
+  );
+}
+for (const copy of [
   "npm ci --prefix cube",
-  "Windows package assembly must install Cube dependencies on Windows so the native binding matches production",
-);
+  "$MaxAttempts = 3",
+  "$InitialDelaySeconds = 10",
+  "Start-Sleep -Seconds $delaySeconds",
+  "exit $exitCode",
+]) {
+  assertIncludes(
+    cubeInstallScript,
+    copy,
+    "Windows Cube installation must retry transient native-runtime download failures without masking a final failure",
+  );
+}
+parsePowerShell(cubeInstallScript, read(cubeInstallScript));
 assertIncludes(
   "cube/package.json",
   '"@cubejs-backend/server": "1.7.16"',

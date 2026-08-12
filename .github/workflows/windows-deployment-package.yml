@@ -997,7 +997,7 @@ jobs:
 
       - name: Build pinned Windows Cube Core runtime
         shell: pwsh
-        run: npm ci --prefix cube
+        run: ./scripts/install-cube-runtime.ps1
 
       - name: Download client dist
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -1157,7 +1157,7 @@ jobs:
 
       - name: Build pinned Windows Cube Core runtime
         shell: pwsh
-        run: npm ci --prefix cube
+        run: ./scripts/install-cube-runtime.ps1
 
       - name: Download client dist
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
