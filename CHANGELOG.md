@@ -227,11 +227,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   status, and order completion move only through the flow that opens **Sale
   Complete**.
 - **Existing-Order Amendment Reporting and Audit Detail**: Merchandise added
-  to an older open Transaction is booked on the amendment date without moving
-  the parent Transaction's original business date. Daily Sales and Z-Reports
-  report only the net positive same-day value change, while zero-value swaps
-  and net decreases remain audit-only. Order and customer timelines identify
-  the affected item, SKU, before/after price, and signed value change, and
+  to an older open Transaction is booked on the store-local amendment date
+  without moving the parent Transaction's original business date. Daily Sales
+  and Z-Reports apply the signed net same-day value change, so increases raise
+  Booked Subtotal and decreases reduce it without inflating the sale count.
+  Removal of the final item remains visible in Daily Activity. Order and
+  customer timelines identify the affected item, SKU, before/after price, and
+  signed value change, and
   Register price edits verify the persisted server value before reporting
   success. Initial booking lines no longer repeat their Sale price as a purple
   Added amount; Added, Change, and Removed markers appear only for actual later

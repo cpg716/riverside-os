@@ -34,6 +34,15 @@ fn money_label(d: Decimal) -> String {
     format!("{}", d.round_dp(2))
 }
 
+fn currency_label(d: Decimal) -> String {
+    let rounded = d.round_dp(2);
+    if rounded < Decimal::ZERO {
+        format!("-${}", money_label(-rounded))
+    } else {
+        format!("${}", money_label(rounded))
+    }
+}
+
 fn reporting_tender_label(method: &str) -> String {
     match method
         .trim()
@@ -939,11 +948,7 @@ async fn fetch_register_sales_totals_on_connection(
                     e.transaction_id,
                     source_transaction.is_counterpoint_import,
                     (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
-                HAVING SUM(e.subtotal_delta + e.tax_delta) > 0
-                    OR (
-                        COALESCE(source_transaction.is_counterpoint_import, FALSE)
-                        AND SUM(e.subtotal_delta + e.tax_delta) < 0
-                    )
+                HAVING SUM(e.subtotal_delta) <> 0 OR SUM(e.tax_delta) <> 0
             ),
             counterpoint_booking_activity AS (
                 SELECT
@@ -1010,6 +1015,7 @@ async fn fetch_register_sales_totals_on_connection(
             COALESCE(SUM(ln.line_tax), 0::numeric) AS tax_total,
             COUNT(DISTINCT ln.activity_key) FILTER (
                 WHERE NOT ln.is_counterpoint_history
+                  AND ln.countable_sale
                   AND o.sale_channel = 'web'
                   AND (ln.line_subtotal <> 0 OR ln.line_tax <> 0)
             )::bigint AS web_count
@@ -1947,7 +1953,7 @@ async fn fetch_register_day_summary_page_on_connection(
                   AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
                   AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
                 GROUP BY e.transaction_id
-                HAVING SUM(e.subtotal_delta + e.tax_delta) > 0
+                HAVING SUM(e.subtotal_delta) <> 0 OR SUM(e.tax_delta) <> 0
             ) be ON be.transaction_id = o.id
         "#
         .to_string(),
@@ -2151,6 +2157,19 @@ async fn fetch_register_day_summary_page_on_connection(
         }
         ReportBasis::Completed => "",
     };
+    let sales_activity_presence_filter = match basis {
+        // The booking-event join is authoritative in Booked mode. Keeping a
+        // transaction-line existence check here would hide removal of the last
+        // item even though its signed booking event remains auditable.
+        ReportBasis::Booked => "TRUE",
+        ReportBasis::Completed => {
+            r#"EXISTS (
+              SELECT 1
+              FROM transaction_lines tl_activity
+              WHERE tl_activity.transaction_id = o.id
+          )"#
+        }
+    };
     let sales_sql = format!(
         r#"
         SELECT
@@ -2302,11 +2321,7 @@ async fn fetch_register_day_summary_page_on_connection(
             GROUP BY transaction_line_id
         ) orl ON orl.transaction_line_id = oi.id
         WHERE {sales_order_in_range}
-          AND EXISTS (
-              SELECT 1
-              FROM transaction_lines tl_activity
-              WHERE tl_activity.transaction_id = o.id
-          )
+          AND {sales_activity_presence_filter}
           -- A refund-producing exchange is represented by its one event-scoped
           -- refund row below. Do not also emit the replacement checkout as a
           -- second sale or its positive lines would be counted twice.
@@ -2900,7 +2915,28 @@ async fn fetch_register_day_summary_page_on_connection(
         let is_rms_payment_activity = s.has_rms_charge_payment_line;
         let is_pickup_activity =
             matches!(basis, ReportBasis::Completed) && !s.is_takeaway && !is_rms_payment_activity;
-        let title = if is_rms_payment_activity {
+        let items: Option<Vec<ActivityItemDetail>> = s
+            .items_json
+            .and_then(|v| serde_json::from_value::<Vec<ActivityItemDetail>>(v).ok());
+        let is_booked_amendment = matches!(basis, ReportBasis::Booked)
+            && items.as_ref().is_some_and(|activity_items| {
+                activity_items.iter().any(|item| {
+                    item.booking_event_kind
+                        .as_deref()
+                        .is_some_and(|kind| kind != "initial_booking")
+                }) && !activity_items
+                    .iter()
+                    .any(|item| item.booking_event_kind.as_deref() == Some("initial_booking"))
+            });
+        let title = if is_booked_amendment {
+            if s.sales_total_booked < Decimal::ZERO
+                || (s.sales_total_booked == Decimal::ZERO && s.tax_total < Decimal::ZERO)
+            {
+                "Order Adjustment (Decrease)".to_string()
+            } else {
+                "Order Adjustment (Increase)".to_string()
+            }
+        } else if is_rms_payment_activity {
             "RMS Charge Payment".to_string()
         } else if s.has_alteration_service_line && s.has_shipping_service_line {
             "Service Sale".to_string()
@@ -2935,9 +2971,6 @@ async fn fetch_register_day_summary_page_on_connection(
         } else {
             "sale"
         };
-        let items: Option<Vec<ActivityItemDetail>> = s
-            .items_json
-            .and_then(|v| serde_json::from_value::<Vec<ActivityItemDetail>>(v).ok());
         let payments = parse_activity_payments(s.payments_json);
         let payment_summary = payment_summary_label(&payments).or_else(|| s.pay.clone());
         let payments = if payments.is_empty() {
@@ -3007,7 +3040,7 @@ async fn fetch_register_day_summary_page_on_connection(
             refund_event_id: None,
             replacement_transaction_id: None,
             wedding_party_id: s.wedding_party_id,
-            amount_label: Some(format!("${}", money_label(s.sales_total_booked))),
+            amount_label: Some(currency_label(s.sales_total_booked)),
             payment_summary,
             payments,
             payment_applications: Vec::new(),
@@ -3424,16 +3457,18 @@ async fn fetch_register_day_summary_page_on_connection(
 #[cfg(test)]
 mod tests {
     use super::{
-        activity_metadata_uuid, activity_search_pattern, compare_activity_desc,
-        ensure_complete_eod_counts, fetch_register_day_summary_page, format_weather_value,
-        merge_order_payment_into_sale, payment_activity_id, refund_activity_totals,
-        reporting_tender_label, validate_complete_row_bounds, ActivityPageOptions,
-        RegisterActivityItem, REGISTER_REPORT_OUTPUT_MAX_ROWS,
+        activity_metadata_uuid, activity_search_pattern, compare_activity_desc, currency_label,
+        ensure_complete_eod_counts, fetch_register_day_summary_page,
+        fetch_register_day_summary_page_on_connection, fetch_register_sales_totals_on_connection,
+        format_weather_value, merge_order_payment_into_sale, payment_activity_id,
+        refund_activity_totals, reporting_tender_label, validate_complete_row_bounds,
+        ActivityPageOptions, RegisterActivityItem, REGISTER_REPORT_OUTPUT_MAX_ROWS,
     };
     use crate::logic::report_basis::ReportBasis;
     use chrono::{TimeZone, Utc};
     use rust_decimal::Decimal;
     use serde_json::json;
+    use sqlx::Connection;
     use uuid::Uuid;
 
     #[tokio::test]
@@ -3456,6 +3491,110 @@ mod tests {
         )
         .await
         .expect("booked summary SQL should execute");
+    }
+
+    #[tokio::test]
+    async fn booked_totals_include_signed_native_order_decreases() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let mut connection = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect migrated test database");
+        let mut transaction = connection.begin().await.expect("begin transaction");
+        let transaction_id = Uuid::new_v4();
+        let event_time = Utc.with_ymd_and_hms(2099, 1, 15, 12, 0, 0).unwrap();
+
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, total_price, balance_due, display_id, checkout_client_id, sale_channel
+            ) VALUES ($1, 0.00, 0.00, $2, $3, 'web')
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(format!("TXN-SIGNED-DECREASE-{}", transaction_id.simple()))
+        .bind(Uuid::new_v4())
+        .execute(&mut *transaction)
+        .await
+        .expect("insert signed-decrease transaction");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_line_booking_events (
+                transaction_id, transaction_line_id, event_kind, booked_at,
+                subtotal_delta, tax_delta, is_internal, line_kind, metadata
+            ) VALUES ($1, NULL, 'line_deleted', $2, -50.00, -4.38, FALSE, NULL, '{}'::jsonb)
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(event_time)
+        .execute(&mut *transaction)
+        .await
+        .expect("insert signed-decrease booking event");
+
+        let totals = fetch_register_sales_totals_on_connection(
+            &mut *transaction,
+            Utc.with_ymd_and_hms(2099, 1, 15, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2099, 1, 16, 0, 0, 0).unwrap(),
+            None,
+            ReportBasis::Booked,
+            "o.status::text NOT IN ('cancelled')",
+            "",
+        )
+        .await
+        .expect("load signed booked decrease");
+
+        assert_eq!(totals.sales_count, 0);
+        assert_eq!(totals.net_sales, Decimal::new(-5000, 2));
+        assert_eq!(totals.tax_total, Decimal::new(-438, 2));
+        assert_eq!(totals.online_order_count, 0);
+
+        let summary = fetch_register_day_summary_page_on_connection(
+            &mut *transaction,
+            Some("custom".to_string()),
+            Some(event_time.date_naive()),
+            Some(event_time.date_naive()),
+            None,
+            ReportBasis::Booked,
+            ActivityPageOptions::default(),
+        )
+        .await
+        .expect("load signed booked decrease activity");
+        let activity = summary
+            .activities
+            .iter()
+            .find(|activity| activity.transaction_id == Some(transaction_id))
+            .expect("signed decrease should remain visible after the final line is removed");
+
+        assert_eq!(summary.sales_count, 0);
+        assert_eq!(
+            summary.net_sales.parse::<Decimal>().unwrap(),
+            Decimal::new(-5000, 2)
+        );
+        assert_eq!(activity.occurred_at, event_time);
+        assert_eq!(activity.title, "Order Adjustment (Decrease)");
+        assert_eq!(
+            activity
+                .sales_total
+                .as_deref()
+                .unwrap()
+                .parse::<Decimal>()
+                .unwrap(),
+            Decimal::new(-5000, 2)
+        );
+        assert!(activity.items.as_ref().is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item.booking_event_kind.as_deref() == Some("line_deleted"))
+        }));
+        transaction.rollback().await.expect("rollback transaction");
+    }
+
+    #[test]
+    fn currency_labels_put_the_sign_before_the_dollar_symbol() {
+        assert_eq!(currency_label(Decimal::new(1250, 2)), "$12.50");
+        assert_eq!(currency_label(Decimal::new(-1250, 2)), "-$12.50");
     }
 
     #[test]

@@ -25,9 +25,9 @@ When one physical tender funds both a current sale and an older order, drawer an
 
 ### Existing-order amendments
 
-Adding merchandise to an older open Transaction creates a line-booking event on the amendment date; it does not rewrite the parent Transaction's original booked date. Daily Sales and the booked Z-Report net all same-day line additions, removals, and price/quantity adjustments for that Transaction. Only a positive net increase is Booked Sales for that day. A zero-value switch or net decrease remains auditable but is not reported as a new sale.
+Adding merchandise to or removing merchandise from an older open Transaction creates a line-booking event on the store-local amendment date; it does not rewrite the parent Transaction's original booked date. Daily Sales and the booked Z-Report net all same-day line additions, removals, and price/quantity adjustments for that Transaction. A positive net change increases that amendment day's Booked Subtotal, while a negative net change reduces it by the signed pre-tax amount. A zero-value switch contributes $0 but remains auditable.
 
-Report detail uses the signed event components rather than the Transaction's entire current item list. Staff can therefore distinguish an item addition from a negative price correction or removed item, while the total reflects only the net increase.
+Report detail uses the signed event components rather than the Transaction's entire current item list. Staff can therefore distinguish an item addition from a negative price correction or removed item, while the total reflects the complete signed net change.
 
 Booked Sales is always the pre-tax value of that activity. Daily Sales and Z-Reports present **Subtotal**, **Tax**, and **Total With Tax** separately. Collected tax is never included in Sales, Net Sales, or average sale.
 

@@ -47,6 +47,13 @@ const registerDayServerSource = readFileSync(
   new URL("../../server/src/logic/register_day_activity.rs", import.meta.url),
   "utf8",
 );
+const bookingEventMigrationSource = readFileSync(
+  new URL(
+    "../../migrations/144_transaction_line_booking_event_delete_integrity.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const dailyFinancialReportSource = readFileSync(
   new URL("../../server/src/logic/daily_report.rs", import.meta.url),
   "utf8",
@@ -255,7 +262,7 @@ test.describe("Register report output integrity contracts", () => {
       'ReportBasis::Booked => "be.line_subtotal".to_string()',
     );
     expect(registerDayServerSource).toContain(
-      "WHERE ln.line_subtotal <> 0 OR ln.line_tax <> 0",
+      "AND (ln.line_subtotal <> 0 OR ln.line_tax <> 0)",
     );
     expect(registerDayServerSource).toContain(
       "IN ('SHIPPING', 'ROS-SHIPPING-FEE')",
@@ -354,6 +361,47 @@ test.describe("Register report output integrity contracts", () => {
     );
     expect(commissionEventsSource).toContain(
       "NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')",
+    );
+  });
+
+  test("signed order decreases reduce booked totals and remain visible as activity", () => {
+    const bookedSummaryQuery = registerDayServerSource.slice(
+      registerDayServerSource.indexOf("WITH ros_booking_activity AS ("),
+      registerDayServerSource.indexOf("counterpoint_booking_activity AS ("),
+    );
+    const bookedActivityJoin = registerDayServerSource.slice(
+      registerDayServerSource.indexOf("let sales_event_join = match basis"),
+      registerDayServerSource.indexOf("let sales_order_in_range"),
+    );
+    const signedActivityPresence = registerDayServerSource.slice(
+      registerDayServerSource.indexOf("let sales_activity_presence_filter"),
+      registerDayServerSource.indexOf("let sales_sql = format!"),
+    );
+
+    expect(bookedSummaryQuery).toContain(
+      "HAVING SUM(e.subtotal_delta) <> 0 OR SUM(e.tax_delta) <> 0",
+    );
+    expect(bookedSummaryQuery).not.toContain(
+      "HAVING SUM(e.subtotal_delta + e.tax_delta) > 0",
+    );
+    expect(bookedActivityJoin).toContain(
+      "HAVING SUM(e.subtotal_delta) <> 0 OR SUM(e.tax_delta) <> 0",
+    );
+    expect(signedActivityPresence).toContain(
+      'ReportBasis::Booked => "TRUE"',
+    );
+    expect(registerDayServerSource).toContain("AND ln.countable_sale");
+    expect(registerDayServerSource).toContain(
+      '"Order Adjustment (Decrease)".to_string()',
+    );
+    expect(registerDayServerSource).toContain(
+      "amount_label: Some(currency_label(s.sales_total_booked))",
+    );
+    expect(bookingEventMigrationSource).toContain(
+      "OLD.transaction_id, NULL, 'line_deleted', CURRENT_TIMESTAMP",
+    );
+    expect(bookingEventMigrationSource).toContain(
+      "NEW.transaction_id, NEW.id, 'line_amendment', CURRENT_TIMESTAMP",
     );
   });
 

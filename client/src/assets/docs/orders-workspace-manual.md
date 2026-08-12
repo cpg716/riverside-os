@@ -52,7 +52,7 @@ The Orders workspace is the main place to review Special, Custom, and Wedding or
 - **Custom** means a made-to-measure garment order.
 - **Wedding** means the order is tied to a wedding member or party workflow.
 - For Custom orders, sale price is entered at booking and actual vendor cost is entered when the garment is received.
-- Merchandise added to an older open Transaction is booked on the date it is added. If staff remove and add items as a switch, Daily Sales books only a positive net increase for that day; an equal or negative net change is retained in the audit timeline without becoming new Booked Sales.
+- Merchandise added to or removed from an older open Transaction is booked on the store-local amendment date, never the original Transaction date. Daily Sales and the Z-Report apply the signed net change for that day: increases raise Booked Subtotal, decreases reduce it without increasing the sale count, and an equal-value switch contributes $0 while retaining its audit detail.
 - Order detail shows the main Custom booking references, such as fabric, style, model, size anchors, sleeve or cuff measurements, and vendor reference notes. Use **Edit Custom Order** when those saved details need correction.
 - Wedding order detail should show the linked party, member role, and event date so staff know to keep balances and pickup work in the wedding workflow.
 - A paid wedding balance does not automatically mean the order is ready. Confirm the linked member is actually ready for pickup before release.
