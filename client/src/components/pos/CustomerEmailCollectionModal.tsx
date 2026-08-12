@@ -54,7 +54,7 @@ export default function CustomerEmailCollectionModal({
   const submit = async (decision: "save" | "customer_declined") => {
     const normalizedEmail = email.trim();
     if (decision === "save" && !normalizedEmail) {
-      toast("Enter the customer's email address, or choose Skip.", "error");
+      toast("Enter the customer's email address, or choose Skip.", "warning");
       return;
     }
     setBusy(true);

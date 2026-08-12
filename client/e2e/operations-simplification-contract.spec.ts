@@ -17,6 +17,7 @@ test("staff operations uses live proof and keeps raw diagnostics advanced", asyn
   expect(operationsCenter).toContain("Routine staff corrections");
   expect(bugManager).toContain("Automated diagnostics");
   expect(bugManager).toContain("Similar events are grouped into one row");
+  expect(bugManager).toContain(`"enter the customer's email address"`);
   expect(bugManager).toMatch(/eventTriageFilter[\s\S]*ErrorEventTriage[\s\S]*\("action"\)/);
 });
 

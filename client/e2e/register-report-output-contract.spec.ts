@@ -114,6 +114,12 @@ test.describe("Register report output integrity contracts", () => {
     expect(customerEmailCollectionModalSource).toContain("Skip");
     expect(customerEmailCollectionModalSource).toContain("Customer declined");
     expect(customerEmailCollectionModalSource).toContain(
+      `toast("Enter the customer's email address, or choose Skip.", "warning")`,
+    );
+    expect(customerEmailCollectionModalSource).not.toContain(
+      `toast("Enter the customer's email address, or choose Skip.", "error")`,
+    );
+    expect(customerEmailCollectionModalSource).toContain(
       'submit("customer_declined")',
     );
     expect(cartSource).toContain("/email-collection");

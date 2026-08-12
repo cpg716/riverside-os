@@ -202,6 +202,7 @@ function classifyErrorEvent(event: ErrorEventRow): ErrorEventTriage {
     "validation",
     "must be provided",
     "is required",
+    "enter the customer's email address",
     "not configured",
     "invalid status transition",
   ];

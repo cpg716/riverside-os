@@ -22,19 +22,21 @@ status: approved
 ## What this is
 
 Bug Reports Settings is the support review area for submitted reports and automated diagnostic incidents. It is split into two primary areas:
-- **Bug Reports:** Manual tickets submitted directly by staff with custom context and optional screenshots.
-- **Developer Errors:** Automated system alerts and exceptions captured from both the server (Rust) and client (React) runtimes.
+- **Staff reports:** Manual tickets submitted directly by staff with custom context and optional screenshots.
+- **Automated diagnostics:** Actionable failures and retained support evidence captured from both the server and client runtimes.
+
+Routine field guidance is not a product failure. For example, choosing **Save email** with an empty email field shows a warning and is not added to Automated diagnostics. Previously retained copies of that guidance appear only as **Background info**.
 
 It helps managers and support staff see what was reported, which workstation or route was involved, and whether the captured diagnostics are enough to reproduce the problem. It is also available in the standalone **Dev Ops Center** macOS app for immediate offline diagnostic collection and copy-to-clipboard AI diagnostics formatting.
 
 ## How to use it
 
 1. Open Bug Reports Settings from the protected settings area (or open the Standalone macOS DevOps application).
-2. Select the tab for either **Bug Reports** or **Developer Errors**.
-3. Select the report or incident needing review to open its details dialog. The Error events list loads only the queue summary; detailed browser and server diagnostics load after you choose **View**.
+2. Select **Staff reports** or **Automated diagnostics**.
+3. In Automated diagnostics, start with **Action needed**. Use **Recurring** for repeated connection evidence and **Background info** for retained validation or setup context. Select an incident to open its details dialog; detailed browser and server diagnostics load after you choose **View**.
 4. Use **Copy AI Package** to grab the pre-packaged context, error logs, and system variables formatted as a developer prompt, ready to paste directly into AI editors.
 5. Use the download buttons in the details dialog to save the AI diagnostic JSON, screenshot PNG, support log, or browser log. ROS shows a saved or failed message after the desktop save finishes.
-6. Use **Download AI Diagnostic** on developer errors to save the diagnostic payload as an `.md` report.
+6. Use **Download AI Diagnostic** on automated diagnostics to save the diagnostic payload as an `.md` report.
 7. Share the report ID or correlation ID with support when needed.
 
 ## When to use it
