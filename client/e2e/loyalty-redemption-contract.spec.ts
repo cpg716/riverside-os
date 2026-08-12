@@ -366,6 +366,79 @@ test.describe("Loyalty redemption contract", () => {
     expect(ledger.filter((row) => row.reason === "reward_redemption")).toHaveLength(1);
   });
 
+  test("reward blocks can be combined on one card and split across additional cards", async ({
+    request,
+  }) => {
+    const fixture = await seedRmsFixture(request, "single_valid", "Loyalty Split Reward");
+    const summary = await fetchLoyaltyProgramSummary(request);
+    const startingSummary = await fetchLoyaltyCustomerSummary(request, fixture.customer.id);
+    const firstCardCode = `LOY-SPLIT-100-${Date.now()}`;
+    const secondCardCode = `LOY-SPLIT-50-${Date.now()}`;
+    const threeRewardBlocks = summary.loyalty_point_threshold * 3;
+
+    await adjustPoints(
+      request,
+      fixture.customer.id,
+      threeRewardBlocks,
+      "E2E loyalty split reward setup",
+    );
+
+    const firstRedeem = await request.post(`${apiBase()}/api/loyalty/redeem-reward`, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+        ...staffHeaders(),
+      },
+      data: {
+        redemption_request_id: crypto.randomUUID(),
+        customer_id: fixture.customer.id,
+        points_to_redeem: summary.loyalty_point_threshold * 2,
+        apply_to_sale: "0.00",
+        remainder_card_code: firstCardCode,
+      },
+      failOnStatusCode: false,
+    });
+    expect(firstRedeem.status()).toBe(200);
+    const firstBody = (await firstRedeem.json()) as {
+      new_balance: number;
+      points_deducted: number;
+      remainder_loaded: string | number;
+    };
+    expect(firstBody.points_deducted).toBe(summary.loyalty_point_threshold * 2);
+    expect(Number(firstBody.remainder_loaded)).toBe(Number(summary.loyalty_reward_amount) * 2);
+    expect(firstBody.new_balance).toBe(
+      startingSummary.loyalty_points + summary.loyalty_point_threshold,
+    );
+
+    const secondRedeem = await request.post(`${apiBase()}/api/loyalty/redeem-reward`, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+        ...staffHeaders(),
+      },
+      data: {
+        redemption_request_id: crypto.randomUUID(),
+        customer_id: fixture.customer.id,
+        points_to_redeem: summary.loyalty_point_threshold,
+        apply_to_sale: "0.00",
+        remainder_card_code: secondCardCode,
+      },
+      failOnStatusCode: false,
+    });
+    expect(secondRedeem.status()).toBe(200);
+    const secondBody = (await secondRedeem.json()) as {
+      new_balance: number;
+      remainder_loaded: string | number;
+    };
+    expect(secondBody.new_balance).toBe(startingSummary.loyalty_points);
+    expect(Number(secondBody.remainder_loaded)).toBe(Number(summary.loyalty_reward_amount));
+
+    const firstCard = await lookupGiftCard(request, firstCardCode);
+    const secondCard = await lookupGiftCard(request, secondCardCode);
+    expect(Number(firstCard.current_balance)).toBe(Number(summary.loyalty_reward_amount) * 2);
+    expect(Number(secondCard.current_balance)).toBe(Number(summary.loyalty_reward_amount));
+  });
+
   test("manual loyalty adjustments return operator-friendly history detail", async ({
     request,
   }) => {

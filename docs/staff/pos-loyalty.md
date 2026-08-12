@@ -25,11 +25,12 @@
 ### Issue a reward card
 
 1. Confirm the configured **threshold** is met. Riverside enforces a minimum threshold of 5,000 points.
-2. Scan or enter a **loyalty gift card code** in the reward dialog.
-3. Issue the reward to that card.
-4. If the customer is checking out right now, complete the sale separately in the register.
+2. Choose how many configured reward blocks to load on this card. With a $50 reward, 2 blocks loads $100.
+3. Scan or enter a **loyalty gift card code** in the reward dialog.
+4. Issue the selected value to that card. Repeat with another card, or leave unused blocks on the loyalty account for later.
+5. If the customer is checking out right now, complete the sale separately in the register.
 
-Use a row's **Redeem Reward** button for one customer. For a group, select the customers, choose **Start Batch**, and scan one loyalty card per available reward block. Print letters and labels after the batch from the same fulfillment window.
+Use a row's **Redeem Reward** button for one customer. For a group, select the customers, choose **Start Batch**, then choose the reward amount for each scanned card. Print letters and labels after the batch from the same fulfillment window.
 
 ### Customer says “I should have more points”
 
@@ -66,4 +67,4 @@ Use a row's **Redeem Reward** button for one customer. For a group, select the c
 - [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md)
 - [customers-back-office.md](customers-back-office.md)
 
-**Last reviewed:** 2026-08-09
+**Last reviewed:** 2026-08-12

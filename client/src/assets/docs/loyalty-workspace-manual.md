@@ -46,10 +46,11 @@ This is the primary operational list. It shows customers who have reached the re
 ### Fulfillment Workflow
 1. **Refresh Eligible Customers**: Use the refresh button to pull the latest balances.
 2. Use **Previous** and **Next** when the eligible pool spans more than one page.
-3. **Redeem Reward**: Each row shows the number and dollar value of rewards ready plus the current points threshold. Click **Redeem Reward** to open the redemption dialog. This deducts the points and issues the selected reward value to a loyalty gift card.
-4. **Single fulfillment**: Use a row's **Redeem Reward** button to issue one customer's available reward cards.
-5. **Group fulfillment**: Select multiple customers, then use **Start Batch**. Scan one card per reward block for each customer. Closing a partially completed batch refreshes balances and eligibility.
-6. **Letters and labels**: Use **Print letter** for one customer. At batch completion, **Print all letters** creates one print job with one letter per customer, and **Print mailing labels** creates one label per customer. **Select Page** and **Print Page Labels** apply to the current page.
+3. **Redeem Reward**: Each row shows the number and dollar value of rewards ready plus the current points threshold. Click **Redeem Reward** to open the redemption dialog.
+4. **Choose each card's value**: Select how many configured reward blocks go on the scanned card. With the standard $50 reward, 2 blocks loads $100 and 7 blocks loads $350.
+5. **Split or save the rest**: Issue another card for the remaining blocks, or use **Skip customer** / close the dialog to leave them available on the loyalty account.
+6. **Group fulfillment**: Select multiple customers, then use **Start Batch**. Choose the amount for each scanned card as you move through the selected customers. Closing a partially completed batch refreshes balances and eligibility.
+7. **Letters and labels**: Use **Print letter** for one customer. At batch completion, **Print all letters** creates one print job with one letter per customer, and **Print mailing labels** creates one label per customer. **Select Page** and **Print Page Labels** apply to the current page.
 
 ## Loyalty Activity
 
@@ -85,7 +86,7 @@ You can edit the "Thank You" letter text directly in the **Program Settings** ta
 - `{{issue_date}}` and `{{expiration_date}}`: Dates saved by the server for the issued reward card.
 
 #### Fulfillment Workflow
-1. **Redeem**: Points are deducted and the full reward is issued to a loyalty gift card.
+1. **Redeem**: Points are deducted only for the reward blocks selected for that loyalty gift card.
 2. **History**: Navigate to the History tab to find the issuance.
 3. **Print**: Click the **Print Letter** icon. Riverside OS merges the template with the member data for a ready-to-mail fulfillment packet.
 

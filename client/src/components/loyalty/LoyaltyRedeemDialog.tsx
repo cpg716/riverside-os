@@ -39,6 +39,7 @@ export function LoyaltyRedeemDialog({
   const { toast } = useToast();
   const rewardCents = parseMoneyToCents(rewardAmountRaw);
   const [cardCode, setCardCode] = useState("");
+  const [rewardUnits, setRewardUnits] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cardInputRef = useRef<HTMLInputElement>(null);
@@ -53,16 +54,29 @@ export function LoyaltyRedeemDialog({
   useEffect(() => {
     if (!isOpen || !customer) return;
     setCardCode("");
+    setRewardUnits(1);
     setError(null);
     redemptionRequestRef.current = null;
   }, [isOpen, customer]);
 
   if (!isOpen || !customer) return null;
 
-  const remainderCents = rewardCents;
+  const maxRewardUnits = pointThreshold > 0
+    ? Math.floor(customer.loyalty_points / pointThreshold)
+    : 0;
+  const selectedRewardUnits = Math.min(Math.max(1, rewardUnits), maxRewardUnits || 1);
+  const pointsToRedeem = pointThreshold * selectedRewardUnits;
+  const remainderCents = rewardCents * selectedRewardUnits;
+  const remainingPoints = Math.max(0, customer.loyalty_points - pointsToRedeem);
 
   const submit = async () => {
     setError(null);
+    if (rewardUnits < 1 || rewardUnits > maxRewardUnits) {
+      setError(
+        `Choose between 1 and ${maxRewardUnits.toLocaleString()} reward blocks for this card.`,
+      );
+      return;
+    }
     if (!cardCode.trim()) {
       setError(
         `Enter or scan a gift card code to load $${centsToFixed2(remainderCents)}.`,
@@ -72,7 +86,7 @@ export function LoyaltyRedeemDialog({
     setBusy(true);
     try {
       const normalizedCardCode = cardCode.trim().toUpperCase();
-      const requestKey = `${customer.id}:${normalizedCardCode}:${pointThreshold}`;
+      const requestKey = `${customer.id}:${normalizedCardCode}:${pointsToRedeem}`;
       if (redemptionRequestRef.current?.key !== requestKey) {
         redemptionRequestRef.current = { key: requestKey, id: crypto.randomUUID() };
       }
@@ -85,7 +99,7 @@ export function LoyaltyRedeemDialog({
         body: JSON.stringify({
           redemption_request_id: redemptionRequestRef.current.id,
           customer_id: customer.id,
-          points_to_redeem: pointThreshold,
+          points_to_redeem: pointsToRedeem,
           apply_to_sale: centsToFixed2(0),
           remainder_card_code: normalizedCardCode,
           notify_customer_sms: false,
@@ -121,7 +135,7 @@ export function LoyaltyRedeemDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative w-full max-w-lg overflow-hidden rounded-[48px] border border-white/10 bg-app-surface shadow-[0_32px_128px_rgba(0,0,0,0.8)] animate-in zoom-in-95 duration-500 ring-1 ring-white/5"
+        className="relative max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-[48px] border border-white/10 bg-app-surface shadow-[0_32px_128px_rgba(0,0,0,0.8)] animate-in zoom-in-95 duration-500 ring-1 ring-white/5"
       >
         {/* Accent background */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(var(--app-accent-rgb),0.2),transparent_70%)] opacity-50" />
@@ -174,10 +188,10 @@ export function LoyaltyRedeemDialog({
                 </div>
               </div>
               <div className="text-right space-y-1">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-600/70">Reward Amount</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-600/70">Load This Card</p>
                 <div className="flex items-baseline justify-end gap-1">
                     <p className="text-5xl font-black tabular-nums text-emerald-500 tracking-tighter">
-                      ${centsToFixed2(rewardCents)}
+                      ${centsToFixed2(remainderCents)}
                     </p>
                     <span className="text-xs font-black uppercase tracking-widest text-emerald-600/40 italic">usd</span>
                 </div>
@@ -189,13 +203,69 @@ export function LoyaltyRedeemDialog({
                    <TrendingDown size={16} strokeWidth={3} />
                </div>
                <p className="text-[11px] font-black uppercase tracking-[0.05em] text-amber-800 leading-tight">
-                This will remove <span className="underline decoration-amber-500/30 underline-offset-4">{pointThreshold.toLocaleString()} pts</span> from the customer's loyalty balance.
+                This will remove <span className="underline decoration-amber-500/30 underline-offset-4">{pointsToRedeem.toLocaleString()} pts</span> and leave {remainingPoints.toLocaleString()} pts available.
                </p>
             </div>
           </div>
 
           <div className="space-y-8">
             <div className="grid grid-cols-1 gap-6">
+                  <div className="rounded-[24px] border border-app-border bg-app-surface-2/80 p-4">
+                    <div className="flex flex-wrap items-end justify-between gap-4">
+                      <div>
+                        <label
+                          htmlFor="loyalty-dialog-reward-units"
+                          className="text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                        >
+                          ${centsToFixed2(rewardCents)} blocks on this card
+                        </label>
+                        <div className="mt-2 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setRewardUnits((units) => Math.max(1, units - 1))}
+                            disabled={busy || selectedRewardUnits <= 1}
+                            aria-label="Decrease reward amount"
+                            className="ui-btn-secondary h-11 w-11 text-lg font-black disabled:opacity-40"
+                          >
+                            −
+                          </button>
+                          <input
+                            id="loyalty-dialog-reward-units"
+                            type="number"
+                            min={1}
+                            max={maxRewardUnits}
+                            step={1}
+                            value={selectedRewardUnits}
+                            onChange={(event) => {
+                              const nextUnits = Number.parseInt(event.target.value, 10);
+                              setRewardUnits(Number.isFinite(nextUnits)
+                                ? Math.min(maxRewardUnits, Math.max(1, nextUnits))
+                                : 1);
+                            }}
+                            disabled={busy || maxRewardUnits <= 0}
+                            className="ui-input h-11 w-20 text-center text-lg font-black tabular-nums"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setRewardUnits((units) => Math.min(maxRewardUnits, units + 1))}
+                            disabled={busy || selectedRewardUnits >= maxRewardUnits}
+                            aria-label="Increase reward amount"
+                            className="ui-btn-secondary h-11 w-11 text-lg font-black disabled:opacity-40"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setRewardUnits(maxRewardUnits)}
+                        disabled={busy || maxRewardUnits <= 0 || selectedRewardUnits === maxRewardUnits}
+                        className="ui-btn-secondary h-11 px-4 text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+                      >
+                        Use all (${centsToFixed2(rewardCents * maxRewardUnits)})
+                      </button>
+                    </div>
+                  </div>
                   <label className="block animate-in fade-in slide-in-from-right-4 duration-500 space-y-2 group/card">
                     <div className="flex items-center gap-2 px-1">
                         <CreditCard size={12} className="text-app-text-muted opacity-40 group-focus-within/card:text-amber-500 group-focus-within/card:opacity-100 transition-all" />
@@ -210,6 +280,7 @@ export function LoyaltyRedeemDialog({
                         placeholder="Scan Card Code..."
                         value={cardCode}
                         onChange={(e) => setCardCode(e.target.value.toUpperCase())}
+                        disabled={busy}
                         className="ui-input w-full pl-14 font-mono text-lg font-black tracking-[0.2em] uppercase placeholder:text-[10px] placeholder:tracking-widest h-20 rounded-[24px] focus:ring-amber-500 focus:border-amber-500"
                       />
                       <Plus className="absolute left-6 top-1/2 -translate-y-1/2 h-6 w-6 text-app-text-muted opacity-40" />
@@ -248,7 +319,7 @@ export function LoyaltyRedeemDialog({
                 {busy ? "Issuing Reward..." : (
                   <div className="flex items-center justify-center gap-3">
                     <Sparkles size={20} className="text-emerald-300" />
-                    {"Issue Loyalty Gift Card"}
+                    {`Issue $${centsToFixed2(remainderCents)} Card`}
                   </div>
                 )}
               </button>

@@ -65,10 +65,11 @@ The dashboard cards show only **open** cards: active status, a positive balance,
 2. Select the customers you want to fulfill in this batch.
 3. Confirm each row's visible reward count, dollar value, and points-per-reward threshold before starting fulfillment.
 4. Click **Start Batch**.
-5. For each customer, scan one loyalty gift card per reward block. With the standard 5,000-point / $50 program, a customer with 15,000 points gets three separate $50 gift cards.
-6. After the cards are issued, use **Print letter** for one customer or **Print all letters** when the batch is complete. A bulk print creates one print job with one letter per customer. Each letter can include the server-saved issue and one-year expiration dates, card count, card codes, and card table.
-7. Use **Print labels** for the completed customers. Riverside removes duplicate customers so a person with multiple reward cards receives one mailing label.
-8. Open **Reward History** to reprint one letter/label, or select multiple issuance rows and use **Print Letters** / **Print Labels** for a group. Selected cards for the same customer are combined into one letter.
+5. For each scanned gift card, choose how many reward blocks to load. With the standard 5,000-point / $50 program, 2 blocks loads $100 and 7 blocks loads $350.
+6. Repeat with another card to split the reward, or use **Skip customer** / close the dialog to leave unused blocks available. For example, $150 can be split as $100 + $50, while $400 can be redeemed as $350 with $50 left on the loyalty account.
+7. After the cards are issued, use **Print letter** for one customer or **Print all letters** when the batch is complete. A bulk print creates one print job with one letter per customer. Each letter can include the server-saved issue and one-year expiration dates, card count, card codes, and card table.
+8. Use **Print labels** for the completed customers. Riverside removes duplicate customers so a person with multiple reward cards receives one mailing label.
+9. Open **Reward History** to reprint one letter/label, or select multiple issuance rows and use **Print Letters** / **Print Labels** for a group. Selected cards for the same customer are combined into one letter.
 
 If you close a batch after issuing one or more cards, Riverside refreshes eligibility and totals before returning to the workspace. Reopening or retrying the same in-progress card request does not deduct the points or load the card a second time.
 

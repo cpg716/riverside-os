@@ -86,6 +86,11 @@ test("Loyalty supports single and group fulfillment controls", async ({ page }) 
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await signInToBackOffice(page);
+  let alexBalance = 15_000;
+  const redemptionRequests: Array<{
+    points_to_redeem: number;
+    remainder_card_code: string;
+  }> = [];
 
   await page.route("**/api/loyalty/pipeline-stats", async (route) => {
     await route.fulfill({
@@ -121,7 +126,7 @@ test("Loyalty supports single and group fulfillment controls", async ({ page }) 
           customer_code: "C-1001",
           first_name: "Alex",
           last_name: "Rivera",
-          loyalty_points: 10000,
+          loyalty_points: alexBalance,
           address_line1: "1 Main St",
           city: "Buffalo",
           state: "NY",
@@ -139,6 +144,32 @@ test("Loyalty supports single and group fulfillment controls", async ({ page }) 
           zip: "14202",
         },
       ]),
+    });
+  });
+  await page.route("**/api/loyalty/redeem-reward", async (route) => {
+    const body = route.request().postDataJSON() as {
+      points_to_redeem: number;
+      remainder_card_code: string;
+    };
+    redemptionRequests.push({
+      points_to_redeem: body.points_to_redeem,
+      remainder_card_code: body.remainder_card_code,
+    });
+    alexBalance -= body.points_to_redeem;
+    const rewardAmount = (body.points_to_redeem / 5_000) * 50;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        new_balance: alexBalance,
+        points_deducted: body.points_to_redeem,
+        remainder_loaded: rewardAmount.toFixed(2),
+        reward_card_code: body.remainder_card_code,
+        reward_card_issued_at: "2026-08-12T14:00:00Z",
+        reward_card_expires_at: "2027-08-12T14:00:00Z",
+        reward_card_kind: "loyalty_reward",
+        reward_card_is_liability: false,
+      }),
     });
   });
   await page.route("**/api/loyalty/recent-issuances", async (route) => {
@@ -194,6 +225,19 @@ test("Loyalty supports single and group fulfillment controls", async ({ page }) 
 
   await page.getByRole("button", { name: "Redeem Reward" }).first().click();
   await expect(page.getByText("Customer 1 of 1")).toBeVisible();
+  const rewardBlocks = page.getByLabel("Reward blocks on this card");
+  await rewardBlocks.fill("2");
+  await page.getByPlaceholder("Scan card...").fill("LOY-SPLIT-100");
+  await expect(page.getByRole("button", { name: "Issue $100.00 card" })).toBeVisible();
+  await page.getByRole("button", { name: "Issue $100.00 card" }).click();
+  await expect(page.getByText("5,000 pts remaining").first()).toBeVisible();
+  await page.getByPlaceholder("Scan card...").fill("LOY-SPLIT-50");
+  await page.getByRole("button", { name: "Issue $50.00 card" }).click();
+  await expect(page.getByRole("heading", { name: "Batch complete" })).toBeVisible();
+  expect(redemptionRequests).toEqual([
+    { points_to_redeem: 10_000, remainder_card_code: "LOY-SPLIT-100" },
+    { points_to_redeem: 5_000, remainder_card_code: "LOY-SPLIT-50" },
+  ]);
   await page.getByRole("button", { name: "Close loyalty reward batch" }).click();
 
   const expandSidebar = page.getByRole("button", { name: "Expand sidebar" });

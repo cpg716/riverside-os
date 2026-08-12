@@ -324,7 +324,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "loyalty-redeem-dialog",
     title: "Reward Redemption Dialog",
-    summary: "Finalize loyalty reward redemptions by issuing the full reward to a loyalty gift card.",
+    summary: "Load one or more configured reward blocks onto each loyalty gift card.",
     markdown: manual_35_raw,
     tags: ["loyalty","redemption","gift-cards","checkout"],
   },

@@ -704,6 +704,7 @@ function LoyaltyBatchRedeemDialog({
   const [customerIndex, setCustomerIndex] = useState(0);
   const [balances, setBalances] = useState<Record<string, number>>({});
   const [cardCode, setCardCode] = useState("");
+  const [rewardUnits, setRewardUnits] = useState(1);
   const [issued, setIssued] = useState<BatchIssuedReward[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -726,6 +727,11 @@ function LoyaltyBatchRedeemDialog({
   const currentBalance = current ? (balances[current.id] ?? current.loyalty_points) : 0;
   const maxUnits = Math.floor(currentBalance / threshold);
   const singleRewardAmount = centsToFixed2(rewardCents);
+  const selectedRewardUnits = Math.min(Math.max(1, rewardUnits), maxUnits || 1);
+  const selectedPoints = threshold * selectedRewardUnits;
+  const selectedRewardCents = rewardCents * selectedRewardUnits;
+  const selectedRewardAmount = centsToFixed2(selectedRewardCents);
+  const pointsAfterSelectedCard = Math.max(0, currentBalance - selectedPoints);
   const completed = current == null || customerIndex >= customers.length;
 
   useEffect(() => {
@@ -733,6 +739,7 @@ function LoyaltyBatchRedeemDialog({
     setCustomerIndex(0);
     setBalances(Object.fromEntries(customers.map((customer) => [customer.id, customer.loyalty_points])));
     setCardCode("");
+    setRewardUnits(1);
     setIssued([]);
     setBusy(false);
     setError(null);
@@ -741,11 +748,8 @@ function LoyaltyBatchRedeemDialog({
 
   useEffect(() => {
     if (!isOpen || !current) return;
-    setCardCode("");
-    setError(null);
-    redemptionRequestRef.current = null;
     window.setTimeout(() => cardInputRef.current?.focus(), 50);
-  }, [current, isOpen, maxUnits, threshold]);
+  }, [current, isOpen]);
 
   if (!isOpen) return null;
   const root = document.getElementById("drawer-root");
@@ -834,6 +838,10 @@ function LoyaltyBatchRedeemDialog({
       setError("This customer does not have enough points for another reward card.");
       return;
     }
+    if (rewardUnits < 1 || rewardUnits > maxUnits) {
+      setError(`Choose between 1 and ${maxUnits.toLocaleString()} reward blocks for this card.`);
+      return;
+    }
     if (!cardCode.trim()) {
       setError("Scan or enter the gift card code before issuing.");
       return;
@@ -841,7 +849,7 @@ function LoyaltyBatchRedeemDialog({
     setBusy(true);
     try {
       const normalizedCardCode = cardCode.trim().toUpperCase();
-      const requestKey = `${current.id}:${normalizedCardCode}:${threshold}`;
+      const requestKey = `${current.id}:${normalizedCardCode}:${selectedPoints}`;
       if (redemptionRequestRef.current?.key !== requestKey) {
         redemptionRequestRef.current = { key: requestKey, id: crypto.randomUUID() };
       }
@@ -855,7 +863,7 @@ function LoyaltyBatchRedeemDialog({
         body: JSON.stringify({
           redemption_request_id: redemptionRequestId,
           customer_id: current.id,
-          points_to_redeem: threshold,
+          points_to_redeem: selectedPoints,
           apply_to_sale: centsToFixed2(0),
           remainder_card_code: normalizedCardCode,
         }),
@@ -886,13 +894,13 @@ function LoyaltyBatchRedeemDialog({
       if (Number.isNaN(issuedOn.getTime()) || Number.isNaN(expiresOn.getTime())) {
         throw new Error("The server did not return the saved reward-card expiration.");
       }
-      const rewardAmount = centsToFixed2(parseMoneyToCents(data.remainder_loaded ?? singleRewardAmount));
+      const rewardAmount = centsToFixed2(parseMoneyToCents(data.remainder_loaded ?? selectedRewardAmount));
       const issueDate = formatLetterDate(issuedOn);
       const expirationDate = formatLetterDate(expiresOn);
       const issuedRow: BatchIssuedReward = {
         customer: current,
         card_code: normalizedCardCode,
-        points_deducted: data.points_deducted ?? threshold,
+        points_deducted: data.points_deducted ?? selectedPoints,
         reward_amount: rewardAmount,
         issue_date: issueDate,
         expiration_date: expirationDate,
@@ -901,10 +909,11 @@ function LoyaltyBatchRedeemDialog({
       redemptionRequestRef.current = null;
       setBalances((currentBalances) => ({
         ...currentBalances,
-        [current.id]: data.new_balance ?? Math.max(0, currentBalance - threshold),
+        [current.id]: data.new_balance ?? pointsAfterSelectedCard,
       }));
       setCardCode("");
-      const nextBalance = data.new_balance ?? Math.max(0, currentBalance - threshold);
+      setRewardUnits(1);
+      const nextBalance = data.new_balance ?? pointsAfterSelectedCard;
       if (nextBalance < threshold) {
         moveNext();
       } else {
@@ -939,7 +948,7 @@ function LoyaltyBatchRedeemDialog({
               Issue cards, then print letters and labels
             </h2>
             <p className="mt-1 max-w-3xl text-xs font-semibold leading-5 text-app-text-muted">
-              Each scanned card issues one configured reward. Print one combined letter per customer after the cards are issued.
+              Choose how many reward blocks to load on each scanned card. You can split the available value across cards or leave unused blocks on the customer account.
             </p>
           </div>
           <button
@@ -966,7 +975,13 @@ function LoyaltyBatchRedeemDialog({
                   <button
                     key={customer.id}
                     type="button"
-                    onClick={() => setCustomerIndex(index)}
+                    onClick={() => {
+                      setCustomerIndex(index);
+                      setCardCode("");
+                      setRewardUnits(1);
+                      setError(null);
+                      redemptionRequestRef.current = null;
+                    }}
                     className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
                       index === customerIndex
                         ? "border-app-accent bg-app-accent/10"
@@ -1050,7 +1065,7 @@ function LoyaltyBatchRedeemDialog({
                   </div>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
                   <label className="block">
                     <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Gift card code
@@ -1059,6 +1074,7 @@ function LoyaltyBatchRedeemDialog({
                       ref={cardInputRef}
                       value={cardCode}
                       onChange={(event) => setCardCode(event.target.value.toUpperCase())}
+                      disabled={busy}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") void issueCurrentCard();
                       }}
@@ -1068,14 +1084,82 @@ function LoyaltyBatchRedeemDialog({
                   </label>
                   <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3">
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      This card
+                      Available rewards
                     </p>
                     <p className="mt-1 text-sm font-black text-app-text">
-                      {threshold.toLocaleString()} pts · ${singleRewardAmount}
+                      {maxUnits.toLocaleString()} × ${singleRewardAmount} = ${centsToFixed2(rewardCents * maxUnits)}
                     </p>
                     <p className="mt-1 text-[10px] font-bold text-app-text-muted">
-                      {maxUnits.toLocaleString()} card{maxUnits === 1 ? "" : "s"} available for this customer
+                      Load one or several ${singleRewardAmount} blocks on this card
                     </p>
+                  </div>
+                </div>
+
+                <div className="rounded-[28px] border border-app-border bg-app-surface-2 p-4">
+                  <div className="flex flex-wrap items-end justify-between gap-4">
+                    <div>
+                      <label
+                        htmlFor="loyalty-reward-units"
+                        className="text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                      >
+                        Reward blocks on this card
+                      </label>
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setRewardUnits((units) => Math.max(1, units - 1))}
+                          disabled={busy || selectedRewardUnits <= 1}
+                          aria-label="Decrease reward amount"
+                          className="ui-btn-secondary h-11 w-11 text-lg font-black disabled:opacity-40"
+                        >
+                          −
+                        </button>
+                        <input
+                          id="loyalty-reward-units"
+                          type="number"
+                          min={1}
+                          max={maxUnits}
+                          step={1}
+                          value={selectedRewardUnits}
+                          onChange={(event) => {
+                            const nextUnits = Number.parseInt(event.target.value, 10);
+                            setRewardUnits(Number.isFinite(nextUnits)
+                              ? Math.min(maxUnits, Math.max(1, nextUnits))
+                              : 1);
+                          }}
+                          disabled={busy || maxUnits <= 0}
+                          className="ui-input h-11 w-20 text-center text-lg font-black tabular-nums"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setRewardUnits((units) => Math.min(maxUnits, units + 1))}
+                          disabled={busy || selectedRewardUnits >= maxUnits}
+                          aria-label="Increase reward amount"
+                          className="ui-btn-secondary h-11 w-11 text-lg font-black disabled:opacity-40"
+                        >
+                          +
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRewardUnits(maxUnits)}
+                          disabled={busy || maxUnits <= 0 || selectedRewardUnits === maxUnits}
+                          className="ui-btn-secondary h-11 px-4 text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+                        >
+                          Use all (${centsToFixed2(rewardCents * maxUnits)})
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Load on this card
+                      </p>
+                      <p className="text-3xl font-black text-app-success">
+                        ${selectedRewardAmount}
+                      </p>
+                      <p className="text-[10px] font-bold text-app-text-muted">
+                        {selectedPoints.toLocaleString()} pts · {pointsAfterSelectedCard.toLocaleString()} pts remain
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -1089,10 +1173,10 @@ function LoyaltyBatchRedeemDialog({
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-[28px] border border-app-border bg-app-surface-2 p-4">
                   <div>
                     <p className="text-sm font-black text-app-text">
-                      This card will load ${singleRewardAmount}
+                      This card will load ${selectedRewardAmount}
                     </p>
                     <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                      Print one letter for this customer, or print all letters and labels when the batch is complete.
+                      Choose another card for the remaining rewards, or skip this customer to leave them available for later.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1130,7 +1214,7 @@ function LoyaltyBatchRedeemDialog({
                       className="ui-btn-primary inline-flex items-center gap-2 px-5 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                     >
                       <Award className="h-4 w-4" aria-hidden />
-                      {busy ? "Issuing..." : `Issue $${singleRewardAmount} card`}
+                      {busy ? "Issuing..." : `Issue $${selectedRewardAmount} card`}
                     </button>
                   </div>
                 </div>
@@ -1216,7 +1300,10 @@ function EligibleList({
     () => customers.filter((customer) => selectedIds.has(customer.id)),
     [customers, selectedIds],
   );
-  const batchCustomers = singleBatchCustomer ? [singleBatchCustomer] : selectedCustomers;
+  const batchCustomers = useMemo(
+    () => singleBatchCustomer ? [singleBatchCustomer] : selectedCustomers,
+    [selectedCustomers, singleBatchCustomer],
+  );
   const visibleStart = customers.length > 0 ? page * ELIGIBLE_PAGE_SIZE + 1 : 0;
   const visibleEnd = page * ELIGIBLE_PAGE_SIZE + customers.length;
   const knownTotal = eligibleTotal ?? visibleEnd;
