@@ -4044,7 +4044,7 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/podium/conversations/{conversation_id}/messages",
-            get(get_podium_conversation_messages),
+            get(get_podium_conversation_messages).post(post_podium_conversation_reply),
         )
         .route(
             "/podium/conversations/{conversation_id}/calls",
@@ -6840,6 +6840,203 @@ struct PostCustomerPodiumReplyBody {
     subject: Option<String>,
     #[serde(default)]
     attachment_png_base64: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PostPodiumConversationReplyBody {
+    channel: String,
+    body: String,
+    #[serde(default)]
+    subject: Option<String>,
+    #[serde(default)]
+    attachment_png_base64: Option<String>,
+}
+
+async fn post_podium_conversation_reply(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(conversation_id): Path<Uuid>,
+    Json(body): Json<PostPodiumConversationReplyBody>,
+) -> Result<Json<serde_json::Value>, CustomerError> {
+    let operator =
+        customer_message_actor_from_perm_or_pos(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
+    let normalized_channel = match body.channel.trim().to_ascii_lowercase().as_str() {
+        "sms" | "phone" => "sms",
+        "email" | "e-mail" => "email",
+        _ => {
+            return Err(CustomerError::BadRequest(
+                "channel must be sms or email".to_string(),
+            ));
+        }
+    };
+    let text = body.body.trim();
+    if text.is_empty() {
+        return Err(CustomerError::BadRequest("body is required".to_string()));
+    }
+    let subject = body.subject.as_deref().unwrap_or("").trim();
+    if normalized_channel == "email" && subject.is_empty() {
+        return Err(CustomerError::BadRequest(
+            "subject is required for email".to_string(),
+        ));
+    }
+
+    let target = podium_messaging::podium_conversation_reply_target(
+        &state.db,
+        conversation_id,
+        normalized_channel,
+    )
+    .await?
+    .ok_or_else(|| {
+        CustomerError::BadRequest(
+            "The selected Podium conversation does not match this channel.".to_string(),
+        )
+    })?;
+
+    let actor = if let (Some(staff_id), Some(sender_name)) = (
+        target.responder_staff_id,
+        target.responder_staff_name.as_deref(),
+    ) {
+        CustomerMessageActor {
+            staff_id: Some(staff_id),
+            sender_name: Some(sender_name.to_string()),
+        }
+    } else {
+        if let Some(staff_id) = operator.staff_id {
+            let _ = podium_messaging::remember_conversation_responder(
+                &state.db,
+                target.conversation_id,
+                staff_id,
+                Some(staff_id),
+            )
+            .await?;
+        }
+        operator
+    };
+
+    if target.channel == "sms" {
+        require_podium_staff_messages_enabled(&state).await?;
+        let phone = target
+            .contact_phone_e164
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                CustomerError::BadRequest(
+                    "This conversation has no reply phone number.".to_string(),
+                )
+            })?;
+        let send_result = if let Some(b64_raw) = body.attachment_png_base64.as_deref() {
+            let b64 = b64_raw.trim();
+            if b64.is_empty() {
+                return Err(CustomerError::BadRequest(
+                    "attachment image was empty".to_string(),
+                ));
+            }
+            let png = general_purpose::STANDARD.decode(b64).map_err(|_| {
+                CustomerError::BadRequest("attachment image is invalid".to_string())
+            })?;
+            if png.is_empty() {
+                return Err(CustomerError::BadRequest(
+                    "attachment image was empty".to_string(),
+                ));
+            }
+            if png.len() > CUSTOMER_MESSAGE_ATTACHMENT_MAX_BYTES {
+                return Err(CustomerError::BadRequest(
+                    "attachment image is too large".to_string(),
+                ));
+            }
+            podium::send_podium_phone_message_with_png_attachment_with_sender_tracked(
+                &state.db,
+                &state.http_client,
+                &state.podium_token_cache,
+                phone,
+                text,
+                png,
+                actor.sender_name.as_deref(),
+            )
+            .await
+            .map_err(|error| {
+                CustomerError::PodiumUnavailable(format!(
+                    "Could not send SMS attachment via Podium ({error}). Check Integrations and env credentials."
+                ))
+            })?
+        } else {
+            podium::send_podium_sms_message_with_sender_tracked(
+                &state.db,
+                &state.http_client,
+                &state.podium_token_cache,
+                phone,
+                text,
+                actor.sender_name.as_deref(),
+            )
+            .await
+            .map_err(|error| {
+                CustomerError::PodiumUnavailable(format!(
+                    "Could not send SMS via Podium ({error}). Check Integrations and env credentials."
+                ))
+            })?
+        };
+        podium_messaging::record_outbound_message_for_conversation(
+            &state.db,
+            target.conversation_id,
+            "sms",
+            text,
+            actor.staff_id,
+            "outbound",
+            send_result.provider_message_id.as_deref(),
+            Some(&send_result.raw_response),
+        )
+        .await?;
+    } else {
+        let email = target
+            .contact_email
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                CustomerError::BadRequest(
+                    "This conversation has no reply email address.".to_string(),
+                )
+            })?;
+        if !podium::looks_like_email(email) {
+            return Err(CustomerError::BadRequest(
+                "The reply email address is invalid.".to_string(),
+            ));
+        }
+        let signature = staff_email_signature(&state.db, actor.staff_id).await?;
+        store_email::send_email(
+            &state.db,
+            email,
+            subject,
+            text,
+            actor.staff_id,
+            signature.as_deref(),
+            "outbound",
+        )
+        .await
+        .map_err(|error| {
+            CustomerError::PodiumUnavailable(format!(
+                "Could not send email ({error}). Check Mailbox settings and saved IONOS credentials."
+            ))
+        })?;
+        podium_messaging::record_outbound_message_for_conversation(
+            &state.db,
+            target.conversation_id,
+            "email",
+            text,
+            actor.staff_id,
+            "outbound",
+            None,
+            None,
+        )
+        .await?;
+    }
+
+    Ok(Json(json!({
+        "ok": true,
+        "responder_staff_id": actor.staff_id,
+        "responder_name": actor.sender_name,
+    })))
 }
 
 async fn resolve_podium_reply_actor(

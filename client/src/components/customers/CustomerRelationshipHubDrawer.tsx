@@ -4034,73 +4034,15 @@ export function CustomerRelationshipHubDrawer({
 
           {tab === "messages" && (
             <div className="space-y-6">
-              <section className="rounded-2xl border border-app-border bg-app-surface p-4">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h3 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                      <Mail size={14} aria-hidden />
-                      Communication timeline
-                    </h3>
-                    <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                      Podium SMS, mailbox email, receipt follow-up, and review
-                      invite activity for {currentProfileName}.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void loadCommunicationTimeline()}
-                    className="ui-btn-secondary px-2 py-1 text-[9px] font-black uppercase tracking-widest"
-                  >
-                    Refresh
-                  </button>
-                </div>
-                {communicationTimelineLoading ? (
-                  <p className="text-xs text-app-text-muted">Loading communication history...</p>
-                ) : communicationTimeline.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-app-border bg-app-surface-2/50 px-4 py-5 text-center text-xs font-semibold text-app-text-muted">
-                    No communication activity has been recorded for {currentProfileName} yet.
-                  </p>
-                ) : (
-                  <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
-                    {communicationTimeline.map((item) => (
-                      <li
-                        key={`${item.source}-${item.id}`}
-                        className="rounded-xl border border-app-border bg-app-surface-2/60 px-3 py-2"
-                      >
-                        <div className="flex flex-wrap items-center gap-2 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          <span>{item.source}</span>
-                          <span>{item.channel}</span>
-                          <span>{item.direction}</span>
-                          <span className="ml-auto font-normal normal-case tracking-normal">
-                            {new Date(item.occurred_at).toLocaleString()}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-sm font-black text-app-text">{item.title}</p>
-                        {item.body ? (
-                          <p className="mt-1 line-clamp-2 text-xs text-app-text-muted">
-                            {formatMessagePreview(item.body, item.channel)}
-                          </p>
-                        ) : null}
-                        {item.actor ? (
-                          <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                            {item.actor}
-                          </p>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-
               <section className="overflow-hidden rounded-2xl border border-app-border bg-app-surface">
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-app-border bg-app-surface-2/70 px-4 py-3">
                   <div>
                     <h3 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
                       <MessageSquarePlus size={14} aria-hidden />
-                      Customer messages
+                      Messages
                     </h3>
                     <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                      SMS, automated notices, and email history for {currentProfileName}.
+                      Text and email history for {currentProfileName}.
                     </p>
                   </div>
                   <button
@@ -4128,7 +4070,7 @@ export function CustomerRelationshipHubDrawer({
                               : "text-app-text-muted hover:bg-app-surface-3"
                           }`}
                         >
-                          {mode === "podium" ? "Podium" : "Email"}
+                          {mode === "podium" ? "Text" : "Email"}
                           {needsReply ? (
                             <span className="ml-2 inline-flex h-2 w-2 rounded-full bg-red-500 align-middle" />
                           ) : null}
@@ -4200,6 +4142,9 @@ export function CustomerRelationshipHubDrawer({
                     <ul className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
                       {emailThread.map((item) => {
                         const inbound = item.direction === "inbound";
+                        const sentBy = inbound
+                          ? "Customer"
+                          : item.actor?.trim() || "Riverside";
                         return (
                           <li
                             key={`${item.source}-${item.id}`}
@@ -4214,7 +4159,9 @@ export function CustomerRelationshipHubDrawer({
                             >
                               <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                                 <span>Email</span>
-                                <span>{item.direction}</span>
+                                <span className="text-app-text/90 normal-case tracking-normal">
+                                  {sentBy}
+                                </span>
                                 <span className="font-normal normal-case tracking-normal">
                                   {new Date(item.occurred_at).toLocaleString()}
                                 </span>

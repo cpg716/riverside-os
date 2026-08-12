@@ -40,9 +40,11 @@ The optional ROSIE customer snapshot explains only the visible facts from the pr
 
 ## ✨ Message drafts
 
-In Messages, use the draft chips for a quick check-in, pickup update, or wedding update. Drafts fill the SMS or email compose box only. Staff must review, edit if needed, and tap Send.
+In Messages, use the draft chips for a quick check-in, pickup update, or wedding update. Drafts fill the SMS or email compose box only. Emoji and supported attachment controls stay with that same composer. Staff must review, edit if needed, and tap Send.
 
 Draft chips do not bypass opt-in warnings, missing phone/email warnings, Podium delivery rules, or Manager Access requirements.
+
+Choose **Text** or **Email** to see that channel's single chronological history. Riverside does not repeat the same messages in a second combined timeline.
 
 ## Tabs and sub-sections
 

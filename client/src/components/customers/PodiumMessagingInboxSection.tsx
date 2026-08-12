@@ -9,6 +9,7 @@ import {
   ChevronUp,
   Circle,
   ExternalLink,
+  Image as ImageIcon,
   Mail,
   MessageCircle,
   MessageSquare,
@@ -18,6 +19,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  SmilePlus,
   Star,
   UserCircle,
   UserPlus,
@@ -37,6 +39,8 @@ const baseUrl = getBaseUrl();
 const INBOX_LOCAL_REFRESH_MS = 60_000;
 const PROVIDER_PULL_STALE_MS = 30 * 60 * 1000;
 const MULTIPLE_ASSIGNMENT_VALUE = "__multiple_podium_assignees__";
+const MESSAGE_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+const MESSAGE_EMOJI_CHOICES = ["🙂", "👍", "🙏", "👔", "📸"];
 
 type InboxRow = {
   conversation_id: string;
@@ -178,6 +182,18 @@ function initials(row: InboxRow) {
   return `${first}${last}`.toUpperCase() || "C";
 }
 
+function fileToBase64Payload(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("file-read"));
+    reader.onload = () => {
+      const value = String(reader.result ?? "");
+      resolve(value.includes(",") ? value.split(",").pop() ?? "" : value);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function relativeTime(value: string | null | undefined) {
   if (!value) return "Not yet";
   const date = new Date(value);
@@ -308,6 +324,10 @@ export default function PodiumMessagingInboxSection({
   const [replyDraft, setReplyDraft] = useState("");
   const [replySubject, setReplySubject] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
+  const [replyAttachment, setReplyAttachment] = useState<{
+    name: string;
+    dataBase64: string;
+  } | null>(null);
   const [matchingRow, setMatchingRow] = useState<InboxRow | null>(null);
   const [addCustomerRow, setAddCustomerRow] = useState<InboxRow | null>(null);
   const [unmatchedCustomerSearch, setUnmatchedCustomerSearch] = useState("");
@@ -327,6 +347,7 @@ export default function PodiumMessagingInboxSection({
   const refreshInFlightRef = useRef(false);
   const refreshSeqRef = useRef(0);
   const threadScrollRef = useRef<HTMLDivElement>(null);
+  const replyAttachmentInputRef = useRef<HTMLInputElement>(null);
   const newMessageRef = useRef<HTMLDivElement>(null);
   const selectedConversationIdRef = useRef<string | null>(null);
   selectedConversationIdRef.current = selectedRow?.conversation_id ?? null;
@@ -788,7 +809,7 @@ export default function PodiumMessagingInboxSection({
   };
 
   const sendReply = async () => {
-    if (!selectedRow?.customer_id) return;
+    if (!selectedRow) return;
     const body = replyDraft.trim();
     if (!body) return;
     setReplyBusy(true);
@@ -799,16 +820,19 @@ export default function PodiumMessagingInboxSection({
         toast("Subject is required for email replies.", "error");
         return;
       }
-      const res = await fetch(`${baseUrl}/api/customers/${selectedRow.customer_id}/podium/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify({
-          channel,
-          subject,
-          body,
-          conversation_id: selectedRow.conversation_id,
-        }),
-      });
+      const res = await fetch(
+        `${baseUrl}/api/customers/podium/conversations/${selectedRow.conversation_id}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...apiAuth() },
+          body: JSON.stringify({
+            channel,
+            subject,
+            body,
+            attachment_png_base64: replyAttachment?.dataBase64,
+          }),
+        },
+      );
       if (!res.ok) {
         const error = (await res.json().catch(() => ({}))) as { error?: string };
         toast(error.error ?? "Could not send Podium reply.", "error");
@@ -817,10 +841,52 @@ export default function PodiumMessagingInboxSection({
       toast(channel === "email" ? "Email sent" : "Podium SMS sent", "success");
       setReplyDraft("");
       setReplySubject("");
+      setReplyAttachment(null);
       await setConversationReadState([selectedRow.conversation_id], true);
       await refresh();
     } finally {
       setReplyBusy(false);
+    }
+  };
+
+  const draftInboxReply = (kind: "check_in" | "pickup") => {
+    if (!selectedRow) return;
+    const name = selectedRow.customer_id
+      ? selectedRow.first_name?.trim() || "there"
+      : "there";
+    if (selectedRow.channel === "email") {
+      setReplySubject("Quick update from Riverside");
+      setReplyDraft(
+        kind === "pickup"
+          ? `Hi ${name},\n\nWe are checking in with an update from Riverside before pickup. Please reply here or call the shop with any questions.\n\nThank you,\nRiverside Men's Shop`
+          : `Hi ${name},\n\nWe are checking in from Riverside. Please reply here or call the shop if you need anything from us.\n\nThank you,\nRiverside Men's Shop`,
+      );
+      return;
+    }
+    setReplyDraft(
+      kind === "pickup"
+        ? `Hi ${name}, Riverside here. We are checking in with an update before pickup. Reply here or call the shop with any questions.`
+        : `Hi ${name}, Riverside here. Checking in—reply here or call the shop if you need anything.`,
+    );
+  };
+
+  const handleReplyAttachment = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.type !== "image/png") {
+      toast("Message image upload currently supports PNG files.", "error");
+      return;
+    }
+    if (file.size > MESSAGE_ATTACHMENT_MAX_BYTES) {
+      toast("Image is too large to send.", "error");
+      return;
+    }
+    try {
+      setReplyAttachment({
+        name: file.name,
+        dataBase64: await fileToBase64Payload(file),
+      });
+    } catch {
+      toast("Could not read the selected image.", "error");
     }
   };
 
@@ -1225,7 +1291,7 @@ export default function PodiumMessagingInboxSection({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-black tracking-tight text-app-text">
-              Messages
+              Inbox
             </h1>
             <IntegrationBrandLogo
               brand="podium"
@@ -1235,7 +1301,7 @@ export default function PodiumMessagingInboxSection({
             />
           </div>
           <p className="mt-1 text-sm font-semibold text-app-text-muted">
-            Podium Inbox · Messages, calls, and linked reviews in one shared conversation list.
+            Customer messages, calls, and linked reviews in one shared list.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1547,6 +1613,7 @@ export default function PodiumMessagingInboxSection({
                       setSelectedRow(r);
                       setReplySubject("");
                       setReplyDraft("");
+                      setReplyAttachment(null);
                       if (r.unread) {
                         void setConversationReadState([r.conversation_id], true);
                       }
@@ -1668,11 +1735,11 @@ export default function PodiumMessagingInboxSection({
                               ))}
                           </select>
                         </label>
-                        <span className="text-[10px] font-semibold text-app-text-muted">
-                          {assignmentBusy
-                            ? "Saving assignment..."
-                            : "Saves immediately without sending a reply"}
-                        </span>
+                        {assignmentBusy ? (
+                          <span className="text-[10px] font-semibold text-app-text-muted">
+                            Saving assignment...
+                          </span>
+                        ) : null}
                       </div>
                       {assigneeLoadError && selectedRow.provider_assignee_name ? (
                         <p className="mt-1 text-[10px] font-semibold text-app-warning">
@@ -1740,7 +1807,7 @@ export default function PodiumMessagingInboxSection({
                           {selectedRow.contact_identifier ?? "Podium sender"}
                         </p>
                         <p className="mt-0.5 text-[11px] font-semibold text-app-text-muted">
-                          Not in Riverside yet. Keep the conversation here, match an existing customer, or add a customer.
+                          Not linked to a Riverside customer. Reply here now, or match/add the customer for profile history.
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -1992,7 +2059,6 @@ export default function PodiumMessagingInboxSection({
                                   ? message.staff_full_name ?? message.podium_sender_name ?? "Riverside"
                                   : customerName(selectedRow)}{" "}
                                 · {fullDateTime(message.created_at)}
-                                {outbound ? " · Sent" : ""}
                               </p>
                             </div>
                           </div>
@@ -2011,8 +2077,7 @@ export default function PodiumMessagingInboxSection({
                     </div>
                   )}
                 </div>
-                {selectedRow.customer_id ? (
-                  <div className="border-t border-app-border bg-app-surface px-4 py-3 sm:px-5">
+                <div className="border-t border-app-border bg-app-surface px-4 py-3 sm:px-5">
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <label className="flex min-w-0 items-center gap-2 text-xs font-black text-app-text">
                         <span className="shrink-0">Replying as</span>
@@ -2046,6 +2111,73 @@ export default function PodiumMessagingInboxSection({
                         Remembered for this conversation · Access PIN only when changing
                       </p>
                     </div>
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => draftInboxReply("check_in")}
+                        disabled={replyBusy}
+                        className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
+                      >
+                        Check-in
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => draftInboxReply("pickup")}
+                        disabled={replyBusy}
+                        className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-40"
+                      >
+                        Pickup update
+                      </button>
+                      {selectedRow.channel !== "email" ? (
+                        <button
+                          type="button"
+                          onClick={() => replyAttachmentInputRef.current?.click()}
+                          disabled={replyBusy}
+                          className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest disabled:opacity-40"
+                        >
+                          <ImageIcon size={14} aria-hidden />
+                          Image
+                        </button>
+                      ) : null}
+                      <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        <SmilePlus size={14} aria-hidden />
+                        Emoji
+                      </span>
+                      {MESSAGE_EMOJI_CHOICES.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => setReplyDraft((current) => `${current}${emoji}`)}
+                          disabled={replyBusy}
+                          className="ui-touch-target inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-app-border bg-app-surface-2 px-2 text-sm disabled:opacity-40"
+                          aria-label={`Add ${emoji} emoji`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      ref={replyAttachmentInputRef}
+                      type="file"
+                      accept="image/png"
+                      className="hidden"
+                      onChange={(event) => {
+                        void handleReplyAttachment(event.target.files?.[0]);
+                        event.target.value = "";
+                      }}
+                    />
+                    {replyAttachment ? (
+                      <div className="mb-2 flex items-center justify-between rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-semibold text-app-text-muted">
+                        <span className="truncate">{replyAttachment.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => setReplyAttachment(null)}
+                          className="ui-touch-target px-2 text-[10px] font-black uppercase tracking-widest text-app-text"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : null}
                     {selectedRow.channel === "email" ? (
                       <input
                         value={replySubject}
@@ -2076,7 +2208,6 @@ export default function PodiumMessagingInboxSection({
                       </button>
                     </div>
                   </div>
-                ) : null}
               </>
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-app-text-muted">

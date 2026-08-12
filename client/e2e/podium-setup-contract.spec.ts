@@ -48,6 +48,9 @@ const podiumReviewActivity = repoFile(
 const podiumInbox = repoFile(
   "client/src/components/customers/PodiumMessagingInboxSection.tsx",
 );
+const customerRelationshipHub = repoFile(
+  "client/src/components/customers/CustomerRelationshipHubDrawer.tsx",
+);
 const podiumResponderModal = repoFile(
   "client/src/components/customers/PodiumResponderPinModal.tsx",
 );
@@ -212,6 +215,8 @@ test("Podium inbox keeps unknown senders in the regular conversation flow", () =
   expect(customersApi).toContain(
     '"/podium/conversations/{conversation_id}/messages"',
   );
+  expect(customersApi).toContain("post_podium_conversation_reply");
+  expect(podiumMessaging).toContain("podium_conversation_reply_target");
   expect(podiumInbound).toContain(
     "Storing Podium message without adding or choosing a Riverside customer",
   );
@@ -220,7 +225,22 @@ test("Podium inbox keeps unknown senders in the regular conversation flow", () =
   expect(podiumInbox).toContain("Match Customer");
   expect(podiumInbox).toContain("Add Customer");
   expect(podiumInbox).toContain("<AddCustomerDrawer");
+  expect(podiumInbox).toContain("Reply here now, or match/add the customer");
+  expect(podiumInbox).toContain("attachment_png_base64");
+  expect(podiumInbox).toContain("MESSAGE_EMOJI_CHOICES");
   expect(podiumInbox).not.toContain("Unknown Podium senders");
+  expect(podiumInbox).not.toContain("if (!selectedRow?.customer_id) return");
+});
+
+test("Podium reply surfaces stay rich without duplicating message history", () => {
+  expect(podiumInbox).toContain("Pickup update");
+  expect(podiumInbox).toContain("Image");
+  expect(podiumInbox).toContain("Emoji");
+  expect(podiumInbox).not.toContain(
+    "Podium Inbox · Messages, calls, and linked reviews",
+  );
+  expect(customerRelationshipHub).toContain("Text and email history");
+  expect(customerRelationshipHub).not.toContain("Communication timeline");
 });
 
 test("Podium inbox maps staff identity and supports shared conversation triage", () => {
@@ -248,7 +268,8 @@ test("Podium inbox assigns conversations only to linked staff without sending a 
   expect(podiumInbox).toContain("Assigned to");
   expect(podiumInbox).toContain('method: "PATCH"');
   expect(podiumInbox).toContain("body: JSON.stringify({ staff_id:");
-  expect(podiumInbox).toContain("Saves immediately without sending a reply");
+  expect(podiumInbox).toContain("Saving assignment...");
+  expect(podiumInbox).not.toContain("Saves immediately without sending a reply");
 });
 
 test("Podium inbox remembers a PIN-verified responder per conversation", () => {

@@ -34,15 +34,16 @@ In Operations and POS, this surface is for communications follow-up only. It is 
 4. Use **Assigned to** in the conversation header to assign the thread to a staff member or choose **Unassigned**. The list includes only active Riverside staff profiles with a **Linked Podium Staff Member**. The assignment saves in Podium immediately and does not send a reply.
 5. Check **Replying as** above the composer. Riverside remembers that staff member for this conversation, so ordinary replies need no additional PIN or confirmation.
 6. To change the responder, choose another active staff member. The selected person enters their own **Access PIN** once; future replies keep that name until someone changes it again.
-7. Use **Mark unread** when another staff member still needs to review the conversation. Use row checkboxes to mark several conversations read or unread together.
-8. Use **Close** to move a conversation into Podium's closed/archive state. Find it under **Closed** and choose **Reopen** when follow-up resumes. Group Close/Reopen reports partial provider failures.
-9. Choose **New message** only when starting a separate text; the customer/phone form stays hidden during normal inbox work.
-10. Use **Open Customer** when the conversation changes an order, pickup, alteration, shipment, or wedding party plan.
-11. For an unknown sender, choose **Match Customer** to connect an existing record or **Add Customer** to create a reviewed customer record with the sender's phone number or email prefilled. The conversation stays visible whether or not staff connect it.
+7. Write the reply directly, or start with **Check-in** or **Pickup update** and review the wording before sending. Common emoji can be inserted with one tap. For SMS, **Image** can attach one PNG up to 5 MB.
+8. Use **Mark unread** when another staff member still needs to review the conversation. Use row checkboxes to mark several conversations read or unread together.
+9. Use **Close** to move a conversation into Podium's closed/archive state. Find it under **Closed** and choose **Reopen** when follow-up resumes. Group Close/Reopen reports partial provider failures.
+10. Choose **New message** only when starting a separate text; the customer/phone form stays hidden during normal inbox work.
+11. Use **Open Customer** when the conversation changes an order, pickup, alteration, shipment, or wedding party plan.
+12. For an unknown sender, reply in the existing conversation when immediate follow-up is appropriate. Riverside uses the destination stored on that exact conversation and keeps the reply in its history. Choose **Match Customer** or **Add Customer** only after staff can verify identity; linking is optional for replying.
 
 ## Operational detail
 
-Use this inbox to decide who needs a response, not to replace the Customer Hub. Riverside stores messages from unknown or ambiguous senders without silently creating or choosing a customer. Search first, confirm phone or email ownership, then match or add the customer only when staff can identify the person.
+Use this inbox to decide who needs a response, not to replace the Customer Hub. Riverside stores and answers messages from unknown or ambiguous senders without silently creating or choosing a customer. Replying does not assert identity; match or add the customer only when staff can verify the person.
 
 The screen refreshes the Riverside copy every minute while it is open. Podium webhooks are still the fastest path for new inbound messages, calls, reviews, and review responses; Riverside stores verified webhook events in a retryable queue before acknowledging them. Inbound calls mark the conversation unread. A missed call, voicemail, or linked review that Podium marks as needing a response also marks it **Needs reply**. **Refresh** reloads only the Riverside copy. Open **Status** for provider diagnostics and **Pull from Podium** when message history is missing. The pull uses Podium's cursor-paged conversation and message APIs; call and published-review cards come from signed webhooks, not that history pull. Riverside also refreshes provider message history in the background when the last pull is more than 30 minutes old. A routine background refresh is not an error. **History current** describes message history only. If the Inbox reports **History incomplete**, retry the pull once and escalate the displayed failure if it remains.
 

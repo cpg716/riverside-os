@@ -67,6 +67,16 @@ pub struct PodiumReplyContext {
     pub responder_staff_name: Option<String>,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PodiumConversationReplyTarget {
+    pub conversation_id: Uuid,
+    pub channel: String,
+    pub contact_phone_e164: Option<String>,
+    pub contact_email: Option<String>,
+    pub responder_staff_id: Option<Uuid>,
+    pub responder_staff_name: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PodiumConversationAssignee {
     pub provider_user_uid: String,
@@ -499,6 +509,42 @@ pub async fn podium_reply_context(
     )
     .bind(conversation_id)
     .bind(customer_id)
+    .bind(channel)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn podium_conversation_reply_target(
+    pool: &PgPool,
+    conversation_id: Uuid,
+    channel: &str,
+) -> Result<Option<PodiumConversationReplyTarget>, sqlx::Error> {
+    let channel = if channel == "email" { "email" } else { "sms" };
+    sqlx::query_as::<_, PodiumConversationReplyTarget>(
+        r#"
+        SELECT
+            pc.id AS conversation_id,
+            pc.channel,
+            COALESCE(
+                pc.contact_phone_e164,
+                CASE WHEN pc.channel = 'sms' THEN unmatched.identifier END
+            ) AS contact_phone_e164,
+            COALESCE(
+                pc.contact_email,
+                CASE WHEN pc.channel = 'email' THEN unmatched.identifier END
+            ) AS contact_email,
+            CASE WHEN responder.is_active = TRUE THEN responder.id END AS responder_staff_id,
+            CASE WHEN responder.is_active = TRUE THEN responder.full_name END AS responder_staff_name
+        FROM podium_conversation pc
+        LEFT JOIN staff responder ON responder.id = pc.responder_staff_id
+        LEFT JOIN podium_sync_unmatched_conversation unmatched
+          ON unmatched.provider_conversation_uid = pc.podium_conversation_uid
+         AND unmatched.resolved_at IS NULL
+        WHERE pc.id = $1
+          AND pc.channel = $2
+        "#,
+    )
+    .bind(conversation_id)
     .bind(channel)
     .fetch_optional(pool)
     .await
