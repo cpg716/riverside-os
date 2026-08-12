@@ -119,11 +119,9 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
   await expect(page.getByRole("heading", { name: "Mail", exact: true })).toBeVisible();
 
   await posNav.getByRole("button", { name: "Podium Inbox", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Messages", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Inbox", exact: true })).toBeVisible();
   await expect(
-    page.getByText(
-      /Podium Inbox .* Messages, calls, and linked reviews in one shared conversation list/i,
-    ),
+    page.getByText("Customer messages, calls, and linked reviews in one shared list."),
   ).toBeVisible();
 
   await posNav.getByRole("button", { name: "Inventory", exact: true }).click();
