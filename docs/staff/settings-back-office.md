@@ -207,25 +207,26 @@ For full setup and per-device Tailscale instructions, see [remote-access-tailsca
 
 **Admins — triage playbook:** **[bug-reports-admin-manual.md](bug-reports-admin-manual.md)** (filters, detail drawer, downloads, tracker URL, internal notes, Fixed / Dismissed / Reopen, retention, notifications).
 
-Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Submissions include **correlation id**, optional **screenshot**, **server log snapshot** (bounded in-process **`tracing`** — not a full host log; **[OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md](../OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**), and **client diagnostics**. The **Error events** tab automatically captures recent error toasts with route and lightweight diagnostics when staff do not file a full report. It also shows server-side operational issues from ROS Dev Center as **Server runtime** events when the server can still write to the database. Treat both as **internal ops data** (PII risk). Retention: **`RIVERSIDE_BUG_REPORT_RETENTION_DAYS`** — **`docs/PLAN_BUG_REPORTS.md`**.
+Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Submissions include **correlation id**, optional **screenshot**, **server log snapshot** (bounded in-process **`tracing`** — not a full host log; **[OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md](../OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**), and **client diagnostics**. **Automated diagnostics** captures recent error toasts with route and lightweight diagnostics when staff do not file a full report. Similar events are grouped; **Action needed** opens first, while recurring connection noise and expected validation/setup messages remain available as **Recurring** or **Background info**. Server-side operational issues appear as **Server runtime** when the server can still write to the database. Treat both areas as **internal ops data** (PII risk). Retention: **`RIVERSIDE_BUG_REPORT_RETENTION_DAYS`** — **`docs/PLAN_BUG_REPORTS.md`**.
 
 ## ROS Dev Center
 
-**Purpose:** Developer/admin command center for operations health, station telemetry, alerts, guarded maintenance actions, and Bug Manager incident correlation.
+**Purpose:** A clear daily operations list for staff, with developer/admin evidence available only when needed.
 
 **Where in ROS:** **Settings → ROS Dev Center**.  
 **Permissions:** **`ops.dev_center.view`** for read access; **`ops.dev_center.actions`** to acknowledge alerts, run guarded actions, and link bugs to incidents.
 
 ### What to use it for
 
-1. **Ops Health Board**: Confirm DB/API/integrations are healthy from one status panel.
-2. **Station Fleet Board**: Verify each Register station heartbeat, version, active offline state, and stale-history retention state.
-3. **Runtime Diagnostics**: Confirm the station's resolved API base, strict-production status, Helcim readiness, Shippo mode, Cube Core readiness, help-search mode, weather mode, backup path, and station lifecycle governance without exposing any secrets.
-4. **Alert Center**: Acknowledge active incidents and verify suppression/recurrence behavior.
-5. **Guarded Actions**: Run maintenance actions only with explicit reason + dual confirmation.
-6. **Bug Manager Overlay**: Keep ROS bug reports as source-of-truth and attach bugs to active incidents for triage context.
-7. **Updates tab**: Manage and monitor software updates for the Main Hub server, Windows desktop app, and PWA clients.
-8. **Register Performance tab**: Review 24-hour sample counts, median, p95, maximum duration, and failures for product search, barcode-to-Cart, Payment opening, tender confirmation, receipt readiness, and Register close. These operational measurements exclude customer, search, receipt, Access PIN, and card content and expire after 30 days.
+1. **Operations Today**: Start here. Work **Do Now** from top to bottom, then handle **Needs Follow-Up**. Expand **Healthy systems** only when you want the current proof.
+2. **Updates**: Manage and monitor software updates for the Main Hub server, Windows desktop app, and PWA clients.
+3. **Advanced Diagnostics → Certification Evidence**: Review deployment, release, hardware, and owner signoff evidence. This is not a daily staff queue.
+4. **Advanced Diagnostics → Workstations**: Verify Register heartbeat, version, offline state, and stale-history retention. One offline secondary workstation does not block opening while an active workstation remains online.
+5. **Advanced Diagnostics → Alert History and Integration Details**: Inspect raw evidence and acknowledge an incident only after reviewing its source.
+6. **Advanced Diagnostics → Register Performance**: Review 24-hour sample counts, median, p95, maximum duration, and failures. These measurements exclude customer, search, receipt, Access PIN, and card content and expire after 30 days.
+7. **Advanced Diagnostics → Bug & Error Diagnostics**: Staff reports remain separate from automated diagnostics. Similar automated events are grouped and classified as **Action needed**, **Recurring**, or **Background info** so expected validation and setup messages do not inflate the action count.
+
+Operations Today uses the live Main Hub readiness response, verified-backup evidence, workstation heartbeats, and open Register session ledger. Routine staff corrections, disabled services, stale history, and raw audit probes stay out of the daily action count but remain available in Advanced Diagnostics.
 
 ### Updates tab (Settings → ROS Dev Center → Updates)
 

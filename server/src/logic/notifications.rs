@@ -1253,6 +1253,7 @@ pub async fn unread_count_for_staff(pool: &PgPool, staff_id: Uuid) -> Result<i64
           AND an.kind <> 'morning_refund_queue'
           AND sn.read_at IS NULL
           AND sn.archived_at IS NULL
+          AND sn.completed_at IS NULL
         "#,
     )
     .bind(staff_id)

@@ -1,31 +1,45 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
+import { CLIENT_SEMVER } from "../../clientBuildMeta";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
-import { useCallback, useEffect, useMemo, useState, type ComponentType } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentType,
+} from "react";
 import {
   Activity,
   AlertTriangle,
   Bell,
   Bug,
-  ClipboardCheck,
+  CheckCircle2,
+  ChevronDown,
+  Clock3,
   Copy,
-  Database,
   RefreshCw,
   Server,
   ShieldCheck,
   ShieldAlert,
-  TerminalSquare,
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
-import BugReportsSettingsPanel from "../settings/BugReportsSettingsPanel";
-import UpdateManagerPanel from "../settings/UpdateManagerPanel";
-import PosJourneyMetricsPanel from "./PosJourneyMetricsPanel";
+
+const BugReportsSettingsPanel = lazy(
+  () => import("../settings/BugReportsSettingsPanel"),
+);
+const UpdateManagerPanel = lazy(
+  () => import("../settings/UpdateManagerPanel"),
+);
+const PosJourneyMetricsPanel = lazy(
+  () => import("./PosJourneyMetricsPanel"),
+);
 
 const baseUrl = getBaseUrl();
 
 type HealthStatus = "WARNING" | "CAUTION" | "GOOD";
-type ChecklistMode = "open" | "close";
 type OperationsCenterTab =
   | "overview"
   | "readiness"
@@ -60,7 +74,8 @@ export type OperationsCenterNavigateTarget = {
     | "customers"
     | "appointments"
     | "weddings"
-    | "staff";
+    | "staff"
+    | "customer-notifications";
   section?: string;
   appointmentId?: string;
 };
@@ -83,6 +98,36 @@ interface OpsHealthSnapshot {
   stations_stale?: number;
   pending_bug_reports: number;
   integrations?: IntegrationHealthItem[];
+}
+
+interface SystemReadinessSnapshot {
+  status: string;
+  build_sha: string;
+  unavailable_components?: string[];
+  backup?: {
+    worker_healthy: boolean;
+    tooling_ready: boolean;
+    artifact_usable: boolean;
+    recent_verified_backup: boolean;
+    last_verified_at?: string | null;
+    last_verified_filename?: string | null;
+    verification_method?: string | null;
+    max_age_hours?: number;
+  };
+  rosie?: {
+    llm_available: boolean;
+    multimodal_available: boolean;
+    stt_available: boolean;
+    tts_available: boolean;
+  };
+}
+
+interface OpenRegisterSession {
+  session_id: string;
+  register_lane: number;
+  cashier_name: string;
+  opened_at: string;
+  lifecycle_status: string;
 }
 
 interface FulfillmentItem {
@@ -288,6 +333,26 @@ interface TimelineItem {
   status: "ready" | "review" | "degraded" | "blocked";
 }
 
+type OperationsTodayLevel = "do_now" | "follow_up";
+
+interface OperationsTodayItem {
+  id: string;
+  level: OperationsTodayLevel;
+  title: string;
+  detail: string;
+  nextAction: string;
+  sourceLabel: string;
+  occurredAt?: string | null;
+  targetTab?: OperationsCenterTab;
+  navigateTarget?: OperationsCenterNavigateTarget;
+}
+
+interface HealthyProof {
+  id: string;
+  label: string;
+  detail: string;
+}
+
 interface ReadinessCheck {
   key: string;
   label: string;
@@ -417,6 +482,57 @@ async function fetchJson<T>(path: string, headers: HeadersInit): Promise<LoadSta
   }
 }
 
+async function fetchReadiness(headers: HeadersInit): Promise<LoadState<SystemReadinessSnapshot>> {
+  try {
+    const response = await fetch(`${baseUrl}/api/ready`, { headers });
+    const body = (await response.json()) as SystemReadinessSnapshot;
+    return {
+      data: body,
+      error: response.ok ? null : `Main Hub is not ready (${response.status}).`,
+    };
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : "Could not refresh Main Hub readiness.",
+    };
+  }
+}
+
+function isTechnicalAuditAlert(alert: AlertEventRow): boolean {
+  const text = `${alert.rule_key} ${alert.title} ${alert.body}`.toLowerCase();
+  return text.includes("audit_probe") || text.includes("production audit probe");
+}
+
+function isStationOfflineAlert(alert: AlertEventRow): boolean {
+  const text = `${alert.rule_key} ${alert.title}`.toLowerCase();
+  return text.includes("station") && text.includes("offline");
+}
+
+function isFinancialBug(summary: string): boolean {
+  return /helcim|payment|ledger|cash out|refund|card|tender|charged|balance/i.test(summary);
+}
+
+function fmtRelative(v: string | null | undefined): string {
+  if (!v) return "Time unavailable";
+  const timestamp = new Date(v).getTime();
+  if (!Number.isFinite(timestamp)) return fmtTs(v);
+  const elapsedMinutes = Math.max(0, Math.round((Date.now() - timestamp) / 60_000));
+  if (elapsedMinutes < 2) return "Just now";
+  if (elapsedMinutes < 60) return `${elapsedMinutes} minutes ago`;
+  const hours = Math.round(elapsedMinutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function LazyPanelFallback() {
+  return (
+    <div className="ui-card p-6 text-sm font-semibold text-app-text-muted">
+      Loading workspace…
+    </div>
+  );
+}
+
 
 
 export default function RosOperationsCenter({
@@ -429,6 +545,7 @@ export default function RosOperationsCenter({
   const { toast } = useToast();
 
   const [activeTab, setActiveTab] = useState<OperationsCenterTab>("overview");
+  const [showAdvancedNav, setShowAdvancedNav] = useState(false);
 
   // Sync deep link automatically
   useEffect(() => {
@@ -440,11 +557,20 @@ export default function RosOperationsCenter({
   // Scroll to top on tab changes
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
+    if (activeTab !== "overview" && activeTab !== "updates") {
+      setShowAdvancedNav(true);
+    }
   }, [activeTab]);
 
   const [loading, setLoading] = useState(true);
   const [loadedAt, setLoadedAt] = useState<string | null>(null);
   const [ops, setOps] = useState<LoadState<OpsHealthSnapshot>>(emptyState());
+  const [systemReadiness, setSystemReadiness] = useState<
+    LoadState<SystemReadinessSnapshot>
+  >(emptyState());
+  const [openRegisterSessions, setOpenRegisterSessions] = useState<
+    LoadState<OpenRegisterSession[]>
+  >(emptyState());
   const [fulfillment, setFulfillment] = useState<LoadState<FulfillmentItem[]>>(emptyState());
   const [notifications, setNotifications] = useState<LoadState<NotificationHealth>>(emptyState());
   const [counterpoint, setCounterpoint] = useState<LoadState<CounterpointStatus>>(emptyState());
@@ -474,7 +600,6 @@ export default function RosOperationsCenter({
   const [triggerCheckBusy, setTriggerCheckBusy] = useState(false);
 
   const [snapshotCopied, setSnapshotCopied] = useState(false);
-  const [checklistMode, setChecklistMode] = useState<ChecklistMode>("open");
 
   const canView = hasPermission("ops.dev_center.view");
   const canRunActions = hasPermission("ops.dev_center.actions");
@@ -487,6 +612,8 @@ export default function RosOperationsCenter({
 
     const [
       opsResult,
+      systemReadinessResult,
+      openRegisterSessionsResult,
       fulfillmentResult,
       notificationResult,
       counterpointResult,
@@ -499,11 +626,10 @@ export default function RosOperationsCenter({
       stationsResult,
       alertsResult,
       bugsResult,
-      runtimeResult,
-      logsResult,
-      signoffsResult,
     ] = await Promise.all([
       fetchJson<OpsHealthSnapshot>("/api/ops/health/snapshot", headers),
+      fetchReadiness(headers),
+      fetchJson<OpenRegisterSession[]>("/api/sessions/list-open", headers),
       fetchJson<FulfillmentItem[]>("/api/transactions/fulfillment-queue", headers),
       fetchJson<NotificationHealth>("/api/notifications/health", headers),
       fetchJson<CounterpointStatus>("/api/settings/counterpoint-sync/status", headers),
@@ -516,12 +642,11 @@ export default function RosOperationsCenter({
       fetchJson<StationRow[]>("/api/ops/stations", headers),
       fetchJson<AlertEventRow[]>("/api/ops/alerts", headers),
       fetchJson<BugOverviewRow[]>("/api/ops/bugs/overview", headers),
-      fetchJson<RuntimeDiagnosticsSnapshot>("/api/ops/runtime-diagnostics", headers),
-      fetchJson<ConnectivityLog[]>("/api/ops/connectivity-logs", headers),
-      fetchJson<ReadinessSignoff[]>("/api/ops/readiness/signoffs", headers),
     ]);
 
     setOps(opsResult);
+    setSystemReadiness(systemReadinessResult);
+    setOpenRegisterSessions(openRegisterSessionsResult);
     setFulfillment(fulfillmentResult);
     setNotifications(notificationResult);
     setCounterpoint(counterpointResult);
@@ -535,13 +660,29 @@ export default function RosOperationsCenter({
     if (stationsResult.data) setStations(stationsResult.data);
     if (alertsResult.data) setAlerts(alertsResult.data);
     if (bugsResult.data) setBugsOverview(bugsResult.data);
-    if (runtimeResult.data) setRuntimeDiagnostics(runtimeResult.data);
-    if (logsResult.data) setConnectivityLogs(logsResult.data);
-    if (signoffsResult.data) setReadinessSignoffs(signoffsResult.data);
 
     setLoadedAt(new Date().toLocaleString());
     setLoading(false);
   }, [headers, canView]);
+
+  const loadReadinessEvidence = useCallback(async () => {
+    if (!canView) return;
+    const [runtimeResult, signoffsResult] = await Promise.all([
+      fetchJson<RuntimeDiagnosticsSnapshot>("/api/ops/runtime-diagnostics", headers),
+      fetchJson<ReadinessSignoff[]>("/api/ops/readiness/signoffs", headers),
+    ]);
+    if (runtimeResult.data) setRuntimeDiagnostics(runtimeResult.data);
+    if (signoffsResult.data) setReadinessSignoffs(signoffsResult.data);
+  }, [canView, headers]);
+
+  const loadConnectivityEvidence = useCallback(async () => {
+    if (!canView) return;
+    const logsResult = await fetchJson<ConnectivityLog[]>(
+      "/api/ops/connectivity-logs",
+      headers,
+    );
+    if (logsResult.data) setConnectivityLogs(logsResult.data);
+  }, [canView, headers]);
 
   const updateSignoffDraft = useCallback(
     (checkKey: string, patch: Partial<ReadinessSignoffDraft>) => {
@@ -619,6 +760,11 @@ export default function RosOperationsCenter({
   useEffect(() => {
     void load();
   }, [load, refreshSignal]);
+
+  useEffect(() => {
+    if (activeTab === "readiness") void loadReadinessEvidence();
+    if (activeTab === "integrations") void loadConnectivityEvidence();
+  }, [activeTab, loadConnectivityEvidence, loadReadinessEvidence, refreshSignal]);
 
   const ackAlert = useCallback(
     async (alertId: string) => {
@@ -872,6 +1018,326 @@ export default function RosOperationsCenter({
       ),
     [alertPage, openAlerts],
   );
+  const operationsToday = useMemo(() => {
+    const items: OperationsTodayItem[] = [];
+    const addItem = (item: OperationsTodayItem) => {
+      if (!items.some((candidate) => candidate.id === item.id)) items.push(item);
+    };
+
+    const opsData = ops.data;
+    const paymentEvents = paymentHealth.data;
+    const provider = paymentProvider.data?.helcim;
+    const paymentReviewCount =
+      paymentSettlement.data?.actionable_open_item_count ?? paymentIssues.data?.length ?? 0;
+    const paymentFailures = paymentEvents?.failed_event_count ?? 0;
+    const paymentUnmatched = paymentEvents?.unmatched_event_count ?? 0;
+    const onlineStations = stations.filter((station) => station.online);
+    const offlineActionableStations = stations.filter(
+      (station) => !station.online && station.actionable,
+    );
+    const staffAlerts = openAlerts.filter((alert) => !isTechnicalAuditAlert(alert));
+    const pendingBugs = bugsOverview.filter((bug) => bug.status === "pending");
+    const blockedFulfillment = (fulfillment.data ?? []).filter(
+      (item) => item.urgency === "blocked",
+    ).length;
+    const rushFulfillment = (fulfillment.data ?? []).filter(
+      (item) => item.urgency === "rush",
+    ).length;
+    const riskyLifecycle = (lifecycleQueues.data ?? []).filter(
+      (item) => item.is_rush || item.risk_level === "at_risk" || item.risk_level === "high",
+    ).length;
+    const rmsOpen = (rms.data?.items ?? []).filter((item) => item.status !== "resolved");
+    const rmsCritical = rmsOpen.filter((item) =>
+      ["critical", "high"].includes(item.severity.toLowerCase()),
+    ).length;
+
+    if (ops.error || (systemReadiness.error && !systemReadiness.data)) {
+      addItem({
+        id: "system-refresh",
+        level: "do_now",
+        title: "ROS could not confirm current system health",
+        detail: ops.error ?? systemReadiness.error ?? "Current readiness evidence is unavailable.",
+        nextAction: "Refresh once. If this remains, contact support before relying on this screen.",
+        sourceLabel: "System health",
+        targetTab: "readiness",
+      });
+    } else if (opsData?.db_ok === false || systemReadiness.data?.status === "not_ready") {
+      addItem({
+        id: "system-not-ready",
+        level: "do_now",
+        title: "Main Hub needs attention",
+        detail:
+          systemReadiness.data?.unavailable_components?.join(", ") ||
+          "The Main Hub or database is not reporting ready.",
+        nextAction: "Open readiness evidence and confirm which dependency is unavailable.",
+        sourceLabel: "Main Hub",
+        targetTab: "readiness",
+      });
+    } else if (systemReadiness.data?.status === "degraded") {
+      addItem({
+        id: "system-degraded",
+        level: "follow_up",
+        title: "A supporting service needs follow-up",
+        detail:
+          systemReadiness.data.unavailable_components?.join(", ") ||
+          "The Main Hub is operating with a non-blocking dependency unavailable.",
+        nextAction: "Open readiness evidence after immediate store work is safe.",
+        sourceLabel: "Main Hub",
+        targetTab: "readiness",
+      });
+    }
+
+    if (stations.length > 0 && onlineStations.length === 0) {
+      addItem({
+        id: "stations-none-online",
+        level: "do_now",
+        title: "No active workstation is reporting online",
+        detail: `${offlineActionableStations.length} workstation${offlineActionableStations.length === 1 ? " is" : "s are"} awaiting a heartbeat.`,
+        nextAction: "Confirm the Main Hub and the workstation needed for today are running.",
+        sourceLabel: "Workstations",
+        targetTab: "stations",
+      });
+    } else if (offlineActionableStations.length > 0) {
+      addItem({
+        id: "stations-offline",
+        level: "follow_up",
+        title: `${offlineActionableStations.length} workstation${offlineActionableStations.length === 1 ? " is" : "s are"} offline`,
+        detail: `${onlineStations.length} workstation${onlineStations.length === 1 ? " remains" : "s remain"} online, so this does not block store operation.`,
+        nextAction: "Confirm whether the offline workstation is expected, then review or retire stale station history.",
+        sourceLabel: "Workstations",
+        targetTab: "stations",
+      });
+    }
+
+    if (provider?.api_token_configured !== true) {
+      addItem({
+        id: "helcim-setup",
+        level: "do_now",
+        title: "Card payments are not configured",
+        detail: "ROS cannot confirm the Helcim payment connection.",
+        nextAction: "Open Helcim Settings and complete the required connection setup.",
+        sourceLabel: "Payments",
+        navigateTarget: { tab: "settings", section: "helcim" },
+      });
+    } else if (provider.terminal_payments_ready !== true || paymentFailures > 0) {
+      addItem({
+        id: "helcim-blocked",
+        level: "do_now",
+        title: "Card payments need attention",
+        detail:
+          paymentFailures > 0
+            ? `${paymentFailures} recent payment update${paymentFailures === 1 ? "" : "s"} failed. ${paymentEvents?.last_failed_message ?? ""}`.trim()
+            : "The assigned payment terminal is not ready.",
+        nextAction: "Open Payments Health, confirm the terminal is listening, and resolve the exact failed attempt before retrying.",
+        sourceLabel: "Payments",
+        occurredAt: paymentEvents?.last_event_at,
+        navigateTarget: { tab: "payments", section: "health" },
+      });
+    } else if (paymentReviewCount > 0 || paymentUnmatched > 0) {
+      addItem({
+        id: "payment-review",
+        level: "follow_up",
+        title: `${paymentReviewCount} payment reconciliation item${paymentReviewCount === 1 ? "" : "s"} need review`,
+        detail: `${paymentUnmatched} unmatched provider event${paymentUnmatched === 1 ? "" : "s"}. Customer payments are not assumed missing until the linked evidence is reviewed.`,
+        nextAction: "Open Payments Health and work the oldest actionable item first.",
+        sourceLabel: "Payments",
+        navigateTarget: { tab: "payments", section: "health" },
+      });
+    }
+
+    for (const bug of pendingBugs.slice(0, 4)) {
+      addItem({
+        id: `bug:${bug.id}`,
+        level: isFinancialBug(bug.summary) ? "do_now" : "follow_up",
+        title: `Staff report: ${bug.summary}`,
+        detail: `Reported by ${bug.staff_name} ${fmtRelative(bug.created_at)}.`,
+        nextAction: "Open the report, confirm current impact, and record an owner or resolution.",
+        sourceLabel: "Staff report",
+        occurredAt: bug.created_at,
+        targetTab: "bugs",
+      });
+    }
+
+    if (blockedFulfillment > 0 || rushFulfillment > 0 || riskyLifecycle > 0) {
+      addItem({
+        id: "fulfillment-risk",
+        level: blockedFulfillment > 0 ? "do_now" : "follow_up",
+        title:
+          blockedFulfillment > 0
+            ? `${blockedFulfillment} pickup item${blockedFulfillment === 1 ? " is" : "s are"} blocked`
+            : `${Math.max(rushFulfillment, riskyLifecycle)} rush or at-risk order item${Math.max(rushFulfillment, riskyLifecycle) === 1 ? "" : "s"}`,
+        detail: `${rushFulfillment} rush pickup item${rushFulfillment === 1 ? "" : "s"}; ${riskyLifecycle} lifecycle item${riskyLifecycle === 1 ? "" : "s"} marked at risk.`,
+        nextAction: "Open the Pickup Queue and resolve the nearest customer deadline first.",
+        sourceLabel: "Pickup Queue",
+        navigateTarget: { tab: "home", section: "fulfillment" },
+      });
+    }
+
+    if (rmsCritical > 0 || rmsOpen.length > 0) {
+      addItem({
+        id: "rms-reconciliation",
+        level: rmsCritical > 0 ? "do_now" : "follow_up",
+        title: `${rmsOpen.length} RMS reconciliation item${rmsOpen.length === 1 ? "" : "s"} need review`,
+        detail: `${rmsCritical} high-priority mismatch${rmsCritical === 1 ? "" : "es"}.`,
+        nextAction: "Open RMS Charge reconciliation and review the source Transaction Record before changing anything.",
+        sourceLabel: "RMS Charge",
+        navigateTarget: { tab: "customers", section: "rms-charge" },
+      });
+    }
+
+    const counterpointIntegration = (opsData?.integrations ?? []).find(
+      (item) => item.key.toLowerCase().includes("counterpoint"),
+    );
+    const counterpointIssues =
+      counterpoint.data?.unresolved_issue_count ?? counterpoint.data?.recent_issues?.length ?? 0;
+    if (counterpointIntegration?.status === "failed" || counterpointIssues > 0) {
+      addItem({
+        id: "counterpoint",
+        level: "follow_up",
+        title: "Counterpoint sync needs review",
+        detail:
+          counterpointIntegration?.detail ||
+          `${counterpointIssues} Counterpoint issue${counterpointIssues === 1 ? "" : "s"} remain unresolved.`,
+        nextAction: "Open Counterpoint Settings and confirm whether the bridge should still be running before clearing any history.",
+        sourceLabel: "Counterpoint",
+        navigateTarget: { tab: "settings", section: "counterpoint" },
+      });
+    }
+
+    const otherFailedIntegrations = (opsData?.integrations ?? []).filter((item) => {
+      const key = item.key.toLowerCase();
+      return item.status === "failed" && !key.includes("counterpoint") && !key.includes("helcim");
+    });
+    for (const integration of otherFailedIntegrations.slice(0, 3)) {
+      addItem({
+        id: `integration:${integration.key}`,
+        level: integration.severity === "critical" ? "do_now" : "follow_up",
+        title: `${integration.title} connection needs attention`,
+        detail: integration.detail || "The configured service did not pass its health check.",
+        nextAction: "Open Integration Health for the latest safe diagnostic and owning Settings page.",
+        sourceLabel: "Integration",
+        occurredAt: integration.last_failure_at,
+        targetTab: "integrations",
+      });
+    }
+
+    const staleUnread = notifications.data?.summary.stale_unread_rows ?? 0;
+    if (staleUnread > 0) {
+      addItem({
+        id: "notification-backlog",
+        level: "follow_up",
+        title: `${staleUnread} stale notification${staleUnread === 1 ? "" : "s"} need cleanup`,
+        detail: "Old unread rows are separated from today's action count so the bell remains useful.",
+        nextAction: "Open Customer Notifications and complete or archive work that no longer needs attention.",
+        sourceLabel: "Notifications",
+        navigateTarget: { tab: "customer-notifications" },
+      });
+    }
+
+    for (const alert of staffAlerts) {
+      if (isStationOfflineAlert(alert)) continue;
+      const normalizedTitle = alert.title.trim().toLowerCase();
+      if (items.some((item) => item.title.trim().toLowerCase() === normalizedTitle)) continue;
+      addItem({
+        id: `alert:${alert.id}`,
+        level: ["critical", "error", "blocked", "high"].includes(alert.severity.toLowerCase())
+          ? "do_now"
+          : "follow_up",
+        title: alert.title,
+        detail: alert.body,
+        nextAction: "Open the alert for its current evidence before acknowledging it.",
+        sourceLabel: "Operational alert",
+        occurredAt: alert.last_seen_at,
+        targetTab: "alerts",
+      });
+    }
+
+    const healthyProofs: HealthyProof[] = [];
+    if (opsData?.db_ok && systemReadiness.data?.status === "ready") {
+      healthyProofs.push({
+        id: "main-hub",
+        label: "Main Hub and database",
+        detail: "Ready and responding",
+      });
+    }
+    if (systemReadiness.data?.backup?.recent_verified_backup) {
+      healthyProofs.push({
+        id: "backup",
+        label: "Verified backup",
+        detail: `${fmtRelative(systemReadiness.data.backup.last_verified_at)} · ${systemReadiness.data.backup.last_verified_filename ?? "verified archive"}`,
+      });
+    }
+    if (onlineStations.length > 0) {
+      healthyProofs.push({
+        id: "stations",
+        label: "Active workstations",
+        detail: `${onlineStations.length} online`,
+      });
+    }
+    if ((openRegisterSessions.data?.length ?? 0) > 0) {
+      healthyProofs.push({
+        id: "register-sessions",
+        label: "Open Register sessions",
+        detail: `${openRegisterSessions.data?.length ?? 0} open`,
+      });
+    }
+    if (
+      provider?.api_token_configured === true &&
+      provider.terminal_payments_ready === true &&
+      paymentFailures === 0
+    ) {
+      healthyProofs.push({
+        id: "payments",
+        label: "Card payment connection",
+        detail: "Ready",
+      });
+    }
+    if (systemReadiness.data?.rosie?.llm_available) {
+      healthyProofs.push({
+        id: "rosie",
+        label: "ROSIE",
+        detail: "Local intelligence ready",
+      });
+    }
+
+    const doNow = items.filter((item) => item.level === "do_now");
+    const followUp = items.filter((item) => item.level === "follow_up");
+    const hardBlocked =
+      opsData?.db_ok === false ||
+      systemReadiness.data?.status === "not_ready" ||
+      (stations.length > 0 && onlineStations.length === 0) ||
+      (provider?.api_token_configured === true && provider.terminal_payments_ready !== true);
+
+    return {
+      doNow,
+      followUp,
+      healthyProofs,
+      overall: hardBlocked
+        ? ("Blocked" as const)
+        : doNow.length > 0 || followUp.length > 0
+          ? ("Needs Attention" as const)
+          : ("Ready" as const),
+    };
+  }, [
+    alerts,
+    bugsOverview,
+    counterpoint.data,
+    fulfillment.data,
+    lifecycleQueues.data,
+    notifications.data,
+    openAlerts,
+    openRegisterSessions.data,
+    ops.data,
+    ops.error,
+    paymentHealth.data,
+    paymentIssues.data,
+    paymentProvider.data,
+    paymentSettlement.data,
+    rms.data,
+    stations,
+    systemReadiness.data,
+    systemReadiness.error,
+  ]);
   const readiness = useMemo(() => {
     const opsData = ops.data;
     const cpData = counterpoint.data;
@@ -893,10 +1359,9 @@ export default function RosOperationsCenter({
     const failedIntegrations = (opsData?.integrations ?? []).filter(
       (item) => item.status === "failed",
     );
-    const backupIntegration = (opsData?.integrations ?? []).find((item) => {
-      const haystack = `${item.key} ${item.title}`.toLowerCase();
-      return haystack.includes("backup");
-    });
+    const qboIntegration = (opsData?.integrations ?? []).find((item) =>
+      item.key.toLowerCase().includes("qbo"),
+    );
     const cpEntityErrors =
       cpData?.entity_runs?.filter((row) => row.last_error && row.last_error.trim().length > 0)
         .length ?? 0;
@@ -905,16 +1370,29 @@ export default function RosOperationsCenter({
     const terminalReady = provider?.helcim?.terminal_payments_ready === true;
     const paymentFailures = paymentEvents?.failed_event_count ?? 0;
     const paymentUnmatched = paymentEvents?.unmatched_event_count ?? 0;
-    const criticalAlerts = openAlerts.filter((alert) =>
+    const staffAlerts = openAlerts.filter((alert) => !isTechnicalAuditAlert(alert));
+    const criticalAlerts = staffAlerts.filter((alert) =>
       ["critical", "error", "blocked", "high"].includes(alert.severity.toLowerCase()),
     );
+    const backup = systemReadiness.data?.backup;
+    const openSessionCount = openRegisterSessions.data?.length ?? 0;
 
     const dailyChecks: ReadinessCheck[] = [
       {
         key: "api",
         label: "Backend/API reachable",
-        status: ops.error ? "blocked" : opsData ? "ready" : "unknown",
-        detail: ops.error ?? (opsData ? "Operations snapshot loaded successfully." : "Operations snapshot has not loaded yet."),
+        status:
+          ops.error || (systemReadiness.error && !systemReadiness.data)
+            ? "blocked"
+            : systemReadiness.data
+              ? "ready"
+              : "unknown",
+        detail:
+          ops.error ??
+          systemReadiness.error ??
+          (systemReadiness.data
+            ? "The Main Hub API is reachable. Dependency readiness is shown in the checks below."
+            : "Main Hub readiness has not loaded yet."),
         required: true,
         targetTab: "overview",
       },
@@ -935,27 +1413,35 @@ export default function RosOperationsCenter({
         key: "register-stations",
         label: "Register # stations online",
         status:
-          offlineActionableStations.length > 0
+          onlineStations.length === 0 && stations.length > 0
             ? "blocked"
-            : onlineStations.length > 0
-              ? "ready"
-              : stations.length > 0
-                ? "warning"
+            : offlineActionableStations.length > 0
+              ? "warning"
+              : onlineStations.length > 0
+                ? "ready"
                 : "unknown",
         detail:
           stations.length > 0
-            ? `${onlineStations.length} online, ${offlineActionableStations.length} actionable offline.`
+            ? `${onlineStations.length} online, ${offlineActionableStations.length} offline. An offline secondary workstation does not block opening while an active workstation remains online.`
             : "No station heartbeat rows are available.",
         required: true,
         targetTab: "stations",
       },
       {
         key: "register-sessions",
-        label: "Register-session blockers",
-        status: "manual_required",
-        detail: "No daily open register-session blocker endpoint is connected in this view. Manager must confirm drawers and register sessions before opening.",
-        required: true,
-        evidence: "Register dashboard / Till Control",
+        label: "Open Register sessions",
+        status: openRegisterSessions.error
+          ? "unknown"
+          : openSessionCount > 0
+            ? "ready"
+            : "warning",
+        detail: openRegisterSessions.error
+          ? `Register sessions could not refresh: ${openRegisterSessions.error}`
+          : openSessionCount > 0
+            ? `${openSessionCount} Register session${openSessionCount === 1 ? " is" : "s are"} open.`
+            : "No Register session is open yet. Open the required drawer before taking a payment.",
+        required: false,
+        evidence: "Live Register session ledger",
       },
       {
         key: "payments",
@@ -1000,31 +1486,37 @@ export default function RosOperationsCenter({
               : cpData
                 ? "Counterpoint status endpoint is connected."
                 : "Counterpoint status is not connected.",
-        required: true,
+        required: false,
         targetTab: "integrations",
       },
       {
         key: "qbo",
         label: "QBO / accounting readiness",
-        status: "manual_required",
-        detail: "QBO signoff is not automated in this readiness view. Manager must review QBO staging/sync before relying on daily financials.",
+        status: !qboIntegration || qboIntegration.status === "disabled"
+          ? "not_configured"
+          : qboIntegration.status === "failed"
+            ? "warning"
+            : "ready",
+        detail: qboIntegration?.detail ?? "QBO is not configured. This does not block daily store operation.",
         required: false,
-        evidence: "QBO bridge workspace",
+        targetTab: "integrations",
       },
       {
         key: "backup",
         label: "Backup freshness",
-        status: backupIntegration
-          ? backupIntegration.status === "failed"
-            ? "blocked"
-            : backupIntegration.status === "ok" || backupIntegration.status === "ready"
-              ? "ready"
-              : "warning"
-          : "manual_required",
-        detail: backupIntegration?.detail ?? "Backup freshness is not exposed as an automated readiness signal here. Review backup evidence before go-live.",
+        status: !backup
+          ? "unknown"
+          : backup.worker_healthy && backup.artifact_usable && backup.recent_verified_backup
+            ? "ready"
+            : "blocked",
+        detail: !backup
+          ? "Verified backup evidence has not loaded."
+          : backup.recent_verified_backup
+            ? `Verified ${fmtRelative(backup.last_verified_at)} using ${backup.verification_method ?? "archive verification"}: ${backup.last_verified_filename ?? "backup archive"}.`
+            : `No usable verified backup is within the ${backup.max_age_hours ?? 30}-hour readiness window.`,
         required: true,
-        targetTab: backupIntegration ? "integrations" : undefined,
-        evidence: backupIntegration ? undefined : "BACKUP_RESTORE_GUIDE.md",
+        targetTab: "readiness",
+        evidence: backup?.last_verified_filename ?? "GET /api/ready",
       },
       {
         key: "critical-alerts",
@@ -1032,19 +1524,19 @@ export default function RosOperationsCenter({
         status:
           criticalAlerts.length > 0
             ? "blocked"
-            : openAlerts.length > 0 || (opsData?.pending_bug_reports ?? 0) > 0
+            : staffAlerts.length > 0 || (opsData?.pending_bug_reports ?? 0) > 0
               ? "warning"
               : "ready",
         detail:
           criticalAlerts.length > 0
             ? `${criticalAlerts.length} critical alert(s) are open.`
-            : openAlerts.length > 0
-              ? `${openAlerts.length} alert(s) need review.`
+            : staffAlerts.length > 0
+              ? `${staffAlerts.length} staff-actionable alert(s) need review. Technical audit evidence remains in Advanced Diagnostics.`
               : (opsData?.pending_bug_reports ?? 0) > 0
                 ? `${opsData?.pending_bug_reports ?? 0} pending bug report(s) need triage.`
                 : "No critical alerts or pending bug report blockers.",
         required: true,
-        targetTab: criticalAlerts.length > 0 || openAlerts.length > 0 ? "alerts" : "bugs",
+        targetTab: criticalAlerts.length > 0 || staffAlerts.length > 0 ? "alerts" : "bugs",
       },
     ];
 
@@ -1089,7 +1581,7 @@ export default function RosOperationsCenter({
         label: "Register # station deployment validated",
         status:
           offlineActionableStations.length > 0
-            ? "blocked"
+            ? "warning"
             : onlineStations.length > 0 && versionMismatches.length === 0
               ? "ready"
               : "manual_required",
@@ -1237,6 +1729,8 @@ export default function RosOperationsCenter({
     counterpoint.data,
     counterpoint.error,
     openAlerts,
+    openRegisterSessions.data,
+    openRegisterSessions.error,
     ops.data,
     ops.error,
     paymentHealth.data,
@@ -1246,6 +1740,8 @@ export default function RosOperationsCenter({
     runtimeDiagnostics,
     readinessSignoffs,
     stations,
+    systemReadiness.data,
+    systemReadiness.error,
   ]);
 
   return (
@@ -1259,10 +1755,10 @@ export default function RosOperationsCenter({
             </p>
             <h2 className="mt-2 text-3xl font-black italic tracking-tighter uppercase text-app-text flex items-center gap-2">
               <ShieldAlert className="h-8 w-8 text-app-accent" />
-              ROS Operations & Support Center
+              Operations Today
             </h2>
             <p className="mt-1 text-sm font-medium text-app-text-muted">
-              v0.85.0 Command Plane & Active Heartbeat diagnostics panel.
+              Riverside OS {CLIENT_SEMVER} · What needs action now, with technical detail available when you need it.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1275,7 +1771,11 @@ export default function RosOperationsCenter({
             </button>
             <button
               type="button"
-              onClick={() => void load()}
+              onClick={() => {
+                void load();
+                if (activeTab === "readiness") void loadReadinessEvidence();
+                if (activeTab === "integrations") void loadConnectivityEvidence();
+              }}
               disabled={loading}
               className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-50 transition-transform active:scale-95"
             >
@@ -1285,389 +1785,254 @@ export default function RosOperationsCenter({
           </div>
         </header>
 
-        {/* Universal Tabs */}
-        <div className="flex flex-wrap gap-2 border-b border-app-border/40 pb-3">
-          {(
-            [
-              { id: "overview", label: "Operations Overview" },
-              { id: "readiness", label: "Readiness" },
-              { id: "stations", label: "Stations Fleet" },
-              { id: "alerts", label: "Alert Triage" },
-              { id: "integrations", label: "Integration Health" },
-              { id: "performance", label: "Register Performance" },
-              { id: "bugs", label: "Bug Manager" },
-              { id: "updates", label: "Updates" },
-            ] as const
-          ).map((tab) => (
+        {/* Calm staff navigation; raw evidence stays behind Advanced Diagnostics. */}
+        <div className="space-y-3 border-b border-app-border/40 pb-4">
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { id: "overview", label: "Operations Today" },
+                { id: "updates", label: "Updates" },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`rounded-lg px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${
+                  activeTab === tab.id
+                    ? "bg-app-accent text-white shadow-md shadow-app-accent/20"
+                    : "text-app-text-muted hover:bg-app-surface hover:text-app-text"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
             <button
-              key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`rounded-lg px-4 py-2 text-xs font-black uppercase tracking-widest transition-all ${
-                activeTab === tab.id
-                  ? "bg-app-accent text-white shadow-md shadow-app-accent/20"
-                  : "text-app-text-muted hover:bg-app-surface hover:text-app-text"
-              }`}
+              aria-expanded={showAdvancedNav}
+              onClick={() => setShowAdvancedNav((current) => !current)}
+              className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-black uppercase tracking-widest text-app-text-muted transition-all hover:bg-app-surface hover:text-app-text"
             >
-              {tab.label}
+              Advanced Diagnostics
+              <ChevronDown
+                size={14}
+                className={`transition-transform ${showAdvancedNav ? "rotate-180" : ""}`}
+              />
             </button>
-          ))}
+          </div>
+          {showAdvancedNav ? (
+            <div className="flex flex-wrap gap-2 rounded-xl border border-app-border bg-app-surface-2/40 p-3">
+              {(
+                [
+                  { id: "readiness", label: "Certification Evidence" },
+                  { id: "stations", label: "Workstations" },
+                  { id: "alerts", label: "Alert History" },
+                  { id: "integrations", label: "Integration Details" },
+                  { id: "performance", label: "Register Performance" },
+                  { id: "bugs", label: "Bug & Error Diagnostics" },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`rounded-lg border px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                    activeTab === tab.id
+                      ? "border-app-accent bg-app-accent/10 text-app-accent"
+                      : "border-app-border bg-app-bg text-app-text-muted hover:text-app-text"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         {/* Tab Content Rendering */}
-        {activeTab === "overview" && (
+        {activeTab === "overview" ? (
           <div className="space-y-6 animate-in fade-in duration-300">
-            
-            {/* Primary View: 4 Status Grid Pillars */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-              
-              {/* Pillar 1: Integrations */}
-              <div className={`ui-card p-5 border-l-4 rounded-xl shadow-sm bg-app-surface/50 backdrop-blur-md transition-transform hover:-translate-y-1 ${
-                derived.integrationsPillar === "WARNING" ? "border-l-app-danger border-app-danger/20 animate-pulse" :
-                derived.integrationsPillar === "CAUTION" ? "border-l-app-warning border-app-warning/20" :
-                "border-l-app-success border-app-border/60"
-              }`}>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Integrations</span>
-                    <h3 className="text-xl font-black mt-1">
-                      {derived.integrationsPillar}
-                    </h3>
-                  </div>
-                  <Database size={20} className={
-                    derived.integrationsPillar === "WARNING" ? "text-app-danger" :
-                    derived.integrationsPillar === "CAUTION" ? "text-app-warning" : "text-app-success"
-                  } />
-                </div>
-                
-                {derived.integrationsPillar !== "GOOD" && (
-                  <div className="mt-3 bg-app-bg/60 p-3 rounded-lg border border-app-border/40 text-xs">
-                    <p className="font-bold text-app-text">Why this is an issue:</p>
-                    <p className="text-app-text-muted mt-0.5">
-                      {derived.integrationsPillar === "WARNING" 
-                        ? "Critical external sync systems (e.g. QBO, Lightspeed) are offline or reporting invalid credentials."
-                        : "One or more integrations are not configured or are experiencing minor connectivity lag."}
-                    </p>
-                  </div>
-                )}
-                
-                <div className="mt-4 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("integrations")}
-                    className="ui-btn-ghost flex-1 py-2 text-[10px] font-black uppercase tracking-widest text-center"
-                  >
-                    Diagnose
-                  </button>
-                  {derived.integrationsPillar === "WARNING" && (
-                    <button
-                      type="button"
-                      disabled={triggerCheckBusy}
-                      onClick={() => void triggerAuditProbes()}
-                      className="ui-btn-primary bg-app-danger hover:bg-app-danger/80 py-2 px-3 text-[10px] font-black uppercase tracking-widest text-center text-white"
-                    >
-                      {triggerCheckBusy ? "Probing..." : "Direct Fix"}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Pillar 2: Updates */}
-              <div className={`ui-card p-5 border-l-4 rounded-xl shadow-sm bg-app-surface/50 backdrop-blur-md transition-transform hover:-translate-y-1 ${
-                derived.updatesPillar === "WARNING" ? "border-l-app-danger border-app-danger/20" :
-                derived.updatesPillar === "CAUTION" ? "border-l-app-warning border-app-warning/20" :
-                "border-l-app-success border-app-border/60"
-              }`}>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Updates</span>
-                    <h3 className="text-xl font-black mt-1">
-                      {derived.updatesPillar}
-                    </h3>
-                  </div>
-                  <RefreshCw size={20} className={
-                    derived.updatesPillar === "WARNING" ? "text-app-danger" :
-                    derived.updatesPillar === "CAUTION" ? "text-app-warning" : "text-app-success"
-                  } />
-                </div>
-                
-                {derived.updatesPillar !== "GOOD" && (
-                  <div className="mt-3 bg-app-bg/60 p-3 rounded-lg border border-app-border/40 text-xs">
-                    <p className="font-bold text-app-text">Why this is an issue:</p>
-                    <p className="text-app-text-muted mt-0.5">
-                      Station fleet client version mismatch detected. Version consistency is required for database schema integrity.
-                    </p>
-                  </div>
-                )}
-                
-                <div className="mt-4 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("updates")}
-                    className="ui-btn-ghost flex-1 py-2 text-[10px] font-black uppercase tracking-widest text-center"
-                  >
-                    View Status
-                  </button>
-                  {derived.updatesPillar === "WARNING" && (
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab("updates")}
-                      className="ui-btn-primary py-2 px-3 text-[10px] font-black uppercase tracking-widest text-center text-white"
-                    >
-                      Update Fleet
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Pillar 3: POS */}
-              <div className={`ui-card p-5 border-l-4 rounded-xl shadow-sm bg-app-surface/50 backdrop-blur-md transition-transform hover:-translate-y-1 ${
-                derived.posPillar === "WARNING" ? "border-l-app-danger border-app-danger/20 animate-pulse" :
-                derived.posPillar === "CAUTION" ? "border-l-app-warning border-app-warning/20" :
-                "border-l-app-success border-app-border/60"
-              }`}>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">POS & Payments</span>
-                    <h3 className="text-xl font-black mt-1">
-                      {derived.posPillar}
-                    </h3>
-                  </div>
-                  <TerminalSquare size={20} className={
-                    derived.posPillar === "WARNING" ? "text-app-danger" :
-                    derived.posPillar === "CAUTION" ? "text-app-warning" : "text-app-success"
-                  } />
-                </div>
-                
-                {derived.posPillar !== "GOOD" && (
-                  <div className="mt-3 bg-app-bg/60 p-3 rounded-lg border border-app-border/40 text-xs">
-                    <p className="font-bold text-app-text">Why this is an issue:</p>
-                    <p className="text-app-text-muted mt-0.5">
-                      {derived.posPillar === "WARNING" 
-                        ? "Helcim payment terminal connection is offline or has unverified transactions awaiting confirmation."
-                        : "Payment review items or blocked checkout queues require staff intervention."}
-                    </p>
-                  </div>
-                )}
-                
-                <div className="mt-4 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onNavigate({ tab: "payments", section: "health" })}
-                    className="ui-btn-ghost flex-1 py-2 text-[10px] font-black uppercase tracking-widest text-center"
-                  >
-                    Payments Setup
-                  </button>
-                  {derived.posPillar === "WARNING" && (
-                    <button
-                      type="button"
-                      onClick={() => onNavigate({ tab: "settings", section: "helcim" })}
-                      className="ui-btn-primary py-2 px-3 text-[10px] font-black uppercase tracking-widest text-center text-white"
-                    >
-                      Quick-Fix
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Pillar 4: Back Office */}
-              <div className={`ui-card p-5 border-l-4 rounded-xl shadow-sm bg-app-surface/50 backdrop-blur-md transition-transform hover:-translate-y-1 ${
-                derived.boPillar === "WARNING" ? "border-l-app-danger border-app-danger/20 animate-pulse" :
-                derived.boPillar === "CAUTION" ? "border-l-app-warning border-app-warning/20" :
-                "border-l-app-success border-app-border/60"
-              }`}>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Back Office & Server</span>
-                    <h3 className="text-xl font-black mt-1">
-                      {derived.boPillar}
-                    </h3>
-                  </div>
-                  <Server size={20} className={
-                    derived.boPillar === "WARNING" ? "text-app-danger" :
-                    derived.boPillar === "CAUTION" ? "text-app-warning" : "text-app-success"
-                  } />
-                </div>
-                
-                {derived.boPillar !== "GOOD" && (
-                  <div className="mt-3 bg-app-bg/60 p-3 rounded-lg border border-app-border/40 text-xs">
-                    <p className="font-bold text-app-text">Why this is an issue:</p>
-                    <p className="text-app-text-muted mt-0.5">
-                      {derived.boPillar === "WARNING"
-                        ? "Server database integrity alert, schema conflicts, or critical RMS synchronization failure."
-                        : "Offline client heartbeats or unlinked bug reports pending review."}
-                    </p>
-                  </div>
-                )}
-                
-                <div className="mt-4 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("alerts")}
-                    className="ui-btn-ghost flex-1 py-2 text-[10px] font-black uppercase tracking-widest text-center"
-                  >
-                    View Alerts
-                  </button>
-                  {derived.boPillar === "WARNING" && (
-                    <button
-                      type="button"
-                      onClick={() => onNavigate({ tab: "settings", section: "backups" })}
-                      className="ui-btn-primary py-2 px-3 text-[10px] font-black uppercase tracking-widest text-center text-white"
-                    >
-                      Database Fix
-                    </button>
-                  )}
-                </div>
-              </div>
-
-            </div>
-
-            {/* Store Open/Close checklist section */}
-            <section className="rounded-2xl border border-app-border bg-app-surface p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <section
+              data-testid="operations-today-action-summary"
+              className={`rounded-2xl border p-5 shadow-sm ${
+                operationsToday.overall === "Blocked"
+                  ? "border-app-danger/30 bg-app-danger/10"
+                  : operationsToday.overall === "Needs Attention"
+                    ? "border-app-warning/30 bg-app-warning/10"
+                    : "border-app-success/30 bg-app-success/10"
+              }`}
+            >
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
-                    Open / close check
+                    Store status
                   </p>
-                  <h3 className="mt-1 text-xl font-black text-app-text">
-                    {checklistMode === "open" ? "Open Store" : "Close Store"} readiness
-                  </h3>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <h3 className="text-2xl font-black text-app-text">
+                      {operationsToday.overall}
+                    </h3>
+                    <span className="ui-pill bg-app-surface text-[10px] font-black uppercase tracking-widest text-app-text">
+                      {operationsToday.doNow.length} do now
+                    </span>
+                    <span className="ui-pill bg-app-surface text-[10px] font-black uppercase tracking-widest text-app-text">
+                      {operationsToday.followUp.length} follow up
+                    </span>
+                  </div>
+                  <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
+                    {operationsToday.overall === "Ready"
+                      ? "ROS found no current customer-blocking or operational work."
+                      : "Start with Do Now. Follow-up work can be handled after immediate customer and financial needs are safe."}
+                  </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {(["open", "close"] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => setChecklistMode(mode)}
-                      className={`min-h-10 rounded-xl border px-4 text-[10px] font-black uppercase tracking-widest transition-all ${
-                        checklistMode === mode
-                          ? "border-app-accent bg-app-accent/10 text-app-accent font-black"
-                          : "border-app-border bg-app-bg text-app-text-muted hover:text-app-text"
-                      }`}
-                    >
-                      {mode === "open" ? "Open Store" : "Close Store"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-3 xl:grid-cols-2">
-                {derived.categories.map((category) => {
-                  const Icon = category.Icon;
-                  return (
-                    <article
-                      key={`${checklistMode}-${category.id}`}
-                      className={`rounded-xl border p-4 bg-app-surface border-app-border`}
-                    >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="flex min-w-0 items-start gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-bg text-app-accent">
-                            <Icon size={18} />
-                          </div>
-                          <div className="min-w-0">
-                            <h4 className="text-sm font-black text-app-text">{category.title}</h4>
-                            <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                              {category.summary}
-                            </p>
-                          </div>
-                        </div>
-                        <span className={`shrink-0 rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${
-                          category.status === "blocked" ? "border-app-danger/30 bg-app-danger/10 text-app-danger" : "border-app-success/30 bg-app-success/10 text-app-success"
-                        }`}>
-                          {category.status}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onNavigate(category.target)}
-                        className="mt-3 inline-flex min-h-9 items-center rounded-lg border border-app-border bg-app-bg px-3 text-[9px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 transition-colors"
-                      >
-                        Resolve Source
-                      </button>
-                    </article>
-                  );
-                })}
+                <p className="text-xs font-semibold text-app-text-muted">
+                  Refreshed {loadedAt ?? "when data is available"}
+                </p>
               </div>
             </section>
 
-            {/* Diagnostics Summary & Support Copy Pane */}
-            <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="rounded-2xl border border-app-border bg-app-surface p-5">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle size={18} className="text-app-warning" />
-                  <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                    Operational Timeline
-                  </h3>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {derived.timeline.length > 0 ? (
-                    derived.timeline.map((item, idx) => (
-                      <div key={idx} className="rounded-xl border border-app-border bg-app-bg/50 p-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm font-black text-app-text">{item.label}</p>
-                          <span className={`rounded-full border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest ${
-                            item.status === "blocked" ? "border-app-danger/30 bg-app-danger/10 text-app-danger" : "border-app-warning/30 bg-app-warning/10 text-app-warning"
-                          }`}>
-                            {item.status}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-xs text-app-text-muted">{item.detail}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-xl border border-app-border bg-app-bg/50 p-4 text-sm font-semibold text-app-text-muted">
-                      No recent operational timeline exceptions recorded.
-                    </div>
-                  )}
+            <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-danger/10 text-app-danger">
+                  <AlertTriangle size={20} aria-hidden />
+                </span>
+                <div>
+                  <h3 className="text-lg font-black text-app-text">Do Now</h3>
+                  <p className="text-xs font-semibold text-app-text-muted">
+                    Customer-blocking, financial, or store-opening work.
+                  </p>
                 </div>
               </div>
-
-              <div className="rounded-2xl border border-app-border bg-app-surface p-5 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <ClipboardCheck size={18} className="text-app-accent" />
-                    <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                      Diagnostics Snapshot
-                    </h3>
+              <div className="mt-4 space-y-3">
+                {operationsToday.doNow.length > 0 ? (
+                  operationsToday.doNow.map((item) => (
+                    <article
+                      key={item.id}
+                      className="rounded-xl border border-app-danger/25 bg-app-bg/50 p-4"
+                    >
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="text-sm font-black text-app-text">{item.title}</h4>
+                            <span className="ui-pill bg-app-danger/10 text-[9px] font-black uppercase tracking-widest text-app-danger">
+                              {item.sourceLabel}
+                            </span>
+                            {item.occurredAt ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-app-text-muted">
+                                <Clock3 size={11} aria-hidden /> {fmtRelative(item.occurredAt)}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
+                            {item.detail}
+                          </p>
+                          <p className="mt-2 text-xs font-bold text-app-text">
+                            Next: {item.nextAction}
+                          </p>
+                        </div>
+                        {item.targetTab || item.navigateTarget ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (item.targetTab) setActiveTab(item.targetTab);
+                              if (item.navigateTarget) onNavigate(item.navigateTarget);
+                            }}
+                            className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl bg-app-accent px-4 text-[10px] font-black uppercase tracking-widest text-white"
+                          >
+                            Open source
+                          </button>
+                        ) : null}
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="flex items-center gap-3 rounded-xl border border-app-success/25 bg-app-success/10 p-4 text-sm font-bold text-app-success">
+                    <CheckCircle2 size={18} aria-hidden /> No immediate action is required.
                   </div>
-                  <p className="mt-3 text-xs leading-relaxed text-app-text-muted">
-                    Save the current operational snap to clipboard for remote team review, or run immediate runtime diagnostics tests.
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-warning/10 text-app-warning">
+                  <Clock3 size={20} aria-hidden />
+                </span>
+                <div>
+                  <h3 className="text-lg font-black text-app-text">Needs Follow-Up</h3>
+                  <p className="text-xs font-semibold text-app-text-muted">
+                    Important work that does not currently stop the store.
                   </p>
-                  <div className="mt-4 border border-app-border rounded-xl p-3 bg-black/10 font-mono text-[10px] text-app-text-muted">
-                    <p>Client Semver: {CLIENT_SEMVER}</p>
-                    <p>Git Build Hash: {GIT_SHORT || "Local Dev Build"}</p>
-                    <p>Stations Online: {stations.filter(s => s.online).length}</p>
-                    <p>
-                      Database Connectivity:{" "}
-                      {ops.data?.db_ok === true
-                        ? "OK"
-                        : ops.data?.db_ok === false
-                          ? "FAILED"
-                          : "UNKNOWN"}
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                {operationsToday.followUp.length > 0 ? (
+                  operationsToday.followUp.map((item) => (
+                    <article
+                      key={item.id}
+                      className="rounded-xl border border-app-border bg-app-bg/40 p-4"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="text-sm font-black text-app-text">{item.title}</h4>
+                        <span className="ui-pill bg-app-warning/10 text-[9px] font-black uppercase tracking-widest text-app-warning">
+                          {item.sourceLabel}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs font-medium leading-relaxed text-app-text-muted">
+                        {item.detail}
+                      </p>
+                      <p className="mt-2 text-xs font-bold text-app-text">
+                        Next: {item.nextAction}
+                      </p>
+                      {item.targetTab || item.navigateTarget ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (item.targetTab) setActiveTab(item.targetTab);
+                            if (item.navigateTarget) onNavigate(item.navigateTarget);
+                          }}
+                          className="mt-3 inline-flex min-h-9 items-center rounded-lg border border-app-border bg-app-surface px-3 text-[9px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2"
+                        >
+                          Open source
+                        </button>
+                      ) : null}
+                    </article>
+                  ))
+                ) : (
+                  <p className="text-sm font-semibold text-app-text-muted">
+                    No follow-up work is waiting.
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <details className="rounded-2xl border border-app-border bg-app-surface">
+              <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 size={20} className="text-app-success" aria-hidden />
+                  <div>
+                    <h3 className="text-sm font-black text-app-text">Healthy systems</h3>
+                    <p className="text-xs font-semibold text-app-text-muted">
+                      {operationsToday.healthyProofs.length} current proof item{operationsToday.healthyProofs.length === 1 ? "" : "s"}
                     </p>
                   </div>
                 </div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => void copySnapshot()}
-                    className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 transition-colors"
-                  >
-                    <Copy size={14} /> Copy Snapshot
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab("stations")}
-                    className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 transition-colors"
-                  >
-                    Diagnose Fleet
-                  </button>
-                </div>
+                <ChevronDown size={16} className="text-app-text-muted" aria-hidden />
+              </summary>
+              <div className="grid gap-3 border-t border-app-border px-5 py-4 sm:grid-cols-2 xl:grid-cols-3">
+                {operationsToday.healthyProofs.map((proof) => (
+                  <div key={proof.id} className="rounded-xl border border-app-success/20 bg-app-success/5 p-3">
+                    <p className="text-xs font-black text-app-text">{proof.label}</p>
+                    <p className="mt-1 text-xs font-semibold text-app-text-muted">{proof.detail}</p>
+                  </div>
+                ))}
               </div>
-            </section>
+            </details>
 
+            <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 text-xs font-medium leading-relaxed text-app-text-muted">
+              Routine staff corrections, intentionally disabled services, old history, and raw audit rows do not inflate this action list. They remain available under Advanced Diagnostics for support and engineering review.
+            </div>
           </div>
-        )}
+        ) : null}
 
         {/* TAB: READINESS */}
         {activeTab === "readiness" && (
@@ -2082,10 +2447,12 @@ export default function RosOperationsCenter({
         {/* TAB: REGISTER PERFORMANCE */}
         {activeTab === "performance" && (
           <div className="space-y-6 animate-in fade-in duration-300">
-            <PosJourneyMetricsPanel
-              headers={headers}
-              refreshSignal={loadedAt}
-            />
+            <Suspense fallback={<LazyPanelFallback />}>
+              <PosJourneyMetricsPanel
+                headers={headers}
+                refreshSignal={loadedAt}
+              />
+            </Suspense>
           </div>
         )}
 
@@ -2155,10 +2522,12 @@ export default function RosOperationsCenter({
                   Create, view, and update customer and staff-filed bug report tickets.
                 </p>
               </div>
-              <BugReportsSettingsPanel
-                deepLinkReportId={bugReportsDeepLinkId}
-                onDeepLinkConsumed={onBugReportsDeepLinkConsumed}
-              />
+              <Suspense fallback={<LazyPanelFallback />}>
+                <BugReportsSettingsPanel
+                  deepLinkReportId={bugReportsDeepLinkId}
+                  onDeepLinkConsumed={onBugReportsDeepLinkConsumed}
+                />
+              </Suspense>
             </div>
           </div>
         )}
@@ -2166,7 +2535,9 @@ export default function RosOperationsCenter({
         {/* TAB: UPDATES */}
         {activeTab === "updates" && (
           <div className="ui-card p-6 bg-app-surface/50 backdrop-blur-md border-app-border/60 rounded-xl animate-in fade-in duration-300">
-            <UpdateManagerPanel />
+            <Suspense fallback={<LazyPanelFallback />}>
+              <UpdateManagerPanel />
+            </Suspense>
           </div>
         )}
 

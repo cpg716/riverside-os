@@ -29,6 +29,7 @@ const baseUrl = getBaseUrl();
 
 type BugStatus = "pending" | "complete" | "dismissed";
 type ErrorEventStatus = "pending" | "complete" | "archived";
+type ErrorEventTriage = "action" | "recurring" | "background";
 
 type ListRow = {
   id: string;
@@ -94,6 +95,15 @@ type ErrorEventRow = {
 type ErrorEventDetail = ErrorEventRow & {
   client_meta: Record<string, unknown>;
   server_log_snapshot: string;
+};
+
+type ErrorEventGroup = {
+  key: string;
+  latest: ErrorEventRow;
+  count: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  triage: ErrorEventTriage;
 };
 
 type EmailSettings = {
@@ -181,6 +191,88 @@ function errorEventActorLabel(event: ErrorEventRow): string {
 
 function isServerError(event: ErrorEventRow): boolean {
   return event.event_source.startsWith("server_");
+}
+
+function classifyErrorEvent(event: ErrorEventRow): ErrorEventTriage {
+  const message = event.message.toLowerCase();
+  const expectedBackground = [
+    "access pin",
+    "authorization header",
+    "permission required",
+    "validation",
+    "must be provided",
+    "is required",
+    "not configured",
+    "invalid status transition",
+  ];
+  if (expectedBackground.some((pattern) => message.includes(pattern))) {
+    return "background";
+  }
+
+  const recurringConnection = [
+    "connection refused",
+    "connection reset",
+    "timed out",
+    "timeout",
+    "network error",
+    "failed to fetch",
+    "heartbeat",
+    "liveness",
+  ];
+  if (recurringConnection.some((pattern) => message.includes(pattern))) {
+    return "recurring";
+  }
+
+  return ["critical", "error"].includes(event.severity.toLowerCase())
+    ? "action"
+    : "recurring";
+}
+
+function errorEventFingerprint(event: ErrorEventRow): string {
+  const normalizedMessage = event.message
+    .toLowerCase()
+    .replace(/[0-9a-f]{8}-[0-9a-f-]{27,}/g, "{id}")
+    .replace(/https?:\/\/\S+/g, "{url}")
+    .replace(/\b\d+\b/g, "#")
+    .replace(/\s+/g, " ")
+    .trim();
+  return [event.event_source, event.route ?? "", normalizedMessage].join("|");
+}
+
+function groupErrorEvents(events: ErrorEventRow[]): ErrorEventGroup[] {
+  const groups = new Map<string, ErrorEventGroup>();
+  for (const event of events) {
+    const key = errorEventFingerprint(event);
+    const current = groups.get(key);
+    if (!current) {
+      groups.set(key, {
+        key,
+        latest: event,
+        count: 1,
+        firstSeenAt: event.created_at,
+        lastSeenAt: event.created_at,
+        triage: classifyErrorEvent(event),
+      });
+      continue;
+    }
+    current.count += 1;
+    if (new Date(event.created_at).getTime() < new Date(current.firstSeenAt).getTime()) {
+      current.firstSeenAt = event.created_at;
+    }
+    if (new Date(event.created_at).getTime() > new Date(current.lastSeenAt).getTime()) {
+      current.lastSeenAt = event.created_at;
+      current.latest = event;
+    }
+  }
+  return [...groups.values()].sort(
+    (a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime(),
+  );
+}
+
+function errorEventTriageLabel(triage: ErrorEventTriage): string {
+  if (triage === "action") return "Action needed";
+  if (triage === "recurring") return "Recurring";
+  return "Background info";
 }
 
 function buildAiDiagnosticPackage(event: ErrorEventDetail): string {
@@ -276,6 +368,9 @@ export default function BugReportsSettingsPanel({
   const [eventSourceFilter, setEventSourceFilter] = useState<
     "all" | "server" | "client"
   >("all");
+  const [eventTriageFilter, setEventTriageFilter] = useState<
+    "all" | ErrorEventTriage
+  >("action");
   const [viewMode, setViewMode] = useState<"reports" | "events">("reports");
   const [emailSettings, setEmailSettings] = useState<EmailSettings | null>(null);
   const [emailCredentialsConfigured, setEmailCredentialsConfigured] =
@@ -296,14 +391,24 @@ export default function BugReportsSettingsPanel({
     eventListFilter === "all"
       ? errorEvents
       : errorEvents.filter((event) => event.status === eventListFilter);
-  const filteredErrorEvents =
+  const sourceFilteredEvents =
     eventSourceFilter === "all"
       ? statusFilteredEvents
       : eventSourceFilter === "server"
         ? statusFilteredEvents.filter((e) => isServerError(e))
         : statusFilteredEvents.filter((e) => !isServerError(e));
-  const pendingServerErrorCount = errorEvents.filter(
-    (e) => isServerError(e) && e.status === "pending",
+  const triageFilteredEvents =
+    eventTriageFilter === "all"
+      ? sourceFilteredEvents
+      : sourceFilteredEvents.filter(
+          (event) => classifyErrorEvent(event) === eventTriageFilter,
+        );
+  const groupedErrorEvents = groupErrorEvents(triageFilteredEvents);
+  const allErrorEventGroups = groupErrorEvents(errorEvents);
+  const pendingActionErrorCount = groupErrorEvents(
+    errorEvents.filter(
+      (event) => event.status === "pending" && classifyErrorEvent(event) === "action",
+    ),
   ).length;
   const overlayRoot = document.getElementById("drawer-root") || document.body;
 
@@ -616,8 +721,8 @@ export default function BugReportsSettingsPanel({
 
       <div className="flex flex-wrap gap-2">
         {([
-          ["reports", "Bug reports"],
-          ["events", "Developer Errors"],
+          ["reports", "Staff reports"],
+          ["events", "Automated diagnostics"],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -631,12 +736,12 @@ export default function BugReportsSettingsPanel({
           >
             {label}
             <span className="ml-1.5 tabular-nums opacity-70">
-              ({key === "reports" ? rows.length : errorEvents.length})
+              ({key === "reports" ? rows.length : allErrorEventGroups.length})
             </span>
-            {key === "events" && pendingServerErrorCount > 0 ? (
+            {key === "events" && pendingActionErrorCount > 0 ? (
               <span className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-app-danger px-1.5 py-0.5 text-[8px] font-black text-white">
                 <Server className="h-2 w-2" aria-hidden />
-                {pendingServerErrorCount}
+                {pendingActionErrorCount}
               </span>
             ) : null}
           </button>
@@ -774,38 +879,80 @@ export default function BugReportsSettingsPanel({
                     </span>
                   </button>
                 ))}
+                <span className="mx-1 border-r border-app-border" aria-hidden />
+                {(
+                  [
+                    ["action", "Action needed"],
+                    ["recurring", "Recurring"],
+                    ["background", "Background info"],
+                    ["all", "All types"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setEventTriageFilter(key)}
+                    className={`rounded-lg border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                      eventTriageFilter === key
+                        ? key === "action"
+                          ? "border-app-danger bg-app-danger/10 text-app-danger"
+                          : "border-app-accent bg-app-accent/15 text-app-text"
+                        : "border-app-border bg-app-surface-2 text-app-text-muted hover:bg-app-border/20"
+                    }`}
+                  >
+                    {label}
+                    <span className="ml-1.5 tabular-nums opacity-70">
+                      ({key === "all"
+                        ? groupErrorEvents(sourceFilteredEvents).length
+                        : groupErrorEvents(
+                            sourceFilteredEvents.filter(
+                              (event) => classifyErrorEvent(event) === key,
+                            ),
+                          ).length})
+                    </span>
+                  </button>
+                ))}
               </div>
-              {filteredErrorEvents.length === 0 ? (
+              <div className="border-b border-app-border bg-app-bg/30 px-4 py-3 text-xs font-medium text-app-text-muted">
+                Similar events are grouped into one row. Expected validation and setup messages remain available as Background info without inflating the action count.
+              </div>
+              {groupedErrorEvents.length === 0 ? (
                 <p className="p-6 text-sm text-app-text-muted">
-                  No automated error events in this filter.
+                  No automated diagnostic groups in this filter.
                 </p>
               ) : null}
-              {filteredErrorEvents.length > 0 ? (
+              {groupedErrorEvents.length > 0 ? (
               <div className="overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
               <table className="w-full min-w-[760px] border-collapse text-left text-sm">
                 <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   <tr>
-                    <th className="px-4 py-3">When</th>
+                    <th className="px-4 py-3">Last seen</th>
+                    <th className="px-4 py-3">Count</th>
                     <th className="px-4 py-3">Actor</th>
                     <th className="px-4 py-3">Source</th>
                     <th className="px-4 py-3">Message</th>
-                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Type</th>
                     <th className="px-4 py-3">Route</th>
                     <th className="px-4 py-3 text-right">Open</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-app-border">
-                  {filteredErrorEvents.map((event) => (
+                  {groupedErrorEvents.map((group) => {
+                    const event = group.latest;
+                    return (
                     <tr
-                      key={event.id}
+                      key={group.key}
                       className={`hover:bg-app-surface-2/80 ${
-                        isServerError(event) && event.status === "pending"
+                        group.triage === "action"
                           ? "bg-app-danger/5"
                           : ""
                       }`}
                     >
                       <td className="whitespace-nowrap px-4 py-3 text-xs text-app-text-muted">
-                        {new Date(event.created_at).toLocaleString()}
+                        {new Date(group.lastSeenAt).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-xs font-black tabular-nums text-app-text">
+                        {group.count}
                       </td>
                       <td className="px-4 py-3 text-xs font-semibold text-app-text">
                         {errorEventActorLabel(event)}
@@ -829,9 +976,15 @@ export default function BugReportsSettingsPanel({
                       </td>
                       <td className="px-4 py-3">
                         <span
-                          className={`ui-pill text-[9px] ${errorEventStatusPillClass(event.status)}`}
+                          className={`ui-pill text-[9px] ${
+                            group.triage === "action"
+                              ? "bg-app-danger/10 text-app-danger"
+                              : group.triage === "recurring"
+                                ? "bg-app-warning/10 text-app-warning"
+                                : "bg-app-surface-2 text-app-text-muted"
+                          }`}
                         >
-                          {errorEventStatusLabel(event.status)}
+                          {errorEventTriageLabel(group.triage)}
                         </span>
                       </td>
                       <td className="max-w-[14rem] truncate px-4 py-3 font-mono text-[10px] text-app-text-muted">
@@ -848,7 +1001,8 @@ export default function BugReportsSettingsPanel({
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
               </div>

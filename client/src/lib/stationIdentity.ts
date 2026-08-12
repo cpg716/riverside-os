@@ -8,10 +8,21 @@ const STATION_LABEL_STORAGE = "ros.station.label";
  */
 export function getStationLabel(): string {
   const configured = window.localStorage.getItem(STATION_LABEL_STORAGE)?.trim();
-  if (configured) return configured;
+  const normalizedConfigured = configured?.toLowerCase();
+  if (
+    configured &&
+    normalizedConfigured !== "riverside station" &&
+    normalizedConfigured !== "riverside workstation"
+  ) {
+    return configured;
+  }
 
   const hostname = window.location.hostname.trim();
-  return hostname && hostname !== "tauri.localhost" ? hostname : "Riverside Station";
+  if (hostname && hostname !== "tauri.localhost") return hostname;
+
+  const stationSuffix =
+    getStableStationKey().replace(/^station-/, "").slice(-6).toUpperCase() || "LOCAL";
+  return `Riverside Workstation ${stationSuffix}`;
 }
 
 export function getStableStationKey(): string {

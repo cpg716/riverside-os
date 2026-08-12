@@ -43,6 +43,20 @@ Use ROS Dev Center when:
 - a guarded maintenance action needs manager review
 - one operational feed is degraded and you need to see what is still available
 
+## Operations Today
+
+**Operations Today** is the default staff view. It replaces the old wall of queues and readiness signals with three plain-language groups:
+
+1. **Do Now** — customer-blocking, financial, or store-opening work.
+2. **Needs Follow-Up** — important work that does not currently stop the store.
+3. **Healthy systems** — collapsed proof that the Main Hub, backup, active workstations, Register sessions, payments, or ROSIE are currently reporting healthy.
+
+ROS uses live Main Hub readiness, verified-backup evidence, workstation heartbeats, and the open Register session ledger automatically. An offline secondary workstation is follow-up work while another active workstation remains online; it does not mark the whole store blocked.
+
+Routine staff corrections, intentionally disabled services, old history, repeated audit probes, and expected validation messages do not inflate the staff action list. Open **Advanced Diagnostics** for Certification Evidence, Workstations, Alert History, Integration Details, Register Performance, and Bug & Error Diagnostics when support needs the raw evidence.
+
+Certification Evidence is for release, deployment, hardware, and owner signoff. It is not a second daily task list.
+
 ## Degraded diagnostics
 
 Diagnostic feeds load independently. If one feed fails, the rest of the Dev Center should still render useful information with a quiet degraded message for the failed feed.

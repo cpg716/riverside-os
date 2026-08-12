@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, CheckCircle2, RefreshCw, Save } from "lucide-react";
 import { getBaseUrl } from "../../lib/apiConfig";
+import { openExternalUrl } from "../../lib/desktopFileBridge";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -361,10 +362,7 @@ export default function QuickBooksSettingsPanel({
       if (!res.ok || !body.authorize_url) {
         throw new Error(body.error ?? "Could not start QuickBooks authorization.");
       }
-      const opened = window.open(body.authorize_url, "_blank", "noopener,noreferrer");
-      if (!opened) {
-        window.location.assign(body.authorize_url);
-      }
+      await openExternalUrl(body.authorize_url);
     } catch (error) {
       toast(
         error instanceof Error

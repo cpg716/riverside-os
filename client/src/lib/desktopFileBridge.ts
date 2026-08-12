@@ -122,5 +122,8 @@ export async function openExternalUrl(
     await openUrl(url);
     return;
   }
-  window.open(url, browserTarget, features);
+  const opened = window.open(url, browserTarget, features);
+  if (!opened) {
+    window.location.assign(url);
+  }
 }

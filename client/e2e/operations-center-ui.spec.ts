@@ -338,6 +338,58 @@ test.describe("ROS Operations Center", () => {
 
   test("summarizes blockers, degraded sources, safe actions, and deep links", async ({ page }) => {
     test.setTimeout(90_000);
+    await page.route("**/api/ready", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "ready",
+          build_sha: "operations-e2e",
+          unavailable_components: [],
+          backup: {
+            worker_healthy: true,
+            tooling_ready: true,
+            artifact_usable: true,
+            recent_verified_backup: true,
+            last_verified_at: "2026-05-13T11:00:00Z",
+            last_verified_filename: "riverside-e2e.dump",
+            verification_method: "pg_restore_catalog",
+            max_age_hours: 30,
+          },
+          rosie: {
+            llm_available: true,
+            multimodal_available: true,
+            stt_available: true,
+            tts_available: true,
+          },
+        }),
+      });
+    });
+    await page.route("**/api/sessions/list-open", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            session_id: "session-1",
+            register_lane: 1,
+            cashier_name: "Operations Staff",
+            opened_at: "2026-05-13T11:00:00Z",
+            lifecycle_status: "open",
+          },
+        ]),
+      });
+    });
+    await page.route("**/api/ops/stations", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          { id: "station-1", online: true, actionable: true, app_version: "0.96.0" },
+          { id: "station-2", online: false, actionable: true, app_version: "0.96.0" },
+        ]),
+      });
+    });
     await page.route("**/api/ops/health/snapshot", async (route) => {
       await route.fulfill({
         status: 200,
@@ -505,9 +557,16 @@ test.describe("ROS Operations Center", () => {
     await operationsCenterNav.click({ force: true });
 
     await expect(page.getByTestId("ros-operations-center")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByRole("heading", { name: /^ros operations & support center$/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^operations today$/i })).toBeVisible();
+    await expect(page.getByTestId("operations-today-action-summary")).toContainText("Blocked");
+    await expect(page.getByRole("heading", { name: /^do now$/i })).toBeVisible();
+    await expect(page.getByText(/^card payments need attention$/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^needs follow-up$/i })).toBeVisible();
+    await expect(page.getByText(/^counterpoint sync needs review$/i)).toBeVisible();
+    await expect(page.getByText(/does not block store operation/i)).toBeVisible();
 
-    await page.getByRole("button", { name: /^readiness$/i }).click();
+    await page.getByRole("button", { name: /^advanced diagnostics$/i }).click();
+    await page.getByRole("button", { name: /^certification evidence$/i }).click();
     await expect(page.getByRole("heading", { name: /can riverside os open the store today/i })).toBeVisible();
     await expect(page.getByRole("heading", { name: /^daily open readiness$/i })).toBeVisible();
     await expect(page.getByRole("heading", { name: /^go-live \/ production certification$/i })).toBeVisible();

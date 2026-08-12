@@ -5,10 +5,11 @@ const repoFile = (path: string) =>
   readFile(new URL(`../../${path}`, import.meta.url), "utf8");
 
 test("routine fulfillment and inventory telemetry stay out of Notifications", async () => {
-  const [transactions, notificationJobs, operationalOutbox] = await Promise.all([
+  const [transactions, notificationJobs, operationalOutbox, notifications] = await Promise.all([
     repoFile("server/src/api/transactions.rs"),
     repoFile("server/src/logic/notifications_jobs.rs"),
     repoFile("server/src/logic/operational_outbox.rs"),
+    repoFile("server/src/logic/notifications.rs"),
   ]);
 
   expect(transactions).not.toContain("emit_order_fully_fulfilled");
@@ -26,5 +27,8 @@ test("routine fulfillment and inventory telemetry stay out of Notifications", as
   );
   expect(operationalOutbox).toContain(
     "checkout completed with negative inventory reconciliation finding",
+  );
+  expect(notifications).toMatch(
+    /pub async fn unread_count_for_staff[\s\S]*sn\.read_at IS NULL[\s\S]*sn\.archived_at IS NULL[\s\S]*sn\.completed_at IS NULL/,
   );
 });

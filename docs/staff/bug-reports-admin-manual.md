@@ -10,7 +10,7 @@
 
 ## Why this screen exists
 
-Submissions land in **`staff_bug_report`** with optional **PNG screenshot**, **summary**, **steps**, **client console buffer**, **client metadata** (build, URL, tab/subsection, register session flags, Tauri/PWA/browser surface), **correlation id**, and a **server log snapshot** captured at submit time (bounded **in-memory `tracing` ring** on the API process — **not** a full disk log or other servers). Automated **Error events** land in **`staff_error_event`** when the app shows an error toast or when ROS Dev Center records a server-side operational issue, giving admins a lightweight trail even when staff do not file a full report. New reports can notify everyone with **`settings.admin`** (in-app notification with deep link toward **Settings → Bug reports**).
+Submissions land in **`staff_bug_report`** with optional **PNG screenshot**, **summary**, **steps**, **client console buffer**, **client metadata** (build, URL, tab/subsection, register session flags, Tauri/PWA/browser surface), **correlation id**, and a **server log snapshot** captured at submit time (bounded **in-memory `tracing` ring** on the API process — **not** a full disk log or other servers). **Automated diagnostics** land in **`staff_error_event`** when the app shows an error toast or when ROS Dev Center records a server-side operational issue, giving admins a lightweight trail even when staff do not file a full report. New reports can notify everyone with **`settings.admin`** (in-app notification with deep link toward **Settings → Bug reports**).
 
 **Technical reference:** **[../PLAN_BUG_REPORTS.md](../PLAN_BUG_REPORTS.md)**  
 **What the server snapshot is:** **[../OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md](../OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**
@@ -54,11 +54,11 @@ After opening **Settings → Bug reports**:
 
 Empty states: **No bug reports yet** or **No reports in this filter**.
 
-## Error events
+## Automated diagnostics
 
-The **Error events** tab is an automated companion to staff-submitted bug reports. It records recent error toasts with staff identity when available, route, client metadata, and a bounded API server log snapshot. Server-side operational events appear as **Server runtime** with source labels such as `server_ops_alert` or `server_api_error` when the server can still persist to the database.
+**Automated diagnostics** is a companion to staff-submitted bug reports. It records recent error toasts with staff identity when available, route, client metadata, and a bounded API server log snapshot. Server-side operational events appear as **Server runtime** with source labels such as `server_ops_alert` or `server_api_error` when the server can still persist to the database.
 
-Use Error events to answer “what failed around this time?” quickly. The queue loads lightweight rows first; choose **View** for the browser metadata and bounded server snapshot for one event. Convert the pattern into a full bug report or external ticket when the same message repeats, affects checkout/order/payment flows, or needs engineering follow-up. Error events do **not** include screenshots or staff-written steps.
+The page opens to **Action needed**, groups similar messages into one row, and shows the number of occurrences plus the latest event. Use **Recurring** for repeated connectivity/liveness evidence and **Background info** for expected validation or setup messages. **All types** preserves the complete retained view. Choose **View** for the latest event's browser metadata and bounded server snapshot. Convert a pattern into a full bug report or external ticket when it affects checkout, order, or payment flows or needs engineering follow-up. Automated diagnostics do **not** include screenshots or staff-written steps.
 
 ---
 
@@ -175,4 +175,4 @@ Staff are limited to **12** submissions per **15 minutes** per **staff id** (ant
 - **[settings-back-office.md](settings-back-office.md)** — Settings navigation and other admin tabs.
 - **[../PLAN_BUG_REPORTS.md](../PLAN_BUG_REPORTS.md)** — API paths, schema, env.
 
-**Last reviewed:** 2026-04-08
+**Last reviewed:** 2026-08-12
