@@ -221,7 +221,9 @@ test("Podium inbox keeps unknown senders in the regular conversation flow", () =
     "Storing Podium message without adding or choosing a Riverside customer",
   );
   expect(podiumInbound).not.toContain('first_name: "New".into()');
-  expect(podiumInbox).toContain('return "Unknown sender"');
+  expect(podiumInbox).toContain(
+    'return row.contact_identifier?.trim() || "Unknown sender"',
+  );
   expect(podiumInbox).toContain("Match Customer");
   expect(podiumInbox).toContain("Add Customer");
   expect(podiumInbox).toContain("<AddCustomerDrawer");
@@ -269,6 +271,7 @@ test("Podium inbox assigns conversations only to linked staff without sending a 
   expect(podiumInbox).toContain('method: "PATCH"');
   expect(podiumInbox).toContain("body: JSON.stringify({ staff_id:");
   expect(podiumInbox).toContain("Saving assignment...");
+  expect(podiumInbox).toContain("}, [apiAuth, selectedConversationId]);");
   expect(podiumInbox).not.toContain("Saves immediately without sending a reply");
 });
 
@@ -280,8 +283,15 @@ test("Podium inbox remembers a PIN-verified responder per conversation", () => {
   expect(customersApi).toContain("body.conversation_id");
   expect(customersApi).toContain("resolve_podium_reply_actor");
   expect(podiumMessaging).toContain("remember_conversation_responder");
+  expect(podiumMessaging).toContain(
+    "NULLIF(TRIM(responder.podium_user_uid), '') IS NOT NULL",
+  );
   expect(podiumLogic).toContain('data["senderName"] = json!(sender_name)');
   expect(podiumInbox).toContain("Replying as");
+  expect(podiumInbox).toContain(
+    "const responderOptions = assignmentRoster.map",
+  );
+  expect(podiumInbox).not.toContain("/api/staff/list-for-pos");
   expect(podiumInbox).toContain("Access PIN only when changing");
   expect(podiumResponderModal).toContain("Future replies in this conversation");
   expect(podiumResponderModal).toContain("<NumericPinKeypad");
@@ -306,6 +316,10 @@ test("Podium call webhooks appear as durable conversation activity", () => {
     '"/podium/conversations/{conversation_id}/calls"',
   );
   expect(podiumMessaging).toContain("podium_call_event unread_call");
+  expect(podiumMessaging).toContain("latest_activity.kind AS latest_activity_kind");
+  expect(podiumInbox).toContain('return "Call"');
+  expect(podiumInbox).toContain("local_call_event_count");
+  expect(podiumInbox).toContain('"--app-accent": "var(--app-info)"');
   expect(podiumInbox).toContain("Voicemail received");
   expect(podiumInbox).toContain('kind: "call"');
 });

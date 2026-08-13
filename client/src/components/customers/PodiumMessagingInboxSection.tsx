@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   AlertTriangle,
   Archive,
@@ -62,6 +63,7 @@ type InboxRow = {
   provider_assignee_name: string | null;
   responder_staff_id: string | null;
   responder_staff_name: string | null;
+  latest_activity_kind: "message" | "call" | "review" | null;
   snippet: string | null;
 };
 
@@ -93,12 +95,14 @@ type PodiumHealth = {
   inbound_ingest_enabled: boolean;
   local_conversation_count: number;
   local_message_count: number;
+  local_call_event_count: number;
   incomplete_history_count: number;
   unmatched_conversation_count: number;
   last_webhook_received_at: string | null;
   last_webhook_failure_at: string | null;
   last_webhook_failure_reason: string | null;
   last_message_at: string | null;
+  last_call_event_at: string | null;
   last_outbound_at: string | null;
   last_sync_at: string | null;
 };
@@ -171,7 +175,7 @@ type DirectSmsCustomerResult = {
 };
 
 function customerName(row: InboxRow) {
-  if (!row.customer_id) return "Unknown sender";
+  if (!row.customer_id) return row.contact_identifier?.trim() || "Unknown sender";
   return `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Customer";
 }
 
@@ -251,6 +255,18 @@ function channelIcon(channel: string) {
   return channel === "email" ? Mail : Phone;
 }
 
+function activityIcon(row: InboxRow) {
+  if (row.latest_activity_kind === "call") return PhoneCall;
+  if (row.latest_activity_kind === "review") return Star;
+  return channelIcon(row.channel);
+}
+
+function activityLabel(row: InboxRow) {
+  if (row.latest_activity_kind === "call") return "Call";
+  if (row.latest_activity_kind === "review") return "Review";
+  return row.channel === "email" ? "Email" : "Text message";
+}
+
 function callEventLabel(call: PodiumCallEventRow) {
   if (call.event_type === "call.voicemail_left" || call.has_voicemail) {
     return "Voicemail received";
@@ -278,7 +294,7 @@ export default function PodiumMessagingInboxSection({
   initialFocusId?: string | null;
   onInitialFocusConsumed?: () => void;
 }) {
-  const { backofficeHeaders, staffId, staffDisplayName } = useBackofficeAuth();
+  const { backofficeHeaders, staffId } = useBackofficeAuth();
   const { toast } = useToast();
   const notificationCenter = useNotificationCenterOptional();
   const refreshNavigationCounts = notificationCenter?.refreshUnread;
@@ -310,7 +326,6 @@ export default function PodiumMessagingInboxSection({
   const [assignmentRosterLoading, setAssignmentRosterLoading] = useState(true);
   const [assignmentRosterLoadError, setAssignmentRosterLoadError] = useState(false);
   const [assignmentBusy, setAssignmentBusy] = useState(false);
-  const [responderRoster, setResponderRoster] = useState<ResponderStaff[]>([]);
   const [pendingResponder, setPendingResponder] = useState<{
     conversationId: string;
     staff: ResponderStaff;
@@ -343,6 +358,7 @@ export default function PodiumMessagingInboxSection({
   const [directBody, setDirectBody] = useState("");
   const [directSearchBusy, setDirectSearchBusy] = useState(false);
   const [directSendBusy, setDirectSendBusy] = useState(false);
+  const selectedConversationId = selectedRow?.conversation_id ?? null;
   const autoProviderPullKeyRef = useRef<string | null>(null);
   const refreshInFlightRef = useRef(false);
   const refreshSeqRef = useRef(0);
@@ -350,7 +366,7 @@ export default function PodiumMessagingInboxSection({
   const replyAttachmentInputRef = useRef<HTMLInputElement>(null);
   const newMessageRef = useRef<HTMLDivElement>(null);
   const selectedConversationIdRef = useRef<string | null>(null);
-  selectedConversationIdRef.current = selectedRow?.conversation_id ?? null;
+  selectedConversationIdRef.current = selectedConversationId;
 
   const loadHealth = useCallback(async () => {
     try {
@@ -405,27 +421,6 @@ export default function PodiumMessagingInboxSection({
     void refresh();
     void loadHealth();
   }, [loadHealth, refresh]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadResponderRoster = async () => {
-      try {
-        const res = await fetch(`${baseUrl}/api/staff/list-for-pos`, {
-          headers: apiAuth(),
-          cache: "no-store",
-        });
-        if (!res.ok) return;
-        const data = (await res.json()) as ResponderStaff[];
-        if (!cancelled) setResponderRoster(Array.isArray(data) ? data : []);
-      } catch {
-        if (!cancelled) setResponderRoster([]);
-      }
-    };
-    void loadResponderRoster();
-    return () => {
-      cancelled = true;
-    };
-  }, [apiAuth]);
 
   useEffect(() => {
     let cancelled = false;
@@ -605,7 +600,7 @@ export default function PodiumMessagingInboxSection({
   }, [showNewMessage]);
 
   useEffect(() => {
-    if (!selectedRow) {
+    if (!selectedConversationId) {
       setAssignees([]);
       setAssigneeLoadError(false);
       return;
@@ -616,7 +611,7 @@ export default function PodiumMessagingInboxSection({
       setAssigneeLoadError(false);
       try {
         const res = await fetch(
-          `${baseUrl}/api/customers/podium/conversations/${encodeURIComponent(selectedRow.conversation_id)}/assignees`,
+          `${baseUrl}/api/customers/podium/conversations/${encodeURIComponent(selectedConversationId)}/assignees`,
           { headers: apiAuth(), cache: "no-store" },
         );
         if (!res.ok) {
@@ -643,7 +638,7 @@ export default function PodiumMessagingInboxSection({
     return () => {
       cancelled = true;
     };
-  }, [apiAuth, selectedRow]);
+  }, [apiAuth, selectedConversationId]);
 
   useEffect(() => {
     if (!selectedRow) {
@@ -1206,16 +1201,17 @@ export default function PodiumMessagingInboxSection({
   const activeRows = rows.filter((row) => !row.closed);
   const unreadCount = activeRows.filter((row) => row.unread).length;
   const needsReplyCount = activeRows.filter((row) => row.needs_reply).length;
-  const currentResponderId = selectedRow?.responder_staff_id ?? staffId;
-  const currentResponderName = selectedRow?.responder_staff_name ?? staffDisplayName;
-  const responderOptions = [...responderRoster];
-  if (
-    currentResponderId &&
-    currentResponderName &&
-    !responderOptions.some((staff) => staff.id === currentResponderId)
-  ) {
-    responderOptions.unshift({ id: currentResponderId, full_name: currentResponderName });
-  }
+  const responderOptions = assignmentRoster.map((staff) => ({
+    id: staff.staff_id,
+    full_name: staff.staff_name,
+  }));
+  const currentResponder =
+    responderOptions.find(
+      (staff) => staff.id === selectedRow?.responder_staff_id,
+    ) ??
+    responderOptions.find((staff) => staff.id === staffId) ??
+    null;
+  const currentResponderId = currentResponder?.id ?? "";
   const assignmentOptions = [...assignmentRoster];
   for (const assignee of assignees) {
     if (
@@ -1282,11 +1278,17 @@ export default function PodiumMessagingInboxSection({
   ].sort(
     (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime(),
   );
-  const SelectedChannelIcon = selectedRow ? channelIcon(selectedRow.channel) : MessageCircle;
-  const hasSystemIssue = Boolean(activeWebhookFailure || syncIssue || historyIncomplete);
+  const SelectedActivityIcon = selectedRow ? activityIcon(selectedRow) : MessageCircle;
+  const callEventsMissing = health !== null && health.local_call_event_count === 0;
+  const hasSystemIssue = Boolean(
+    activeWebhookFailure || syncIssue || historyIncomplete || callEventsMissing,
+  );
 
   return (
-    <div className="ui-page flex flex-1 flex-col gap-3 p-4">
+    <div
+      className="ui-page flex flex-1 flex-col gap-3 p-4"
+      style={{ "--app-accent": "var(--app-info)" } as CSSProperties}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
@@ -1358,7 +1360,11 @@ export default function PodiumMessagingInboxSection({
           className="flex w-full items-center gap-2 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-left text-xs font-semibold text-app-text"
         >
           <AlertTriangle size={15} className="shrink-0 text-app-warning" aria-hidden />
-          <span>Podium needs attention. Open Status for details.</span>
+          <span>
+            {callEventsMissing
+              ? "Podium call delivery needs attention. Open Status for details."
+              : "Podium needs attention. Open Status for details."}
+          </span>
         </button>
       ) : null}
 
@@ -1374,6 +1380,9 @@ export default function PodiumMessagingInboxSection({
               </p>
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
                 Last inbound: {fullDateTime(health.last_webhook_received_at)} · Last stored message: {fullDateTime(health.last_message_at)} · Last complete history pull: {fullDateTime(health.last_sync_at)}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Stored calls: {health.local_call_event_count} · Last call: {fullDateTime(health.last_call_event_at)}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -1421,6 +1430,11 @@ export default function PodiumMessagingInboxSection({
           {syncIssue ? (
             <p className="mt-2 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
               {syncIssue}
+            </p>
+          ) : null}
+          {callEventsMissing ? (
+            <p className="mt-2 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
+              No Podium call events have reached Riverside. If calls exist in Podium, update the provider webhook in Settings → Connected Services → Podium. Pull from Podium restores message history only; it cannot backfill calls.
             </p>
           ) : null}
         </div>
@@ -1639,10 +1653,10 @@ export default function PodiumMessagingInboxSection({
                       </div>
                       <div className="mt-0.5 flex items-center gap-1.5 text-[10px] font-semibold text-app-text-muted">
                         {(() => {
-                          const Icon = channelIcon(r.channel);
+                          const Icon = activityIcon(r);
                           return <Icon size={12} aria-hidden />;
                         })()}
-                        <span>{r.channel === "sms" ? "Text message" : "Email"}</span>
+                        <span>{activityLabel(r)}</span>
                         <span>·</span>
                         <span>{r.customer_code ?? r.contact_identifier ?? "Podium sender"}</span>
                       </div>
@@ -1682,8 +1696,8 @@ export default function PodiumMessagingInboxSection({
                         {customerName(selectedRow)}
                       </h2>
                       <p className="flex items-center gap-2 text-xs font-semibold text-app-text-muted">
-                        <SelectedChannelIcon size={13} aria-hidden />
-                        {selectedRow.channel === "email" ? "Email" : "Text message"} · Last activity {relativeTime(selectedRow.last_message_at)}
+                        <SelectedActivityIcon size={13} aria-hidden />
+                        {activityLabel(selectedRow)} · Last activity {relativeTime(selectedRow.last_message_at)}
                       </p>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <label className="flex min-w-0 items-center gap-2 text-xs font-black text-app-text">
@@ -2093,12 +2107,14 @@ export default function PodiumMessagingInboxSection({
                               staff: next,
                             });
                           }}
-                          disabled={replyBusy}
+                          disabled={replyBusy || assignmentRosterLoading}
                           className="ui-input h-9 min-w-44 rounded-xl px-3 text-xs font-black disabled:opacity-60"
                           aria-label="Replying as staff member"
                         >
                           {!currentResponderId ? (
-                            <option value="">Current register staff</option>
+                            <option value="" disabled>
+                              Select linked staff member
+                            </option>
                           ) : null}
                           {responderOptions.map((staff) => (
                             <option key={staff.id} value={staff.id}>
@@ -2111,6 +2127,12 @@ export default function PodiumMessagingInboxSection({
                         Remembered for this conversation · Access PIN only when changing
                       </p>
                     </div>
+                    {!assignmentRosterLoading && !currentResponderId ? (
+                      <p className="mb-2 text-[10px] font-semibold text-app-warning">
+                        Choose a staff member with a Linked Podium Staff Member
+                        before replying.
+                      </p>
+                    ) : null}
                     <div className="mb-2 flex flex-wrap items-center gap-2">
                       <button
                         type="button"
@@ -2198,8 +2220,10 @@ export default function PodiumMessagingInboxSection({
                         onClick={() => void sendReply()}
                         disabled={
                           replyBusy ||
+                          !currentResponderId ||
                           !replyDraft.trim() ||
-                          (selectedRow.channel === "email" && !replySubject.trim())
+                          (selectedRow.channel === "email" &&
+                            !replySubject.trim())
                         }
                         className="ui-btn-primary ui-touch-target inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-50"
                         aria-label={replyBusy ? "Sending message" : "Send message"}

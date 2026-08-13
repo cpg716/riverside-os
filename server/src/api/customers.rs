@@ -6901,16 +6901,35 @@ async fn post_podium_conversation_reply(
             sender_name: Some(sender_name.to_string()),
         }
     } else {
-        if let Some(staff_id) = operator.staff_id {
-            let _ = podium_messaging::remember_conversation_responder(
-                &state.db,
-                target.conversation_id,
-                staff_id,
-                Some(staff_id),
+        let staff_id = operator.staff_id.ok_or_else(|| {
+            CustomerError::BadRequest(
+                "Choose a Podium-linked staff member in Replying as before sending.".to_string(),
             )
-            .await?;
+        })?;
+        let linked_staff = podium_messaging::assignment_staff_by_id(&state.db, staff_id)
+            .await?
+            .ok_or_else(|| {
+                CustomerError::BadRequest(
+                    "Choose a Podium-linked staff member in Replying as before sending."
+                        .to_string(),
+                )
+            })?;
+        let remembered = podium_messaging::remember_conversation_responder(
+            &state.db,
+            target.conversation_id,
+            linked_staff.staff_id,
+            Some(staff_id),
+        )
+        .await?;
+        if remembered.is_none() {
+            return Err(CustomerError::BadRequest(
+                "Choose a Podium-linked staff member in Replying as before sending.".to_string(),
+            ));
         }
-        operator
+        CustomerMessageActor {
+            staff_id: Some(linked_staff.staff_id),
+            sender_name: Some(linked_staff.staff_name),
+        }
     };
 
     if target.channel == "sms" {
@@ -7371,6 +7390,14 @@ async fn post_podium_conversation_responder(
             "Access PIN must be exactly 4 digits.".to_string(),
         ));
     }
+    podium_messaging::assignment_staff_by_id(&state.db, body.staff_id)
+        .await?
+        .ok_or_else(|| {
+            CustomerError::BadRequest(
+                "Replying as is available only for active staff linked to a Podium user."
+                    .to_string(),
+            )
+        })?;
     let responder =
         crate::auth::pins::authenticate_staff_by_id(&state.db, body.staff_id, Some(pin))
             .await

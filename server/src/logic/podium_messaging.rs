@@ -51,6 +51,7 @@ pub struct PodiumInboxRow {
     pub provider_assignee_name: Option<String>,
     pub responder_staff_id: Option<Uuid>,
     pub responder_staff_name: Option<String>,
+    pub latest_activity_kind: Option<String>,
     pub snippet: Option<String>,
 }
 
@@ -113,12 +114,14 @@ pub struct PodiumMessagingHealth {
     pub inbound_ingest_enabled: bool,
     pub local_conversation_count: i64,
     pub local_message_count: i64,
+    pub local_call_event_count: i64,
     pub incomplete_history_count: i64,
     pub unmatched_conversation_count: i64,
     pub last_webhook_received_at: Option<DateTime<Utc>>,
     pub last_webhook_failure_at: Option<DateTime<Utc>>,
     pub last_webhook_failure_reason: Option<String>,
     pub last_message_at: Option<DateTime<Utc>>,
+    pub last_call_event_at: Option<DateTime<Utc>>,
     pub last_outbound_at: Option<DateTime<Utc>>,
     pub last_sync_at: Option<DateTime<Utc>>,
 }
@@ -427,57 +430,69 @@ pub async fn list_messaging_inbox(
             ) AS unread,
             LOWER(COALESCE(pc.provider_status, '')) IN ('closed', 'archived') AS closed,
             pc.provider_assignee_name,
-            CASE WHEN responder_staff.is_active = TRUE THEN responder_staff.id END AS responder_staff_id,
-            CASE WHEN responder_staff.is_active = TRUE THEN responder_staff.full_name END AS responder_staff_name,
-            (
-                SELECT activity.preview
-                FROM (
-                    SELECT pm.body AS preview, pm.created_at
-                    FROM podium_message pm
-                    WHERE pm.conversation_id = pc.id
-                    UNION ALL
-                    SELECT
-                        CASE call_event.event_type
-                            WHEN 'call.voicemail_left' THEN 'Voicemail received'
-                            WHEN 'call.missed' THEN 'Missed call'
-                            WHEN 'call.received' THEN 'Incoming call'
-                            WHEN 'call.completed' THEN CASE
-                                WHEN call_event.direction = 'outbound' THEN 'Outgoing call completed'
-                                ELSE 'Call completed'
-                            END
-                            ELSE 'Call activity'
-                        END AS preview,
-                        call_event.occurred_at AS created_at
-                    FROM podium_call_event call_event
-                    WHERE call_event.conversation_id = pc.id
-                    UNION ALL
-                    SELECT
-                        CASE
-                            WHEN review_activity.last_event_type LIKE 'review.response_%'
-                                THEN 'Review response posted'
-                            WHEN review_activity.rating IS NOT NULL
-                                THEN CONCAT(
-                                    'New ',
-                                    review_activity.rating,
-                                    '-star ',
-                                    COALESCE(NULLIF(review_activity.site_name, ''), 'customer'),
-                                    ' review'
-                                )
-                            ELSE 'New customer review'
-                        END AS preview,
-                        review_activity.last_activity_at AS created_at
-                    FROM podium_review review_activity
-                    WHERE review_activity.conversation_id = pc.id
-                ) activity
-                ORDER BY activity.created_at DESC
-                LIMIT 1
-            ) AS snippet
+            CASE
+                WHEN responder_staff.is_active = TRUE
+                 AND NULLIF(TRIM(responder_staff.podium_user_uid), '') IS NOT NULL
+                THEN responder_staff.id
+            END AS responder_staff_id,
+            CASE
+                WHEN responder_staff.is_active = TRUE
+                 AND NULLIF(TRIM(responder_staff.podium_user_uid), '') IS NOT NULL
+                THEN responder_staff.full_name
+            END AS responder_staff_name,
+            latest_activity.kind AS latest_activity_kind,
+            latest_activity.preview AS snippet
         FROM podium_conversation pc
         LEFT JOIN customers c ON c.id = pc.customer_id
         LEFT JOIN staff responder_staff ON responder_staff.id = pc.responder_staff_id
         LEFT JOIN podium_sync_unmatched_conversation unmatched
           ON unmatched.provider_conversation_uid = pc.podium_conversation_uid
          AND unmatched.resolved_at IS NULL
+        LEFT JOIN LATERAL (
+            SELECT activity.kind, activity.preview
+            FROM (
+                SELECT pm.body AS preview, pm.created_at, 'message'::text AS kind
+                FROM podium_message pm
+                WHERE pm.conversation_id = pc.id
+                UNION ALL
+                SELECT
+                    CASE call_event.event_type
+                        WHEN 'call.voicemail_left' THEN 'Voicemail received'
+                        WHEN 'call.missed' THEN 'Missed call'
+                        WHEN 'call.received' THEN 'Incoming call'
+                        WHEN 'call.completed' THEN CASE
+                            WHEN call_event.direction = 'outbound' THEN 'Outgoing call completed'
+                            ELSE 'Call completed'
+                        END
+                        ELSE 'Call activity'
+                    END AS preview,
+                    call_event.occurred_at AS created_at,
+                    'call'::text AS kind
+                FROM podium_call_event call_event
+                WHERE call_event.conversation_id = pc.id
+                UNION ALL
+                SELECT
+                    CASE
+                        WHEN review_activity.last_event_type LIKE 'review.response_%'
+                            THEN 'Review response posted'
+                        WHEN review_activity.rating IS NOT NULL
+                            THEN CONCAT(
+                                'New ',
+                                review_activity.rating,
+                                '-star ',
+                                COALESCE(NULLIF(review_activity.site_name, ''), 'customer'),
+                                ' review'
+                            )
+                        ELSE 'New customer review'
+                    END AS preview,
+                    review_activity.last_activity_at AS created_at,
+                    'review'::text AS kind
+                FROM podium_review review_activity
+                WHERE review_activity.conversation_id = pc.id
+            ) activity
+            ORDER BY activity.created_at DESC
+            LIMIT 1
+        ) latest_activity ON TRUE
         ORDER BY pc.last_message_at DESC
         LIMIT $1
         "#,
@@ -533,8 +548,16 @@ pub async fn podium_conversation_reply_target(
                 pc.contact_email,
                 CASE WHEN pc.channel = 'email' THEN unmatched.identifier END
             ) AS contact_email,
-            CASE WHEN responder.is_active = TRUE THEN responder.id END AS responder_staff_id,
-            CASE WHEN responder.is_active = TRUE THEN responder.full_name END AS responder_staff_name
+            CASE
+                WHEN responder.is_active = TRUE
+                 AND NULLIF(TRIM(responder.podium_user_uid), '') IS NOT NULL
+                THEN responder.id
+            END AS responder_staff_id,
+            CASE
+                WHEN responder.is_active = TRUE
+                 AND NULLIF(TRIM(responder.podium_user_uid), '') IS NOT NULL
+                THEN responder.full_name
+            END AS responder_staff_name
         FROM podium_conversation pc
         LEFT JOIN staff responder ON responder.id = pc.responder_staff_id
         LEFT JOIN podium_sync_unmatched_conversation unmatched
@@ -566,6 +589,7 @@ pub async fn remember_conversation_responder(
         WHERE pc.id = $1
           AND responder.id = $2
           AND responder.is_active = TRUE
+          AND NULLIF(TRIM(responder.podium_user_uid), '') IS NOT NULL
         RETURNING responder.id AS staff_id, responder.full_name
         "#,
     )
@@ -842,12 +866,14 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
     struct PodiumMessagingHealthRow {
         local_conversation_count: i64,
         local_message_count: i64,
+        local_call_event_count: i64,
         incomplete_history_count: i64,
         unmatched_conversation_count: i64,
         last_webhook_received_at: Option<DateTime<Utc>>,
         last_webhook_failure_at: Option<DateTime<Utc>>,
         last_webhook_failure_reason: Option<String>,
         last_message_at: Option<DateTime<Utc>>,
+        last_call_event_at: Option<DateTime<Utc>>,
         last_outbound_at: Option<DateTime<Utc>>,
         last_sync_at: Option<DateTime<Utc>>,
     }
@@ -855,12 +881,14 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
     let PodiumMessagingHealthRow {
         local_conversation_count,
         local_message_count,
+        local_call_event_count,
         incomplete_history_count,
         unmatched_conversation_count,
         last_webhook_received_at,
         last_webhook_failure_at,
         last_webhook_failure_reason,
         last_message_at,
+        last_call_event_at,
         last_outbound_at,
         last_sync_at,
     } = sqlx::query_as(
@@ -868,6 +896,7 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
         SELECT
             (SELECT COUNT(*) FROM podium_conversation) AS local_conversation_count,
             (SELECT COUNT(*) FROM podium_message) AS local_message_count,
+            (SELECT COUNT(*) FROM podium_call_event) AS local_call_event_count,
             (
                 SELECT COUNT(*)
                 FROM (
@@ -885,6 +914,7 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
             (SELECT created_at FROM podium_webhook_failure ORDER BY created_at DESC LIMIT 1) AS last_webhook_failure_at,
             (SELECT reason FROM podium_webhook_failure ORDER BY created_at DESC LIMIT 1) AS last_webhook_failure_reason,
             (SELECT MAX(created_at) FROM podium_message) AS last_message_at,
+            (SELECT MAX(occurred_at) FROM podium_call_event) AS last_call_event_at,
             (SELECT MAX(created_at) FROM podium_message WHERE direction IN ('outbound', 'automated')) AS last_outbound_at,
             (SELECT MAX(last_synced_at) FROM podium_conversation) AS last_sync_at
         "#,
@@ -900,12 +930,14 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
         inbound_ingest_enabled: crate::logic::podium_webhook::podium_inbound_crm_ingest_enabled(),
         local_conversation_count,
         local_message_count,
+        local_call_event_count,
         incomplete_history_count,
         unmatched_conversation_count,
         last_webhook_received_at,
         last_webhook_failure_at,
         last_webhook_failure_reason,
         last_message_at,
+        last_call_event_at,
         last_outbound_at,
         last_sync_at,
     })

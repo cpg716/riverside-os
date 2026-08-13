@@ -822,7 +822,7 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
         onConfirm={() => void ensureWebhook()}
         loading={webhookBusy}
         title="Register Podium webhook?"
-        message="This creates or updates Riverside's Podium subscription for message, contact, and review-link events at the selected location. Podium will begin queueing events immediately."
+        message="This creates or updates Riverside's Podium subscription for messages, calls, contacts, and reviews at the selected location. Podium will begin queueing those events immediately."
         confirmLabel="Register webhook"
         variant="info"
       />

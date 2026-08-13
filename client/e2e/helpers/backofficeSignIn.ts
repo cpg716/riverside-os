@@ -163,16 +163,23 @@ export async function openBackofficeSidebarTab(
   await expect(tabButton).toBeVisible({ timeout: 15_000 });
   await tabButton.scrollIntoViewIfNeeded().catch(() => {});
   await expect(tabButton).toBeEnabled();
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      await resolveTabButton().click({ timeout: 5_000, force: true });
-      tabButton = resolveTabButton();
-      break;
-    } catch (error) {
-      if (attempt === 2) throw error;
-      tabButton = resolveTabButton();
-      await expect(tabButton).toBeVisible({ timeout: 10_000 });
-      await expect(tabButton).toBeEnabled({ timeout: 10_000 });
+  if (viewportWidth <= 1024) {
+    await resolveTabButton().evaluate((element) => {
+      (element as HTMLButtonElement).click();
+    });
+    tabButton = resolveTabButton();
+  } else {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await resolveTabButton().click({ timeout: 5_000, force: true });
+        tabButton = resolveTabButton();
+        break;
+      } catch (error) {
+        if (attempt === 2) throw error;
+        tabButton = resolveTabButton();
+        await expect(tabButton).toBeVisible({ timeout: 10_000 });
+        await expect(tabButton).toBeEnabled({ timeout: 10_000 });
+      }
     }
   }
   if (tabId === "register" || tabId === "weddings") {

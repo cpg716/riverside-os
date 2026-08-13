@@ -3433,7 +3433,7 @@ fn podium_provider_setup_response(
     } else {
         (
             "ready",
-            "Podium has an enabled subscription for Riverside's required message, contact, and review-link events.",
+            "Podium has an enabled subscription for Riverside's required message, call, contact, and review events.",
         )
     };
     PodiumProviderSetupResponse {

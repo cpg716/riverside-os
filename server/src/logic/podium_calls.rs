@@ -155,6 +155,7 @@ fn parse_call_event(value: &Value) -> Option<ParsedCallEvent> {
         value,
         &[
             "/data/from/phoneNumber",
+            "/data/call/from/phoneNumber",
             "/data/fromPhoneNumber",
             "/data/from_phone_number",
             "/data/caller/phoneNumber",
@@ -168,6 +169,7 @@ fn parse_call_event(value: &Value) -> Option<ParsedCallEvent> {
         value,
         &[
             "/data/to/phoneNumber",
+            "/data/call/to/phoneNumber",
             "/data/toPhoneNumber",
             "/data/to_phone_number",
             "/data/callee/phoneNumber",
@@ -181,6 +183,7 @@ fn parse_call_event(value: &Value) -> Option<ParsedCallEvent> {
         value,
         &[
             "/data/contact/phoneNumber",
+            "/data/call/contact/phoneNumber",
             "/data/contactPhoneNumber",
             "/data/customerPhoneNumber",
             "/data/phoneNumber",
@@ -240,6 +243,9 @@ fn parse_call_event(value: &Value) -> Option<ParsedCallEvent> {
             value,
             &[
                 "/data/conversation/uid",
+                "/data/call/conversation/uid",
+                "/data/call/conversationUid",
+                "/data/call/conversation_uid",
                 "/data/conversationUid",
                 "/data/conversation_uid",
                 "/conversation/uid",
@@ -250,6 +256,9 @@ fn parse_call_event(value: &Value) -> Option<ParsedCallEvent> {
             value,
             &[
                 "/data/contact/uid",
+                "/data/call/contact/uid",
+                "/data/call/contactUid",
+                "/data/call/contact_uid",
                 "/data/contactUid",
                 "/data/contact_uid",
                 "/contact/uid",
@@ -263,6 +272,8 @@ fn parse_call_event(value: &Value) -> Option<ParsedCallEvent> {
             value,
             &[
                 "/data/contact/name",
+                "/data/call/contact/name",
+                "/data/call/contactName",
                 "/data/contactName",
                 "/data/customerName",
                 "/data/caller/name",
@@ -289,6 +300,8 @@ fn parse_call_event(value: &Value) -> Option<ParsedCallEvent> {
                     &[
                         "/data/createdAt",
                         "/data/created_at",
+                        "/data/call/createdAt",
+                        "/data/call/created_at",
                         "/createdAt",
                         "/created_at",
                     ],
@@ -592,6 +605,40 @@ mod tests {
             .expect("call payload");
             assert_eq!(parsed.direction, "inbound");
         }
+    }
+
+    #[test]
+    fn parses_nested_call_payload_identity() {
+        let parsed = parse_call_event(&json!({
+            "metadata": {
+                "eventType": "call.completed",
+                "eventUid": "event-nested"
+            },
+            "data": {
+                "call": {
+                    "uid": "call-nested",
+                    "direction": "outbound",
+                    "to": { "phoneNumber": "+17165559876" },
+                    "contact": { "uid": "contact-nested", "name": "Pat Customer" },
+                    "conversation": { "uid": "conversation-nested" },
+                    "createdAt": "2026-08-13T13:24:00Z"
+                }
+            }
+        }))
+        .expect("nested call payload");
+
+        assert_eq!(parsed.provider_call_uid, "call-nested");
+        assert_eq!(
+            parsed.provider_conversation_uid.as_deref(),
+            Some("conversation-nested")
+        );
+        assert_eq!(
+            parsed.provider_contact_uid.as_deref(),
+            Some("contact-nested")
+        );
+        assert_eq!(parsed.contact_phone_e164.as_deref(), Some("+17165559876"));
+        assert_eq!(parsed.contact_name.as_deref(), Some("Pat Customer"));
+        assert_eq!(parsed.direction, "outbound");
     }
 
     #[test]
