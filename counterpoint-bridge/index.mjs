@@ -897,6 +897,15 @@ const SYNC_VENDOR_ITEMS = envFlag("SYNC_VENDOR_ITEMS", true);
 const SYNC_STORE_CREDIT_OPENING = envFlag("SYNC_STORE_CREDIT_OPENING", true);
 const SYNC_OPEN_DOCS = envFlag("SYNC_OPEN_DOCS", true);
 const SYNC_TICKET_NOTES = envFlag("SYNC_TICKET_NOTES", true);
+const RUN_ONCE_ENTITY_FILTER = new Set(
+  String(process.env.CP_RUN_ONCE_ENTITIES ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+const REUSE_PREFLIGHT_IMPORT_RUN_ID = String(
+  process.env.CP_REUSE_PREFLIGHT_IMPORT_RUN_ID ?? "",
+).trim();
 const CP_CUSTOMER_STORE_CREDIT_EXISTS_RAW = configuredSql("CP_CUSTOMER_STORE_CREDIT_EXISTS");
 const CP_CUSTOMERS_QUERY = injectStoreCreditCustomerExistsClause(
   applyCounterpointSqlCompat(expandImportSince(configuredSql("CP_CUSTOMERS_QUERY"))),
@@ -2834,7 +2843,13 @@ async function rosFetch(urlPath, body, method = "POST", extraHeaders = {}) {
         return json;
       }
     } catch (e) {
-      lastErr = e;
+      const cause = e?.cause;
+      const details = [
+        e?.message,
+        cause?.code,
+        cause?.message,
+      ].filter((value, index, values) => value && values.indexOf(value) === index);
+      lastErr = new Error(details.join(" - ") || "ROS request failed", { cause: e });
     }
     if (attempt + 1 < ROS_FETCH_MAX_ATTEMPTS) {
       await delay(500 * 2 ** attempt);
@@ -6902,10 +6917,17 @@ async function main() {
 
   await rebuildEffectiveSql(pool);
   validateCounterpointSyncDependencyPlan();
-  {
+  let startupPreflightSummary = null;
+  if (REUSE_PREFLIGHT_IMPORT_RUN_ID) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(REUSE_PREFLIGHT_IMPORT_RUN_ID)) {
+      throw new Error("CP_REUSE_PREFLIGHT_IMPORT_RUN_ID must be a UUID from a passed source preflight.");
+    }
+    startupPreflightSummary = { import_run_id: REUSE_PREFLIGHT_IMPORT_RUN_ID };
+    console.info(`[preflight] Reusing passed source preflight ${REUSE_PREFLIGHT_IMPORT_RUN_ID}.`);
+  } else {
     const restoreSyncAnchorRunKind = setSyncAnchorRunKind("full_import");
     try {
-      await runImportFirstSourcePreflight(pool);
+      startupPreflightSummary = await runImportFirstSourcePreflight(pool);
     } finally {
       restoreSyncAnchorRunKind();
     }
@@ -6934,6 +6956,14 @@ async function main() {
 
   /** Single canonical pipeline — order is fixed here so ROS seeding stays consistent. */
   const orderedSyncSteps = getOrderedSyncSteps(pool);
+  const unknownRunOnceEntities = [...RUN_ONCE_ENTITY_FILTER].filter(
+    (entity) => !orderedSyncSteps.some((step) => step.label === entity && step.on),
+  );
+  if (unknownRunOnceEntities.length > 0) {
+    throw new Error(
+      `CP_RUN_ONCE_ENTITIES contains unknown or disabled entities: ${unknownRunOnceEntities.join(", ")}`,
+    );
+  }
 
   let isTickRunning = false;
   const tick = async () => {
@@ -6976,7 +7006,11 @@ async function main() {
     const pendingRequestEntities = hasPendingRequest && hbResp.pending_request_entity
       ? new Set([...(ENTITY_DEPENDENCIES[hbResp.pending_request_entity] || []), hbResp.pending_request_entity])
       : null;
-    const requestedEntity = hasPendingRequest ? (hbResp.pending_request_entity || "full") : "full";
+    const requestedEntity = hasPendingRequest
+      ? (hbResp.pending_request_entity || "full")
+      : RUN_ONCE && RUN_ONCE_ENTITY_FILTER.size > 0
+        ? [...RUN_ONCE_ENTITY_FILTER].join(",")
+        : "full";
     const runKind = hasPendingRequest
       ? normalizeImportRunKindForBridge(null, requestedEntity)
       : RUN_ONCE
@@ -6985,7 +7019,12 @@ async function main() {
     const restoreSyncAnchorRunKind = setSyncAnchorRunKind(runKind);
     let preflightSummary = null;
     try {
-      preflightSummary = await runImportFirstSourcePreflight(pool);
+      if (RUN_ONCE && !hasPendingRequest && startupPreflightSummary) {
+        preflightSummary = startupPreflightSummary;
+        startupPreflightSummary = null;
+      } else {
+        preflightSummary = await runImportFirstSourcePreflight(pool);
+      }
     } catch (err) {
       console.error("[preflight] sync needs review:", err.message);
       if (hasPendingRequest) {
@@ -7015,6 +7054,9 @@ async function main() {
       });
       for (const step of orderedSyncSteps) {
         if (!step.on) continue;
+        if (RUN_ONCE && RUN_ONCE_ENTITY_FILTER.size > 0 && !RUN_ONCE_ENTITY_FILTER.has(step.label)) {
+          continue;
+        }
         if (BRIDGE_STATE.abortRequested) {
           logToDashboard('[sync] Aborted by user');
           pushEvent('abort', step.label, 'Sync aborted by user');

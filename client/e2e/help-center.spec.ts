@@ -9,7 +9,6 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import {
-  ensureMainNavigationVisible,
   openBackofficeSidebarTab,
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
@@ -24,11 +23,16 @@ async function openSettingsHelpCenterManager(
 ) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await openBackofficeSidebarTab(page, "settings");
-    const mainNav = await ensureMainNavigationVisible(page);
-    const helpCenterButton = mainNav.getByRole("button", {
-      name: /^help center$/i,
+    const settingsHub = page.getByTestId("settings-workspace-content");
+    const helpCenterButton = settingsHub.getByRole("button", {
+      name: /^help center/i,
     });
-    await helpCenterButton.scrollIntoViewIfNeeded();
+    if (!(await helpCenterButton.isVisible().catch(() => false))) {
+      await settingsHub
+        .getByRole("navigation", { name: "Settings categories" })
+        .getByRole("button", { name: /^help & system/i })
+        .click();
+    }
     await expect(helpCenterButton).toBeVisible({ timeout: 15_000 });
     await expect(helpCenterButton).toBeEnabled();
     await helpCenterButton.click();
@@ -55,11 +59,16 @@ async function openSettingsRosiePanel(
 ) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await openBackofficeSidebarTab(page, "settings");
-    const mainNav = await ensureMainNavigationVisible(page);
-    const rosieButton = mainNav.getByRole("button", {
-      name: /^rosie$/i,
+    const settingsHub = page.getByTestId("settings-workspace-content");
+    const rosieButton = settingsHub.getByRole("button", {
+      name: /^rosie/i,
     });
-    await rosieButton.scrollIntoViewIfNeeded();
+    if (!(await rosieButton.isVisible().catch(() => false))) {
+      await settingsHub
+        .getByRole("navigation", { name: "Settings categories" })
+        .getByRole("button", { name: /^help & system/i })
+        .click();
+    }
     await expect(rosieButton).toBeVisible({ timeout: 15_000 });
     await expect(rosieButton).toBeEnabled();
     await rosieButton.click();
