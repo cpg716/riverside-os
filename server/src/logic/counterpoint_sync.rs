@@ -13280,7 +13280,14 @@ async fn find_existing_pos_transaction_for_counterpoint_payment(
         }
     }
 
-    Ok((matches.len() == 1).then_some(matches[0]))
+    Ok(single_counterpoint_payment_match(&matches))
+}
+
+fn single_counterpoint_payment_match(matches: &[Uuid]) -> Option<Uuid> {
+    match matches {
+        [single] => Some(*single),
+        _ => None,
+    }
 }
 
 async fn supersede_counterpoint_payment_only_duplicate(
@@ -17628,6 +17635,16 @@ mod tests {
         );
         assert!(is_counterpoint_write_import_run_kind("incremental_update"));
         assert!(normalized_import_run_kind(Some("unknown_mode")).is_err());
+    }
+
+    #[test]
+    fn counterpoint_payment_match_requires_exactly_one_candidate() {
+        let first = Uuid::new_v4();
+        let second = Uuid::new_v4();
+
+        assert_eq!(single_counterpoint_payment_match(&[]), None);
+        assert_eq!(single_counterpoint_payment_match(&[first]), Some(first));
+        assert_eq!(single_counterpoint_payment_match(&[first, second]), None);
     }
 
     #[test]

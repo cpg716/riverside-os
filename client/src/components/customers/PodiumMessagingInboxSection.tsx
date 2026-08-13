@@ -638,7 +638,7 @@ export default function PodiumMessagingInboxSection({
     return () => {
       cancelled = true;
     };
-  }, [apiAuth, selectedConversationId]);
+  }, [apiAuth, lastLoadedAt, selectedConversationId]);
 
   useEffect(() => {
     if (!selectedRow) {

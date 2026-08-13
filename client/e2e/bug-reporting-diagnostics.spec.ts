@@ -17,15 +17,33 @@ const PRIVATE_CUSTOMER_NAME = "Private Customer";
 const REDACTED = "[redacted]";
 
 async function openSettingsSubItem(page: Page, label: RegExp): Promise<void> {
-  const subButton = page.getByRole("button", { name: label }).first();
+  const settingsHub = page.getByTestId("settings-workspace-content");
+  const subButton = settingsHub.getByRole("button", { name: label }).first();
   if (!(await subButton.isVisible().catch(() => false))) {
-    const menuToggle = page.getByRole("button", { name: /toggle menu/i });
-    if (await menuToggle.isVisible().catch(() => false)) {
-      await menuToggle.click().catch(() => {});
-    }
+    const categories = settingsHub.getByRole("navigation", {
+      name: "Settings categories",
+    });
+    await categories.getByRole("button", { name: /^Help & System/ }).click();
   }
   await expect(subButton).toBeVisible({ timeout: 20_000 });
   await subButton.click({ force: true });
+}
+
+async function openBugAndErrorDiagnostics(page: Page): Promise<void> {
+  const advancedDiagnostics = page.getByRole("button", {
+    name: /^advanced diagnostics/i,
+  });
+  await expect(advancedDiagnostics).toBeVisible({ timeout: 20_000 });
+  await advancedDiagnostics.click();
+
+  const bugDiagnostics = page.getByRole("button", {
+    name: /^bug & error diagnostics$/i,
+  });
+  await expect(bugDiagnostics).toBeVisible();
+  await bugDiagnostics.click();
+  await expect(page.getByRole("heading", { name: /^bug reports$/i })).toBeVisible({
+    timeout: 20_000,
+  });
 }
 
 function expectNoSecrets(payload: unknown) {
@@ -190,8 +208,8 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^ros operations & support center$/i);
-    await page.getByRole("button", { name: /^bug manager$/i }).first().click();
+    await openSettingsSubItem(page, /^ros operations & support center/i);
+    await openBugAndErrorDiagnostics(page);
     await page.getByRole("button", { name: /^view$/i }).first().click();
     await expect(page.getByRole("dialog", { name: /bug report detail/i })).toBeVisible({
       timeout: 20_000,
@@ -243,10 +261,8 @@ test.describe("bug reporting diagnostics hardening", () => {
     });
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^ros operations & support center$/i);
-    const bugManagerButton = page.getByRole("button", { name: /^bug manager$/i }).first();
-    await expect(bugManagerButton).toBeVisible();
-    await bugManagerButton.click({ force: true });
+    await openSettingsSubItem(page, /^ros operations & support center/i);
+    await openBugAndErrorDiagnostics(page);
 
     const toastPayloads = () =>
       errorEventPayloads.filter((payload) => {
@@ -385,9 +401,9 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^ros operations & support center$/i);
-    await page.getByRole("button", { name: /^bug manager$/i }).first().click();
-    await page.getByRole("button", { name: /developer errors/i }).first().click();
+    await openSettingsSubItem(page, /^ros operations & support center/i);
+    await openBugAndErrorDiagnostics(page);
+    await page.getByRole("button", { name: /^automated diagnostics/i }).click();
 
     await expect(page.getByText("Server runtime")).toBeVisible();
     await expect(page.getByText("server api error")).toBeVisible();
@@ -443,23 +459,8 @@ test.describe("bug reporting diagnostics hardening", () => {
     });
     const stationSeedText = await stationSeed.text();
     expect(stationSeed.status(), stationSeedText.slice(0, 1000)).toBe(200);
-    await page.route("**/api/ops/overview", async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          server_time: "2026-05-09T12:00:00Z",
-          db_ok: true,
-          meilisearch_configured: true,
-          tailscale_expected: true,
-          integrations: [],
-          open_alerts: 1,
-          stations_online: 2,
-          stations_offline: 1,
-          stations_stale: 1,
-          pending_bug_reports: 1,
-        }),
-      });
+    await page.route("**/api/ops/health/snapshot", async (route) => {
+      await route.fulfill({ status: 503, body: "unavailable" });
     });
     await page.route("**/api/ops/runtime-diagnostics", async (route) => {
       await route.fulfill({ status: 503, body: "unavailable" });
@@ -469,9 +470,13 @@ test.describe("bug reporting diagnostics hardening", () => {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          unread_count: 0,
-          recent_error_count: 0,
-          last_checked_at: "2026-05-19T13:55:00Z",
+          summary: {
+            unread_rows: 0,
+            stale_unread_rows: 0,
+            active_inbox_rows: 0,
+            canonical_notifications_24h: 0,
+          },
+          generator_runs: [],
         }),
       });
     });
@@ -502,14 +507,17 @@ test.describe("bug reporting diagnostics hardening", () => {
 
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^ros operations & support center$/i);
+    await openSettingsSubItem(page, /^ros operations & support center/i);
 
-    await expect(page.getByRole("heading", { name: /support center/i })).toBeVisible({
+    await expect(page.getByRole("heading", { name: /operations today/i })).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.getByText(/warning|caution/i).first()).toBeVisible();
-    await expect(page.getByText("Stations Fleet")).toBeVisible();
-    await page.getByRole("button", { name: "Stations Fleet" }).click();
+    await expect(
+      page.getByRole("button", { name: /^refresh(?:ing)?$/i }).first(),
+    ).toBeEnabled({ timeout: 20_000 });
+    await page.getByRole("button", { name: /^advanced diagnostics/i }).click();
+    await expect(page.getByRole("button", { name: "Workstations" })).toBeVisible();
+    await page.getByRole("button", { name: "Workstations" }).click();
     await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible({
       timeout: 10_000,
     });
@@ -518,6 +526,6 @@ test.describe("bug reporting diagnostics hardening", () => {
     await expect(page.getByText("Old Register")).toHaveCount(0);
     await page.getByRole("button", { name: "Show Stale" }).click();
     await expect(page.getByText("Old Register")).toBeVisible();
-    await expect(page.getByText("Bug Manager")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Bug & Error Diagnostics" })).toBeVisible();
   });
 });

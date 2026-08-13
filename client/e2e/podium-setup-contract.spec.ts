@@ -271,7 +271,9 @@ test("Podium inbox assigns conversations only to linked staff without sending a 
   expect(podiumInbox).toContain('method: "PATCH"');
   expect(podiumInbox).toContain("body: JSON.stringify({ staff_id:");
   expect(podiumInbox).toContain("Saving assignment...");
-  expect(podiumInbox).toContain("}, [apiAuth, selectedConversationId]);");
+  expect(podiumInbox).toContain(
+    "}, [apiAuth, lastLoadedAt, selectedConversationId]);",
+  );
   expect(podiumInbox).not.toContain("Saves immediately without sending a reply");
 });
 
