@@ -12971,6 +12971,17 @@ fn counterpoint_ticket_line_is_financial(line: &TicketLineRow) -> bool {
     )
 }
 
+fn counterpoint_ticket_line_is_lifecycle_context(line: &TicketLineRow) -> bool {
+    matches!(
+        line.line_type
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_uppercase)
+            .as_deref(),
+        Some("U")
+    )
+}
+
 fn counterpoint_ticket_line_is_order_fulfillment(line: &TicketLineRow) -> bool {
     line.is_order_linked
         && matches!(
@@ -14117,6 +14128,84 @@ pub async fn execute_counterpoint_ticket_batch(
                 .collect()
         };
         if ticket_lines_storage.is_empty() {
+            if tkt
+                .lines
+                .iter()
+                .all(counterpoint_ticket_line_is_lifecycle_context)
+            {
+                if let Some(transaction_id) = existing_ticket_ids.get(ticket_ref).copied() {
+                    let imported_transaction: bool = sqlx::query_scalar(
+                        r#"
+                        SELECT COALESCE(is_counterpoint_import, FALSE)
+                        FROM transactions
+                        WHERE id = $1
+                          AND counterpoint_ticket_ref = $2
+                        "#,
+                    )
+                    .bind(transaction_id)
+                    .bind(ticket_ref)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .unwrap_or(false);
+
+                    if imported_transaction {
+                        let excluded_events = sqlx::query(
+                            r#"
+                            UPDATE transaction_line_booking_events
+                            SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                                'reporting_excluded', 'counterpoint_order_fulfillment',
+                                'reporting_exclusion_reason', 'ticket_contains_only_counterpoint_lifecycle_rows',
+                                'counterpoint_ticket_ref', $2::text,
+                                'excluded_at', CURRENT_TIMESTAMP
+                            )
+                            WHERE transaction_id = $1
+                              AND event_kind = 'initial_booking'
+                              AND COALESCE(metadata->>'reporting_excluded', '') = ''
+                            "#,
+                        )
+                        .bind(transaction_id)
+                        .bind(ticket_ref)
+                        .execute(&mut *tx)
+                        .await?
+                        .rows_affected();
+
+                        if excluded_events > 0 {
+                            sqlx::query(
+                                r#"
+                                INSERT INTO transaction_activity_log (
+                                    transaction_id, event_kind, summary, metadata
+                                )
+                                VALUES (
+                                    $1,
+                                    'counterpoint_reconciliation',
+                                    'Excluded legacy Counterpoint lifecycle-only ticket events from booked sales.',
+                                    jsonb_build_object(
+                                        'counterpoint_ticket_ref', $2::text,
+                                        'excluded_booking_event_count', $3::bigint,
+                                        'source_line_type', 'U',
+                                        'financial_values_changed', false,
+                                        'payment_values_changed', false
+                                    )
+                                )
+                                "#,
+                            )
+                            .bind(transaction_id)
+                            .bind(ticket_ref)
+                            .bind(excluded_events as i64)
+                            .execute(&mut *tx)
+                            .await?;
+                        }
+
+                        summary.transactions_skipped_existing += 1;
+                        continue;
+                    }
+                }
+
+                // A U-only ticket is fulfillment context, not a new financial sale.
+                summary.skipped += 1;
+                continue;
+            }
+
             record_counterpoint_import_exception(
                 pool,
                 "tickets",
@@ -21049,6 +21138,14 @@ mod tests {
                 line_type, false
             )));
         }
+        assert!(counterpoint_ticket_line_is_lifecycle_context(&line(
+            " U ", false
+        )));
+        for line_type in ["S", "A", "R", "", "X"] {
+            assert!(!counterpoint_ticket_line_is_lifecycle_context(&line(
+                line_type, false
+            )));
+        }
 
         assert!(counterpoint_ticket_line_is_order_fulfillment(&line(
             "S", true
@@ -21075,6 +21172,122 @@ mod tests {
         assert!(parse_counterpoint_source_booked_at(None).is_none());
         assert!(parse_counterpoint_source_booked_at(Some(" ")).is_none());
         assert!(parse_counterpoint_source_booked_at(Some("not-a-date")).is_none());
+    }
+
+    #[tokio::test]
+    async fn counterpoint_lifecycle_only_rerun_excludes_legacy_booked_sale() {
+        let pool = connect_test_db().await;
+        let transaction_id = Uuid::new_v4();
+        let ticket_ref = format!("CP-LIFECYCLE-ONLY-{}", Uuid::new_v4().simple());
+        let booked_at = Utc::now();
+
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, status, booked_at, total_price, amount_paid, balance_due,
+                counterpoint_ticket_ref, is_counterpoint_import
+            )
+            VALUES ($1, 'fulfilled', $2, 100.00, 100.00, 0, $3, TRUE)
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(booked_at)
+        .bind(&ticket_ref)
+        .execute(&pool)
+        .await
+        .expect("insert legacy lifecycle transaction");
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_line_booking_events (
+                transaction_id, event_kind, booked_at, subtotal_delta, tax_delta,
+                is_internal, metadata
+            )
+            VALUES ($1, 'initial_booking', $2, 100.00, 8.75, FALSE, '{}'::jsonb)
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(booked_at)
+        .execute(&pool)
+        .await
+        .expect("insert legacy lifecycle booking event");
+
+        let summary = execute_counterpoint_ticket_batch(
+            &pool,
+            CounterpointTicketsPayload {
+                rows: vec![CounterpointTicketRow {
+                    ticket_ref: ticket_ref.clone(),
+                    cust_no: None,
+                    booked_at: Some(booked_at.to_rfc3339()),
+                    total_price: Decimal::new(10000, 2),
+                    tax_total: Some(Decimal::new(875, 2)),
+                    amount_paid: Decimal::new(10875, 2),
+                    usr_id: None,
+                    sls_rep: None,
+                    notes: None,
+                    origin_document_type: Some("O".into()),
+                    origin_document_id: Some("LIFECYCLE-ORIGIN".into()),
+                    lines: vec![TicketLineRow {
+                        sku: Some("LIFECYCLE-CONTEXT".into()),
+                        counterpoint_item_key: Some("LIFECYCLE-CONTEXT".into()),
+                        lin_seq_no: Some(1),
+                        line_type: Some("U".into()),
+                        is_order_linked: true,
+                        quantity: 1,
+                        unit_price: Decimal::new(10000, 2),
+                        unit_cost: None,
+                        state_tax: None,
+                        local_tax: None,
+                        tax_amount: Some(Decimal::new(875, 2)),
+                        original_unit_price: None,
+                        discount_amount: None,
+                        description: Some("Order lifecycle context".into()),
+                        reason_code: None,
+                    }],
+                    payments: vec![],
+                    gift_applications: vec![],
+                }],
+                sync: None,
+            },
+        )
+        .await
+        .expect("preserve lifecycle-only ticket without reporting it as a sale");
+
+        let reporting_excluded: String = sqlx::query_scalar(
+            r#"
+            SELECT metadata->>'reporting_excluded'
+            FROM transaction_line_booking_events
+            WHERE transaction_id = $1
+              AND event_kind = 'initial_booking'
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load lifecycle booking-event classification");
+        let reconciliation_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM transaction_activity_log
+            WHERE transaction_id = $1
+              AND event_kind = 'counterpoint_reconciliation'
+            "#,
+        )
+        .bind(transaction_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count lifecycle reconciliation audit rows");
+
+        assert_eq!(summary.transactions_skipped_existing, 1);
+        assert_eq!(summary.transactions_created, 0);
+        assert_eq!(summary.line_items_created, 0);
+        assert_eq!(reporting_excluded, "counterpoint_order_fulfillment");
+        assert_eq!(reconciliation_count, 1);
+
+        sqlx::query("DELETE FROM transactions WHERE id = $1")
+            .bind(transaction_id)
+            .execute(&pool)
+            .await
+            .expect("clean lifecycle-only fixture");
     }
 
     #[tokio::test]
