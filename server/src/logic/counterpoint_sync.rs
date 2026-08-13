@@ -13699,6 +13699,14 @@ fn parse_counterpoint_source_booked_at(value: Option<&str>) -> Option<DateTime<U
         .map(|value| value.with_timezone(&Utc))
 }
 
+const COUNTERPOINT_SOURCE_MAINTENANCE_ACTIVITY_KINDS: &[&str] = &[
+    "counterpoint_import",
+    "counterpoint_import_evidence",
+    "counterpoint_reimport",
+    "counterpoint_paid_price_repair",
+    "counterpoint_reconciliation",
+];
+
 async fn counterpoint_line_protected_dependencies(
     tx: &mut Transaction<'_, Postgres>,
     transaction_id: Uuid,
@@ -13788,11 +13796,7 @@ async fn replace_counterpoint_import_lines(
                 SELECT 1
                 FROM transaction_activity_log
                 WHERE transaction_id = $1
-                  AND event_kind NOT IN (
-                      'counterpoint_import',
-                      'counterpoint_import_evidence',
-                      'counterpoint_reimport'
-                  )
+                  AND NOT (event_kind = ANY($4::text[]))
             )
         ) protected
         ORDER BY dependency
@@ -13801,6 +13805,7 @@ async fn replace_counterpoint_import_lines(
     .bind(transaction_id)
     .bind(source_kind)
     .bind(source_ref)
+    .bind(COUNTERPOINT_SOURCE_MAINTENANCE_ACTIVITY_KINDS)
     .fetch_all(&mut **tx)
     .await?;
     protected_dependencies.extend(transaction_dependencies);
@@ -17645,6 +17650,18 @@ mod tests {
         assert_eq!(single_counterpoint_payment_match(&[]), None);
         assert_eq!(single_counterpoint_payment_match(&[first]), Some(first));
         assert_eq!(single_counterpoint_payment_match(&[first, second]), None);
+    }
+
+    #[test]
+    fn counterpoint_source_maintenance_activity_does_not_block_reruns() {
+        assert!(COUNTERPOINT_SOURCE_MAINTENANCE_ACTIVITY_KINDS
+            .contains(&"counterpoint_paid_price_repair"));
+        assert!(
+            COUNTERPOINT_SOURCE_MAINTENANCE_ACTIVITY_KINDS.contains(&"counterpoint_reconciliation")
+        );
+        assert!(!COUNTERPOINT_SOURCE_MAINTENANCE_ACTIVITY_KINDS.contains(&"line_return"));
+        assert!(!COUNTERPOINT_SOURCE_MAINTENANCE_ACTIVITY_KINDS.contains(&"refund_processed"));
+        assert!(!COUNTERPOINT_SOURCE_MAINTENANCE_ACTIVITY_KINDS.contains(&"exchange_settled"));
     }
 
     #[test]
