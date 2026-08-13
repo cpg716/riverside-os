@@ -2,18 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Archive,
+  Bold,
   FolderOpen,
   Forward,
   Inbox,
+  Italic,
+  List,
+  ListOrdered,
   Mail,
   MailOpen,
   MessageSquareReply,
+  Paperclip,
   RefreshCw,
   Search,
   Send,
   SquarePen,
   Star,
   Trash2,
+  Underline,
   UserRound,
   X,
 } from "lucide-react";
@@ -26,6 +32,8 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 import type { Customer } from "../pos/CustomerSelector";
 
 const baseUrl = getBaseUrl();
+const MAILBOX_DRAFT_STORAGE_KEY = "ros.mailbox.composer.draft.v2";
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 type MailboxRow = {
   id: string;
@@ -63,6 +71,27 @@ type MailboxThread = {
   key: string;
   rows: MailboxRow[];
   latest: MailboxRow;
+};
+
+type ComposerMode = "new" | "reply" | "forward";
+
+type MailboxAttachment = {
+  id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  data_base64: string;
+};
+
+type SavedMailboxDraft = {
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  html: string;
+  mode: ComposerMode;
+  replyToMessageId: string | null;
+  includeSignature: boolean;
 };
 
 const FOLDER_FILTERS = [
@@ -200,6 +229,48 @@ function firstEmail(value: unknown): string {
   return "";
 }
 
+function emailArray(value: unknown): string[] {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[;,]/)
+      : [];
+  return values
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function splitRecipientInput(value: string): string[] {
+  return value
+    .split(/[;,\n]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function htmlHasText(value: string): boolean {
+  return value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .trim().length > 0;
+}
+
+function sanitizeComposerHtml(value: string): string {
+  if (typeof DOMParser === "undefined") return escapeHtml(value);
+  const parsed = new DOMParser().parseFromString(value, "text/html");
+  parsed
+    .querySelectorAll("script,iframe,object,embed,form,input,button,textarea,select,style,link,meta")
+    .forEach((element) => element.remove());
+  parsed.querySelectorAll("*").forEach((element) => {
+    for (const attribute of Array.from(element.attributes)) {
+      if (attribute.name.toLowerCase().startsWith("on")) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  });
+  return parsed.body.innerHTML;
+}
+
 function safeEmailDocument(row: MailboxRow): string {
   const fallbackText = row.body_text || "";
   if (!row.body_html || typeof DOMParser === "undefined") {
@@ -267,8 +338,14 @@ export default function MailboxOperationsSection({
   const [stateBusy, setStateBusy] = useState(false);
   const [signature, setSignature] = useState("");
   const [draftTo, setDraftTo] = useState("");
+  const [draftCc, setDraftCc] = useState("");
+  const [draftBcc, setDraftBcc] = useState("");
   const [draftSubject, setDraftSubject] = useState("");
   const [draftBody, setDraftBody] = useState("");
+  const [draftMode, setDraftMode] = useState<ComposerMode>("new");
+  const [includeSignature, setIncludeSignature] = useState(true);
+  const [showCopyFields, setShowCopyFields] = useState(false);
+  const [attachments, setAttachments] = useState<MailboxAttachment[]>([]);
   const [replyToMessageId, setReplyToMessageId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [recipientSuggestions, setRecipientSuggestions] = useState<Customer[]>([]);
@@ -280,7 +357,8 @@ export default function MailboxOperationsSection({
   const [trashThreadKeys, setTrashThreadKeys] = useState<string[] | null>(null);
   const [showPlainText, setShowPlainText] = useState(false);
   const composeSectionRef = useRef<HTMLElement | null>(null);
-  const composeBodyRef = useRef<HTMLTextAreaElement | null>(null);
+  const composeBodyRef = useRef<HTMLDivElement | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const lastAutoReadThreadRef = useRef<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -361,6 +439,38 @@ export default function MailboxOperationsSection({
     };
   }, [apiAuth, draftTo]);
 
+  useEffect(() => {
+    if (!composerOpen) return;
+    const timer = window.setTimeout(() => {
+      const draft: SavedMailboxDraft = {
+        to: draftTo,
+        cc: draftCc,
+        bcc: draftBcc,
+        subject: draftSubject,
+        html: draftBody,
+        mode: draftMode,
+        replyToMessageId,
+        includeSignature,
+      };
+      try {
+        window.localStorage.setItem(MAILBOX_DRAFT_STORAGE_KEY, JSON.stringify(draft));
+      } catch {
+        // Draft autosave is best effort on browsers where local storage is unavailable.
+      }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [
+    composerOpen,
+    draftBcc,
+    draftBody,
+    draftCc,
+    draftMode,
+    draftSubject,
+    draftTo,
+    includeSignature,
+    replyToMessageId,
+  ]);
+
   const visibleRows = useMemo(() => {
     const tokens = search
       .trim()
@@ -429,11 +539,31 @@ export default function MailboxOperationsSection({
     };
   }, [rows]);
 
+  const setComposerHtml = (html: string) => {
+    setDraftBody(html);
+    window.setTimeout(() => {
+      if (composeBodyRef.current) composeBodyRef.current.innerHTML = html;
+    }, 0);
+  };
+
   const openNewComposer = () => {
-    setDraftTo("");
-    setDraftSubject("");
-    setDraftBody("");
-    setReplyToMessageId(null);
+    let saved: SavedMailboxDraft | null = null;
+    try {
+      const raw = window.localStorage.getItem(MAILBOX_DRAFT_STORAGE_KEY);
+      saved = raw ? (JSON.parse(raw) as SavedMailboxDraft) : null;
+    } catch {
+      saved = null;
+    }
+    setDraftTo(saved?.to ?? "");
+    setDraftCc(saved?.cc ?? "");
+    setDraftBcc(saved?.bcc ?? "");
+    setDraftSubject(saved?.subject ?? "");
+    setComposerHtml(sanitizeComposerHtml(saved?.html ?? ""));
+    setDraftMode(saved?.mode ?? "new");
+    setIncludeSignature(saved?.includeSignature ?? true);
+    setShowCopyFields(Boolean(saved?.cc || saved?.bcc));
+    setReplyToMessageId(saved?.replyToMessageId ?? null);
+    if (!saved) setAttachments([]);
     setComposerOpen(true);
     focusComposer();
   };
@@ -441,10 +571,26 @@ export default function MailboxOperationsSection({
   const closeComposer = () => {
     setComposerOpen(false);
     setShowRecipientSuggestions(false);
-    setReplyToMessageId(null);
   };
 
-  const startReply = (row: MailboxRow) => {
+  const discardComposer = () => {
+    setDraftTo("");
+    setDraftCc("");
+    setDraftBcc("");
+    setDraftSubject("");
+    setComposerHtml("");
+    setReplyToMessageId(null);
+    setDraftMode("new");
+    setAttachments([]);
+    setComposerOpen(false);
+    try {
+      window.localStorage.removeItem(MAILBOX_DRAFT_STORAGE_KEY);
+    } catch {
+      // Closing the composer must still work when browser storage is unavailable.
+    }
+  };
+
+  const startReply = (row: MailboxRow, replyAll = false) => {
     const to =
       row.direction === "inbound"
         ? row.from_email?.trim()
@@ -454,9 +600,25 @@ export default function MailboxOperationsSection({
       return;
     }
     setDraftTo(to);
+    const copiedRecipients = replyAll
+      ? [...emailArray(row.to_emails), ...emailArray(row.cc_emails)].filter(
+          (email, index, values) =>
+            email.toLowerCase() !== "info@riversidemens.com" &&
+            email.toLowerCase() !== to.toLowerCase() &&
+            values.findIndex((value) => value.toLowerCase() === email.toLowerCase()) === index,
+        )
+      : [];
+    setDraftCc(copiedRecipients.join(", "));
+    setDraftBcc("");
+    setShowCopyFields(copiedRecipients.length > 0);
     setDraftSubject(replySubject(row.subject));
-    setDraftBody("");
+    const quoted = bodyPreview(row);
+    setComposerHtml(
+      `<p><br></p><blockquote><p>On ${escapeHtml(messageTime(row))}, ${escapeHtml(row.from_name || row.from_email || "sender")} wrote:</p><p>${escapeHtml(quoted).replace(/\n/g, "<br>")}</p></blockquote>`,
+    );
     setReplyToMessageId(row.id);
+    setDraftMode("reply");
+    setAttachments([]);
     setComposerOpen(true);
     focusComposer();
   };
@@ -464,20 +626,16 @@ export default function MailboxOperationsSection({
   const startForward = (row: MailboxRow) => {
     const preview = bodyPreview(row);
     setDraftTo("");
+    setDraftCc("");
+    setDraftBcc("");
+    setShowCopyFields(false);
     setDraftSubject(forwardSubject(row.subject));
     setReplyToMessageId(null);
+    setDraftMode("forward");
+    setAttachments([]);
     setComposerOpen(true);
-    setDraftBody(
-      [
-        "",
-        "",
-        "---------- Forwarded message ----------",
-        `From: ${row.from_name || row.from_email || "Unknown sender"}`,
-        `Date: ${messageTime(row)}`,
-        `Subject: ${row.subject || "(No subject)"}`,
-        "",
-        preview,
-      ].join("\n"),
+    setComposerHtml(
+      `<p><br></p><hr><p><strong>Forwarded message</strong><br>From: ${escapeHtml(row.from_name || row.from_email || "Unknown sender")}<br>Date: ${escapeHtml(messageTime(row))}<br>Subject: ${escapeHtml(row.subject || "(No subject)")}</p><p>${escapeHtml(preview).replace(/\n/g, "<br>")}</p>`,
     );
     focusComposer();
   };
@@ -487,6 +645,47 @@ export default function MailboxOperationsSection({
       composeSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       composeBodyRef.current?.focus();
     }, 0);
+  };
+
+  const applyComposerFormat = (command: "bold" | "italic" | "underline" | "insertUnorderedList" | "insertOrderedList") => {
+    composeBodyRef.current?.focus();
+    document.execCommand(command);
+    setDraftBody(composeBodyRef.current?.innerHTML ?? "");
+  };
+
+  const addAttachments = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const incoming = Array.from(files);
+    const totalBytes = attachments.reduce((sum, attachment) => sum + attachment.size, 0) +
+      incoming.reduce((sum, file) => sum + file.size, 0);
+    if (totalBytes > MAX_ATTACHMENT_BYTES) {
+      toast("Attachments may total no more than 5 MB.", "warning");
+      return;
+    }
+    const encoded = await Promise.all(
+      incoming.map(
+        (file) =>
+          new Promise<MailboxAttachment>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error("attachment"));
+            reader.onload = () =>
+              resolve({
+                id: `${file.name}:${file.size}:${file.lastModified}`,
+                filename: file.name,
+                content_type: file.type || "application/octet-stream",
+                size: file.size,
+                data_base64: String(reader.result ?? "").split(",")[1] ?? "",
+              });
+            reader.readAsDataURL(file);
+          }),
+      ),
+    ).catch(() => null);
+    if (!encoded) {
+      toast("An attachment could not be read.", "warning");
+      return;
+    }
+    setAttachments((current) => [...current, ...encoded]);
+    if (attachmentInputRef.current) attachmentInputRef.current.value = "";
   };
 
   const updateMessagesState = useCallback(async (
@@ -584,16 +783,14 @@ export default function MailboxOperationsSection({
 
   const sendEmail = async () => {
     if (sendBusy) return;
-    const to = draftTo.trim();
+    const to = splitRecipientInput(draftTo);
     const subject = draftSubject.trim();
-    const body = draftBody.trim();
-    if (!to || !subject || !body) {
-      toast("Recipient, subject, and message are required.", "error");
+    if (to.length === 0 || !subject || !htmlHasText(draftBody)) {
+      toast("Recipient, subject, and message are required.", "warning");
       return;
     }
     setSendBusy(true);
     try {
-      const htmlBody = `<p>${escapeHtml(body).replace(/\n/g, "<br>")}</p>`;
       const res = await fetch(`${baseUrl}/api/mailbox`, {
         method: "POST",
         headers: {
@@ -601,23 +798,26 @@ export default function MailboxOperationsSection({
           ...apiAuth(),
         },
         body: JSON.stringify({
-          to_email: to,
+          to_emails: to,
+          cc_emails: splitRecipientInput(draftCc),
+          bcc_emails: splitRecipientInput(draftBcc),
           subject,
-          html_body: htmlBody,
-          signature_html: signature,
+          html_body: sanitizeComposerHtml(draftBody),
+          signature_html: includeSignature ? signature : null,
           reply_to_message_id: replyToMessageId,
+          attachments: attachments.map(({ filename, content_type, data_base64 }) => ({
+            filename,
+            content_type,
+            data_base64,
+          })),
         }),
       });
       if (!res.ok) {
         const payload = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(payload.error ?? "Email could not be sent.", "error");
+        toast(payload.error ?? "Email could not be sent.", res.status < 500 ? "warning" : "error");
         return;
       }
-      setDraftTo("");
-      setDraftSubject("");
-      setDraftBody("");
-      setReplyToMessageId(null);
-      setComposerOpen(false);
+      discardComposer();
       toast("Email sent.", "success");
       await refresh();
     } catch {
@@ -739,101 +939,219 @@ export default function MailboxOperationsSection({
       </div>
 
       {composerOpen ? (
-        <section ref={composeSectionRef} className="rounded-xl border border-app-accent/40 bg-app-surface p-4 shadow-lg">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs font-black text-app-text">
-            <Send className="h-4 w-4 text-app-accent" aria-hidden />
-            {replyToMessageId ? "Reply" : draftSubject.startsWith("Fwd:") ? "Forward" : "New email"}
-          </div>
-          <button
-            type="button"
-            onClick={closeComposer}
-            className="ui-touch-target rounded-lg text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-            aria-label="Close composer"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,16rem)_minmax(0,16rem)_minmax(0,1fr)_auto] lg:items-end">
-          <div className="relative block">
-            <label
-              htmlFor="mailbox-quick-email-recipient"
-              className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+        <section
+          ref={composeSectionRef}
+          className="rounded-2xl border border-app-accent/40 bg-app-surface shadow-xl"
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-app-border px-5 py-4">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-black text-app-text">
+                <Send className="h-4 w-4 text-app-accent" aria-hidden />
+                {draftMode === "reply" ? "Reply" : draftMode === "forward" ? "Forward" : "New email"}
+              </div>
+              <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                Draft text saves automatically; re-add attachments after a reload
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={closeComposer}
+              className="ui-touch-target rounded-lg text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+              aria-label="Save draft and close composer"
+              title="Save draft and close"
             >
-              To
+              <X className="h-4 w-4" aria-hidden />
+            </button>
+          </div>
+
+          <div className="space-y-3 p-5">
+            <div className="relative flex items-center gap-3 border-b border-app-border pb-3">
+              <label htmlFor="mailbox-email-recipient" className="w-12 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                To
+              </label>
+              <input
+                id="mailbox-email-recipient"
+                value={draftTo}
+                onFocus={() => setShowRecipientSuggestions(true)}
+                onChange={(event) => {
+                  setDraftTo(event.target.value);
+                  setShowRecipientSuggestions(true);
+                }}
+                className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-app-text outline-none"
+                placeholder="Search a customer or enter one or more email addresses"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCopyFields((current) => !current)}
+                className="text-[10px] font-black uppercase tracking-widest text-app-accent"
+              >
+                Cc / Bcc
+              </button>
+              {showRecipientSuggestions && (recipientSuggestions.length > 0 || recipientSearchBusy) ? (
+                <div className="absolute left-12 top-10 z-30 max-h-56 w-[min(28rem,calc(100%-3rem))] overflow-auto rounded-xl border border-app-border bg-app-surface shadow-2xl">
+                  {recipientSearchBusy ? (
+                    <div className="px-3 py-2 text-xs font-bold text-app-text-muted">
+                      Searching customers...
+                    </div>
+                  ) : null}
+                  {recipientSuggestions.map((customer) => (
+                    <button
+                      key={customer.id}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setDraftTo(customer.email ?? "");
+                        setShowRecipientSuggestions(false);
+                      }}
+                      className="block w-full border-b border-app-border px-3 py-2 text-left last:border-b-0 hover:bg-app-surface-2"
+                    >
+                      <span className="block text-xs font-black text-app-text">
+                        {customerDisplayName(customer)}
+                      </span>
+                      <span className="block text-[11px] font-semibold text-app-text-muted">
+                        {customer.email}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            {showCopyFields ? (
+              <div className="grid gap-3 border-b border-app-border pb-3 md:grid-cols-2">
+                <label className="flex items-center gap-3">
+                  <span className="w-12 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Cc</span>
+                  <input
+                    value={draftCc}
+                    onChange={(event) => setDraftCc(event.target.value)}
+                    className="min-w-0 flex-1 bg-transparent text-sm text-app-text outline-none"
+                    placeholder="Carbon copy recipients"
+                  />
+                </label>
+                <label className="flex items-center gap-3">
+                  <span className="w-12 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Bcc</span>
+                  <input
+                    value={draftBcc}
+                    onChange={(event) => setDraftBcc(event.target.value)}
+                    className="min-w-0 flex-1 bg-transparent text-sm text-app-text outline-none"
+                    placeholder="Private copy recipients"
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            <label className="flex items-center gap-3 border-b border-app-border pb-3">
+              <span className="w-12 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Subject</span>
+              <input
+                value={draftSubject}
+                onChange={(event) => setDraftSubject(event.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-app-text outline-none"
+                placeholder="Email subject"
+              />
             </label>
-            <input
-              id="mailbox-quick-email-recipient"
-              value={draftTo}
-              onFocus={() => setShowRecipientSuggestions(true)}
-              onChange={(event) => {
-                setDraftTo(event.target.value);
-                setShowRecipientSuggestions(true);
-              }}
-              className="ui-input h-10 w-full px-3 text-sm"
-              placeholder="Search customer or enter email"
-            />
-            {showRecipientSuggestions && (recipientSuggestions.length > 0 || recipientSearchBusy) ? (
-              <div className="absolute z-30 mt-2 max-h-56 w-full overflow-auto rounded-xl border border-app-border bg-app-surface shadow-2xl">
-                {recipientSearchBusy ? (
-                  <div className="px-3 py-2 text-xs font-bold text-app-text-muted">
-                    Searching customers...
-                  </div>
-                ) : null}
-                {recipientSuggestions.map((customer) => (
-                  <button
-                    key={customer.id}
-                    type="button"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      setDraftTo(customer.email ?? "");
-                      setShowRecipientSuggestions(false);
-                    }}
-                    className="block w-full border-b border-app-border px-3 py-2 text-left last:border-b-0 hover:bg-app-surface-2"
-                  >
-                    <span className="block text-xs font-black text-app-text">
-                      {customerDisplayName(customer)}
-                    </span>
-                    <span className="block text-[11px] font-semibold text-app-text-muted">
-                      {customer.email}
-                    </span>
-                  </button>
+
+            <div className="flex flex-wrap items-center gap-1 rounded-xl border border-app-border bg-app-surface-2 p-2" aria-label="Message formatting toolbar">
+              <button type="button" onClick={() => applyComposerFormat("bold")} className="ui-touch-target rounded-lg hover:bg-app-surface" aria-label="Bold">
+                <Bold className="h-4 w-4" aria-hidden />
+              </button>
+              <button type="button" onClick={() => applyComposerFormat("italic")} className="ui-touch-target rounded-lg hover:bg-app-surface" aria-label="Italic">
+                <Italic className="h-4 w-4" aria-hidden />
+              </button>
+              <button type="button" onClick={() => applyComposerFormat("underline")} className="ui-touch-target rounded-lg hover:bg-app-surface" aria-label="Underline">
+                <Underline className="h-4 w-4" aria-hidden />
+              </button>
+              <span className="mx-1 h-5 w-px bg-app-border" aria-hidden />
+              <button type="button" onClick={() => applyComposerFormat("insertUnorderedList")} className="ui-touch-target rounded-lg hover:bg-app-surface" aria-label="Bulleted list">
+                <List className="h-4 w-4" aria-hidden />
+              </button>
+              <button type="button" onClick={() => applyComposerFormat("insertOrderedList")} className="ui-touch-target rounded-lg hover:bg-app-surface" aria-label="Numbered list">
+                <ListOrdered className="h-4 w-4" aria-hidden />
+              </button>
+              <span className="mx-1 h-5 w-px bg-app-border" aria-hidden />
+              <button
+                type="button"
+                onClick={() => attachmentInputRef.current?.click()}
+                className="ui-touch-target inline-flex items-center gap-2 rounded-lg px-2 text-xs font-black hover:bg-app-surface"
+              >
+                <Paperclip className="h-4 w-4" aria-hidden /> Attach
+              </button>
+              <input
+                ref={attachmentInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(event) => void addAttachments(event.target.files)}
+              />
+            </div>
+
+            <div className="relative">
+              {!htmlHasText(draftBody) ? (
+                <span className="pointer-events-none absolute left-4 top-3 text-sm text-app-text-muted">
+                  Write your message...
+                </span>
+              ) : null}
+              <div
+                ref={composeBodyRef}
+                contentEditable
+                suppressContentEditableWarning
+                role="textbox"
+                aria-label="Email message"
+                aria-multiline="true"
+                onInput={(event) => setDraftBody(event.currentTarget.innerHTML)}
+                onPaste={(event) => {
+                  event.preventDefault();
+                  document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+                  setDraftBody(event.currentTarget.innerHTML);
+                }}
+                className="min-h-52 rounded-xl border border-app-border bg-app-surface px-4 py-3 text-sm leading-6 text-app-text outline-none focus:border-app-accent focus:ring-2 focus:ring-app-accent/20 [&_blockquote]:border-l-4 [&_blockquote]:border-app-border [&_blockquote]:pl-4 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6"
+              />
+            </div>
+
+            {attachments.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {attachments.map((attachment) => (
+                  <span key={attachment.id} className="inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-bold text-app-text">
+                    <Paperclip className="h-3.5 w-3.5" aria-hidden />
+                    {attachment.filename} ({Math.max(1, Math.round(attachment.size / 1024))} KB)
+                    <button
+                      type="button"
+                      onClick={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                      className="text-app-text-muted hover:text-app-danger"
+                      aria-label={`Remove ${attachment.filename}`}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </span>
                 ))}
               </div>
             ) : null}
+
+            <div className="flex flex-col gap-3 border-t border-app-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <label className="flex items-center gap-2 text-xs font-semibold text-app-text-muted">
+                <input
+                  type="checkbox"
+                  checked={includeSignature}
+                  onChange={(event) => setIncludeSignature(event.target.checked)}
+                  disabled={!signature.trim()}
+                />
+                Include my saved signature
+              </label>
+              <div className="flex items-center justify-end gap-2">
+                <button type="button" onClick={discardComposer} className="ui-btn-secondary px-4 py-2 text-xs font-black text-app-danger">
+                  Discard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void sendEmail()}
+                  disabled={sendBusy || splitRecipientInput(draftTo).length === 0 || !draftSubject.trim() || !htmlHasText(draftBody)}
+                  className="ui-btn-primary inline-flex items-center gap-2 px-5 py-2 text-xs font-black disabled:opacity-50"
+                >
+                  <Send className="h-4 w-4" aria-hidden />
+                  {sendBusy ? "Sending..." : "Send email"}
+                </button>
+              </div>
+            </div>
           </div>
-          <label className="block">
-            <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Subject
-            </span>
-            <input
-              value={draftSubject}
-              onChange={(event) => setDraftSubject(event.target.value)}
-              className="ui-input h-10 w-full px-3 text-sm"
-              placeholder="Riverside Men's Shop"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Message
-            </span>
-            <textarea
-              ref={composeBodyRef}
-              value={draftBody}
-              onChange={(event) => setDraftBody(event.target.value)}
-              className="ui-input min-h-10 w-full resize-y px-3 py-2 text-sm"
-              placeholder="Write a quick message..."
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => void sendEmail()}
-            disabled={sendBusy || !draftTo.trim() || !draftSubject.trim() || !draftBody.trim()}
-            className="ui-btn-primary h-10 px-5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
-          >
-            {sendBusy ? "Sending..." : "Send"}
-          </button>
-        </div>
         </section>
       ) : null}
 
@@ -1149,6 +1467,16 @@ export default function MailboxOperationsSection({
                     <MessageSquareReply className="h-3.5 w-3.5" aria-hidden />
                     Reply
                   </button>
+                  {selectedRow.direction === "inbound" ? (
+                    <button
+                      type="button"
+                      onClick={() => startReply(selectedRow, true)}
+                      className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                    >
+                      <MessageSquareReply className="h-3.5 w-3.5" aria-hidden />
+                      Reply all
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => startForward(selectedRow)}

@@ -75,6 +75,9 @@ const podiumCallMigration = repoFile(
 const podiumReviewActivityMigration = repoFile(
   "migrations/197_podium_review_activity.sql",
 );
+const podiumRecoveryMigration = repoFile(
+  "migrations/198_recover_podium_delivery_backpressure.sql",
+);
 const receiptSummary = repoFile(
   "client/src/components/pos/ReceiptSummaryModal.tsx",
 );
@@ -143,11 +146,16 @@ test("Podium provider contracts and webhook processing stay hardened", () => {
   expect(settingsApi).toContain('"/podium/webhook"');
   expect(panel).toContain("Register Podium webhook?");
   expect(podiumLogic).toContain("StatusCode::TOO_MANY_REQUESTS");
+  expect(podiumLogic).toContain("PodiumError::RateLimited");
   expect(podiumLogic).toContain("invalidate_podium_access_token");
   expect(podiumLogic).toContain("PODIUM_MAX_ATTACHMENT_BYTES");
   expect(podiumLogic).not.toContain("#![allow(clippy::all)]");
   expect(podiumReviews).toContain("deliver_review_invite_link");
   expect(podiumReviews).toContain("process_due_review_invites");
+  expect(podiumReviews).toContain("defer_rate_limited_review_invite");
+  expect(podiumReviews).toContain("batch paused at provider rate limit");
+  expect(podiumRecoveryMigration).toContain("processing_status = 'pending'");
+  expect(podiumRecoveryMigration).toContain("review_invite_last_error ILIKE '%HTTP 429%'");
   expect(podiumReviews).toContain("send_podium_sms_message_tracked");
   expect(podiumReviews).toContain("send_podium_email_message_tracked");
   expect(podiumLogic).toContain('"email"');
@@ -197,7 +205,9 @@ test("Podium inbox keeps webhook and history status truthful", () => {
   expect(podiumInbox).toContain("incomplete_history_count");
   expect(podiumInbox).toContain("PROVIDER_PULL_STALE_MS = 30 * 60 * 1000");
   expect(podiumInbox).toContain("Riverside did not mark the pull complete");
-  expect(podiumInbox).toContain("ROS webhook ready");
+  expect(podiumInbox).toContain("ROS webhook receiving");
+  expect(podiumInbox).toContain("failed_webhook_delivery_count");
+  expect(podiumInbox).toContain("Processing current");
   expect(podiumInbox).toContain("Last complete history pull");
   expect(podiumInbox).toContain("historyIncomplete || providerPullStale");
   expect(podiumInbox).not.toContain(
@@ -368,6 +378,9 @@ test("Podium contact reconciliation is backgrounded, observable, and avoids redu
     "state.customer_id IS NULL OR state.status = 'failed'",
   );
   expect(podiumContacts).toContain("if created || updated");
+  expect(podiumContacts).not.toContain(
+    "transactional_sms_opt_in = FALSE,\n            updated_at = NOW()",
+  );
   expect(panel).toContain("Reconciliation Running");
   expect(panel).toContain("Needs first sync");
   expect(panel).toContain("You can leave this page while it runs");

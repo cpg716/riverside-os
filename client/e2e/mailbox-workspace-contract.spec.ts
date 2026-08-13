@@ -35,7 +35,24 @@ test("Mailbox exposes familiar conversation and bulk triage actions", () => {
   expect(mailboxWorkspace).toContain("Conversation restored to Inbox.");
   expect(mailboxWorkspace).toContain("New email");
   expect(mailboxWorkspace).toContain("Reply");
+  expect(mailboxWorkspace).toContain("Reply all");
   expect(mailboxWorkspace).toContain("Forward");
+});
+
+test("Mailbox composer supports rich, addressed, recoverable email drafts", () => {
+  expect(mailboxWorkspace).toContain("contentEditable");
+  expect(mailboxWorkspace).toContain('applyComposerFormat("bold")');
+  expect(mailboxWorkspace).toContain('applyComposerFormat("insertUnorderedList")');
+  expect(mailboxWorkspace).toContain("Cc / Bcc");
+  expect(mailboxWorkspace).toContain("MAILBOX_DRAFT_STORAGE_KEY");
+  expect(mailboxWorkspace).toContain("MAX_ATTACHMENT_BYTES");
+  expect(mailboxWorkspace).toContain("includeSignature");
+  expect(mailboxWorkspace).toContain("sanitizeComposerHtml");
+  expect(mailboxApi).toContain("MAILBOX_ATTACHMENT_MAX_BYTES");
+  expect(mailboxApi).toContain("decode_mailbox_attachments");
+  expect(mailboxLogic).toContain("pub async fn send_mailbox_email");
+  expect(mailboxLogic).toContain("builder = builder.cc");
+  expect(mailboxLogic).toContain("builder = builder.bcc");
 });
 
 test("Opening mail persists read state and bulk state is permission guarded", () => {

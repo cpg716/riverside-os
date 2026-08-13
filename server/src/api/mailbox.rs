@@ -7,6 +7,7 @@ use axum::{
     routing::{get, patch, post},
     Json, Router,
 };
+use base64::{engine::general_purpose, Engine as _};
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::HashSet;
@@ -17,6 +18,8 @@ use crate::api::AppState;
 use crate::auth::permissions::{CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW, SETTINGS_ADMIN};
 use crate::logic::{email, notifications};
 use crate::middleware;
+
+const MAILBOX_ATTACHMENT_MAX_BYTES: usize = 5 * 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum MailboxError {
@@ -272,13 +275,65 @@ async fn sync_mailbox(
 
 #[derive(Debug, Deserialize)]
 struct SendMailboxMessageBody {
-    to_email: String,
+    #[serde(default)]
+    to_email: Option<String>,
+    #[serde(default)]
+    to_emails: Vec<String>,
+    #[serde(default)]
+    cc_emails: Vec<String>,
+    #[serde(default)]
+    bcc_emails: Vec<String>,
     subject: String,
     html_body: String,
     #[serde(default)]
     signature_html: Option<String>,
     #[serde(default)]
     reply_to_message_id: Option<Uuid>,
+    #[serde(default)]
+    attachments: Vec<MailboxAttachmentBody>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MailboxAttachmentBody {
+    filename: String,
+    content_type: String,
+    data_base64: String,
+}
+
+fn decode_mailbox_attachments(
+    attachments: Vec<MailboxAttachmentBody>,
+) -> Result<Vec<email::EmailAttachmentPayload>, MailboxError> {
+    let mut decoded = Vec::new();
+    let mut total_bytes = 0usize;
+    for attachment in attachments {
+        let filename = attachment.filename.trim();
+        if filename.is_empty() {
+            return Err(MailboxError::BadRequest(
+                "Attachment filename is required.".to_string(),
+            ));
+        }
+        let bytes = general_purpose::STANDARD
+            .decode(attachment.data_base64.trim())
+            .map_err(|_| MailboxError::BadRequest("Attachment data is invalid.".to_string()))?;
+        if bytes.is_empty() {
+            return Err(MailboxError::BadRequest(
+                "Attachment file was empty.".to_string(),
+            ));
+        }
+        total_bytes += bytes.len();
+        if total_bytes > MAILBOX_ATTACHMENT_MAX_BYTES {
+            return Err(MailboxError::BadRequest(
+                "Attachments may total no more than 5 MB.".to_string(),
+            ));
+        }
+        decoded.push(email::EmailAttachmentPayload {
+            filename: filename.to_string(),
+            content_type: attachment.content_type.trim().to_string(),
+            bytes,
+            content_id: None,
+        });
+    }
+    Ok(decoded)
 }
 
 async fn send_message(
@@ -287,15 +342,22 @@ async fn send_message(
     Json(body): Json<SendMailboxMessageBody>,
 ) -> Result<Json<serde_json::Value>, MailboxError> {
     let staff_id = require_perm(&state, &headers, CUSTOMERS_HUB_EDIT).await?;
-    let id = email::send_email_with_reply_context(
+    let mut to_emails = body.to_emails;
+    if let Some(to_email) = body.to_email {
+        to_emails.push(to_email);
+    }
+    let attachments = decode_mailbox_attachments(body.attachments)?;
+    let id = email::send_mailbox_email(
         &state.db,
-        &body.to_email,
+        &to_emails,
+        &body.cc_emails,
+        &body.bcc_emails,
         &body.subject,
         &body.html_body,
         staff_id,
         body.signature_html.as_deref(),
-        "outbound",
         body.reply_to_message_id,
+        attachments,
     )
     .await?;
     Ok(Json(json!({ "id": id, "status": "sent" })))

@@ -57,7 +57,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 2. Open **Podium**.
 3. Check the readiness values: saved credentials, pinned API version, signing-secret state, inbound processing, and the individual text-message toggles required by your SOP.
 4. If the card says **credentials missing**, an admin can save or update the Podium credentials in this Settings screen. Use **Authorize via Podium Portal** / **Connect Podium** only after both **Client ID** and **Client Secret** are saved and the redirect URI is registered in Podium.
-5. Ensure the Podium app has all required scopes enabled: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `read_contacts`, and `write_contacts`. Existing connections must use **Reconnect Podium Account** once after `read_contacts` is enabled.
+5. Ensure the Podium app has all required scopes enabled: `read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `read_contacts`, and `write_contacts`. The Podium person approving Riverside must also be an administrator with product access to Messages, Calls, Contacts, and Reviews. Existing connections must use **Reconnect Podium Account** once after scopes or approving-user permissions change.
 6. Select the correct active location from the provider-backed **Podium location** list and save it. Do not type or copy a raw location UID.
 7. Save a webhook signing secret, then use **Register Webhook**. Riverside creates or updates only the subscription matching its public HTTPS URL and selected location, for the message, call, contact, review-invite, published-review, and review-response events it processes. After this integration update, use **Update Webhook** once so the existing Podium subscription includes the added call and full review lifecycle events.
 8. In the Podium developer portal, use **Send Test** for the Riverside webhook. A successful response confirms public reachability and signing-secret verification; it does not replace testing a real inbound customer reply.
@@ -130,7 +130,7 @@ ROS is still the appointment system of record. Podium sends enabled appointment 
 14. Select the checkboxes beside multiple conversations to mark them **Read**, **Unread**, **Close**, or **Reopen** together. A partial Podium failure is reported instead of treating the whole group as successful.
 15. **Close** is Podium's native closed/archive state. Closed conversations leave the Open list but remain available under **Closed** and can be reopened.
 16. Podium assignment and **Replying as** are related but separate controls: assignment owns the conversation; responder identity credits messages.
-17. Use **Refresh** to reload the Riverside copy. Open **Status** and use **Pull from Podium** when messages are missing; that action asks Podium for current conversations and their cursor-paged history. **History current** appears only after every matched history in the pull is stored. **History incomplete** means one or more histories still need another pull or IT review.
+17. Use **Refresh** to reload the Riverside copy. Open **Status** and use **Pull from Podium** when messages are missing; that action asks Podium for current conversations and their cursor-paged history. **ROS webhook receiving** means the local signing and ingest configuration is present. **Processing current** separately confirms accepted deliveries are not stuck or failed. **History current** appears only after every matched history in the pull is stored. **History incomplete** means one or more histories still need another pull or IT review.
 18. Match an unknown sender only when staff can verify the person. Choose **Match Customer**, search for the intended customer, verify identity, and select that record; the decision is audited against the exact provider conversation ID.
 19. When the card says multiple customers share the identifier, correct the duplicate phone/email data or deliberately choose the intended record. Riverside never silently chooses the newest customer.
 
@@ -163,6 +163,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 2. Riverside rechecks non-internal line fulfillment, customer contact information, the **180-day** cadence, the store enable switch, and the customer review opt-out before delivery.
 3. The request is sent at **10:00 AM five days after fulfillment** (Monday when the fifth day is Sunday), using Podium text when a usable phone exists or Podium email when email is the only usable destination.
 4. **Operations → Reviews** lists Outbox, sent, failed, and cancelled/suppressed outcomes. Closing or auto-closing the receipt cannot lose the scheduled request.
+5. If Podium returns HTTP 429, Riverside leaves that request queued for the provider's retry time and pauses the rest of that delivery batch. Provider throttling does not count as a customer-delivery failure.
 
 ### Manager: check review invite history
 
@@ -191,7 +192,8 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
-| **403 / no Podium card** | Sign in as admin or ask for **settings.admin** | Manager adjusts role |
+| **403 / no Podium card** | Sign in as a Riverside admin or ask for **settings.admin** | Manager adjusts the Riverside role |
+| **HTTP 403 while updating the Podium webhook** | Use **Reconnect Podium Account** and approve as a Podium administrator with Messages, Calls, Contacts, and Reviews access | Read the provider response shown by Riverside; IT checks the OAuth scopes and the approving Podium user's product permissions |
 | **Podium page says "Client ID is required"** | Return to Settings, confirm **Client ID** is saved, and start authorization again from the Podium card | Manager / IT checks the saved credentials and redirect URI |
 | **Podium page says Client ID and redirect URI do not match** | Stop and check the callback URL registered in Podium | IT updates the Podium developer app to match Riverside exactly |
 | **Podium consent page says something went wrong** | Do not retry repeatedly; check whether the Podium app has all scopes enabled (`read_locations`, `read_messages`, `write_messages`, `read_reviews`, `write_reviews`, `read_users`, `read_contacts`, `write_contacts`) | IT / Podium support |
@@ -206,7 +208,9 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 | **Podium shows calls but Riverside does not** | Open Inbox **Status** and check **Stored calls**, then open **Settings → Connected Services → Podium** and update a webhook marked **Needs update** | IT verifies signed call-event delivery; **Pull from Podium** cannot backfill calls |
 | **Review invite sent to opted-out customer** | Check profile **Opt out of review requests**; verify saved before sale completion | Manager / IT |
 | **Podium Send Test returns 400** | Confirm the Main Hub is on a release that accepts Podium's signed provider-test payload, then retry once | IT checks the recorded webhook failure reason; do not weaken signature verification |
-| **Settings says webhook needs update while Inbox says ROS webhook ready** | Treat Settings as the provider-subscription status and use **Update Webhook** there after admin confirmation | **ROS webhook ready** only confirms Riverside has its local signing secret and inbound processing enabled; it does not prove Podium's subscription is enabled or complete |
+| **Settings says webhook needs update while Inbox says ROS webhook receiving** | Treat Settings as the provider-subscription status and use **Update Webhook** there after admin confirmation | **ROS webhook receiving** confirms local signing/ingest configuration; **Processing current** separately confirms accepted deliveries are being applied |
+| **Inbox Status shows webhook processing failed** | Read the retained failure detail and refresh after IT deploys the correction | IT checks the durable delivery row; an accepted Podium response proves receipt, not successful internal processing |
+| **Review requests show HTTP 429** | Do not repeatedly press Retry. Wait for Riverside to honor Podium's retry window; for older Failed rows, retry one after the integration is healthy | IT verifies provider throttling is pausing the batch instead of failing the remaining queue |
 | **Inbound customer texts never appear** | Confirm Settings says the provider webhook is active, the public webhook URL is registered, and the tunnel/public host is running | IT checks webhook secret/signature, required event types, and the latest accepted delivery |
 | **Customer calls never appear** | In Settings → Podium, use **Update Webhook** once and confirm the public webhook remains active | IT verifies Podium is delivering signed call events and checks the retained webhook failure detail; message-history pulls do not backfill calls |
 | **Published reviews never appear** | In Settings → Podium, use **Update Webhook** once and confirm `read_reviews` remains authorized | IT verifies Podium is delivering signed review lifecycle events; the review-invite sync does not backfill the published-review feed |
@@ -233,4 +237,4 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 - [pos-register-cart.md](pos-register-cart.md) — Register and receipt flow.
 - [operations-home.md](operations-home.md) — Operations home and Reviews.
 
-**Last reviewed:** 2026-08-12
+**Last reviewed:** 2026-08-13

@@ -3521,7 +3521,15 @@ async fn post_podium_webhook_ensure(
         &secret,
     )
     .await
-    .map_err(|error| SettingsError::InvalidPayload(error.to_string()))?;
+    .map_err(|error| {
+        if error.http_status() == Some(StatusCode::FORBIDDEN.as_u16()) {
+            SettingsError::InvalidPayload(format!(
+                "Podium refused the webhook update. Reconnect Riverside using a Podium administrator who can access Messages, Calls, Contacts, and Reviews, then try again. Provider response: {error}"
+            ))
+        } else {
+            SettingsError::InvalidPayload(error.to_string())
+        }
+    })?;
 
     let webhooks = fetch_podium_webhooks(&state.db, &state.http_client, &state.podium_token_cache)
         .await

@@ -794,6 +794,33 @@ async fn fail_claimed_review_invite(
     Ok(())
 }
 
+async fn defer_rate_limited_review_invite(
+    pool: &PgPool,
+    transaction_id: Uuid,
+    retry_after_seconds: u64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        UPDATE transactions
+        SET podium_review_invite_status = 'scheduled',
+            review_invite_scheduled_for = NOW() + ($2 * INTERVAL '1 second'),
+            review_invite_claimed_at = NULL,
+            review_invite_last_error = 'Podium rate limit reached; delivery remains queued.',
+            review_invite_attempts = GREATEST(review_invite_attempts - 1, 0)
+        WHERE id = $1 AND podium_review_invite_status = 'sending'
+        "#,
+    )
+    .bind(transaction_id)
+    .bind(
+        i64::try_from(retry_after_seconds)
+            .unwrap_or(60)
+            .clamp(1, 3600),
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 async fn deliver_claimed_review_invite(
     pool: &PgPool,
     http: &reqwest::Client,
@@ -1013,6 +1040,19 @@ pub async fn process_due_review_invites(
         match deliver_claimed_review_invite(pool, http, podium_cache, claimed.transaction_id).await
         {
             Ok(_) => processed += 1,
+            Err(ReviewInviteError::Podium(podium::PodiumError::RateLimited {
+                retry_after_seconds,
+            })) => {
+                defer_rate_limited_review_invite(pool, claimed.transaction_id, retry_after_seconds)
+                    .await?;
+                tracing::warn!(
+                    target: "podium_reviews",
+                    transaction_id = %claimed.transaction_id,
+                    retry_after_seconds,
+                    "Podium review request batch paused at provider rate limit"
+                );
+                break;
+            }
             Err(error) => {
                 fail_claimed_review_invite(pool, claimed.transaction_id, &error.to_string())
                     .await?;
@@ -1032,15 +1072,11 @@ pub async fn reschedule_failed_review_invite(
     pool: &PgPool,
     transaction_id: Uuid,
 ) -> Result<bool, sqlx::Error> {
-    let scheduled_for: DateTime<Utc> =
-        sqlx::query_scalar("SELECT review_invite_delivery_time(NOW())")
-            .fetch_one(pool)
-            .await?;
     let result = sqlx::query(
         r#"
         UPDATE transactions
         SET podium_review_invite_status = 'scheduled',
-            review_invite_scheduled_for = $2,
+            review_invite_scheduled_for = NOW(),
             review_invite_claimed_at = NULL,
             review_invite_last_error = NULL,
             review_invite_attempts = 0
@@ -1050,7 +1086,6 @@ pub async fn reschedule_failed_review_invite(
         "#,
     )
     .bind(transaction_id)
-    .bind(scheduled_for)
     .execute(pool)
     .await?;
     Ok(result.rows_affected() > 0)

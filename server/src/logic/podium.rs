@@ -55,10 +55,22 @@ enum PodiumHttpErrorKind {
     ReviewInvite,
 }
 
-fn podium_http_error(kind: PodiumHttpErrorKind, status: StatusCode) -> PodiumError {
-    match kind {
-        PodiumHttpErrorKind::General => PodiumError::SendHttp(status.as_u16()),
-        PodiumHttpErrorKind::ReviewInvite => PodiumError::ReviewInviteHttp(status.as_u16()),
+fn podium_http_error(
+    kind: PodiumHttpErrorKind,
+    status: StatusCode,
+    detail: Option<String>,
+) -> PodiumError {
+    match (kind, detail) {
+        (PodiumHttpErrorKind::General, Some(detail)) => PodiumError::SendHttpDetail {
+            status: status.as_u16(),
+            detail,
+        },
+        (PodiumHttpErrorKind::ReviewInvite, Some(detail)) => PodiumError::ReviewInviteHttpDetail {
+            status: status.as_u16(),
+            detail,
+        },
+        (PodiumHttpErrorKind::General, None) => PodiumError::SendHttp(status.as_u16()),
+        (PodiumHttpErrorKind::ReviewInvite, None) => PodiumError::ReviewInviteHttp(status.as_u16()),
     }
 }
 
@@ -70,6 +82,24 @@ fn podium_retry_after(response: &Response, attempt: u32) -> StdDuration {
         .and_then(|value| value.trim().parse::<u64>().ok())
         .map(|seconds| StdDuration::from_secs(seconds.clamp(1, 60)))
         .unwrap_or_else(|| podium_retry_delay(attempt))
+}
+
+fn podium_error_detail(body: &str) -> Option<String> {
+    let detail = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("message")
+                .or_else(|| value.get("error"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            let trimmed = body.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        })?;
+    let normalized = detail.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!normalized.is_empty()).then(|| normalized.chars().take(500).collect())
 }
 
 use crate::logic::integration_credentials;
@@ -413,10 +443,34 @@ pub enum PodiumError {
     RefreshTokenMissing,
     #[error("podium send failed: HTTP {0}")]
     SendHttp(u16),
+    #[error("podium send failed: HTTP {status}: {detail}")]
+    SendHttpDetail { status: u16, detail: String },
     #[error("podium review invite failed: HTTP {0}")]
     ReviewInviteHttp(u16),
+    #[error("podium review invite failed: HTTP {status}: {detail}")]
+    ReviewInviteHttpDetail { status: u16, detail: String },
+    #[error("podium rate limited the request; retry after {retry_after_seconds} seconds")]
+    RateLimited { retry_after_seconds: u64 },
     #[error("reqwest error: {0}")]
     Http(#[from] reqwest::Error),
+}
+
+impl PodiumError {
+    pub fn http_status(&self) -> Option<u16> {
+        match self {
+            Self::TokenHttp(status) | Self::SendHttp(status) | Self::ReviewInviteHttp(status) => {
+                Some(*status)
+            }
+            Self::SendHttpDetail { status, .. } | Self::ReviewInviteHttpDetail { status, .. } => {
+                Some(*status)
+            }
+            Self::RateLimited { .. } => Some(StatusCode::TOO_MANY_REQUESTS.as_u16()),
+            Self::NotConfigured
+            | Self::TokenMissing
+            | Self::RefreshTokenMissing
+            | Self::Http(_) => None,
+        }
+    }
 }
 
 /// OAuth **app** credentials (client id + secret). Used for token exchange; never logged.
@@ -825,9 +879,15 @@ where
             invalidate_podium_access_token(token_cache).await;
             continue;
         }
-        if status == StatusCode::TOO_MANY_REQUESTS && attempt < PODIUM_MAX_RETRIES {
-            tokio::time::sleep(podium_retry_after(&response, attempt)).await;
-            continue;
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            let retry_after = podium_retry_after(&response, attempt);
+            if attempt < PODIUM_MAX_RETRIES {
+                tokio::time::sleep(retry_after).await;
+                continue;
+            }
+            return Err(PodiumError::RateLimited {
+                retry_after_seconds: retry_after.as_secs().max(1),
+            });
         }
         if status.is_server_error()
             && matches!(safety, PodiumRequestSafety::SafeRead)
@@ -836,7 +896,12 @@ where
             tokio::time::sleep(podium_retry_delay(attempt)).await;
             continue;
         }
-        return Err(podium_http_error(error_kind, status));
+        let detail = response
+            .text()
+            .await
+            .ok()
+            .and_then(|body| podium_error_detail(&body));
+        return Err(podium_http_error(error_kind, status, detail));
     }
     Err(match error_kind {
         PodiumHttpErrorKind::General => PodiumError::SendHttp(0),
@@ -1060,7 +1125,10 @@ pub async fn try_send_operational_sms(
                 PodiumError::TokenMissing => "token_missing",
                 PodiumError::RefreshTokenMissing => "refresh_token_missing",
                 PodiumError::SendHttp(_s) => "send_http",
+                PodiumError::SendHttpDetail { .. } => "send_http",
                 PodiumError::ReviewInviteHttp(_s) => "review_invite_http",
+                PodiumError::ReviewInviteHttpDetail { .. } => "review_invite_http",
+                PodiumError::RateLimited { .. } => "rate_limited",
                 PodiumError::Http(_) => "http",
             };
             tracing::warn!(target = "podium", event = "podium_send_err", reason_class = reason, error = %e);
@@ -2196,7 +2264,10 @@ pub async fn try_send_operational_email(
                 PodiumError::TokenMissing => "token_missing",
                 PodiumError::RefreshTokenMissing => "refresh_token_missing",
                 PodiumError::SendHttp(_s) => "send_http",
+                PodiumError::SendHttpDetail { .. } => "send_http",
                 PodiumError::ReviewInviteHttp(_s) => "review_invite_http",
+                PodiumError::ReviewInviteHttpDetail { .. } => "review_invite_http",
+                PodiumError::RateLimited { .. } => "rate_limited",
                 PodiumError::Http(_) => "http",
             };
             tracing::warn!(target = "podium", event = "podium_send_err", reason_class = reason, channel = "email", error = %e);
@@ -2976,6 +3047,25 @@ mod tests {
         assert_eq!(
             podium_conversation_closed_payload(false),
             json!({ "closed": false })
+        );
+    }
+
+    #[test]
+    fn provider_error_detail_prefers_documented_message_field() {
+        assert_eq!(
+            podium_error_detail(r#"{"message":"User lacks webhook permission"}"#).as_deref(),
+            Some("User lacks webhook permission")
+        );
+    }
+
+    #[test]
+    fn rate_limit_error_exposes_http_status() {
+        assert_eq!(
+            PodiumError::RateLimited {
+                retry_after_seconds: 30
+            }
+            .http_status(),
+            Some(429)
         );
     }
 

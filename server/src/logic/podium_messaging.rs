@@ -117,6 +117,8 @@ pub struct PodiumMessagingHealth {
     pub local_call_event_count: i64,
     pub incomplete_history_count: i64,
     pub unmatched_conversation_count: i64,
+    pub pending_webhook_delivery_count: i64,
+    pub failed_webhook_delivery_count: i64,
     pub last_webhook_received_at: Option<DateTime<Utc>>,
     pub last_webhook_failure_at: Option<DateTime<Utc>>,
     pub last_webhook_failure_reason: Option<String>,
@@ -869,6 +871,8 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
         local_call_event_count: i64,
         incomplete_history_count: i64,
         unmatched_conversation_count: i64,
+        pending_webhook_delivery_count: i64,
+        failed_webhook_delivery_count: i64,
         last_webhook_received_at: Option<DateTime<Utc>>,
         last_webhook_failure_at: Option<DateTime<Utc>>,
         last_webhook_failure_reason: Option<String>,
@@ -884,6 +888,8 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
         local_call_event_count,
         incomplete_history_count,
         unmatched_conversation_count,
+        pending_webhook_delivery_count,
+        failed_webhook_delivery_count,
         last_webhook_received_at,
         last_webhook_failure_at,
         last_webhook_failure_reason,
@@ -910,9 +916,33 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
                 WHERE last_synced_at IS NULL
             ) AS incomplete_history_count,
             (SELECT COUNT(*) FROM podium_sync_unmatched_conversation WHERE resolved_at IS NULL) AS unmatched_conversation_count,
+            (SELECT COUNT(*) FROM podium_webhook_delivery WHERE processing_status IN ('pending', 'processing')) AS pending_webhook_delivery_count,
+            (SELECT COUNT(*) FROM podium_webhook_delivery WHERE processing_status = 'failed') AS failed_webhook_delivery_count,
             (SELECT MAX(received_at) FROM podium_webhook_delivery) AS last_webhook_received_at,
-            (SELECT created_at FROM podium_webhook_failure ORDER BY created_at DESC LIMIT 1) AS last_webhook_failure_at,
-            (SELECT reason FROM podium_webhook_failure ORDER BY created_at DESC LIMIT 1) AS last_webhook_failure_reason,
+            (
+                SELECT occurred_at
+                FROM (
+                    SELECT created_at AS occurred_at FROM podium_webhook_failure
+                    UNION ALL
+                    SELECT received_at AS occurred_at
+                    FROM podium_webhook_delivery
+                    WHERE processing_status = 'failed'
+                ) webhook_issue
+                ORDER BY occurred_at DESC
+                LIMIT 1
+            ) AS last_webhook_failure_at,
+            (
+                SELECT reason
+                FROM (
+                    SELECT created_at AS occurred_at, reason FROM podium_webhook_failure
+                    UNION ALL
+                    SELECT received_at AS occurred_at, last_error AS reason
+                    FROM podium_webhook_delivery
+                    WHERE processing_status = 'failed'
+                ) webhook_issue
+                ORDER BY occurred_at DESC
+                LIMIT 1
+            ) AS last_webhook_failure_reason,
             (SELECT MAX(created_at) FROM podium_message) AS last_message_at,
             (SELECT MAX(occurred_at) FROM podium_call_event) AS last_call_event_at,
             (SELECT MAX(created_at) FROM podium_message WHERE direction IN ('outbound', 'automated')) AS last_outbound_at,
@@ -933,6 +963,8 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
         local_call_event_count,
         incomplete_history_count,
         unmatched_conversation_count,
+        pending_webhook_delivery_count,
+        failed_webhook_delivery_count,
         last_webhook_received_at,
         last_webhook_failure_at,
         last_webhook_failure_reason,

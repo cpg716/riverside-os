@@ -649,8 +649,7 @@ async fn apply_provider_contact(
                     r#"
                     UPDATE customers
                     SET marketing_sms_opt_in = FALSE,
-                        transactional_sms_opt_in = FALSE,
-                        updated_at = NOW()
+                        transactional_sms_opt_in = FALSE
                     WHERE id = $1
                     "#,
                 )
@@ -788,8 +787,7 @@ async fn apply_provider_contact(
             state = CASE WHEN $14 THEN $9 ELSE state END,
             postal_code = CASE WHEN $14 THEN $10 ELSE postal_code END,
             marketing_sms_opt_in = CASE WHEN $11 THEN FALSE ELSE marketing_sms_opt_in END,
-            transactional_sms_opt_in = CASE WHEN $11 THEN FALSE ELSE transactional_sms_opt_in END,
-            updated_at = NOW()
+            transactional_sms_opt_in = CASE WHEN $11 THEN FALSE ELSE transactional_sms_opt_in END
         WHERE id = $1
           AND (
               ($2::text IS NOT NULL AND first_name IS DISTINCT FROM $2)
@@ -1839,8 +1837,7 @@ pub(crate) async fn apply_sms_opt_out_conn(
         r#"
         UPDATE customers
         SET marketing_sms_opt_in = FALSE,
-            transactional_sms_opt_in = FALSE,
-            updated_at = NOW()
+            transactional_sms_opt_in = FALSE
         WHERE id = $1
         "#,
     )

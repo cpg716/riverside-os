@@ -324,7 +324,7 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
           "error" in body && body.error
             ? body.error
             : "Podium webhook registration failed.",
-          "error",
+          "warning",
         );
         return;
       }
@@ -474,6 +474,11 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
             </li>
             <li>
               <strong className="text-app-text">3. Approve Riverside.</strong>
+              <p className="mt-1 text-xs font-semibold leading-5 text-app-text-muted">
+                Sign in as a Podium administrator who can access Messages, Calls, Contacts, and
+                Reviews. Podium can return HTTP 403 when the approving user lacks access to one of
+                the webhook event resources.
+              </p>
               <div>
                 <button
                   type="button"

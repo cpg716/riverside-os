@@ -549,9 +549,12 @@ pub async fn send_email_with_attachments(
     direction: &str,
     attachments: Vec<EmailAttachmentPayload>,
 ) -> Result<Uuid, EmailError> {
+    let to_emails = vec![to_email.to_string()];
     send_email_with_reply_context_and_attachments(
         pool,
-        to_email,
+        &to_emails,
+        &[],
+        &[],
         subject,
         html_body,
         staff_id,
@@ -574,9 +577,12 @@ pub async fn send_email_with_reply_context(
     direction: &str,
     reply_to_mailbox_message_id: Option<Uuid>,
 ) -> Result<Uuid, EmailError> {
+    let to_emails = vec![to_email.to_string()];
     send_email_with_reply_context_and_attachments(
         pool,
-        to_email,
+        &to_emails,
+        &[],
+        &[],
         subject,
         html_body,
         staff_id,
@@ -589,9 +595,40 @@ pub async fn send_email_with_reply_context(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub async fn send_mailbox_email(
+    pool: &PgPool,
+    to_emails: &[String],
+    cc_emails: &[String],
+    bcc_emails: &[String],
+    subject: &str,
+    html_body: &str,
+    staff_id: Option<Uuid>,
+    signature_html: Option<&str>,
+    reply_to_mailbox_message_id: Option<Uuid>,
+    attachments: Vec<EmailAttachmentPayload>,
+) -> Result<Uuid, EmailError> {
+    send_email_with_reply_context_and_attachments(
+        pool,
+        to_emails,
+        cc_emails,
+        bcc_emails,
+        subject,
+        html_body,
+        staff_id,
+        signature_html,
+        "outbound",
+        reply_to_mailbox_message_id,
+        attachments,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn send_email_with_reply_context_and_attachments(
     pool: &PgPool,
-    to_email: &str,
+    to_emails: &[String],
+    cc_emails: &[String],
+    bcc_emails: &[String],
     subject: &str,
     html_body: &str,
     staff_id: Option<Uuid>,
@@ -607,8 +644,21 @@ async fn send_email_with_reply_context_and_attachments(
     let creds = load_email_credentials(pool)
         .await
         .ok_or(EmailError::NotConfigured)?;
-    let to = clean_addr(to_email)
-        .ok_or_else(|| EmailError::InvalidPayload("recipient email is invalid".to_string()))?;
+    let to = normalize_email_recipients(to_emails)?;
+    if to.is_empty() {
+        return Err(EmailError::InvalidPayload(
+            "at least one recipient is required".to_string(),
+        ));
+    }
+    let mut cc = normalize_email_recipients(cc_emails)?;
+    cc.retain(|recipient| !to.contains(recipient));
+    let mut bcc = normalize_email_recipients(bcc_emails)?;
+    bcc.retain(|recipient| !to.contains(recipient) && !cc.contains(recipient));
+    if to.len() + cc.len() + bcc.len() > 20 {
+        return Err(EmailError::InvalidPayload(
+            "email delivery supports up to 20 total recipients".to_string(),
+        ));
+    }
     let subject = subject.trim();
     if subject.is_empty() {
         return Err(EmailError::InvalidPayload(
@@ -627,7 +677,6 @@ async fn send_email_with_reply_context_and_attachments(
     }
     let from = parse_mailbox(&cfg.from_email, Some(&cfg.from_name))?;
     let reply_to = parse_mailbox(&cfg.reply_to_email, Some(&cfg.from_name))?;
-    let to_box = parse_mailbox(&to, None)?;
     let outbound_message_id = generated_message_id(&cfg.from_email);
     let reply_context = if let Some(parent_id) = reply_to_mailbox_message_id {
         sqlx::query_as::<_, ReplyContextRow>(
@@ -666,9 +715,17 @@ async fn send_email_with_reply_context_and_attachments(
     let mut builder = Message::builder()
         .from(from)
         .reply_to(reply_to)
-        .to(to_box)
         .subject(subject)
         .message_id(Some(outbound_message_id.clone()));
+    for recipient in &to {
+        builder = builder.to(parse_mailbox(recipient, None)?);
+    }
+    for recipient in &cc {
+        builder = builder.cc(parse_mailbox(recipient, None)?);
+    }
+    for recipient in &bcc {
+        builder = builder.bcc(parse_mailbox(recipient, None)?);
+    }
     if let Some(parent_message_id) = in_reply_to.as_ref() {
         builder = builder.in_reply_to(parent_message_id.clone());
     }
@@ -759,14 +816,15 @@ async fn send_email_with_reply_context_and_attachments(
     .await
     .map_err(|e| EmailError::Smtp(e.to_string()))??;
 
-    let customer_id = match_customer_by_email(pool, Some(&to)).await?;
+    let primary_to = to.first().map(String::as_str);
+    let customer_id = match_customer_by_email(pool, primary_to).await?;
     let id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO mailbox_messages (
             message_id, thread_key, direction, subject, from_email, from_name, to_emails,
-            body_html, sent_at, customer_id, staff_id, status, is_read, raw_headers
+            cc_emails, body_html, sent_at, customer_id, staff_id, status, is_read, raw_headers
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10, 'sent', true, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10, $11, 'sent', true, $12)
         RETURNING id
         "#,
     )
@@ -776,14 +834,16 @@ async fn send_email_with_reply_context_and_attachments(
     .bind(subject)
     .bind(clean_addr(&cfg.from_email))
     .bind(&cfg.from_name)
-    .bind(json!([to]))
+    .bind(json!(to))
+    .bind(json!(cc))
     .bind(&html)
     .bind(customer_id)
     .bind(staff_id)
     .bind(json!({
         "message_id": outbound_message_id,
         "in_reply_to": in_reply_to,
-        "references": references
+        "references": references,
+        "bcc_count": bcc.len()
     }))
     .fetch_one(pool)
     .await?;
@@ -798,7 +858,7 @@ async fn send_email_with_reply_context_and_attachments(
                 body_text: None,
                 body_html: Some(&html),
                 staff_id,
-                to_email: Some(&to),
+                to_email: primary_to,
             },
         )
         .await;

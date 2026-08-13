@@ -98,6 +98,8 @@ type PodiumHealth = {
   local_call_event_count: number;
   incomplete_history_count: number;
   unmatched_conversation_count: number;
+  pending_webhook_delivery_count: number;
+  failed_webhook_delivery_count: number;
   last_webhook_received_at: string | null;
   last_webhook_failure_at: string | null;
   last_webhook_failure_reason: string | null;
@@ -768,11 +770,16 @@ export default function PodiumMessagingInboxSection({
   );
 
   const activeWebhookFailure = useMemo(() => {
+    if ((health?.failed_webhook_delivery_count ?? 0) > 0) return true;
     if (!health?.last_webhook_failure_at) return false;
     if (!health.last_webhook_received_at) return true;
     return new Date(health.last_webhook_failure_at).getTime() >
       new Date(health.last_webhook_received_at).getTime();
-  }, [health?.last_webhook_failure_at, health?.last_webhook_received_at]);
+  }, [
+    health?.failed_webhook_delivery_count,
+    health?.last_webhook_failure_at,
+    health?.last_webhook_received_at,
+  ]);
 
   useEffect(() => {
     if (!providerPullDue) {
@@ -1361,7 +1368,9 @@ export default function PodiumMessagingInboxSection({
         >
           <AlertTriangle size={15} className="shrink-0 text-app-warning" aria-hidden />
           <span>
-            {callEventsMissing
+            {health?.failed_webhook_delivery_count
+              ? "Podium webhook processing needs attention. Open Status for details."
+              : callEventsMissing
               ? "Podium call delivery needs attention. Open Status for details."
               : "Podium needs attention. Open Status for details."}
           </span>
@@ -1403,8 +1412,21 @@ export default function PodiumMessagingInboxSection({
                 }`}
               >
                 {health.webhook_secret_configured && health.inbound_ingest_enabled
-                  ? "ROS webhook ready"
+                  ? "ROS webhook receiving"
                   : "ROS webhook setup needed"}
+              </span>
+              <span
+                className={`ui-pill ${
+                  health.failed_webhook_delivery_count > 0
+                    ? "bg-app-warning/10 text-app-warning"
+                    : "bg-app-success/10 text-app-success"
+                }`}
+              >
+                {health.failed_webhook_delivery_count > 0
+                  ? `${health.failed_webhook_delivery_count} processing failed`
+                  : health.pending_webhook_delivery_count > 0
+                    ? `${health.pending_webhook_delivery_count} processing`
+                    : "Processing current"}
               </span>
               <span
                 className={`ui-pill ${
@@ -1423,7 +1445,7 @@ export default function PodiumMessagingInboxSection({
           </div>
           {activeWebhookFailure ? (
             <p className="mt-2 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
-              Last webhook issue: {fullDateTime(health.last_webhook_failure_at)}
+              Webhook delivery or processing issue: {fullDateTime(health.last_webhook_failure_at)}
               {health.last_webhook_failure_reason ? ` - ${health.last_webhook_failure_reason}` : ""}
             </p>
           ) : null}

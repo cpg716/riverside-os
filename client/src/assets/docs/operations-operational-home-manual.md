@@ -55,7 +55,7 @@ Open **Operations → Mailbox** or **POS → Mailbox** for store email at `info@
 
 Opening inbound mail marks its conversation read. Use **Mark unread** when follow-up still belongs to another staff member. Select multiple conversation checkboxes for group **Read**, **Unread**, **Archive**, or **Delete**. Archive keeps handled mail under Archived. Delete moves email to recoverable Trash; **Restore** returns Archived or Trash conversations to Inbox.
 
-The selected conversation keeps **Reply**, **Forward**, **Important**, **Follow-up**, **Archive**, folder movement, and matched-customer access together. **New email** opens the composer only when needed. Choose **Sync** to pull recent IONOS mail.
+The selected conversation keeps **Reply**, **Reply all**, **Forward**, **Important**, **Follow-up**, **Archive**, folder movement, and matched-customer access together. **New email** opens the full composer only when needed. The composer supports multiple To recipients, Cc/Bcc, bold/italic/underline, lists, files up to 5 MB total, and the saved staff signature. Message text saves as a draft on that workstation; attachments must be re-added after a browser reload. **Discard** intentionally removes the saved draft. Choose **Sync** to pull recent IONOS mail.
 
 Formatted email appears inside a contained viewer. Use **View plain text** when needed. Riverside blocks email scripts, forms, embedded frames, and unsafe URLs; links open separately.
 
