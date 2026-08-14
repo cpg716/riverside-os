@@ -3050,6 +3050,15 @@ async fn fetch_register_day_summary_page_on_connection(
                   WHERE refund_payment.status = 'success'
                     AND refund_allocation.amount_allocated < 0
                     AND refund_payment.metadata->>'refund_event_id' = trl.refund_event_id::text
+                    AND COALESCE(
+                        refund_payment.effective_date,
+                        (refund_payment.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                    ) >= ($1 AT TIME ZONE reporting.effective_store_timezone())::date
+                    AND COALESCE(
+                        refund_payment.effective_date,
+                        (refund_payment.created_at AT TIME ZONE reporting.effective_store_timezone())::date
+                    ) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+                    AND ($3::uuid IS NULL OR refund_payment.session_id = $3)
                     AND COALESCE(refund_payment.metadata->>'kind', '') IN (
                         'order_refund',
                         'exchange_refund_remainder',
@@ -4193,7 +4202,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn booked_activity_includes_untendered_order_item_cancellations() {
+    async fn booked_activity_keeps_adjustment_when_refund_payment_is_outside_window() {
         let Ok(database_url) = std::env::var("DATABASE_URL") else {
             return;
         };
@@ -4284,6 +4293,42 @@ mod tests {
         .await
         .expect("insert untendered cancellation event");
 
+        let payment_id = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO payment_transactions (
+                id, payment_method, amount, effective_date, metadata, created_at
+            ) VALUES ($1, 'cash', -52.38, $2, $3, $4)
+            "#,
+        )
+        .bind(payment_id)
+        .bind(event_time.date_naive().succ_opt().unwrap())
+        .bind(json!({
+            "kind": "order_refund",
+            "refund_event_id": refund_event_id,
+        }))
+        .bind(event_time + chrono::Duration::days(1))
+        .execute(&mut *transaction)
+        .await
+        .expect("insert out-of-window refund payment");
+
+        sqlx::query(
+            r#"
+            INSERT INTO payment_allocations (
+                transaction_id, target_transaction_id, amount_allocated, metadata
+            ) VALUES ($1, $2, -52.38, $3)
+            "#,
+        )
+        .bind(payment_id)
+        .bind(transaction_id)
+        .bind(json!({
+            "kind": "order_refund",
+            "refund_event_id": refund_event_id,
+        }))
+        .execute(&mut *transaction)
+        .await
+        .expect("insert out-of-window refund allocation");
+
         let summary = fetch_register_day_summary_page_on_connection(
             &mut *transaction,
             Some("custom".to_string()),
@@ -4299,7 +4344,7 @@ mod tests {
             .activities
             .iter()
             .find(|activity| activity.refund_event_id == Some(refund_event_id))
-            .expect("untendered cancellation should remain visible in activity detail");
+            .expect("in-window adjustment should remain visible in activity detail");
 
         assert_eq!(
             summary.net_sales.parse::<Decimal>().unwrap(),
@@ -4322,7 +4367,7 @@ mod tests {
             &summary.sales_tax_total,
             &summary.activities,
         )
-        .expect("untendered cancellation should reconcile summary and detail");
+        .expect("out-of-window refund payment should not hide the in-window adjustment");
 
         transaction.rollback().await.expect("rollback transaction");
     }
