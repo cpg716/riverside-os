@@ -43,7 +43,7 @@ The dashboard opens on the existing **Booked** basis for the selected period. Us
 - Print button (full page report for the currently selected basis)
 - Export CSV button (includes grand total row with summed Transaction Total, Sales Total, Tax, and Net Total)
 - Pickups Today section after the transaction list, showing customer info, Transaction Record, and picked-up items without treating pickup activity as a new sale card
-- Historical Counterpoint import echo transactions are suppressed from Daily and Z reporting when a native ROS transaction exists for the same customer, store day, and item variation. This keeps old parallel-run imports from double-counting sales or pickups without deleting the source audit records.
+- Counterpoint is the booked/completed reporting source before the persisted July 2, 2026 ROS cutover. ROS is the reporting source on and after cutover, so later Counterpoint import and order-audit echoes remain available for migration audit without double-counting Daily Sales, Z reporting, or year-over-year comparisons.
 
 **CSV Export Features:**
 - **Grand Total Row**: Added at end of CSV with TOTAL label and summed values for Transaction Total, Sales Total, Tax, and Net Total

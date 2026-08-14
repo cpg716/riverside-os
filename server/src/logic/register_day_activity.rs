@@ -974,12 +974,15 @@ async fn fetch_register_sales_totals_on_connection(
             SELECT * FROM counterpoint_booking_activity
         "#
         .to_string(),
-        ReportBasis::Completed => r#"
+        ReportBasis::Completed => format!(
+            r#"
             SELECT
                 oi.transaction_id,
                 'ros:' || oi.transaction_id::text AS activity_key,
                 FALSE AS is_counterpoint_history,
                 TRUE AS countable_sale,
+                (({recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date
+                    AS business_date,
                 SUM(
                     CASE
                         WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
@@ -995,14 +998,16 @@ async fn fetch_register_sales_totals_on_connection(
                     END
                 )::numeric(14,2) AS line_tax
             FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
             LEFT JOIN products p ON p.id = oi.product_id
             LEFT JOIN product_variants pv ON pv.id = oi.variant_id
             WHERE COALESCE(oi.is_internal, false) = FALSE
               AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
               AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-            GROUP BY oi.transaction_id
-        "#
-        .to_string(),
+            GROUP BY oi.transaction_id, o.id
+            "#,
+            recognition_ts = crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL.trim(),
+        ),
     };
     let agg_sql = format!(
         r#"
@@ -1021,7 +1026,11 @@ async fn fetch_register_sales_totals_on_connection(
             )::bigint AS web_count
         FROM ({summary_line_source}) ln
         LEFT JOIN transactions o ON o.id = ln.transaction_id
-        WHERE (
+        WHERE reporting.counterpoint_source_is_reportable(
+            COALESCE(o.is_counterpoint_import, ln.is_counterpoint_history),
+            ln.business_date
+        )
+          AND (
             (ln.is_counterpoint_history AND $3::uuid IS NULL)
             OR (
                 NOT ln.is_counterpoint_history
@@ -1375,6 +1384,21 @@ async fn fetch_register_day_summary_page_on_connection(
         ReportBasis::Completed => crate::logic::report_basis::order_date_filter_sql(basis),
     };
     let order_session_filter = order_session_filter_sql(basis);
+    let order_source_ownership_filter = match basis {
+        ReportBasis::Booked => r#"
+          AND reporting.counterpoint_source_is_reportable(
+                o.is_counterpoint_import,
+                COALESCE(
+                    o.business_date,
+                    (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                )
+              )"#
+            .to_string(),
+        ReportBasis::Completed => format!(
+            "AND reporting.counterpoint_source_is_reportable(COALESCE(o.is_counterpoint_import, FALSE), (({recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date)",
+            recognition_ts = crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL.trim(),
+        ),
+    };
     let summary_order_in_range = order_in_range.clone();
     let sales_totals = fetch_register_sales_totals_on_connection(
         &mut *connection,
@@ -1406,6 +1430,13 @@ async fn fetch_register_day_summary_page_on_connection(
                         o.business_date,
                         (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
                       ) < ($2 AT TIME ZONE reporting.effective_store_timezone())::date
+                  AND reporting.counterpoint_source_is_reportable(
+                        o.is_counterpoint_import,
+                        COALESCE(
+                            o.business_date,
+                            (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                        )
+                      )
                 {order_session_filter}
             ),
             line_shipping AS (
@@ -1418,6 +1449,10 @@ async fn fetch_register_day_summary_page_on_connection(
                   AND e.booked_at < $2
                   AND e.is_internal = FALSE
                   AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
+                  AND reporting.counterpoint_source_is_reportable(
+                        o.is_counterpoint_import,
+                        (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                      )
                   AND UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
                 {order_session_filter}
             ),
@@ -1466,6 +1501,7 @@ async fn fetch_register_day_summary_page_on_connection(
             ), 0)::numeric(14,2)
             FROM transactions o
             WHERE {order_in_range}
+            {order_source_ownership_filter}
             {order_session_filter}
             "#,
         ),
@@ -1487,6 +1523,10 @@ async fn fetch_register_day_summary_page_on_connection(
               AND e.booked_at < $2
               AND e.is_internal = FALSE
               AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
+              AND reporting.counterpoint_source_is_reportable(
+                    o.is_counterpoint_import,
+                    (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  )
               AND e.line_kind IN ('alteration_service', 'alteration_fee')
             {order_session_filter}
             "#,
@@ -1500,6 +1540,7 @@ async fn fetch_register_day_summary_page_on_connection(
             INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
             LEFT JOIN products p ON p.id = oi.product_id
             WHERE {order_in_range}
+              {order_source_ownership_filter}
               AND COALESCE(oi.is_internal, false) = FALSE
               AND (
                   p.pos_line_kind IN ('alteration_service', 'alteration_fee')
@@ -1553,6 +1594,10 @@ async fn fetch_register_day_summary_page_on_connection(
           AND e.booked_at < $2
           AND e.is_internal = FALSE
           AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
+          AND reporting.counterpoint_source_is_reportable(
+                o.is_counterpoint_import,
+                (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+              )
           AND e.line_kind = 'pos_gift_card_load'
         {booked_session_filter}
         "#,
@@ -1598,6 +1643,10 @@ async fn fetch_register_day_summary_page_on_connection(
               AND o.fulfilled_at IS NOT NULL
               AND o.fulfilled_at >= $1
               AND o.fulfilled_at < $2
+              AND reporting.counterpoint_source_is_reportable(
+                    o.is_counterpoint_import,
+                    (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  )
             AND EXISTS (
                   SELECT 1
                   FROM transaction_lines tl_pickup
@@ -1629,6 +1678,7 @@ async fn fetch_register_day_summary_page_on_connection(
         FROM transactions o
         INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
         WHERE {order_in_range}
+          {order_source_ownership_filter}
           AND oi.fulfillment::text IN ('special_order', 'custom')
         {order_session_filter}
         "#
@@ -1945,11 +1995,17 @@ async fn fetch_register_day_summary_page_on_connection(
                         END
                     )::numeric(14,2) AS shipping_line_total
                 FROM transaction_line_booking_events e
+                INNER JOIN transactions source_transaction
+                  ON source_transaction.id = e.transaction_id
                 LEFT JOIN product_variants pv
                   ON pv.id = NULLIF(e.metadata->>'variant_id', '')::uuid
                 WHERE e.booked_at >= $1 AND e.booked_at < $2
                   AND e.is_internal = FALSE
                   AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
+                  AND reporting.counterpoint_source_is_reportable(
+                      source_transaction.is_counterpoint_import,
+                      (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  )
                   AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
                   AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
                 GROUP BY e.transaction_id
@@ -1960,6 +2016,13 @@ async fn fetch_register_day_summary_page_on_connection(
         ReportBasis::Completed => String::new(),
     };
     let sales_order_in_range = order_in_range.clone();
+    let sales_source_ownership_filter = match basis {
+        ReportBasis::Booked => String::new(),
+        ReportBasis::Completed => format!(
+            "AND reporting.counterpoint_source_is_reportable(COALESCE(o.is_counterpoint_import, FALSE), (({recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date)",
+            recognition_ts = crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL.trim(),
+        ),
+    };
     let sale_ts = match basis {
         ReportBasis::Booked => "MAX(be.last_booked_at)".to_string(),
         ReportBasis::Completed => crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL
@@ -2322,6 +2385,7 @@ async fn fetch_register_day_summary_page_on_connection(
         ) orl ON orl.transaction_line_id = oi.id
         WHERE {sales_order_in_range}
           AND {sales_activity_presence_filter}
+          {sales_source_ownership_filter}
           -- A refund-producing exchange is represented by its one event-scoped
           -- refund row below. Do not also emit the replacement checkout as a
           -- second sale or its positive lines would be counted twice.
@@ -3589,6 +3653,86 @@ mod tests {
                 .any(|item| item.booking_event_kind.as_deref() == Some("line_deleted"))
         }));
         transaction.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn booked_totals_exclude_counterpoint_imports_after_reporting_cutover() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let mut connection = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect migrated test database");
+        let mut transaction = connection.begin().await.expect("begin transaction");
+        let native_transaction_id = Uuid::new_v4();
+        let counterpoint_transaction_id = Uuid::new_v4();
+        let event_time = Utc.with_ymd_and_hms(2099, 1, 16, 12, 0, 0).unwrap();
+
+        for (transaction_id, is_counterpoint_import, label) in [
+            (native_transaction_id, false, "NATIVE"),
+            (counterpoint_transaction_id, true, "COUNTERPOINT"),
+        ] {
+            sqlx::query(
+                r#"
+                INSERT INTO transactions (
+                    id, total_price, balance_due, display_id, checkout_client_id,
+                    sale_channel, is_counterpoint_import
+                ) VALUES ($1, 0.00, 0.00, $2, $3, 'in_store', $4)
+                "#,
+            )
+            .bind(transaction_id)
+            .bind(format!("TXN-CUTOVER-{label}-{}", transaction_id.simple()))
+            .bind(Uuid::new_v4())
+            .bind(is_counterpoint_import)
+            .execute(&mut *transaction)
+            .await
+            .expect("insert cutover transaction");
+        }
+
+        for (transaction_id, subtotal, tax) in [
+            (
+                native_transaction_id,
+                Decimal::new(5000, 2),
+                Decimal::new(438, 2),
+            ),
+            (
+                counterpoint_transaction_id,
+                Decimal::new(10000, 2),
+                Decimal::new(875, 2),
+            ),
+        ] {
+            sqlx::query(
+                r#"
+                INSERT INTO transaction_line_booking_events (
+                    transaction_id, transaction_line_id, event_kind, booked_at,
+                    subtotal_delta, tax_delta, is_internal, line_kind, metadata
+                ) VALUES ($1, NULL, 'initial_booking', $2, $3, $4, FALSE, NULL, '{}'::jsonb)
+                "#,
+            )
+            .bind(transaction_id)
+            .bind(event_time)
+            .bind(subtotal)
+            .bind(tax)
+            .execute(&mut *transaction)
+            .await
+            .expect("insert cutover booking event");
+        }
+
+        let totals = fetch_register_sales_totals_on_connection(
+            &mut *transaction,
+            Utc.with_ymd_and_hms(2099, 1, 16, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2099, 1, 17, 0, 0, 0).unwrap(),
+            None,
+            ReportBasis::Booked,
+            "o.status::text NOT IN ('cancelled')",
+            "",
+        )
+        .await
+        .expect("load post-cutover booked totals");
+
+        assert_eq!(totals.sales_count, 1);
+        assert_eq!(totals.net_sales, Decimal::new(5000, 2));
+        assert_eq!(totals.tax_total, Decimal::new(438, 2));
     }
 
     #[test]

@@ -58,6 +58,10 @@ The corresponding reporting views are `reporting.counterpoint_import_financial_i
 
 Legacy order/payment reconciliation uses the same reviewed-manifest rule. Its digest includes candidate Transaction Record IDs, complete line signatures, payment/allocation IDs, statuses, dates, and totals. Apply locks and rediscovers that graph before moving any tender; drift aborts the whole transaction.
 
+### Post-cutover reporting ownership
+
+Counterpoint remains authoritative for booked and completed sales before the persisted July 2, 2026 ROS cutover. ROS is authoritative on and after that date. Counterpoint ticket imports and order-audit events from the ROS period remain immutable migration evidence, but Daily Sales, Z reporting, and comparisons exclude them so a parallel-source echo cannot be counted as a second sale.
+
 ### Post-cutover paid-price recovery
 
 After cutover, do not rerun Counterpoint imports to repair charged-price
