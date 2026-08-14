@@ -14,6 +14,7 @@ pub const GIFT_CARD_KIND_PURCHASED: &str = "purchased";
 pub const GIFT_CARD_KIND_LOYALTY_REWARD: &str = "loyalty_reward";
 pub const GIFT_CARD_KIND_DONATED_GIVEAWAY: &str = "donated_giveaway";
 pub const GIFT_CARD_KIND_PROMO_GIFT_CARD: &str = "promo_gift_card";
+pub const LOYALTY_GIFT_CARD_CODE_LENGTH: usize = 8;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GiftCardOpError {
@@ -43,6 +44,18 @@ pub struct GiftCardCreditPlan {
 
 pub fn normalize_gift_card_code(code: &str) -> String {
     code.trim().to_ascii_uppercase()
+}
+
+pub fn validate_loyalty_gift_card_code(code: &str) -> Result<String, GiftCardOpError> {
+    let normalized = normalize_gift_card_code(code);
+    if normalized.len() != LOYALTY_GIFT_CARD_CODE_LENGTH
+        || !normalized.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(GiftCardOpError::BadRequest(
+            "Scan or enter the complete 8-digit loyalty gift card code.".to_string(),
+        ));
+    }
+    Ok(normalized)
 }
 
 pub fn gift_card_expiration_from_issue(
@@ -418,7 +431,11 @@ pub async fn load_non_liability_gift_card_in_tx(
     input: NonLiabilityGiftCardLoad<'_>,
 ) -> Result<Uuid, GiftCardOpError> {
     validate_supported_non_liability_kind(input.card_kind)?;
-    let normalized_code = normalize_gift_card_code(input.code);
+    let normalized_code = if input.card_kind == GIFT_CARD_KIND_LOYALTY_REWARD {
+        validate_loyalty_gift_card_code(input.code)?
+    } else {
+        normalize_gift_card_code(input.code)
+    };
     if normalized_code.is_empty() {
         return Err(GiftCardOpError::BadRequest("code is required".into()));
     }
@@ -697,6 +714,22 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use rust_decimal::Decimal;
     use sqlx::Connection;
+
+    fn unique_loyalty_card_code() -> String {
+        let value = 10_000_000 + (Uuid::new_v4().as_u128() % 90_000_000) as u32;
+        value.to_string()
+    }
+
+    #[test]
+    fn loyalty_card_code_requires_eight_numeric_digits() {
+        assert_eq!(
+            validate_loyalty_gift_card_code(" 10004507 ").unwrap(),
+            "10004507"
+        );
+        assert!(validate_loyalty_gift_card_code("9").is_err());
+        assert!(validate_loyalty_gift_card_code("LOY-4507").is_err());
+        assert!(validate_loyalty_gift_card_code("100045070").is_err());
+    }
 
     #[test]
     fn canonical_sub_type_follows_card_kind() {
@@ -1009,7 +1042,7 @@ mod tests {
         let mut tx = conn.begin().await.expect("begin transaction");
 
         let depleted_id = Uuid::new_v4();
-        let depleted_code = format!("LOY-REUSE-{}", Uuid::new_v4().simple());
+        let depleted_code = unique_loyalty_card_code();
         sqlx::query(
             r#"
             INSERT INTO gift_cards

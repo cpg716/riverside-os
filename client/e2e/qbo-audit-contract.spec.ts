@@ -1741,7 +1741,7 @@ test.describe("QBO audit contract", () => {
         expectedMemo: "Gift card redemption (liability)",
       },
       {
-        code: `GC-LOYALTY-${suffix}`,
+        code: String(10_000_000 + Math.floor(Math.random() * 90_000_000)),
         subType: "loyalty_giveaway",
         expectedAccount: "E2E_LOYALTY_EXPENSE",
         expectedMemo: "Gift card redemption (loyalty/promo expense)",

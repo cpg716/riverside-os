@@ -9,6 +9,9 @@ import { useToast } from "../ui/ToastProviderLogic";
 const BASE = getBaseUrl();
 
 import {
+  isValidLoyaltyGiftCardCode,
+  LOYALTY_GIFT_CARD_CODE_ERROR,
+  normalizeLoyaltyGiftCardCode,
   type LoyaltyEligibleCustomer,
   loyaltyEligibleDisplayName,
 } from "./LoyaltyLogic";
@@ -77,15 +80,13 @@ export function LoyaltyRedeemDialog({
       );
       return;
     }
-    if (!cardCode.trim()) {
-      setError(
-        `Enter or scan a gift card code to load $${centsToFixed2(remainderCents)}.`,
-      );
+    if (!isValidLoyaltyGiftCardCode(cardCode)) {
+      setError(LOYALTY_GIFT_CARD_CODE_ERROR);
       return;
     }
     setBusy(true);
     try {
-      const normalizedCardCode = cardCode.trim().toUpperCase();
+      const normalizedCardCode = normalizeLoyaltyGiftCardCode(cardCode);
       const requestKey = `${customer.id}:${normalizedCardCode}:${pointsToRedeem}`;
       if (redemptionRequestRef.current?.key !== requestKey) {
         redemptionRequestRef.current = { key: requestKey, id: crypto.randomUUID() };
@@ -277,7 +278,8 @@ export function LoyaltyRedeemDialog({
                       <input
                         ref={cardInputRef}
                         type="text"
-                        placeholder="Scan Card Code..."
+                        inputMode="numeric"
+                        placeholder="Scan 8-Digit Card Code..."
                         value={cardCode}
                         onChange={(e) => setCardCode(e.target.value.toUpperCase())}
                         disabled={busy}

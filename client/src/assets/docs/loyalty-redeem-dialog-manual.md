@@ -36,7 +36,7 @@ Open this dialog only after the customer appears in the eligible pool and you ar
     - Use **−**, **+**, the number field, or **Use all** to choose how many configured reward blocks go on this card.
     - With the standard $50 reward, choosing 2 loads $100 and choosing 7 loads $350.
 3. **Scan a Loyalty Gift Card**:
-    - Enter or scan the loyalty gift card code that will receive the reward.
+    - Enter or scan the complete eight-digit numeric loyalty gift card code that will receive the reward.
 4. **Finalize**: Click **Issue $[amount] Card**.
 5. Repeat with another card for any remaining rewards, or close/skip to leave those points available for later.
 
@@ -52,7 +52,7 @@ Riverside stores the card as **Loyalty**, marks it as non-liability, and sets ex
 ## Tips
 
 - **Separate checkout**: If the customer is buying something right now, finish that sale separately in the register after issuing the loyalty reward card.
-- **Validation**: The system will prevent redemption if the customer's balance has dropped below the threshold since the list was last synced.
+- **Validation**: Riverside rejects incomplete or non-numeric card scans before deducting points or creating card value. It also prevents redemption if the customer's balance has dropped below the threshold since the list was last synced.
 - **Safe retry**: If a response is interrupted, retry the same card entry. Riverside uses the original request identity so points and card value are not posted twice.
 - **Flexible split**: A customer with $150 available can load $100 on one card and $50 on another. A customer with $400 can load $350 and leave the final $50 available.
 - **Couple-linked customers**: If the customer is linked as a couple, the reward is deducted from the shared primary loyalty account and the dialog uses that shared balance.

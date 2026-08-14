@@ -182,7 +182,7 @@ test("Loyalty supports single and group fulfillment controls", async ({ page }) 
           customer_id: "cust-1",
           first_name: "Alex",
           last_name: "Rivera",
-          card_code: "LOY-1001",
+          card_code: "10001001",
           reward_amount: "50.00",
           points_deducted: 5000,
           created_at: "2026-08-09T14:00:00Z",
@@ -193,7 +193,7 @@ test("Loyalty supports single and group fulfillment controls", async ({ page }) 
           customer_id: "cust-2",
           first_name: "Jordan",
           last_name: "Lee",
-          card_code: "LOY-1002",
+          card_code: "10001002",
           reward_amount: "50.00",
           points_deducted: 5000,
           created_at: "2026-08-09T14:01:00Z",
@@ -204,7 +204,7 @@ test("Loyalty supports single and group fulfillment controls", async ({ page }) 
           customer_id: "cust-1",
           first_name: "Alex",
           last_name: "Rivera",
-          card_code: "LOY-1001B",
+          card_code: "10001003",
           reward_amount: "50.00",
           points_deducted: 5000,
           created_at: "2026-08-09T14:02:00Z",
@@ -227,16 +227,21 @@ test("Loyalty supports single and group fulfillment controls", async ({ page }) 
   await expect(page.getByText("Customer 1 of 1")).toBeVisible();
   const rewardBlocks = page.getByLabel("Reward blocks on this card");
   await rewardBlocks.fill("2");
-  await page.getByPlaceholder("Scan card...").fill("LOY-SPLIT-100");
-  await expect(page.getByRole("button", { name: "Issue $100.00 card" })).toBeVisible();
+  const cardInput = page.getByPlaceholder("Scan 8-digit card...");
+  const issueCardButton = page.getByRole("button", { name: "Issue $100.00 card" });
+  await cardInput.fill("9");
+  await expect(issueCardButton).toBeDisabled();
+  expect(redemptionRequests).toEqual([]);
+  await cardInput.fill("10004501");
+  await expect(issueCardButton).toBeEnabled();
   await page.getByRole("button", { name: "Issue $100.00 card" }).click();
   await expect(page.getByText("5,000 pts remaining").first()).toBeVisible();
-  await page.getByPlaceholder("Scan card...").fill("LOY-SPLIT-50");
+  await page.getByPlaceholder("Scan 8-digit card...").fill("10004502");
   await page.getByRole("button", { name: "Issue $50.00 card" }).click();
   await expect(page.getByRole("heading", { name: "Batch complete" })).toBeVisible();
   expect(redemptionRequests).toEqual([
-    { points_to_redeem: 10_000, remainder_card_code: "LOY-SPLIT-100" },
-    { points_to_redeem: 5_000, remainder_card_code: "LOY-SPLIT-50" },
+    { points_to_redeem: 10_000, remainder_card_code: "10004501" },
+    { points_to_redeem: 5_000, remainder_card_code: "10004502" },
   ]);
   await page.getByRole("button", { name: "Close loyalty reward batch" }).click();
 
@@ -248,17 +253,17 @@ test("Loyalty supports single and group fulfillment controls", async ({ page }) 
   const singleLetterPopup = await singleLetterPopupPromise;
   await expect(singleLetterPopup.locator("section.letter")).toHaveCount(1);
 
-  await page.getByRole("checkbox", { name: "Select reward card LOY-1001 for printing" }).check();
-  await page.getByRole("checkbox", { name: "Select reward card LOY-1001B for printing" }).check();
-  await page.getByRole("checkbox", { name: "Select reward card LOY-1002 for printing" }).check();
+  await page.getByRole("checkbox", { name: "Select reward card 10001001 for printing" }).check();
+  await page.getByRole("checkbox", { name: "Select reward card 10001003 for printing" }).check();
+  await page.getByRole("checkbox", { name: "Select reward card 10001002 for printing" }).check();
   const printLetters = page.getByRole("button", { name: "Print Letters (3)" });
   await expect(printLetters).toBeVisible();
   const groupLetterPopupPromise = page.waitForEvent("popup");
   await printLetters.click();
   const groupLetterPopup = await groupLetterPopupPromise;
   await expect(groupLetterPopup.locator("section.letter")).toHaveCount(2);
-  await expect(groupLetterPopup.locator("body")).toContainText("LOY-1001");
-  await expect(groupLetterPopup.locator("body")).toContainText("LOY-1001B");
+  await expect(groupLetterPopup.locator("body")).toContainText("10001001");
+  await expect(groupLetterPopup.locator("body")).toContainText("10001003");
 
   const printLabels = page.getByRole("button", { name: "Print Labels" });
   await expect(printLabels).toBeVisible();

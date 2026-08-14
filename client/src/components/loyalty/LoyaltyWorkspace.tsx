@@ -24,6 +24,9 @@ import { openPrintableHtml } from "../../lib/browserPrint";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import {
+  isValidLoyaltyGiftCardCode,
+  LOYALTY_GIFT_CARD_CODE_ERROR,
+  normalizeLoyaltyGiftCardCode,
   type LoyaltyEligibleCustomer,
   loyaltyEligibleDisplayName,
   type LoyaltySettings,
@@ -842,13 +845,13 @@ function LoyaltyBatchRedeemDialog({
       setError(`Choose between 1 and ${maxUnits.toLocaleString()} reward blocks for this card.`);
       return;
     }
-    if (!cardCode.trim()) {
-      setError("Scan or enter the gift card code before issuing.");
+    if (!isValidLoyaltyGiftCardCode(cardCode)) {
+      setError(LOYALTY_GIFT_CARD_CODE_ERROR);
       return;
     }
     setBusy(true);
     try {
-      const normalizedCardCode = cardCode.trim().toUpperCase();
+      const normalizedCardCode = normalizeLoyaltyGiftCardCode(cardCode);
       const requestKey = `${current.id}:${normalizedCardCode}:${selectedPoints}`;
       if (redemptionRequestRef.current?.key !== requestKey) {
         redemptionRequestRef.current = { key: requestKey, id: crypto.randomUUID() };
@@ -1075,11 +1078,12 @@ function LoyaltyBatchRedeemDialog({
                       value={cardCode}
                       onChange={(event) => setCardCode(event.target.value.toUpperCase())}
                       disabled={busy}
+                      inputMode="numeric"
                       onKeyDown={(event) => {
                         if (event.key === "Enter") void issueCurrentCard();
                       }}
                       className="ui-input h-14 w-full px-4 font-mono text-lg font-black uppercase tracking-[0.18em]"
-                      placeholder="Scan card..."
+                      placeholder="Scan 8-digit card..."
                     />
                   </label>
                   <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3">
@@ -1210,7 +1214,7 @@ function LoyaltyBatchRedeemDialog({
                     <button
                       type="button"
                       onClick={() => void issueCurrentCard()}
-                      disabled={busy || !cardCode.trim() || maxUnits <= 0}
+                      disabled={busy || !isValidLoyaltyGiftCardCode(cardCode) || maxUnits <= 0}
                       className="ui-btn-primary inline-flex items-center gap-2 px-5 py-3 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
                     >
                       <Award className="h-4 w-4" aria-hidden />

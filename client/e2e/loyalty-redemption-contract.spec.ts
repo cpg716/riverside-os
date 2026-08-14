@@ -71,6 +71,11 @@ function rewardAmountString(value: string | number): string {
   return typeof value === "number" ? value.toFixed(2) : value;
 }
 
+function uniqueGiftCardCode(): string {
+  const random = crypto.getRandomValues(new Uint32Array(1))[0] ?? 0;
+  return String(10_000_000 + (random % 90_000_000));
+}
+
 function expectOneCalendarYear(issueValue: string, expirationValue: string) {
   const issuedAt = new Date(issueValue);
   const expiresAt = new Date(expirationValue);
@@ -280,7 +285,7 @@ test.describe("Loyalty redemption contract", () => {
   }) => {
     const fixture = await seedRmsFixture(request, "single_valid", "Loyalty Reward");
     const summary = await fetchLoyaltyProgramSummary(request);
-    const rewardCode = `LOY-${Date.now()}`;
+    const rewardCode = uniqueGiftCardCode();
     const redemptionRequestId = crypto.randomUUID();
 
     await adjustPoints(
@@ -372,8 +377,8 @@ test.describe("Loyalty redemption contract", () => {
     const fixture = await seedRmsFixture(request, "single_valid", "Loyalty Split Reward");
     const summary = await fetchLoyaltyProgramSummary(request);
     const startingSummary = await fetchLoyaltyCustomerSummary(request, fixture.customer.id);
-    const firstCardCode = `LOY-SPLIT-100-${Date.now()}`;
-    const secondCardCode = `LOY-SPLIT-50-${Date.now()}`;
+    const firstCardCode = uniqueGiftCardCode();
+    const secondCardCode = uniqueGiftCardCode();
     const threeRewardBlocks = summary.loyalty_point_threshold * 3;
 
     await adjustPoints(
@@ -524,7 +529,7 @@ test.describe("Loyalty redemption contract", () => {
         redemption_request_id: crypto.randomUUID(),
         customer_id: fixture.customer.id,
         apply_to_sale: "10.00",
-        remainder_card_code: `LOY-BLOCK-${Date.now()}`,
+        remainder_card_code: uniqueGiftCardCode(),
       },
       failOnStatusCode: false,
     });
@@ -533,12 +538,47 @@ test.describe("Loyalty redemption contract", () => {
     expect(body.error).toContain("issued to a loyalty gift card only");
   });
 
+  test("incomplete card scans are rejected before points are deducted", async ({ request }) => {
+    const fixture = await seedRmsFixture(request, "single_valid", "Loyalty Scan Guard");
+    const summary = await fetchLoyaltyProgramSummary(request);
+
+    await adjustPoints(
+      request,
+      fixture.customer.id,
+      summary.loyalty_point_threshold,
+      "E2E loyalty incomplete scan guard",
+    );
+    const balanceBefore = (await fetchLoyaltyCustomerSummary(request, fixture.customer.id))
+      .loyalty_points;
+
+    const redeemRes = await request.post(`${apiBase()}/api/loyalty/redeem-reward`, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-station-key": "station-e2e",
+        ...staffHeaders(),
+      },
+      data: {
+        redemption_request_id: crypto.randomUUID(),
+        customer_id: fixture.customer.id,
+        points_to_redeem: summary.loyalty_point_threshold,
+        apply_to_sale: "0.00",
+        remainder_card_code: "9",
+      },
+      failOnStatusCode: false,
+    });
+    expect(redeemRes.status()).toBe(400);
+    const body = (await redeemRes.json()) as { error?: string };
+    expect(body.error).toContain("complete 8-digit");
+    expect((await fetchLoyaltyCustomerSummary(request, fixture.customer.id)).loyalty_points)
+      .toBe(balanceBefore);
+  });
+
   test("redemption blocks a code that belongs to a non-loyalty gift card", async ({
     request,
   }) => {
     const fixture = await seedRmsFixture(request, "single_valid", "Loyalty Wrong Card");
     const summary = await fetchLoyaltyProgramSummary(request);
-    const wrongCardCode = `PAID-${Date.now()}`;
+    const wrongCardCode = uniqueGiftCardCode();
 
     await adjustPoints(
       request,
@@ -586,7 +626,7 @@ test.describe("Loyalty redemption contract", () => {
     const primary = await seedRmsFixture(request, "single_valid", "Loyalty Couple Primary");
     const partner = await seedRmsFixture(request, "single_valid", "Loyalty Couple Partner");
     const summary = await fetchLoyaltyProgramSummary(request);
-    const rewardCode = `LOY-COUPLE-${Date.now()}`;
+    const rewardCode = uniqueGiftCardCode();
 
     await linkCouple(request, primary.customer.id, partner.customer.id);
 

@@ -523,7 +523,10 @@ fn resolve_redemption_contract(
             )
         })?;
 
-    Ok((reward_amount, code.to_ascii_uppercase()))
+    let code = crate::logic::gift_card_ops::validate_loyalty_gift_card_code(code)
+        .map_err(|error| LoyaltyError::InvalidPayload(error.to_string()))?;
+
+    Ok((reward_amount, code))
 }
 
 async fn redeem_reward(
@@ -1148,11 +1151,19 @@ mod tests {
     #[test]
     fn redemption_contract_normalizes_card_code_and_full_reward_remainder() {
         let (remainder, code) =
-            resolve_redemption_contract(Decimal::ZERO, Decimal::new(5000, 2), Some(" loy-1234 "))
+            resolve_redemption_contract(Decimal::ZERO, Decimal::new(5000, 2), Some(" 10004507 "))
                 .expect("issuance-only redemption should succeed");
 
         assert_eq!(remainder, Decimal::new(5000, 2));
-        assert_eq!(code, "LOY-1234");
+        assert_eq!(code, "10004507");
+    }
+
+    #[test]
+    fn redemption_contract_rejects_incomplete_card_scan() {
+        let error = resolve_redemption_contract(Decimal::ZERO, Decimal::new(5000, 2), Some("9"))
+            .expect_err("single-digit card code must be rejected");
+
+        assert!(error.to_string().contains("complete 8-digit"));
     }
 
     #[test]

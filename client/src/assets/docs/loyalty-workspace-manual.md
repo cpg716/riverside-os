@@ -48,9 +48,10 @@ This is the primary operational list. It shows customers who have reached the re
 2. Use **Previous** and **Next** when the eligible pool spans more than one page.
 3. **Redeem Reward**: Each row shows the number and dollar value of rewards ready plus the current points threshold. Click **Redeem Reward** to open the redemption dialog.
 4. **Choose each card's value**: Select how many configured reward blocks go on the scanned card. With the standard $50 reward, 2 blocks loads $100 and 7 blocks loads $350.
-5. **Split or save the rest**: Issue another card for the remaining blocks, or use **Skip customer** / close the dialog to leave them available on the loyalty account.
-6. **Group fulfillment**: Select multiple customers, then use **Start Batch**. Choose the amount for each scanned card as you move through the selected customers. Closing a partially completed batch refreshes balances and eligibility.
-7. **Letters and labels**: Use **Print letter** for one customer. At batch completion, **Print all letters** creates one print job with one letter per customer, and **Print mailing labels** creates one label per customer. **Select Page** and **Print Page Labels** apply to the current page.
+5. **Confirm the scan**: Riverside requires the complete eight-digit numeric card code. An incomplete scan cannot deduct points or create a reward card.
+6. **Split or save the rest**: Issue another card for the remaining blocks, or use **Skip customer** / close the dialog to leave them available on the loyalty account.
+7. **Group fulfillment**: Select multiple customers, then use **Start Batch**. Choose the amount for each scanned card as you move through the selected customers. Closing a partially completed batch refreshes balances and eligibility.
+8. **Letters and labels**: Use **Print letter** for one customer. At batch completion, **Print all letters** creates one print job with one letter per customer, and **Print mailing labels** creates one label per customer. **Select Page** and **Print Page Labels** apply to the current page.
 
 ## Loyalty Activity
 

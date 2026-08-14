@@ -453,12 +453,8 @@ async fn issue_loyalty_load(
     Json(body): Json<IssueLoyaltyLoadRequest>,
 ) -> Result<Json<GiftCardRow>, GiftCardError> {
     let staff = require_gift_cards_manage(&state, &headers).await?;
-    let code = gift_card_ops::normalize_gift_card_code(&body.code);
-    if code.is_empty() {
-        return Err(GiftCardError::InvalidPayload(
-            "code is required".to_string(),
-        ));
-    }
+    let code = gift_card_ops::validate_loyalty_gift_card_code(&body.code)
+        .map_err(|error| GiftCardError::InvalidPayload(error.to_string()))?;
     if body.amount <= Decimal::ZERO {
         return Err(GiftCardError::InvalidPayload(
             "amount must be positive".to_string(),
