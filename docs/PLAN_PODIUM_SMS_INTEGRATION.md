@@ -158,6 +158,8 @@ Per [Get Started](https://docs.podium.com/docs/getting-started):
 2. Save the Podium **Client ID** and **Client Secret** in **Back Office → Settings → Integrations → Podium**.
 3. **Back Office → Settings → Integrations → Podium → Connect Podium** (or **Connect Podium (refresh token)**). After authorization, the client route **`/callback`** exchanges the code **on the server** (client secret never in the browser) and saves the refresh token through the encrypted integration credentials endpoint.
 
+Saving or clearing Podium OAuth credentials invalidates Riverside's in-memory access-token cache. The next provider request therefore refreshes from the newly saved grant immediately; reconnecting does not require a Main Hub restart.
+
 The API accepts **`https://…/callback`** and loopback **`http://localhost|127.0.0.1…/callback`** for the authorize + exchange steps (see **`server/src/logic/podium.rs`**).
 
 **API** (**`settings.admin`**): **`GET /api/settings/podium-oauth/authorize-url?redirect_uri=&state=`** (optional **`scope`**), **`POST /api/settings/podium-oauth/exchange`** with JSON **`{ "code", "redirect_uri" }`**.

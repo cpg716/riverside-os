@@ -833,7 +833,7 @@ fn add_podium_headers(
     }
 }
 
-async fn invalidate_podium_access_token(token_cache: &Arc<Mutex<PodiumTokenCache>>) {
+pub(crate) async fn invalidate_podium_access_token(token_cache: &Arc<Mutex<PodiumTokenCache>>) {
     let mut cache = token_cache.lock().await;
     cache.access_token = None;
     cache.expires_at = None;
@@ -2860,6 +2860,20 @@ mod tests {
     use std::sync::Arc;
     use wiremock::matchers::{body_json, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn invalidating_access_token_clears_cached_oauth_grant() {
+        let cache = Arc::new(tokio::sync::Mutex::new(PodiumTokenCache {
+            access_token: Some("stale-access-token".to_string()),
+            expires_at: Some(Utc::now() + Duration::hours(1)),
+        }));
+
+        invalidate_podium_access_token(&cache).await;
+
+        let cache = cache.lock().await;
+        assert!(cache.access_token.is_none());
+        assert!(cache.expires_at.is_none());
+    }
 
     #[test]
     fn legacy_settings_receive_all_message_catalog_defaults() {

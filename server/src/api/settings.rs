@@ -38,12 +38,12 @@ use crate::logic::nuorder::{NuorderClient, NuorderCredentials};
 use crate::logic::nuorder_sync;
 use crate::logic::podium::{
     build_podium_oauth_authorize_url_for_base, exchange_podium_oauth_authorization_code,
-    fetch_podium_locations, fetch_podium_webhooks, podium_api_version,
-    podium_effective_rest_api_base, podium_oauth_app_credential_status, podium_oauth_client_id,
-    validate_podium_oauth_redirect_uri, validate_podium_oauth_state, validate_podium_service_url,
-    PodiumEnvCredentials, PodiumLocationSummary, PodiumOAuthAppCredentials,
-    PodiumSmsSettingsResponse, PodiumWebhookSummary, StorePodiumSmsConfig,
-    PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES,
+    fetch_podium_locations, fetch_podium_webhooks, invalidate_podium_access_token,
+    podium_api_version, podium_effective_rest_api_base, podium_oauth_app_credential_status,
+    podium_oauth_client_id, validate_podium_oauth_redirect_uri, validate_podium_oauth_state,
+    validate_podium_service_url, PodiumEnvCredentials, PodiumLocationSummary,
+    PodiumOAuthAppCredentials, PodiumSmsSettingsResponse, PodiumWebhookSummary,
+    StorePodiumSmsConfig, PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES,
 };
 use crate::logic::podium_reviews::{self, StoreReviewPolicy};
 use crate::logic::podium_webhook::{
@@ -1423,6 +1423,9 @@ async fn patch_integration_credentials(
     integration_credentials::apply_integration_credentials_to_env(&state.db, &integration_key)
         .await
         .map_err(map_credential_settings_error)?;
+    if integration_key == "podium" {
+        invalidate_podium_access_token(&state.podium_token_cache).await;
+    }
 
     let mut status = integration_credentials_status(&state, &integration_key).await?;
     status.activation_message = integration_credentials_activation_message(&integration_key);
@@ -1445,6 +1448,9 @@ async fn delete_integration_credential(
     )
     .await
     .map_err(map_credential_settings_error)?;
+    if integration_key == "podium" {
+        invalidate_podium_access_token(&state.podium_token_cache).await;
+    }
     let mut status = integration_credentials_status(&state, &integration_key).await?;
     status.activation_message = integration_credentials_activation_message(&integration_key);
     status.restart_required = status.activation_message.is_some();

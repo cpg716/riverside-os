@@ -152,6 +152,9 @@ test("Podium provider contracts and webhook processing stay hardened", () => {
   expect(podiumLogic).toContain("StatusCode::TOO_MANY_REQUESTS");
   expect(podiumLogic).toContain("PodiumError::RateLimited");
   expect(podiumLogic).toContain("invalidate_podium_access_token");
+  expect(settingsApi).toContain(
+    "invalidate_podium_access_token(&state.podium_token_cache).await",
+  );
   expect(podiumLogic).toContain("PODIUM_MAX_ATTACHMENT_BYTES");
   expect(podiumLogic).not.toContain("#![allow(clippy::all)]");
   expect(podiumReviews).toContain("deliver_review_invite_link");
