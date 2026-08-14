@@ -47,7 +47,7 @@ Open **Operations → Customer Notifications** to review automated customer mess
 
 Use this center for automated-message delivery and staff review only. It does not show regular staff-written Podium texts or regular staff-written emails, and it does not mark an order picked up, mark an alteration picked up, collect payment, or change customer communication preferences.
 
-Use the search field to find a customer, message type, status, or delivery error. Use the status chips and **Reviewed archive** filter below search to separate active rows from reviewed history.
+Use the search field to find a customer, message type, status, or delivery error. The status chips use the final delivery outcome: a message Podium accepted but a carrier later rejected appears under **Failed**, while a message awaiting carrier confirmation appears under **Pending**. The summary cards remain totals for the current type/archive view when a status chip is selected. Use **Reviewed archive** to include handled history.
 
 ## Operations Mailbox
 

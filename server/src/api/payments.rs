@@ -662,7 +662,13 @@ fn build_payment_receipt_escpos(row: &PaymentAllocationReceiptRow, cfg: &Receipt
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        payment_receipt_push_line(&mut out, &format!("Phone: {phone}"));
+        payment_receipt_push_line(
+            &mut out,
+            &format!(
+                "Phone: {}",
+                crate::logic::receipt_shared::format_phone_for_receipt(phone)
+            ),
+        );
     }
     if let Some(email) = row
         .customer_email

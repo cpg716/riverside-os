@@ -13,6 +13,7 @@ interface NotificationQueueRow {
   customer_id: string;
   kind: string;
   status: string;
+  effective_status: string;
   scheduled_for: string | null;
   sent_at: string | null;
   send_immediately: boolean;
@@ -49,6 +50,18 @@ function metadataLabel(row: NotificationQueueRow) {
     .join(" · ");
 }
 
+function deliveryErrorDetails(error?: string | null) {
+  if (!error) return null;
+  if (error.includes("P0005")) {
+    return {
+      message:
+        "Podium accepted this SMS, but carrier delivery failed. Podium did not provide the specific carrier reason. Verify the customer's mobile number and contact them another way.",
+      providerCode: "P0005",
+    };
+  }
+  return { message: error, providerCode: null };
+}
+
 interface NotificationQueueOperationsSectionProps {
   surface?: "backoffice" | "pos";
 }
@@ -70,7 +83,10 @@ export default function NotificationQueueOperationsSection({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ status, include_reviewed: String(includeReviewed) });
+      const params = new URLSearchParams({
+        status: "all",
+        include_reviewed: String(includeReviewed),
+      });
       if (entityType !== "all") params.set("entity_type", entityType);
       const res = await fetch(`${baseUrl}/api/notifications/queue?${params.toString()}`, {
         headers: backofficeHeaders() as Record<string, string>,
@@ -85,7 +101,7 @@ export default function NotificationQueueOperationsSection({
     } finally {
       setLoading(false);
     }
-  }, [backofficeHeaders, entityType, includeReviewed, status, toast]);
+  }, [backofficeHeaders, entityType, includeReviewed, toast]);
 
   useEffect(() => {
     void load();
@@ -120,17 +136,19 @@ export default function NotificationQueueOperationsSection({
   };
 
   const stats = useMemo(() => {
-    const sent = rows.filter((row) => row.status === "sent").length;
-    const failed = rows.filter((row) => row.status === "failed" || row.delivery_status === "failed").length;
+    const sent = rows.filter((row) => row.effective_status === "sent").length;
+    const failed = rows.filter((row) => row.effective_status === "failed").length;
     const needsReview = rows.filter((row) => !row.reviewed_at).length;
     const reviewed = rows.filter((row) => row.reviewed_at).length;
     return { total: rows.length, sent, failed, needsReview, reviewed };
   }, [rows]);
 
   const filteredRows = useMemo(() => {
+    const statusRows =
+      status === "all" ? rows : rows.filter((row) => row.effective_status === status);
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) => {
+    if (!q) return statusRows;
+    return statusRows.filter((row) => {
       const haystack = [
         metadataLabel(row),
         row.kind,
@@ -145,7 +163,7 @@ export default function NotificationQueueOperationsSection({
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [rows, search]);
+  }, [rows, search, status]);
 
   const statCards = [
     { label: "Messages", value: stats.total, icon: Inbox, tint: "ui-tint-default", border: "border-app-border", bg: "bg-app-surface-2", color: "text-app-text-muted" },
@@ -306,7 +324,8 @@ export default function NotificationQueueOperationsSection({
                 </thead>
                 <tbody className="divide-y divide-app-border bg-app-surface">
                   {filteredRows.map((row) => {
-                    const isFailure = row.status === "failed" || row.delivery_status === "failed";
+                    const isFailure = row.effective_status === "failed";
+                    const deliveryError = deliveryErrorDetails(row.delivery_error);
                     return (
                       <tr key={row.id} className="transition-colors hover:bg-app-surface-2/50">
                         <td className="px-4 py-3">
@@ -334,19 +353,30 @@ export default function NotificationQueueOperationsSection({
                           <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-wider ${
                             isFailure
                               ? "border-app-danger/20 bg-app-danger/10 text-app-danger"
-                              : row.status === "sent"
+                              : row.effective_status === "sent"
                                 ? "border-app-success/20 bg-app-success/10 text-app-success"
                                 : "border-app-border bg-app-surface-2 text-app-text-muted"
                           }`}>
-                            {isFailure ? <XCircle size={12} /> : row.status === "sent" ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+                            {isFailure ? (
+                              <XCircle size={12} />
+                            ) : row.effective_status === "sent" ? (
+                              <CheckCircle2 size={12} />
+                            ) : (
+                              <Clock size={12} />
+                            )}
                             {row.delivery_status ?? row.status}
                           </span>
                           <p className="mt-1 text-xs font-semibold text-app-text-muted">
                             {row.delivery_method ?? "method pending"}
                           </p>
-                          {row.delivery_error ? (
+                          {deliveryError ? (
                             <p className="mt-2 rounded-xl border border-app-danger/25 bg-app-danger/10 px-3 py-2 text-xs font-bold text-app-danger">
-                              {row.delivery_error}
+                              {deliveryError.message}
+                              {deliveryError.providerCode ? (
+                                <span className="mt-1 block text-[10px] font-black uppercase tracking-wider opacity-80">
+                                  Provider code: {deliveryError.providerCode}
+                                </span>
+                              ) : null}
                             </p>
                           ) : null}
                         </td>

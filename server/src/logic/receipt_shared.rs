@@ -17,6 +17,26 @@ pub fn order_status_label(s: DbOrderStatus) -> &'static str {
     }
 }
 
+/// Format US customer phone numbers for customer-facing receipt output while
+/// preserving non-US or otherwise unrecognized values exactly as entered.
+pub fn format_phone_for_receipt(phone: &str) -> String {
+    let trimmed = phone.trim();
+    let digits: String = trimmed
+        .chars()
+        .filter(|character| character.is_ascii_digit())
+        .collect();
+    let national = match digits.len() {
+        10 => Some(digits.as_str()),
+        11 if digits.starts_with('1') => Some(&digits[1..]),
+        _ => None,
+    };
+
+    match national {
+        Some(number) => format!("({}) {}-{}", &number[..3], &number[3..6], &number[6..]),
+        None => trimmed.to_string(),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ReceiptCustomerLine {
     pub display_name: String,
@@ -37,7 +57,7 @@ impl ReceiptCustomerLine {
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
-            lines.push(format!("Phone: {phone}"));
+            lines.push(format!("Phone: {}", format_phone_for_receipt(phone)));
         }
         if let Some(code) = self
             .customer_code
@@ -392,7 +412,36 @@ pub fn payment_summary_has_receipt_detail(summary: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{tender_display_label, ReceiptKind};
+    use super::{format_phone_for_receipt, tender_display_label, ReceiptCustomerLine, ReceiptKind};
+
+    #[test]
+    fn customer_phone_uses_us_receipt_display_format() {
+        for phone in ["7167085789", "+17167085789", "(716) 708-5789"] {
+            assert_eq!(format_phone_for_receipt(phone), "(716) 708-5789");
+        }
+
+        let customer = ReceiptCustomerLine {
+            display_name: "Kyle Marsh".to_string(),
+            phone: Some("+17167085789".to_string()),
+            customer_code: Some("KYLE-WLGE".to_string()),
+        };
+        assert_eq!(
+            customer.identity_lines(),
+            vec![
+                "Customer: Kyle Marsh",
+                "Phone: (716) 708-5789",
+                "Customer #: KYLE-WLGE",
+            ]
+        );
+    }
+
+    #[test]
+    fn non_us_phone_is_preserved_on_receipts() {
+        assert_eq!(
+            format_phone_for_receipt("+44 20 7123 4567"),
+            "+44 20 7123 4567"
+        );
+    }
 
     #[test]
     fn receipt_kind_titles_are_explicit_and_stable() {

@@ -95,6 +95,7 @@ pub struct NotificationQueueRow {
     pub customer_id: Uuid,
     pub kind: String,
     pub status: String,
+    pub effective_status: String,
     pub scheduled_for: Option<DateTime<Utc>>,
     pub sent_at: Option<DateTime<Utc>>,
     pub send_immediately: bool,
@@ -177,6 +178,13 @@ async fn list_notifications(
         r#"
         SELECT
             cnq.id, cnq.entity_type, cnq.entity_id, cnq.customer_id, cnq.kind, cnq.status,
+            CASE
+                WHEN cnq.status = 'failed' OR cnq.delivery_status = 'failed' THEN 'failed'
+                WHEN cnq.status = 'skipped' THEN 'skipped'
+                WHEN cnq.status IN ('pending', 'scheduled') OR cnq.delivery_status = 'pending' THEN 'pending'
+                WHEN cnq.status = 'sent' THEN 'sent'
+                ELSE cnq.status
+            END AS effective_status,
             cnq.scheduled_for, cnq.sent_at, cnq.send_immediately, cnq.override_reason,
             cnq.delivery_method, cnq.delivery_status, cnq.delivery_error, cnq.metadata,
             cnq.created_at, cnq.updated_at, cnq.created_by_staff_id,
@@ -186,7 +194,17 @@ async fn list_notifications(
             c.email AS customer_email
         FROM customer_notification_queue cnq
         LEFT JOIN customers c ON c.id = cnq.customer_id
-        WHERE ($1 = 'all' OR cnq.status = $1)
+        WHERE (
+            $1 = 'all'
+            OR CASE
+                WHEN cnq.status = 'failed' OR cnq.delivery_status = 'failed' THEN 'failed'
+                WHEN cnq.status = 'skipped' THEN 'skipped'
+                WHEN cnq.status IN ('pending', 'scheduled') OR cnq.delivery_status = 'pending' THEN 'pending'
+                WHEN cnq.status = 'sent' THEN 'sent'
+                ELSE cnq.status
+            END = $1
+            OR ($1 = 'scheduled' AND cnq.status = 'scheduled')
+          )
           AND ($2 = 'all' OR cnq.entity_type = $2)
           AND ($3 OR cnq.reviewed_at IS NULL)
         ORDER BY

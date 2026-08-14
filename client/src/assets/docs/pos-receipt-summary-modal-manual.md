@@ -23,6 +23,8 @@ status: approved
 
 The receipt preview shows the customer receipt after checkout or when reopening a historical Transaction Receipt. It should match the Receipt Builder style closely enough that staff can trust what will print, email, or text.
 
+Customer phone numbers use the familiar US display format **(XXX) XXX-XXXX** on printed, previewed, emailed, texted, and historical reprint receipts. Riverside keeps the provider-safe stored phone unchanged, and international or otherwise unrecognized numbers remain as entered.
+
 Each merchandise line shows its saved tax as one smaller secondary line without recalculating from the displayed price: **4.75%: $0.00 4.00%: $0.00 Total Tax: $0.00**. Zero components remain visible, so clothing below the state threshold shows $0.00 for 4.00%, full-tax merchandise shows both component amounts, and non-taxable merchandise shows $0.00 for all three values. The financial summary still shows the authoritative total sales tax for the Transaction Record.
 
 When a completed sale includes wedding deposits for other party members, Sale Complete and the payer receipt list every beneficiary, party, amount, and destination. The receipt says whether money was held for that member's future order or applied to an exact Transaction Record. These amounts stay separate from the payer's merchandise total while still explaining the full tender collected. A Deposit Only receipt remains printable even when the payer Transaction has no merchandise lines. When the held deposit later funds the member's order, that member receipt identifies the original payer and wedding party.

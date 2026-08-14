@@ -201,4 +201,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("198_recover_podium_delivery_backpressure.sql", include_str!("../../migrations/198_recover_podium_delivery_backpressure.sql")),
     ("199_counterpoint_reporting_cutover.sql", include_str!("../../migrations/199_counterpoint_reporting_cutover.sql")),
     ("200_order_booking_variant_change_audit.sql", include_str!("../../migrations/200_order_booking_variant_change_audit.sql")),
+    ("201_exclude_counterpoint_review_invites.sql", include_str!("../../migrations/201_exclude_counterpoint_review_invites.sql")),
 ];

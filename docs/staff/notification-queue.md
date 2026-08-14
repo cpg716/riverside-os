@@ -38,18 +38,18 @@ Customer Notifications tracks automated customer-facing messages only. It includ
 
 | Status | Description |
 |--------|-------------|
-| **Pending** | Waiting for next scheduled batch (9:30 AM or 3:00 PM) |
+| **Pending** | Waiting for its scheduled batch or awaiting final provider/carrier delivery confirmation |
 | **Scheduled** | Assigned to specific send time (manual or batch) |
-| **Sent** | Successfully delivered to customer |
+| **Sent** | Sent without an outstanding provider delivery failure or pending confirmation |
 | **Skipped** | Marked to skip (will not be sent) |
-| **Failed** | Delivery failed with error |
+| **Failed** | The initial send failed, or Podium accepted it and later reported a provider/carrier delivery failure |
 
 ## How to Use
 
 ### Review Pending Notifications
 
 1. Open **Customer Notifications** from Operations or POS.
-2. Filter by status (pending, scheduled, sent, failed).
+2. Filter by effective delivery status (pending, sent, failed, or skipped). The summary cards remain totals for the current type/archive view while the list narrows.
 3. Filter by entity type (order, alteration).
 4. Review customer details, entity information, and scheduled time.
 
@@ -124,6 +124,7 @@ All sent messages appear in:
 | Send Now not working | Check **orders.lifecycle_manage** permission | Contact manager |
 | SMS not delivered | Check Podium credentials | Verify customer phone number |
 | Email not delivered | Check SMTP configuration | Verify customer email address |
+| Podium SMS shows provider code `P0005` | Podium accepted the message, but downstream carrier delivery failed without a specific carrier reason | Verify the customer has a current SMS-capable mobile number and contact them another way; do not repeatedly retry an unverified number |
 
 ## When to Get a Manager
 

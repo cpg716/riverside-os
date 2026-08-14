@@ -17,8 +17,8 @@ pub struct LoyaltyReceiptData {
 
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_shared::{
-    payment_summary_has_receipt_detail, receipt_display_ref, tender_display_label, ReceiptLine,
-    ReceiptLineAdjustment, ReceiptOrder,
+    format_phone_for_receipt, payment_summary_has_receipt_detail, receipt_display_ref,
+    tender_display_label, ReceiptLine, ReceiptLineAdjustment, ReceiptOrder,
 };
 use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 
@@ -2160,7 +2160,10 @@ pub fn build_alteration_card_receiptline(input: &AlterationCardInput, show_logo:
     if let Some(phone) = input.customer_phone.as_deref() {
         let t = phone.trim();
         if !t.is_empty() {
-            lines.push(format!("Phone: {}", receiptline_escape(t)));
+            lines.push(format!(
+                "Phone: {}",
+                receiptline_escape(&format_phone_for_receipt(t))
+            ));
         }
     }
     if let Some(ticket) = input.ticket_number.as_deref() {
@@ -2254,7 +2257,10 @@ pub fn build_alteration_card_escpos(input: &AlterationCardInput, cfg: &ReceiptCo
     if let Some(phone) = input.customer_phone.as_deref() {
         let t = phone.trim();
         if !t.is_empty() {
-            push_line(&mut out, &format!("Phone: {}", ascii_clean(t)));
+            push_line(
+                &mut out,
+                &format!("Phone: {}", ascii_clean(&format_phone_for_receipt(t))),
+            );
         }
     }
     if let Some(ticket) = input.ticket_number.as_deref() {

@@ -12,7 +12,7 @@
 
 ## Goals
 
-1. **Post-sale review invites** for eligible Transaction Records (e.g. status **fulfilled** / picked-up / completed — product-defined).
+1. **Post-sale review invites** for eligible native Riverside Transaction Records (status **fulfilled** / picked-up / takeaway). Historical Counterpoint imports are never eligible.
 2. **Unbiased selection:** Scheduling remains automatic rather than cashier-selected. A staff member with **`reviews.manage`** may cancel an individual request only while it is still in the Outbox, with a required reason and Transaction activity audit.
 3. **Trigger timing:** When a Transaction becomes **fulfilled**, schedule the invite for **10:00 AM five days later**; move Sunday targets to Monday.
 4. **Operations → Reviews:** Read reviews (sync or on-demand), **needs response** filter, deep link or in-app response if Podium API supports it.
@@ -33,6 +33,7 @@
 
 - Transaction Record has **`customer_id`**.
 - Transaction status is **fulfilled**, which is the Riverside state used for completed / takeaway / picked-up sales.
+- Transaction originated in Riverside OS. A record with **`is_counterpoint_import = true`** is historical reference data and must never schedule or send a review request.
 - At least one non-internal line exists, and all non-internal lines are fulfilled.
 - The Transaction Record has not already sent or suppressed a review request.
 - The customer has not received a Riverside review invite in the last **180 days**.
@@ -82,6 +83,7 @@ Decision: schedule at **10:00 AM store time five days after fulfillment**, movin
 
 - Review solicitation uses the dedicated **`review_requests_opt_out`** preference on every automatic and manual entry point. It does not mutate marketing, operational SMS/email, or Podium campaign consent; unsubscribe handling remains separate for the underlying channel.
 - Rate-limit and dedupe: at most one successfully sent invite per customer every **180 days**.
+- Historical Counterpoint Transactions remain available for Transaction lookup and database audit, but are excluded from the Reviews workspace, scheduling trigger, manual scheduling entry points, delivery claim, and retry boundaries.
 - Individual cancellation requires **`reviews.manage`**, a 12–500 character reason, and records the acting staff member in `transaction_activity_log`. It never recalls a request already handed to Podium.
 
 ---

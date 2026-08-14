@@ -13,6 +13,9 @@ use uuid::Uuid;
 use crate::logic::podium::{self, PodiumTokenCache};
 use crate::logic::podium_contacts::{self, CustomerIdentityMatch};
 
+pub const PROVIDER_CONVERSATION_SYNC_LIMIT: i64 = 500;
+pub const MESSAGING_INBOX_LIMIT: i64 = 500;
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct PodiumMessageApiRow {
     pub id: Uuid,
@@ -341,7 +344,7 @@ pub async fn list_messaging_inbox(
     pool: &PgPool,
     limit: i64,
 ) -> Result<Vec<PodiumInboxRow>, sqlx::Error> {
-    let lim = limit.clamp(1, 200);
+    let lim = limit.clamp(1, MESSAGING_INBOX_LIMIT);
     sqlx::query_as::<_, PodiumInboxRow>(
         r#"
         SELECT
@@ -905,15 +908,10 @@ pub async fn health(pool: &PgPool) -> Result<PodiumMessagingHealth, sqlx::Error>
             (SELECT COUNT(*) FROM podium_call_event) AS local_call_event_count,
             (
                 SELECT COUNT(*)
-                FROM (
-                    SELECT pc.last_synced_at
-                    FROM podium_conversation pc
-                    WHERE pc.podium_conversation_uid IS NOT NULL
-                      AND trim(pc.podium_conversation_uid) <> ''
-                    ORDER BY pc.last_message_at DESC
-                    LIMIT 200
-                ) recent_provider_conversations
-                WHERE last_synced_at IS NULL
+                FROM podium_conversation pc
+                WHERE pc.podium_conversation_uid IS NOT NULL
+                  AND trim(pc.podium_conversation_uid) <> ''
+                  AND pc.last_synced_at IS NULL
             ) AS incomplete_history_count,
             (SELECT COUNT(*) FROM podium_sync_unmatched_conversation WHERE resolved_at IS NULL) AS unmatched_conversation_count,
             (SELECT COUNT(*) FROM podium_webhook_delivery WHERE processing_status IN ('pending', 'processing')) AS pending_webhook_delivery_count,
@@ -1521,9 +1519,9 @@ fn embedded_messages(conversation: &Value) -> Vec<Value> {
 async fn upsert_synced_conversation_shell(
     pool: &PgPool,
     conversation: &Value,
-) -> Result<SyncConversationOutcome, sqlx::Error> {
+) -> Result<(SyncConversationOutcome, bool), sqlx::Error> {
     let Some(conv_uid) = conversation_uid(conversation) else {
-        return Ok(SyncConversationOutcome::Unmatched);
+        return Ok((SyncConversationOutcome::Unmatched, false));
     };
     let channel = channel_type(conversation);
     let identifier = channel_identifier(conversation);
@@ -1548,7 +1546,7 @@ async fn upsert_synced_conversation_shell(
     }
     let provider_status = provider_status(conversation);
     let provider_assignee_name = provider_assignee_name(conversation);
-    sqlx::query(
+    let history_sync_required: bool = sqlx::query_scalar(
         r#"
         INSERT INTO podium_conversation (
             customer_id, channel, podium_conversation_uid, contact_phone_e164, contact_email,
@@ -1560,10 +1558,16 @@ async fn upsert_synced_conversation_shell(
         DO UPDATE SET
             customer_id = COALESCE(podium_conversation.customer_id, EXCLUDED.customer_id),
             last_message_at = GREATEST(podium_conversation.last_message_at, EXCLUDED.last_message_at),
-            last_synced_at = NULL,
+            last_synced_at = CASE
+                WHEN podium_conversation.last_synced_at IS NULL
+                  OR EXCLUDED.last_message_at > podium_conversation.last_message_at
+                THEN NULL
+                ELSE podium_conversation.last_synced_at
+            END,
             sync_source = 'api_sync',
             provider_status = COALESCE(EXCLUDED.provider_status, podium_conversation.provider_status),
             provider_assignee_name = COALESCE(EXCLUDED.provider_assignee_name, podium_conversation.provider_assignee_name)
+        RETURNING last_synced_at IS NULL
         "#,
     )
     .bind(customer_id)
@@ -1574,7 +1578,7 @@ async fn upsert_synced_conversation_shell(
     .bind(last_at)
     .bind(provider_status.as_deref())
     .bind(provider_assignee_name.as_deref())
-    .execute(pool)
+    .fetch_one(pool)
     .await?;
     if let Some(customer_id) = customer_id {
         resolve_unmatched_conversation_by_provider_uid(
@@ -1584,9 +1588,9 @@ async fn upsert_synced_conversation_shell(
             "Resolved by collision-safe API synchronization",
         )
         .await?;
-        Ok(SyncConversationOutcome::Matched)
+        Ok((SyncConversationOutcome::Matched, history_sync_required))
     } else {
-        Ok(SyncConversationOutcome::Unmatched)
+        Ok((SyncConversationOutcome::Unmatched, history_sync_required))
     }
 }
 
@@ -1960,8 +1964,13 @@ pub async fn sync_recent_from_podium(
     token_cache: &Arc<Mutex<PodiumTokenCache>>,
     limit: i64,
 ) -> Result<PodiumSyncResult, podium::PodiumError> {
-    let conversations =
-        podium::fetch_podium_conversations(pool, http, token_cache, limit.clamp(1, 500)).await?;
+    let conversations = podium::fetch_podium_conversations(
+        pool,
+        http,
+        token_cache,
+        limit.clamp(1, PROVIDER_CONVERSATION_SYNC_LIMIT),
+    )
+    .await?;
     let mut result = PodiumSyncResult {
         conversations_seen: conversations.len(),
         conversations_matched: 0,
@@ -1975,17 +1984,23 @@ pub async fn sync_recent_from_podium(
             result.errors.push("conversation missing uid".to_string());
             continue;
         };
-        match upsert_synced_conversation_shell(pool, &conversation).await {
-            Ok(SyncConversationOutcome::Matched) => {
-                result.conversations_matched += 1;
-            }
-            Ok(SyncConversationOutcome::Unmatched) => {
-                result.conversations_unmatched += 1;
-            }
-            Err(err) => {
-                result.errors.push(format!("{uid}: {err}"));
-                continue;
-            }
+        let history_sync_required =
+            match upsert_synced_conversation_shell(pool, &conversation).await {
+                Ok((SyncConversationOutcome::Matched, history_sync_required)) => {
+                    result.conversations_matched += 1;
+                    history_sync_required
+                }
+                Ok((SyncConversationOutcome::Unmatched, history_sync_required)) => {
+                    result.conversations_unmatched += 1;
+                    history_sync_required
+                }
+                Err(err) => {
+                    result.errors.push(format!("{uid}: {err}"));
+                    continue;
+                }
+            };
+        if !history_sync_required {
+            continue;
         }
         let embedded = embedded_messages(&conversation);
         let messages = if embedded.is_empty() {

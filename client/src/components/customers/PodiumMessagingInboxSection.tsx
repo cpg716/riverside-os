@@ -390,7 +390,7 @@ export default function PodiumMessagingInboxSection({
     refreshInFlightRef.current = true;
     if (!background) setLoading(true);
     try {
-      const res = await fetch(`${baseUrl}/api/customers/podium/messaging-inbox?limit=80`, {
+      const res = await fetch(`${baseUrl}/api/customers/podium/messaging-inbox?limit=500`, {
         headers: apiAuth(),
         cache: "no-store",
       });
@@ -698,7 +698,7 @@ export default function PodiumMessagingInboxSection({
       const res = await fetch(`${baseUrl}/api/customers/podium/messaging-sync`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify({ limit: 200 }),
+        body: JSON.stringify({ limit: 500 }),
       });
       if (!res.ok) {
         setSyncIssue("Podium history could not be pulled. Check credentials and permissions.");
@@ -1208,6 +1208,12 @@ export default function PodiumMessagingInboxSection({
   const activeRows = rows.filter((row) => !row.closed);
   const unreadCount = activeRows.filter((row) => row.unread).length;
   const needsReplyCount = activeRows.filter((row) => row.needs_reply).length;
+  const triageCountLabel =
+    triageFilter === "active"
+      ? "open"
+      : triageFilter === "needs_reply"
+        ? "need reply"
+        : triageFilter;
   const responderOptions = assignmentRoster.map((staff) => ({
     id: staff.staff_id,
     full_name: staff.staff_name,
@@ -1316,7 +1322,7 @@ export default function PodiumMessagingInboxSection({
         <div className="flex flex-wrap items-center gap-2">
           {rows.length > 0 ? (
             <div className="mr-1 hidden items-center gap-2 text-[10px] font-black uppercase tracking-wider text-app-text-muted lg:flex">
-              <span>{rows.length} conversations</span>
+              <span>{activeRows.length} open conversations</span>
               {needsReplyCount > 0 ? (
                 <span className="rounded-full bg-app-warning/10 px-2 py-1 text-app-warning">
                   {needsReplyCount} need reply
@@ -1510,7 +1516,7 @@ export default function PodiumMessagingInboxSection({
                   Conversations
                 </p>
                 <span className="text-[10px] font-bold text-app-text-muted">
-                  {visibleRows.length} of {rows.length}
+                  {visibleRows.length} {triageCountLabel}
                 </span>
               </div>
               <div className="relative">

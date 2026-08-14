@@ -6247,7 +6247,11 @@ async fn list_podium_messaging_inbox(
     Query(q): Query<ListPodiumInboxQuery>,
 ) -> Result<Json<Vec<podium_messaging::PodiumInboxRow>>, CustomerError> {
     require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
-    let rows = podium_messaging::list_messaging_inbox(&state.db, q.limit.unwrap_or(50)).await?;
+    let rows = podium_messaging::list_messaging_inbox(
+        &state.db,
+        q.limit.unwrap_or(podium_messaging::MESSAGING_INBOX_LIMIT),
+    )
+    .await?;
     Ok(Json(rows))
 }
 
@@ -6363,7 +6367,7 @@ async fn post_resolve_podium_unmatched_conversation(
         &state.db,
         &state.http_client,
         &state.podium_token_cache,
-        200,
+        podium_messaging::PROVIDER_CONVERSATION_SYNC_LIMIT,
     )
     .await;
     Ok(Json(json!({
@@ -6628,7 +6632,8 @@ async fn post_podium_messaging_sync(
         &state.db,
         &state.http_client,
         &state.podium_token_cache,
-        body.limit.unwrap_or(200),
+        body.limit
+            .unwrap_or(podium_messaging::PROVIDER_CONVERSATION_SYNC_LIMIT),
     )
     .await
     .map_err(|err| CustomerError::PodiumUnavailable(err.to_string()))?;

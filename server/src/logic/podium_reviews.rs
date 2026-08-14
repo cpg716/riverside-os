@@ -88,6 +88,7 @@ type OrderReviewGateRow = (
     bool,
     bool,
     bool,
+    bool,
 );
 
 #[derive(Debug, Clone)]
@@ -422,7 +423,8 @@ pub async fn apply_post_sale_review_choice(
                   AND recent.id <> t.id
                   AND recent.review_invite_sent_at > NOW() - INTERVAL '180 days'
                   AND recent.podium_review_invite_status IN ('sent', 'delivered')
-            ) AS recent_customer_invite
+            ) AS recent_customer_invite,
+            COALESCE(t.is_counterpoint_import, false) AS is_counterpoint_import
         FROM transactions t
         LEFT JOIN customers c ON c.id = t.customer_id
         WHERE t.id = $1
@@ -449,10 +451,41 @@ pub async fn apply_post_sale_review_choice(
         has_reviewable_lines,
         all_reviewable_lines_fulfilled,
         recent_customer_invite,
+        is_counterpoint_import,
     )) = row
     else {
         return Err(ReviewInviteError::NotFound);
     };
+
+    if is_counterpoint_import {
+        if suppressed_at.is_none() && sent_at.is_none() {
+            sqlx::query(
+                r#"
+                UPDATE transactions
+                SET review_invite_suppressed_at = NOW(),
+                    review_invite_scheduled_for = NULL,
+                    review_invite_claimed_at = NULL,
+                    podium_review_invite_id = COALESCE(
+                        NULLIF(BTRIM(podium_review_invite_id), ''),
+                        'ros_skipped_counterpoint_history'
+                    ),
+                    podium_review_invite_status = 'suppressed',
+                    review_invite_last_error =
+                        'Historical Counterpoint imports are not eligible for Riverside review requests.'
+                WHERE id = $1
+                  AND review_invite_sent_at IS NULL
+                "#,
+            )
+            .bind(transaction_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        return Ok(ReviewInviteChoiceResult::new(
+            "suppressed",
+            "Review request skipped. Historical Counterpoint transactions are not eligible.",
+        ));
+    }
 
     if skip_invite {
         if suppressed_at.is_none() {
@@ -620,6 +653,7 @@ pub async fn schedule_latest_customer_review_invite(
         FROM transactions t
         WHERE t.customer_id = $1
           AND t.status::text = 'fulfilled'
+          AND COALESCE(t.is_counterpoint_import, false) = false
           AND EXISTS (
               SELECT 1 FROM transaction_lines tl
               WHERE tl.transaction_id = t.id
@@ -677,6 +711,7 @@ async fn claim_due_review_invite(
             FROM transactions
             WHERE review_invite_sent_at IS NULL
               AND review_invite_suppressed_at IS NULL
+              AND COALESCE(is_counterpoint_import, false) = false
               AND review_invite_attempts < 5
               AND (
                   (podium_review_invite_status = 'scheduled' AND review_invite_scheduled_for <= NOW())
@@ -739,7 +774,9 @@ async fn load_review_delivery_row(
             t.podium_review_url
         FROM transactions t
         LEFT JOIN customers c ON c.id = t.customer_id
-        WHERE t.id = $1 AND t.status::text = 'fulfilled'
+        WHERE t.id = $1
+          AND t.status::text = 'fulfilled'
+          AND COALESCE(t.is_counterpoint_import, false) = false
         "#,
     )
     .bind(transaction_id)
@@ -1083,6 +1120,7 @@ pub async fn reschedule_failed_review_invite(
         WHERE id = $1
           AND podium_review_invite_status = 'failed'
           AND review_invite_suppressed_at IS NULL
+          AND COALESCE(is_counterpoint_import, false) = false
         "#,
     )
     .bind(transaction_id)
@@ -1366,9 +1404,12 @@ pub async fn list_review_invite_rows(
             o.podium_review_invite_status
         FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
-        WHERE o.podium_review_invite_status IS NOT NULL
-           OR o.review_invite_sent_at IS NOT NULL
-           OR o.review_invite_suppressed_at IS NOT NULL
+        WHERE COALESCE(o.is_counterpoint_import, false) = false
+          AND (
+              o.podium_review_invite_status IS NOT NULL
+              OR o.review_invite_sent_at IS NOT NULL
+              OR o.review_invite_suppressed_at IS NOT NULL
+          )
         ORDER BY COALESCE(
             o.review_invite_sent_at,
             o.review_invite_suppressed_at,
@@ -1395,6 +1436,17 @@ mod tests {
         assert!(source.contains("review_invite_delivery_time(NOW())"));
         assert!(source.contains("podium_review_invite_status = 'scheduled'"));
         assert!(source.contains("provider_message_id"));
+    }
+
+    #[test]
+    fn historical_counterpoint_imports_are_removed_from_review_eligibility() {
+        let migration =
+            include_str!("../../../migrations/201_exclude_counterpoint_review_invites.sql");
+        assert!(migration.contains("COALESCE(NEW.is_counterpoint_import, FALSE) = FALSE"));
+        assert!(migration.contains("COALESCE(is_counterpoint_import, FALSE) = TRUE"));
+        assert!(migration.contains("review_invite_sent_at IS NULL"));
+        assert!(migration.contains("ros_skipped_counterpoint_history"));
+        assert!(migration.contains("enforce_counterpoint_review_ineligibility"));
     }
 
     #[test]

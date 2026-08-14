@@ -115,7 +115,7 @@ ROS is still the appointment system of record. Podium sends enabled appointment 
 ### Staff: use the SMS inbox list
 
 1. **Operations** → **Podium Inbox**.
-2. Search or use the **Open**, **Needs reply**, **Unread**, or **Closed** filter, then select a customer thread. The chronological thread opens on the right with messages, Podium call cards, and review cards when a published review is attributable to that customer's Riverside review invitation.
+2. Search or use the **Open**, **Needs reply**, **Unread**, or **Closed** filter, then select a customer thread. Riverside loads the complete cursor-paged provider conversation set before applying Podium's open/closed state, so the Open count matches Podium after a successful pull. The chronological thread opens on the right with messages, Podium call cards, and review cards when a published review is attributable to that customer's Riverside review invitation.
 3. Use **Assigned to** in the conversation header to choose an active Riverside staff member with a connected Podium user, or choose **Unassigned**. This saves the Podium assignment immediately without sending a message.
 4. Staff without a **Linked Podium Staff Member** do not appear in the assignment list. If an existing Podium assignee says **Not linked**, a manager must connect that identity under **Staff → Team → Edit** before staff can select it.
 5. Check **Replying as** above the composer. Riverside remembers that person for this conversation; normal replies do not ask for another PIN.
@@ -130,7 +130,7 @@ ROS is still the appointment system of record. Podium sends enabled appointment 
 14. Select the checkboxes beside multiple conversations to mark them **Read**, **Unread**, **Close**, or **Reopen** together. A partial Podium failure is reported instead of treating the whole group as successful.
 15. **Close** is Podium's native closed/archive state. Closed conversations leave the Open list but remain available under **Closed** and can be reopened.
 16. Podium assignment and **Replying as** are related but separate controls: assignment owns the conversation; responder identity credits messages.
-17. Use **Refresh** to reload the Riverside copy. Open **Status** and use **Pull from Podium** when messages are missing; that action asks Podium for current conversations and their cursor-paged history. **ROS webhook receiving** means the local signing and ingest configuration is present. **Processing current** separately confirms accepted deliveries are not stuck or failed. **History current** appears only after every matched history in the pull is stored. **History incomplete** means one or more histories still need another pull or IT review.
+17. Use **Refresh** to reload the Riverside copy. Open **Status** and use **Pull from Podium** when messages are missing; that action asks Podium for the complete current conversation set and cursor-paged history for new or changed conversations. **ROS webhook receiving** means the local signing and ingest configuration is present. **Processing current** separately confirms accepted deliveries are not stuck or failed. **History current** appears only after every provider conversation history is stored. **History incomplete** means one or more histories truly still need another pull or IT review.
 18. Match an unknown sender only when staff can verify the person. Choose **Match Customer**, search for the intended customer, verify identity, and select that record; the decision is audited against the exact provider conversation ID.
 19. When the card says multiple customers share the identifier, correct the duplicate phone/email data or deliberately choose the intended record. Riverside never silently chooses the newest customer.
 
@@ -159,7 +159,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 
 ### Cashier: post-sale review invite
 
-1. Eligible fulfilled/picked-up Transactions enter the review schedule automatically. Staff do not choose which individual customers are asked.
+1. Eligible native Riverside fulfilled/picked-up/takeaway Transactions enter the review schedule automatically. Historical Counterpoint Transactions are reference history only and never schedule or send a review request. Staff do not choose which individual customers are asked.
 2. Riverside rechecks non-internal line fulfillment, customer contact information, the **180-day** cadence, the store enable switch, and the customer review opt-out before delivery.
 3. The request is sent at **10:00 AM five days after fulfillment** (Monday when the fifth day is Sunday), using Podium text when a usable phone exists or Podium email when email is the only usable destination.
 4. **Operations → Reviews** lists Outbox, sent, failed, and cancelled/suppressed outcomes. Closing or auto-closing the receipt cannot lose the scheduled request.
@@ -211,11 +211,11 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 | **Podium Send Test returns 400** | Confirm the Main Hub is on a release that accepts Podium's signed provider-test payload, then retry once | IT checks the recorded webhook failure reason; do not weaken signature verification |
 | **Settings says webhook needs update while Inbox says ROS webhook receiving** | Treat Settings as the provider-subscription status and use **Update Webhook** there after admin confirmation | **ROS webhook receiving** confirms local signing/ingest configuration; **Processing current** separately confirms accepted deliveries are being applied |
 | **Inbox Status shows webhook processing failed** | Read the retained failure detail and refresh after IT deploys the correction | IT checks the durable delivery row; an accepted Podium response proves receipt, not successful internal processing |
-| **Review requests show HTTP 429** | Do not repeatedly press Retry. Wait for Riverside to honor Podium's retry window; for older Failed rows, retry one after the integration is healthy | IT verifies provider throttling is pausing the batch instead of failing the remaining queue |
+| **Review requests show HTTP 429** | Do not repeatedly press Retry. Wait for Riverside to honor Podium's retry window; for older Failed rows, retry one after the integration is healthy | IT verifies provider throttling is pausing the batch instead of failing the remaining queue, and confirms no historical Counterpoint Transactions entered the Outbox |
 | **Inbound customer texts never appear** | Confirm Settings says the provider webhook is active, the public webhook URL is registered, and the tunnel/public host is running | IT checks webhook secret/signature, required event types, and the latest accepted delivery |
 | **Customer calls never appear** | In Settings → Podium, use **Update Webhook** once and confirm the public webhook remains active | IT verifies Podium is delivering signed call events and checks the retained webhook failure detail; message-history pulls do not backfill calls |
 | **Published reviews never appear** | In Settings → Podium, use **Update Webhook** once and confirm `read_reviews` remains authorized | IT verifies Podium is delivering signed review lifecycle events; the review-invite sync does not backfill the published-review feed |
-| **Podium Inbox shows old conversations or History incomplete** | Click **Pull from Podium** once; use **Refresh** only to reload the Riverside copy | IT checks the displayed incomplete-pull warning, OAuth scopes, saved provider location, provider cursor sync, and the message-history response |
+| **Podium Inbox shows old conversations, misses an open conversation, or says History incomplete** | Click **Pull from Podium** once; use **Refresh** only to reload the Riverside copy | IT checks the displayed incomplete-pull warning, OAuth scopes, saved provider location, complete provider cursor sync, and the message-history response |
 | **Store email fails** | IONOS mailbox settings, customer email, server logs | Settings admin |
 | **Widget missing on public site** | Not a cashier task—**IT** + storefront flags | [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md) |
 
