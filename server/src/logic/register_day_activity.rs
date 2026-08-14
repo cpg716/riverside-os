@@ -2927,6 +2927,16 @@ async fn fetch_register_day_summary_page_on_connection(
                   FROM transaction_lines tl_same_day_sale
                   WHERE tl_same_day_sale.transaction_id = o.id
               )
+              AND NOT (
+                  pa.amount_allocated < 0
+                  AND NULLIF(pt.metadata->>'refund_event_id', '') IS NOT NULL
+                  AND COALESCE(pt.metadata->>'kind', '') IN (
+                      'order_refund',
+                      'exchange_refund_remainder',
+                      'external_card_refund',
+                      'legacy_migration_refund'
+                  )
+              )
           )
         ORDER BY pt.created_at DESC, pa.id ASC, pt.id ASC
         LIMIT $5
