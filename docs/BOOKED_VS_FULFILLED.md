@@ -25,7 +25,7 @@ When one physical tender funds both a current sale and an older order, drawer an
 
 ### Existing-order amendments
 
-Adding merchandise to or removing merchandise from an older open Transaction creates a line-booking event on the store-local amendment date; it does not rewrite the parent Transaction's original booked date. Daily Sales and the booked Z-Report net all same-day line additions, removals, and price/quantity adjustments for that Transaction. A positive net change increases that amendment day's Booked Subtotal, while a negative net change reduces it by the signed pre-tax amount. A zero-value switch contributes $0 but remains auditable.
+Adding merchandise to or removing merchandise from an older open Transaction creates a line-booking event on the store-local amendment date; it does not rewrite the parent Transaction's original booked date. Daily Sales and the booked Z-Report net all same-day line additions, removals, and price/quantity/tax adjustments for that Transaction. A positive net change increases that amendment day's Booked Subtotal, while a negative net change reduces it by the signed pre-tax amount. A same-price product, variant, fulfillment, or line-kind switch contributes $0 but remains auditable as **Order Adjustment (No Net Change)**. An Order item cancellation or other return credit that reduces the summary without a successful refund tender remains visible once as signed return activity; payment-backed refunds continue to use their one event-scoped refund row.
 
 Report detail uses the signed event components rather than the Transaction's entire current item list. Staff can therefore distinguish an item addition from a negative price correction or removed item, while the total reflects the complete signed net change.
 

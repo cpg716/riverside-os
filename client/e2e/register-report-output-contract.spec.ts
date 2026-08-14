@@ -55,6 +55,13 @@ const bookingEventMigrationSource = readFileSync(
   ),
   "utf8",
 );
+const zeroValueBookingEventMigrationSource = readFileSync(
+  new URL(
+    "../../migrations/200_order_booking_variant_change_audit.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
 const dailyFinancialReportSource = readFileSync(
   new URL("../../server/src/logic/daily_report.rs", import.meta.url),
   "utf8",
@@ -391,15 +398,16 @@ test.describe("Register report output integrity contracts", () => {
     expect(bookedSummaryQuery).not.toContain(
       "HAVING SUM(e.subtotal_delta + e.tax_delta) > 0",
     );
-    expect(bookedActivityJoin).toContain(
-      "HAVING SUM(e.subtotal_delta) <> 0 OR SUM(e.tax_delta) <> 0",
-    );
+    expect(bookedActivityJoin).toContain("BOOL_OR(e.event_kind <> 'initial_booking')");
     expect(signedActivityPresence).toContain(
       'ReportBasis::Booked => "TRUE"',
     );
     expect(registerDayServerSource).toContain("AND ln.countable_sale");
     expect(registerDayServerSource).toContain(
       '"Order Adjustment (Decrease)".to_string()',
+    );
+    expect(registerDayServerSource).toContain(
+      '"Order Adjustment (No Net Change)".to_string()',
     );
     expect(registerDayServerSource).toContain(
       "amount_label: Some(currency_label(s.sales_total_booked))",
@@ -409,6 +417,12 @@ test.describe("Register report output integrity contracts", () => {
     );
     expect(bookingEventMigrationSource).toContain(
       "NEW.transaction_id, NEW.id, 'line_amendment', CURRENT_TIMESTAMP",
+    );
+    expect(zeroValueBookingEventMigrationSource).toContain(
+      "OLD.variant_id IS DISTINCT FROM NEW.variant_id",
+    );
+    expect(zeroValueBookingEventMigrationSource).toContain(
+      "OLD.fulfillment IS DISTINCT FROM NEW.fulfillment",
     );
   });
 
@@ -669,6 +683,12 @@ test.describe("Register report output integrity contracts", () => {
     );
     expect(completeLoader).toContain("transaction.commit().await");
     expect(completeLoader).toContain("validate_complete_row_bounds");
+    expect(completeLoader).toContain(
+      "ensure_booked_financial_activity_reconciles",
+    );
+    expect(registerDayServerSource).toContain(
+      '"Return / Credit Adjustment".to_string()',
+    );
     expect(registerDayServerSource).toContain("combined_total");
     expect(pageLoader).toContain(
       "fetch_register_day_summary_page_on_connection",

@@ -669,6 +669,7 @@ pub async fn save_eod_snapshot(
     summary: &RegisterDaySummary,
 ) -> Result<(), RegisterDayActivityError> {
     ensure_complete_eod_snapshot(summary)?;
+    ensure_booked_financial_activity_reconciles(summary)?;
     let summary_json = serde_json::to_value(summary).map_err(RegisterDayActivityError::Serde)?;
     sqlx::query(
         r#"
@@ -733,6 +734,70 @@ fn ensure_complete_eod_counts(
         ));
     }
     Ok(())
+}
+
+fn validate_financial_activity_totals(
+    expected_subtotal: &str,
+    expected_tax: &str,
+    activities: &[RegisterActivityItem],
+) -> Result<(), String> {
+    let expected_subtotal = expected_subtotal
+        .parse::<Decimal>()
+        .map_err(|_| "Daily Report Net Sales is not a valid money value".to_string())?
+        .round_dp(2);
+    let expected_tax = expected_tax
+        .parse::<Decimal>()
+        .map_err(|_| "Daily Report tax is not a valid money value".to_string())?
+        .round_dp(2);
+
+    let mut detail_subtotal = Decimal::ZERO;
+    let mut detail_tax = Decimal::ZERO;
+    for activity in activities {
+        if let Some(value) = activity.sales_total.as_deref() {
+            detail_subtotal += value.parse::<Decimal>().map_err(|_| {
+                format!(
+                    "Daily Report activity {} has an invalid sales total",
+                    activity.id
+                )
+            })?;
+        }
+        if let Some(value) = activity.tax_total.as_deref() {
+            detail_tax += value.parse::<Decimal>().map_err(|_| {
+                format!(
+                    "Daily Report activity {} has an invalid tax total",
+                    activity.id
+                )
+            })?;
+        }
+    }
+    let detail_subtotal = detail_subtotal.round_dp(2);
+    let detail_tax = detail_tax.round_dp(2);
+
+    if detail_subtotal != expected_subtotal || detail_tax != expected_tax {
+        return Err(format!(
+            "financial reconciliation failed; report output is blocked (summary Net Sales {}, detail Net Sales {}, summary tax {}, detail tax {})",
+            money_label(expected_subtotal),
+            money_label(detail_subtotal),
+            money_label(expected_tax),
+            money_label(detail_tax),
+        ));
+    }
+
+    Ok(())
+}
+
+fn ensure_booked_financial_activity_reconciles(
+    summary: &RegisterDaySummary,
+) -> Result<(), RegisterDayActivityError> {
+    if summary.reporting_basis != "booked" {
+        return Ok(());
+    }
+    validate_financial_activity_totals(
+        &summary.net_sales,
+        &summary.sales_tax_total,
+        &summary.activities,
+    )
+    .map_err(incomplete_snapshot)
 }
 
 /// Resolve `preset` or `from`/`to` into inclusive local dates.
@@ -1239,6 +1304,9 @@ async fn fetch_complete_register_day_summary_bounded(
     summary.activities_has_more = false;
     summary.pickups_has_more = false;
     ensure_complete_eod_snapshot(&summary)?;
+    if search.is_none() {
+        ensure_booked_financial_activity_reconciles(&summary)?;
+    }
     transaction.commit().await?;
     Ok(summary)
 }
@@ -1927,6 +1995,31 @@ async fn fetch_register_day_summary_page_on_connection(
     }
 
     #[derive(sqlx::FromRow)]
+    struct ReturnAdjustmentAct {
+        matched_count: i64,
+        refund_event_id: Uuid,
+        transaction_id: Uuid,
+        short_id: String,
+        created_at: chrono::DateTime<Utc>,
+        refund_subtotal: Decimal,
+        refund_tax: Decimal,
+        shipping_total: Decimal,
+        alterations_total: Decimal,
+        refund_total: Decimal,
+        items_json: Option<serde_json::Value>,
+        customer_id: Option<Uuid>,
+        customer_first: Option<String>,
+        customer_last: Option<String>,
+        customer_code: Option<String>,
+        customer_phone: Option<String>,
+        customer_email: Option<String>,
+        salesperson_name: Option<String>,
+        balance_due: Decimal,
+        channel: String,
+        is_order_cancellation: bool,
+    }
+
+    #[derive(sqlx::FromRow)]
     struct WeddingDepositAct {
         matched_count: i64,
         workflow_id: Uuid,
@@ -2009,7 +2102,9 @@ async fn fetch_register_day_summary_page_on_connection(
                   AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
                   AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
                 GROUP BY e.transaction_id
-                HAVING SUM(e.subtotal_delta) <> 0 OR SUM(e.tax_delta) <> 0
+                HAVING SUM(e.subtotal_delta) <> 0
+                    OR SUM(e.tax_delta) <> 0
+                    OR BOOL_OR(e.event_kind <> 'initial_booking')
             ) be ON be.transaction_id = o.id
         "#
         .to_string(),
@@ -2845,6 +2940,191 @@ async fn fetch_register_day_summary_page_on_connection(
     .fetch_all(&mut *connection)
     .await?;
 
+    // A return or Order item cancellation can reduce sales or an unpaid balance
+    // without creating a cash/card refund. Those return lines are already
+    // authoritative for the summary totals, so they must also remain visible in
+    // the activity detail. Payment-backed refunds continue to use the event
+    // below and are excluded here to avoid reporting the same decrease twice.
+    let return_adjustment_activities: Vec<ReturnAdjustmentAct> = sqlx::query_as(
+        r#"
+        WITH cancellation_events AS (
+            SELECT
+                trl.refund_event_id,
+                trl.transaction_id,
+                MAX(trl.created_at) AS created_at,
+                COALESCE(SUM(
+                    CASE
+                        WHEN p.pos_line_kind IN ('rms_charge_payment', 'pos_gift_card_load')
+                          OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 0::numeric
+                        ELSE COALESCE(
+                            trl.refund_subtotal,
+                            tl.unit_price * trl.quantity_returned
+                        )
+                    END
+                ), 0)::numeric(14,2) AS refund_subtotal,
+                COALESCE(SUM(
+                    CASE
+                        WHEN p.pos_line_kind IN ('rms_charge_payment', 'pos_gift_card_load')
+                          OR UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN 0::numeric
+                        ELSE COALESCE(
+                            trl.refund_state_tax,
+                            tl.state_tax * trl.quantity_returned
+                        ) + COALESCE(
+                            trl.refund_local_tax,
+                            tl.local_tax * trl.quantity_returned
+                        )
+                    END
+                ), 0)::numeric(14,2) AS refund_tax,
+                COALESCE(SUM(
+                    CASE
+                        WHEN UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
+                        THEN COALESCE(
+                            trl.refund_subtotal,
+                            tl.unit_price * trl.quantity_returned
+                        )
+                        ELSE 0::numeric
+                    END
+                ), 0)::numeric(14,2) AS shipping_total,
+                COALESCE(SUM(
+                    CASE
+                        WHEN p.pos_line_kind IN ('alteration_service', 'alteration_fee')
+                          OR tl.custom_item_type IN ('alteration_service', 'alteration_fee')
+                        THEN COALESCE(
+                            trl.refund_subtotal,
+                            tl.unit_price * trl.quantity_returned
+                        )
+                        ELSE 0::numeric
+                    END
+                ), 0)::numeric(14,2) AS alterations_total,
+                COALESCE(SUM(COALESCE(
+                    trl.refund_total,
+                    COALESCE(trl.refund_subtotal, tl.unit_price * trl.quantity_returned)
+                        + COALESCE(trl.refund_state_tax, tl.state_tax * trl.quantity_returned)
+                        + COALESCE(trl.refund_local_tax, tl.local_tax * trl.quantity_returned)
+                )), 0)::numeric(14,2) AS refund_total,
+                MAX(cancelling_staff.full_name) AS salesperson_name,
+                jsonb_agg(jsonb_build_object(
+                    'name', COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Cancelled item'),
+                    'sku', COALESCE(pv.sku, 'Unknown SKU'),
+                    'quantity', -trl.quantity_returned,
+                    'price', (
+                        COALESCE(trl.refund_subtotal, tl.unit_price * trl.quantity_returned)
+                        / GREATEST(trl.quantity_returned, 1)
+                    )::text,
+                    'reg_price', COALESCE(pv.retail_price_override, p.base_retail_price)::text,
+                    'product_id', p.id,
+                    'fulfillment', CASE
+                        WHEN trl.reason LIKE 'Order item cancellation:%'
+                        THEN 'cancellation'
+                        ELSE 'return'
+                    END,
+                    'is_internal', false,
+                    'line_kind', 'return'
+                ) ORDER BY trl.created_at, trl.id) AS items_json
+            FROM transaction_return_lines trl
+            INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
+            LEFT JOIN products p ON p.id = tl.product_id
+            LEFT JOIN product_variants pv ON pv.id = tl.variant_id
+            LEFT JOIN staff cancelling_staff ON cancelling_staff.id = trl.staff_id
+            WHERE trl.created_at >= $1
+              AND trl.created_at < $2
+              AND ($3::uuid IS NULL OR trl.register_session_id = $3)
+              AND COALESCE(tl.is_internal, false) = false
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM payment_transactions refund_payment
+                  INNER JOIN payment_allocations refund_allocation
+                      ON refund_allocation.transaction_id = refund_payment.id
+                  WHERE refund_payment.status = 'success'
+                    AND refund_allocation.amount_allocated < 0
+                    AND refund_payment.metadata->>'refund_event_id' = trl.refund_event_id::text
+                    AND COALESCE(refund_payment.metadata->>'kind', '') IN (
+                        'order_refund',
+                        'exchange_refund_remainder',
+                        'external_card_refund',
+                        'legacy_migration_refund'
+                    )
+              )
+            GROUP BY trl.refund_event_id, trl.transaction_id
+        )
+        SELECT
+            COUNT(*) OVER()::bigint AS matched_count,
+            cancellation.refund_event_id,
+            cancellation.transaction_id,
+            COALESCE(
+                NULLIF(TRIM(o.display_id), ''),
+                o.counterpoint_doc_ref,
+                o.counterpoint_ticket_ref,
+                o.id::text
+            ) AS short_id,
+            cancellation.created_at,
+            cancellation.refund_subtotal,
+            cancellation.refund_tax,
+            cancellation.shipping_total,
+            cancellation.alterations_total,
+            cancellation.refund_total,
+            cancellation.items_json,
+            c.id AS customer_id,
+            c.first_name AS customer_first,
+            c.last_name AS customer_last,
+            c.customer_code,
+            c.phone AS customer_phone,
+            c.email AS customer_email,
+            cancellation.salesperson_name,
+            COALESCE(o.balance_due, 0)::numeric(14,2) AS balance_due,
+            o.sale_channel::text AS channel,
+            COALESCE((
+                SELECT BOOL_AND(
+                    COALESCE(trl_kind.reason, '') LIKE 'Order item cancellation:%'
+                )
+                FROM transaction_return_lines trl_kind
+                WHERE trl_kind.refund_event_id = cancellation.refund_event_id
+            ), FALSE) AS is_order_cancellation
+        FROM cancellation_events cancellation
+        INNER JOIN transactions o ON o.id = cancellation.transaction_id
+        LEFT JOIN customers c ON c.id = o.customer_id
+        WHERE (
+            $4::text IS NULL
+            OR COALESCE(
+                NULLIF(TRIM(o.display_id), ''),
+                o.counterpoint_doc_ref,
+                o.counterpoint_ticket_ref,
+                o.id::text
+            ) ILIKE $4 ESCAPE '\'
+            OR COALESCE(c.customer_code, '') ILIKE $4 ESCAPE '\'
+            OR COALESCE(c.first_name, '') ILIKE $4 ESCAPE '\'
+            OR COALESCE(c.last_name, '') ILIKE $4 ESCAPE '\'
+            OR CONCAT_WS(' ', c.first_name, c.last_name) ILIKE $4 ESCAPE '\'
+            OR COALESCE(c.phone, '') ILIKE $4 ESCAPE '\'
+            OR COALESCE(c.email, '') ILIKE $4 ESCAPE '\'
+            OR EXISTS (
+                SELECT 1
+                FROM transaction_return_lines trl_search
+                INNER JOIN transaction_lines tl_search
+                    ON tl_search.id = trl_search.transaction_line_id
+                INNER JOIN products p_search ON p_search.id = tl_search.product_id
+                INNER JOIN product_variants pv_search ON pv_search.id = tl_search.variant_id
+                WHERE trl_search.refund_event_id = cancellation.refund_event_id
+                  AND (
+                      p_search.name ILIKE $4 ESCAPE '\'
+                      OR pv_search.sku ILIKE $4 ESCAPE '\'
+                  )
+            )
+        )
+        ORDER BY cancellation.created_at DESC, cancellation.refund_event_id
+        LIMIT $5
+        "#,
+    )
+    .bind(start_utc)
+    .bind(end_utc)
+    .bind(register_session_id)
+    .bind(activity_search.clone())
+    .bind(source_limit)
+    .fetch_all(&mut *connection)
+    .await?;
+
     let wedding_deposit_activities: Vec<WeddingDepositAct> = sqlx::query_as(
         r#"
         SELECT
@@ -2945,6 +3225,10 @@ async fn fetch_register_day_summary_page_on_connection(
 
     let sales_matched_count = sales.first().map(|row| row.matched_count).unwrap_or(0);
     let payments_matched_count = payments.first().map(|row| row.matched_count).unwrap_or(0);
+    let return_adjustments_matched_count = return_adjustment_activities
+        .first()
+        .map(|row| row.matched_count)
+        .unwrap_or(0);
     let wedding_deposits_matched_count = wedding_deposit_activities
         .first()
         .map(|row| row.matched_count)
@@ -2997,6 +3281,8 @@ async fn fetch_register_day_summary_page_on_connection(
                 || (s.sales_total_booked == Decimal::ZERO && s.tax_total < Decimal::ZERO)
             {
                 "Order Adjustment (Decrease)".to_string()
+            } else if s.sales_total_booked == Decimal::ZERO && s.tax_total == Decimal::ZERO {
+                "Order Adjustment (No Net Change)".to_string()
             } else {
                 "Order Adjustment (Increase)".to_string()
             }
@@ -3330,6 +3616,85 @@ async fn fetch_register_day_summary_page_on_connection(
         });
     }
 
+    for cancellation in return_adjustment_activities {
+        let customer_full = match (
+            cancellation
+                .customer_first
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+            cancellation
+                .customer_last
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        ) {
+            (Some(first), Some(last)) => Some(format!("{first} {last}")),
+            (Some(first), None) => Some(first.to_string()),
+            (None, Some(last)) => Some(last.to_string()),
+            _ => cancellation.customer_code.clone(),
+        };
+        let items = cancellation
+            .items_json
+            .and_then(|value| serde_json::from_value::<Vec<ActivityItemDetail>>(value).ok());
+
+        activities.push(RegisterActivityItem {
+            id: format!("return-adjustment:{}", cancellation.refund_event_id),
+            kind: "refund".to_string(),
+            occurred_at: cancellation.created_at,
+            title: if cancellation.is_order_cancellation {
+                "Order Item Cancellation".to_string()
+            } else {
+                "Return / Credit Adjustment".to_string()
+            },
+            subtitle: Some(cancellation.short_id.clone()),
+            transaction_id: Some(cancellation.transaction_id),
+            receipt_transaction_id: Some(cancellation.transaction_id),
+            payment_id: None,
+            payment_allocation_id: None,
+            refund_event_id: Some(cancellation.refund_event_id),
+            replacement_transaction_id: None,
+            wedding_party_id: None,
+            amount_label: Some(currency_label(-cancellation.refund_total)),
+            payment_summary: None,
+            payments: None,
+            payment_applications: Vec::new(),
+            sales_total: Some(money_label(-cancellation.refund_subtotal)),
+            tax_total: Some(money_label(-cancellation.refund_tax)),
+            shipping_total: Some(money_label(-cancellation.shipping_total)),
+            alterations_total: Some(money_label(-cancellation.alterations_total)),
+            is_takeaway: Some(false),
+            channel: Some(cancellation.channel),
+            wedding_party_name: None,
+            items,
+            merchant_fees_total: None,
+            net_amount: None,
+            customer_id: cancellation.customer_id,
+            customer_first_name: cancellation.customer_first,
+            customer_last_name: cancellation.customer_last,
+            customer_name: customer_full,
+            customer_code: cancellation.customer_code,
+            customer_phone: cancellation.customer_phone,
+            customer_email: cancellation.customer_email,
+            salesperson_name: cancellation.salesperson_name,
+            deposits_paid: None,
+            balance_due: Some(money_label(cancellation.balance_due)),
+            fulfillment_type: Some(
+                if cancellation.is_order_cancellation {
+                    "order_adjustment"
+                } else {
+                    "return_adjustment"
+                }
+                .to_string(),
+            ),
+            transaction_total: Some(money_label(-cancellation.refund_total)),
+            wedding_deposit_contributions: None,
+            wedding_deposit_member_count: None,
+            short_id: Some(cancellation.short_id),
+            imported_at: None,
+        });
+    }
+
     for deposit in wedding_deposit_activities {
         let customer_name = format!("{} {}", deposit.customer_first, deposit.customer_last)
             .trim()
@@ -3391,6 +3756,7 @@ async fn fetch_register_day_summary_page_on_connection(
 
     let activity_total_count = sales_matched_count
         .saturating_add(payments_matched_count)
+        .saturating_add(return_adjustments_matched_count)
         .saturating_add(wedding_deposits_matched_count)
         .saturating_sub(merged_payment_count);
     activities.sort_by(compare_activity_desc);
@@ -3526,7 +3892,8 @@ mod tests {
         fetch_register_day_summary_page_on_connection, fetch_register_sales_totals_on_connection,
         format_weather_value, merge_order_payment_into_sale, payment_activity_id,
         refund_activity_totals, reporting_tender_label, validate_complete_row_bounds,
-        ActivityPageOptions, RegisterActivityItem, REGISTER_REPORT_OUTPUT_MAX_ROWS,
+        validate_financial_activity_totals, ActivityPageOptions, RegisterActivityItem,
+        REGISTER_REPORT_OUTPUT_MAX_ROWS,
     };
     use crate::logic::report_basis::ReportBasis;
     use chrono::{TimeZone, Utc};
@@ -3656,6 +4023,301 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn booked_activity_keeps_same_price_variant_swaps_visible() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let mut connection = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect migrated test database");
+        let mut transaction = connection.begin().await.expect("begin transaction");
+        let transaction_id = Uuid::new_v4();
+        let transaction_line_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let original_variant_id = Uuid::new_v4();
+        let replacement_variant_id = Uuid::new_v4();
+        let initial_time = Utc.with_ymd_and_hms(2099, 1, 17, 12, 0, 0).unwrap();
+        let amendment_time = Utc.with_ymd_and_hms(2099, 1, 18, 12, 0, 0).unwrap();
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (
+                id, name, base_retail_price, base_cost
+            ) VALUES ($1, 'Same-price variant swap test item', 50.00, 20.00)
+            "#,
+        )
+        .bind(product_id)
+        .execute(&mut *transaction)
+        .await
+        .expect("insert variant-swap test product");
+
+        for (variant_id, label) in [
+            (original_variant_id, "ORIGINAL"),
+            (replacement_variant_id, "REPLACEMENT"),
+        ] {
+            sqlx::query(
+                r#"
+                INSERT INTO product_variants (
+                    id, product_id, sku, variation_values
+                ) VALUES ($1, $2, $3, '{}'::jsonb)
+                "#,
+            )
+            .bind(variant_id)
+            .bind(product_id)
+            .bind(format!("SWAP-{label}-{}", variant_id.simple()))
+            .execute(&mut *transaction)
+            .await
+            .expect("insert variant-swap test variant");
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, booked_at, business_date, total_price, balance_due,
+                display_id, checkout_client_id, sale_channel
+            ) VALUES ($1, $2, $2::date, 50.00, 50.00, $3, $4, 'register')
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(initial_time)
+        .bind(format!("TXN-VARIANT-SWAP-{}", transaction_id.simple()))
+        .bind(Uuid::new_v4())
+        .execute(&mut *transaction)
+        .await
+        .expect("insert variant-swap test transaction");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_lines (
+                id, transaction_id, product_id, variant_id, fulfillment,
+                quantity, unit_price, unit_cost, state_tax, local_tax, booked_at
+            ) VALUES (
+                $1, $2, $3, $4, 'special_order', 1, 50.00, 20.00, 2.38, 0.00, $5
+            )
+            "#,
+        )
+        .bind(transaction_line_id)
+        .bind(transaction_id)
+        .bind(product_id)
+        .bind(original_variant_id)
+        .bind(initial_time)
+        .execute(&mut *transaction)
+        .await
+        .expect("insert variant-swap test line");
+
+        sqlx::query("UPDATE transaction_lines SET variant_id = $1 WHERE id = $2")
+            .bind(replacement_variant_id)
+            .bind(transaction_line_id)
+            .execute(&mut *transaction)
+            .await
+            .expect("apply same-price variant swap");
+        sqlx::query(
+            r#"
+            UPDATE transaction_line_booking_events
+            SET booked_at = $2
+            WHERE transaction_id = $1
+              AND event_kind = 'line_amendment'
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(amendment_time)
+        .execute(&mut *transaction)
+        .await
+        .expect("place variant swap on its amendment business date");
+
+        let summary = fetch_register_day_summary_page_on_connection(
+            &mut *transaction,
+            Some("custom".to_string()),
+            Some(amendment_time.date_naive()),
+            Some(amendment_time.date_naive()),
+            None,
+            ReportBasis::Booked,
+            ActivityPageOptions::default(),
+        )
+        .await
+        .expect("load same-price variant swap activity");
+        let activity = summary
+            .activities
+            .iter()
+            .find(|activity| activity.transaction_id == Some(transaction_id))
+            .expect("same-price variant swap should remain visible in Daily/Z activity");
+
+        assert_eq!(summary.net_sales.parse::<Decimal>().unwrap(), Decimal::ZERO);
+        assert_eq!(
+            summary.sales_tax_total.parse::<Decimal>().unwrap(),
+            Decimal::ZERO
+        );
+        assert_eq!(activity.title, "Order Adjustment (No Net Change)");
+        assert_eq!(
+            activity
+                .sales_total
+                .as_deref()
+                .unwrap()
+                .parse::<Decimal>()
+                .unwrap(),
+            Decimal::ZERO
+        );
+        assert_eq!(
+            activity
+                .tax_total
+                .as_deref()
+                .unwrap()
+                .parse::<Decimal>()
+                .unwrap(),
+            Decimal::ZERO
+        );
+        assert!(activity.items.as_ref().is_some_and(|items| {
+            items.iter().any(|item| {
+                item.booking_event_kind.as_deref() == Some("line_amendment")
+                    && item.sku.contains("SWAP-REPLACEMENT")
+            })
+        }));
+        validate_financial_activity_totals(
+            &summary.net_sales,
+            &summary.sales_tax_total,
+            &summary.activities,
+        )
+        .expect("same-price Order change should preserve financial reconciliation");
+
+        transaction.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn booked_activity_includes_untendered_order_item_cancellations() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let mut connection = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect migrated test database");
+        let mut transaction = connection.begin().await.expect("begin transaction");
+        let transaction_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let transaction_line_id = Uuid::new_v4();
+        let refund_event_id = Uuid::new_v4();
+        let event_time = Utc.with_ymd_and_hms(2099, 1, 17, 12, 0, 0).unwrap();
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (
+                id, name, base_retail_price, base_cost
+            ) VALUES ($1, 'Untendered cancellation test item', 50.00, 20.00)
+            "#,
+        )
+        .bind(product_id)
+        .execute(&mut *transaction)
+        .await
+        .expect("insert cancellation test product");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values
+            ) VALUES ($1, $2, $3, '{}'::jsonb)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(format!("CANCEL-{}", variant_id.simple()))
+        .execute(&mut *transaction)
+        .await
+        .expect("insert cancellation test variant");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, total_price, balance_due, display_id, checkout_client_id, sale_channel
+            ) VALUES ($1, 0.00, 0.00, $2, $3, 'register')
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(format!("TXN-UNTENDERED-CANCEL-{}", transaction_id.simple()))
+        .bind(Uuid::new_v4())
+        .execute(&mut *transaction)
+        .await
+        .expect("insert cancellation test transaction");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_lines (
+                id, transaction_id, product_id, variant_id, fulfillment,
+                quantity, unit_price, unit_cost, state_tax, local_tax
+            ) VALUES ($1, $2, $3, $4, 'special_order', 1, 50.00, 20.00, 2.38, 0.00)
+            "#,
+        )
+        .bind(transaction_line_id)
+        .bind(transaction_id)
+        .bind(product_id)
+        .bind(variant_id)
+        .execute(&mut *transaction)
+        .await
+        .expect("insert cancellation test transaction line");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_return_lines (
+                transaction_id, transaction_line_id, quantity_returned, reason,
+                restocked, created_at, refund_event_id, register_session_id,
+                refund_subtotal, refund_state_tax, refund_local_tax, refund_total
+            ) VALUES (
+                $1, $2, 1, 'Order item cancellation: customer no longer wants item',
+                FALSE, $3, $4, NULL, 50.00, 2.38, 0.00, 52.38
+            )
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(transaction_line_id)
+        .bind(event_time)
+        .bind(refund_event_id)
+        .execute(&mut *transaction)
+        .await
+        .expect("insert untendered cancellation event");
+
+        let summary = fetch_register_day_summary_page_on_connection(
+            &mut *transaction,
+            Some("custom".to_string()),
+            Some(event_time.date_naive()),
+            Some(event_time.date_naive()),
+            None,
+            ReportBasis::Booked,
+            ActivityPageOptions::default(),
+        )
+        .await
+        .expect("load untendered cancellation activity");
+        let activity = summary
+            .activities
+            .iter()
+            .find(|activity| activity.refund_event_id == Some(refund_event_id))
+            .expect("untendered cancellation should remain visible in activity detail");
+
+        assert_eq!(
+            summary.net_sales.parse::<Decimal>().unwrap(),
+            Decimal::new(-5000, 2)
+        );
+        assert_eq!(
+            summary.sales_tax_total.parse::<Decimal>().unwrap(),
+            Decimal::new(-238, 2)
+        );
+        assert_eq!(activity.title, "Order Item Cancellation");
+        assert_eq!(activity.amount_label.as_deref(), Some("-$52.38"));
+        assert_eq!(activity.sales_total.as_deref(), Some("-50.00"));
+        assert_eq!(activity.tax_total.as_deref(), Some("-2.38"));
+        assert!(activity
+            .items
+            .as_ref()
+            .is_some_and(|items| { items.len() == 1 && items[0].quantity == -1 }));
+        validate_financial_activity_totals(
+            &summary.net_sales,
+            &summary.sales_tax_total,
+            &summary.activities,
+        )
+        .expect("untendered cancellation should reconcile summary and detail");
+
+        transaction.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
     async fn booked_totals_exclude_counterpoint_imports_after_reporting_cutover() {
         let Ok(database_url) = std::env::var("DATABASE_URL") else {
             return;
@@ -3677,7 +4339,7 @@ mod tests {
                 INSERT INTO transactions (
                     id, total_price, balance_due, display_id, checkout_client_id,
                     sale_channel, is_counterpoint_import
-                ) VALUES ($1, 0.00, 0.00, $2, $3, 'in_store', $4)
+                ) VALUES ($1, 0.00, 0.00, $2, $3, 'register', $4)
                 "#,
             )
             .bind(transaction_id)
@@ -3946,6 +4608,36 @@ mod tests {
         assert!(ensure_complete_eod_counts(0, 2, 1, true, 1, 1, false).is_err());
         assert!(ensure_complete_eod_counts(500, 2, 2, false, 1, 1, false).is_err());
         assert!(ensure_complete_eod_counts(0, 2, 2, false, 1, 0, false).is_err());
+    }
+
+    #[test]
+    fn complete_daily_report_fails_closed_when_financial_detail_does_not_reconcile() {
+        let activities = vec![
+            serde_json::from_value(json!({
+                "id": "sale:1",
+                "kind": "sale",
+                "occurred_at": Utc::now(),
+                "title": "Sale",
+                "sales_total": "100.00",
+                "tax_total": "8.75"
+            }))
+            .unwrap(),
+            serde_json::from_value(json!({
+                "id": "order-cancellation:2",
+                "kind": "refund",
+                "occurred_at": Utc::now(),
+                "title": "Order Item Cancellation",
+                "sales_total": "-50.00",
+                "tax_total": "-2.38"
+            }))
+            .unwrap(),
+        ];
+
+        assert!(validate_financial_activity_totals("50.00", "6.37", &activities).is_ok());
+        let error = validate_financial_activity_totals("100.00", "8.75", &activities)
+            .expect_err("a mismatched Daily Report must be blocked");
+        assert!(error.contains("report output is blocked"));
+        assert!(error.contains("summary Net Sales 100.00, detail Net Sales 50.00"));
     }
 
     #[test]
