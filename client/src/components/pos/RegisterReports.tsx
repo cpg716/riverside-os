@@ -928,6 +928,7 @@ async function openZReportFromSession(
     alterationsTotal: daySummary.alterations_total,
     giftCardLoadCount: daySummary.gift_card_load_count,
     giftCardLoadTotal: daySummary.gift_card_load_total,
+    activities: daySummary.activities,
     pickupsToday: (daySummary.pickups_today ?? []).map((pickup) => ({
       occurred_at: pickup.occurred_at,
       customer_name: pickup.customer_name,

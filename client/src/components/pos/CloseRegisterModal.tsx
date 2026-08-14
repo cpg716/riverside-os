@@ -9,7 +9,10 @@ import React, {
 import { createPortal } from "react-dom";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
-import { openProfessionalZReportPrint } from "./zReportPrint";
+import {
+  openProfessionalZReportPrint,
+  type RegisterReportActivity,
+} from "./zReportPrint";
 import type { ReportPrintAction } from "../../lib/reportPrint";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -228,6 +231,7 @@ interface ZReportDaySummary {
   new_appointment_count: number;
   new_wedding_parties_count: number;
   new_invoice_count: number;
+  activities?: RegisterReportActivity[];
   pickups_today?: Array<{
     occurred_at: string;
     customer_name?: string | null;
@@ -1265,6 +1269,15 @@ export default function CloseRegisterModal({
             currentRecon.qbo_journal?.activity_date ??
             null,
         ));
+      const activitySummary =
+        daySummary.activities !== undefined
+          ? daySummary
+          : await fetchBookedDaySummaryForZ(
+              closedSnapshot?.business_date ??
+                currentRecon.qbo_activity_date ??
+                currentRecon.qbo_journal?.activity_date ??
+                null,
+            );
       const closedDiscrepancyCents =
         closedSnapshot?.discrepancy == null
           ? null
@@ -1330,6 +1343,7 @@ export default function CloseRegisterModal({
         alterationsTotal: daySummary.alterations_total,
         giftCardLoadCount: daySummary.gift_card_load_count,
         giftCardLoadTotal: daySummary.gift_card_load_total,
+        activities: activitySummary.activities ?? [],
         pickupsToday: (daySummary.pickups_today ?? []).map((pickup) => ({
           occurred_at: pickup.occurred_at,
           customer_name: pickup.customer_name,

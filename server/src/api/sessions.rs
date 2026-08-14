@@ -3041,6 +3041,10 @@ async fn close_session(
         "manager_close_reason": manager_close_reason.as_deref(),
         "closed_at": Utc::now(),
     });
+    // Keep the persisted reconciliation snapshot compact, but return the canonical
+    // booked activity so immediate post-close printing does not depend on a now-closed POS session.
+    let mut z_report_response_snapshot = z_snapshot.clone();
+    z_report_response_snapshot["day_summary"]["activities"] = json!(&close_day_summary.activities);
 
     if let Some(issues) = unresolved_close_issues.as_ref() {
         sqlx::query(
@@ -3196,7 +3200,7 @@ async fn close_session(
             till_group_closed: false,
             unresolved_close_issues,
             reconciliation: recon,
-            z_report_snapshot: z_snapshot,
+            z_report_snapshot: z_report_response_snapshot,
         }));
     }
 
@@ -3386,6 +3390,6 @@ async fn close_session(
         till_group_closed: true,
         unresolved_close_issues,
         reconciliation: recon,
-        z_report_snapshot: z_snapshot,
+        z_report_snapshot: z_report_response_snapshot,
     }))
 }

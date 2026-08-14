@@ -5,6 +5,7 @@ import {
   REGISTER_REPORT_OUTPUT_ROW_LIMIT,
   registerReportCombinedRowCount,
   registerReportTenderCollectedCents,
+  renderRegisterActivityRows,
 } from "../src/components/pos/zReportPrint";
 import { REPORTS_CATALOG } from "../src/lib/reportsCatalog";
 
@@ -496,10 +497,13 @@ test.describe("Register report output integrity contracts", () => {
     expect(transactionsServerSource).toContain(
       "FROM '(O-[A-Za-z0-9-]+)$'\n                ),\n                NULLIF(TRIM(target.display_id), '')",
     );
-    expect(reportPrintSource).toContain('<div class="pill">Transaction</div>');
-    expect(reportPrintSource).toContain("const header = `Transaction |");
+    expect(reportPrintSource).toContain(
+      "const txAuditRows = renderRegisterActivityRows(opts.activities);",
+    );
+    expect(reportPrintSource).toContain(
+      "const activityRows = renderRegisterActivityRows(activities);",
+    );
     expect(reportPrintSource).toContain("Salesperson");
-    expect(reportPrintSource).toContain("Register ${t.register_lane}");
     expect(reportPrintSource).not.toContain("Lane #");
     expect(sessionsServerSource).toContain("salesperson.full_name AS salesperson_name");
     expect(sessionsServerSource).toContain("'transaction'::text AS payment_method");
@@ -508,6 +512,57 @@ test.describe("Register report output integrity contracts", () => {
       'reportLabel(transactionPaymentMethod(t))',
     );
     expect(reportPrintSource).not.toContain('? "split"');
+  });
+
+  test("Daily and Z transaction pages share one activity card per booked sale", () => {
+    const html = renderRegisterActivityRows([
+      {
+        occurred_at: "2026-08-13T18:42:00-04:00",
+        title: "Order Booked (Sale)",
+        kind: "sale",
+        customer_name: "Tracy Rudgers",
+        salesperson_name: "Robyn Created",
+        short_id: "ROS-00001112",
+        sales_total: "312.00",
+        tax_total: "25.22",
+        transaction_total: "337.22",
+        payments: [
+          { method: "Credit Card", amount_label: "168.61" },
+          { method: "Cash", amount_label: "168.61" },
+        ],
+        items: [
+          {
+            name: "Memorial Classic Fit Dress Shirt",
+            sku: "B-147928",
+            quantity: 1,
+            reg_price: "65.00",
+            price: "52.00",
+            fulfillment: "wedding_order",
+          },
+        ],
+      },
+    ]);
+
+    expect(html.match(/<section class="activity-card">/g) ?? []).toHaveLength(
+      1,
+    );
+    expect(html).toContain("Order Booked (Sale)");
+    expect(html).toContain("ROS-00001112");
+    expect(html).toContain("Credit Card");
+    expect(html).toContain("Cash");
+    expect(html).toContain("Total With Tax");
+    expect(registerReportsSource).toContain(
+      "activities: daySummary.activities",
+    );
+    expect(closeRegisterSource).toContain(
+      "activities: activitySummary.activities ?? []",
+    );
+    expect(sessionsServerSource).toContain(
+      'z_report_response_snapshot["day_summary"]["activities"]',
+    );
+    expect(sessionsServerSource).toContain(
+      "z_report_snapshot: z_report_response_snapshot",
+    );
   });
 
   test("receipt and customer overlays use explicit workflow state", () => {
@@ -826,7 +881,9 @@ test.describe("Register report output integrity contracts", () => {
       "target.checkout_client_id IS DISTINCT FROM ppa.checkout_client_id",
     );
     expect(sessionsServerSource).toContain("ppa.checkout_client_id IS NULL");
-    expect(sessionsServerSource).toContain("z_report_snapshot: z_snapshot");
+    expect(sessionsServerSource).toContain(
+      "z_report_snapshot: z_report_response_snapshot",
+    );
   });
 
   test("Daily Sales and Z-Reports use the same payment-ledger tender totals", () => {

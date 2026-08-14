@@ -434,10 +434,6 @@ function textValue(value: string | number | null | undefined): string {
   return String(value).replace(/\s+/g, " ").trim();
 }
 
-function isVisibleAuditItem(item: ZReportAuditItem): boolean {
-  return !item.is_internal || item.line_kind === "rms_charge_payment";
-}
-
 function auditItemsSubtotalBeforeTaxCents(
   items: ZReportAuditItem[] | null | undefined,
 ): number {
@@ -461,14 +457,6 @@ function auditSubtotalBeforeTaxCents(
   return (transactions ?? []).reduce((total, transaction) => {
     return total + auditItemsSubtotalBeforeTaxCents(transaction.items);
   }, 0);
-}
-
-function auditItemKindLabel(item: ZReportAuditItem): string | null {
-  if (item.line_kind === "rms_charge_payment") return "RMS Payment";
-  if (item.line_kind === "alteration_service") return "Alteration";
-  if (item.line_kind === "shipping_service") return "Shipping";
-  if (item.line_kind === "pos_gift_card_load") return "Gift Card";
-  return null;
 }
 
 function notifyPrintDialogFailure(error: unknown): void {
@@ -657,6 +645,325 @@ function fulfillmentLabel(value: string | null | undefined): string {
   }
 }
 
+export type RegisterReportActivity = {
+  occurred_at: string;
+  title: string;
+  subtitle?: string | null;
+  amount_label?: string | null;
+  subtotal_before_tax?: string | null;
+  tax_total?: string | null;
+  shipping_total?: string | null;
+  alterations_total?: string | null;
+  kind: string;
+  payment_summary?: string | null;
+  payments?:
+    | {
+        method: string;
+        amount_label: string;
+      }[]
+    | null;
+  payment_applications?: {
+    target_display_id: string;
+    amount_label: string;
+    remaining_balance: string;
+  }[];
+  customer_name?: string | null;
+  salesperson_name?: string | null;
+  customer_code?: string | null;
+  wedding_party_name?: string | null;
+  sales_total?: string | null;
+  transaction_total?: string | null;
+  wedding_deposit_contributions?: string | null;
+  wedding_deposit_member_count?: number | null;
+  deposits_paid?: string | null;
+  balance_due?: string | null;
+  short_id?: string | null;
+  imported_at?: string | null;
+  fulfillment_label?: string | null;
+  is_takeaway?: boolean | null;
+  channel?: string | null;
+  items?:
+    | {
+        name: string;
+        sku: string;
+        quantity: number;
+        reg_price: string;
+        price: string;
+        fulfillment?: string | null;
+        line_kind?: string | null;
+      }[]
+    | null;
+};
+
+export function renderRegisterActivityRows(
+  activities: RegisterReportActivity[],
+): string {
+  const groupedActivities = activities.reduce<
+    Record<string, RegisterReportActivity[]>
+  >((groups, row) => {
+    const date = new Date(row.occurred_at).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    groups[date] = [...(groups[date] ?? []), row];
+    return groups;
+  }, {});
+
+  return Object.entries(groupedActivities)
+    .map(([date, rows]) => {
+      const groupSubtotalCents = rows.reduce(
+        (sum, row) => sum + parseRegisterReportMoneyToCents(row.sales_total),
+        0,
+      );
+      const groupTaxCents = rows.reduce(
+        (sum, row) => sum + parseRegisterReportMoneyToCents(row.tax_total),
+        0,
+      );
+      const groupTotalWithTaxCents =
+        groupSubtotalCents +
+        groupTaxCents +
+        rows.reduce(
+          (sum, row) =>
+            sum + parseRegisterReportMoneyToCents(row.shipping_total),
+          0,
+        );
+      const cards = rows
+        .map((row) => {
+          const tm = new Date(row.occurred_at).toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          const customerInfo = [
+            row.customer_name,
+            row.customer_code ? `(#${row.customer_code})` : null,
+            row.wedding_party_name ? `• ${row.wedding_party_name}` : null,
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+          const itemsHtml = (row.items || [])
+            .map(
+              (item) => `
+        <div class="print-item-row">
+          <span><strong>${item.quantity}× ${item.name}</strong><br><span class="muted mono">${item.sku}${item.fulfillment ? ` · ${item.fulfillment.replace(/_/g, " ")}` : ""}</span></span>
+          ${linePriceBreakdownHtml(item.price, item.reg_price || item.price)}
+        </div>
+      `,
+            )
+            .join("");
+          const chips = [
+            row.fulfillment_label,
+            row.imported_at
+              ? `Imported at ${new Date(row.imported_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              : null,
+            row.channel === "web" ? "Online" : null,
+          ]
+            .filter(Boolean)
+            .map((chip) => `<span class="chip">${chip}</span>`)
+            .join("");
+
+          const paymentRows =
+            row.payments && row.payments.length > 0
+              ? row.payments
+                  .map(
+                    (payment) =>
+                      `<div class="money-sub">${escapeReportHtml(payment.method)} ${formatReportMoney(payment.amount_label)}</div>`,
+                  )
+                  .join("")
+              : row.payment_summary
+                ? `<div class="money-sub">${escapeReportHtml(row.payment_summary)}</div>`
+                : "";
+          const orderPaymentRows = (row.payment_applications ?? [])
+            .map(
+              (application) => `
+                <div class="print-item-row">
+                  <span><strong>${parseRegisterReportMoneyToCents(application.remaining_balance) > 0 ? "Deposit on Order" : "Payment in Full on Order"} ${escapeReportHtml(application.target_display_id)}</strong><br><span class="muted">Remaining order balance: ${formatReportMoney(application.remaining_balance)}</span></span>
+                  <strong>${formatReportMoney(application.amount_label)}</strong>
+                </div>
+              `,
+            )
+            .join("");
+          const subtotalCents = parseRegisterReportMoneyToCents(
+            row.sales_total ?? row.subtotal_before_tax ?? "0",
+          );
+          const totalWithTaxCents =
+            subtotalCents +
+            parseRegisterReportMoneyToCents(row.tax_total) +
+            parseRegisterReportMoneyToCents(row.shipping_total);
+
+          return `
+        <section class="activity-card">
+          <div class="activity-left">
+            <div class="pill">${row.title}</div>
+            <div class="customer">${customerInfo || "Walk-in Customer"}</div>
+            ${row.short_id ? `<div class="transaction-ref mono">${escapeReportHtml(row.short_id)}</div>` : ""}
+            <div class="transaction-meta"><div><span>Salesperson</span><strong>${escapeReportHtml(row.salesperson_name || "Unassigned")}</strong></div></div>
+            <div class="chips">${chips}</div>
+            <div class="time">${tm}</div>
+          </div>
+          <div class="activity-items">
+            <div class="section-label">${row.kind === "payment" ? "Payment Details" : row.kind === "wedding_deposit" ? "Deposit Details" : "Line Items"}</div>
+            ${
+              row.kind === "payment"
+                ? `<div style="padding:18px 0;"><strong>${escapeReportHtml(row.title)} ${escapeReportHtml(row.subtitle || "—")}</strong><div class="muted" style="margin-top:6px;">Payment receipt: ${escapeReportHtml(row.short_id || "—")}</div></div>`
+                : row.kind === "wedding_deposit"
+                  ? `<div style="padding:18px 0;"><strong>${row.wedding_deposit_member_count ?? 0} member wedding deposit${row.wedding_deposit_member_count === 1 ? "" : "s"} funded</strong><div class="muted" style="margin-top:6px;">Payer Transaction: ${escapeReportHtml(row.short_id || "—")} · Held deposit activity, not a merchandise sale</div></div>`
+                  : `${itemsHtml || `<div class="muted" style="padding:18px 0;text-align:center;">No item details recorded for this transaction</div>`}${orderPaymentRows}`
+            }
+          </div>
+          <div class="activity-money">
+            <div class="money-label">${row.kind === "payment" ? "Payment Applied Today" : row.kind === "wedding_deposit" ? "Wedding Deposits Collected" : "Total With Tax"}</div>
+            <div class="money-total">${row.kind === "payment" || row.kind === "wedding_deposit" ? formatReportMoney(row.transaction_total ?? row.amount_label ?? "0") : formatReportMoney(totalWithTaxCents)}</div>
+            ${row.kind !== "payment" && row.kind !== "wedding_deposit" ? `<div class="money-sub">Subtotal: ${formatReportMoney(subtotalCents)}</div>` : ""}
+            ${row.kind !== "payment" && row.kind !== "wedding_deposit" && row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
+            ${row.kind !== "payment" && row.kind !== "wedding_deposit" && parseRegisterReportMoneyToCents(row.shipping_total) !== 0 ? `<div class="money-sub">Shipping: ${formatReportMoney(row.shipping_total ?? "0")}</div>` : ""}
+            ${row.kind !== "payment" && row.kind !== "wedding_deposit" && parseRegisterReportMoneyToCents(row.alterations_total) !== 0 ? `<div class="money-sub">Alterations: ${formatReportMoney(row.alterations_total ?? "0")}</div>` : ""}
+            ${row.kind !== "payment" && row.kind !== "wedding_deposit" ? `<div class="money-sub">${row.payment_applications?.length ? "Total Paid Today" : "Transaction Total"}: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>` : ""}
+            ${row.kind !== "wedding_deposit" && row.wedding_deposit_contributions ? `<div class="money-good">Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} member${row.wedding_deposit_member_count === 1 ? "" : "s"}</div>` : ""}
+            ${row.kind !== "wedding_deposit" && row.wedding_deposit_contributions ? `<div class="money-sub">Total Tender Collected: ${formatReportMoney(registerReportTenderCollectedCents(row))}</div>` : ""}
+            ${paymentRows}
+            ${row.kind !== "wedding_deposit" && row.deposits_paid ? `<div class="money-good">Paid: $${row.deposits_paid}</div>` : ""}
+            ${row.kind !== "wedding_deposit" && row.balance_due && (row.kind === "payment" || parseRegisterReportMoneyToCents(row.balance_due) > 0) ? `<div class="money-due">${row.kind === "payment" ? "Remaining Balance" : "Balance"}: ${formatReportMoney(row.balance_due)}</div>` : ""}
+          </div>
+        </section>
+      `;
+        })
+        .join("");
+      return `
+        <section class="activity-group">
+          <div class="group-head">
+            <div>
+              <span class="group-date">${date}</span>
+              <span class="group-count">(${rows.length} activity ${rows.length === 1 ? "entry" : "entries"})</span>
+            </div>
+            <div class="group-total"><span>Subtotal:</span> ${formatReportMoney(groupSubtotalCents)} <span>Tax:</span> ${formatReportMoney(groupTaxCents)} <span>Total With Tax:</span> ${formatReportMoney(groupTotalWithTaxCents)}</div>
+          </div>
+          ${cards}
+        </section>
+      `;
+    })
+    .join("");
+}
+
+function registerActivityTextLines(
+  activities: RegisterReportActivity[],
+): string[] {
+  if (activities.length === 0) return ["No activity recorded for this period."];
+  return activities.flatMap((row) => {
+    const rowTotalWithTaxCents =
+      parseRegisterReportMoneyToCents(row.sales_total) +
+      parseRegisterReportMoneyToCents(row.tax_total) +
+      parseRegisterReportMoneyToCents(row.shipping_total);
+    const customerInfo = [
+      row.customer_name,
+      row.customer_code ? `#${row.customer_code}` : null,
+      row.wedding_party_name,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+    const header = `${new Date(row.occurred_at).toLocaleString()} | ${textValue(row.title)}${
+      row.kind === "payment" && row.subtitle
+        ? ` ${textValue(row.subtitle)}`
+        : ""
+    }${row.short_id ? ` | ${row.short_id}` : ""} | Salesperson: ${row.salesperson_name || "Unassigned"} | ${
+      customerInfo || "Walk-in Customer"
+    } | ${row.kind === "payment" ? "Payment" : row.kind === "wedding_deposit" ? "Wedding Deposits" : "Sales"}: ${
+      row.kind === "payment" || row.kind === "wedding_deposit"
+        ? formatReportMoney(row.transaction_total ?? row.amount_label ?? "0")
+        : row.sales_total
+          ? formatReportMoney(row.sales_total)
+          : textValue(row.amount_label) || "-"
+    }`;
+    const paymentDetails =
+      row.payments && row.payments.length > 0
+        ? row.payments.map(
+            (payment) =>
+              `Payment: ${payment.method} ${formatReportMoney(payment.amount_label)}`,
+          )
+        : row.payment_summary
+          ? [`Payment: ${row.payment_summary}`]
+          : [];
+    const details = [
+      row.short_id ? `Transaction: ${row.short_id}` : "",
+      row.kind === "payment"
+        ? `${textValue(row.title)}: ${textValue(row.subtitle)}`
+        : row.kind === "wedding_deposit"
+          ? `${row.wedding_deposit_member_count ?? 0} member wedding deposit${row.wedding_deposit_member_count === 1 ? "" : "s"} funded | Held deposit activity, not a merchandise sale`
+          : "",
+      ...(row.payment_applications ?? []).map(
+        (application) =>
+          `${parseRegisterReportMoneyToCents(application.remaining_balance) > 0 ? "Deposit on Order" : "Payment in Full on Order"} ${textValue(application.target_display_id)}: ${formatReportMoney(application.amount_label)} | Remaining order balance: ${formatReportMoney(application.remaining_balance)}`,
+      ),
+      row.imported_at
+        ? `Imported at: ${new Date(row.imported_at).toLocaleString()}`
+        : "",
+      ...paymentDetails,
+      row.kind !== "payment" &&
+      row.kind !== "wedding_deposit" &&
+      row.sales_total
+        ? `Subtotal: ${formatReportMoney(row.sales_total)}`
+        : "",
+      row.kind !== "payment" && row.kind !== "wedding_deposit" && row.tax_total
+        ? `Tax: ${formatReportMoney(row.tax_total)}`
+        : "",
+      row.kind !== "payment" &&
+      row.kind !== "wedding_deposit" &&
+      row.shipping_total &&
+      parseRegisterReportMoneyToCents(row.shipping_total) !== 0
+        ? `Shipping: ${formatReportMoney(row.shipping_total)}`
+        : "",
+      row.kind !== "payment" && row.kind !== "wedding_deposit"
+        ? `Total With Tax: ${formatReportMoney(rowTotalWithTaxCents)}`
+        : "",
+      row.kind !== "payment" &&
+      row.kind !== "wedding_deposit" &&
+      row.alterations_total &&
+      parseRegisterReportMoneyToCents(row.alterations_total) !== 0
+        ? `Alterations: ${formatReportMoney(row.alterations_total)}`
+        : "",
+      row.kind !== "payment" &&
+      row.kind !== "wedding_deposit" &&
+      row.transaction_total
+        ? `${row.payment_applications?.length ? "Total Paid Today" : "Transaction Total"}: ${formatReportMoney(row.transaction_total)}`
+        : "",
+      row.kind !== "wedding_deposit" && row.wedding_deposit_contributions
+        ? `Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} members`
+        : "",
+      row.kind !== "wedding_deposit" && row.wedding_deposit_contributions
+        ? `Total Tender Collected: ${formatReportMoney(registerReportTenderCollectedCents(row))}`
+        : "",
+      row.kind !== "wedding_deposit" && row.deposits_paid
+        ? `Paid: ${formatReportMoney(row.deposits_paid)}`
+        : "",
+      row.kind === "wedding_deposit"
+        ? `Wedding Deposits Collected: ${formatReportMoney(row.transaction_total ?? row.amount_label ?? "0")}`
+        : "",
+      row.kind !== "wedding_deposit" &&
+      row.balance_due &&
+      (row.kind === "payment" ||
+        parseRegisterReportMoneyToCents(row.balance_due) > 0)
+        ? `${row.kind === "payment" ? "Remaining Balance" : "Balance"}: ${formatReportMoney(row.balance_due)}`
+        : "",
+      row.fulfillment_label ? `Fulfillment: ${row.fulfillment_label}` : "",
+      row.channel ? `Channel: ${row.channel}` : "",
+    ].filter(Boolean);
+    const items = (row.items ?? []).map(
+      (item) =>
+        `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)} | ${
+          item.fulfillment ? fulfillmentLabel(item.fulfillment) : ""
+        } | ${linePriceBreakdownText(item.price, item.reg_price || item.price)}`,
+    );
+    return [
+      header,
+      ...details.map((detail) => `  ${detail}`),
+      ...(items.length > 0 ? items : []),
+    ];
+  });
+}
+
 type ZReportPrintTransaction = {
   created_at: string;
   payment_method: string;
@@ -769,23 +1076,6 @@ function normalizeZReportTransactions(
   return Array.from(grouped.values());
 }
 
-function zReportPaymentTextRows(
-  transaction: ZReportPrintTransaction,
-): string[] {
-  return tenderLinesForTransaction(transaction).map((payment) => {
-    const check = payment.check_number?.trim()
-      ? ` #${payment.check_number.trim()}`
-      : "";
-    return `Payment: ${reportLabel(payment.payment_method)}${check} ${formatReportMoney(payment.amount)}`;
-  });
-}
-
-function zReportPaymentRows(transaction: ZReportPrintTransaction): string {
-  return zReportPaymentTextRows(transaction)
-    .map((payment) => escapeReportHtml(payment))
-    .join("<br>");
-}
-
 export async function openProfessionalZReportPrint(opts: {
   title: string;
   sessionId: string;
@@ -815,8 +1105,10 @@ export async function openProfessionalZReportPrint(opts: {
   qboJournal?: ZReportQboJournal | null;
   qboJournalError?: string | null;
   inventoryActivity?: ZReportInventoryActivityRow[];
-  /** Optional payment lines for audit trail. */
+  /** Reconciliation snapshot retained for Z-only cover and Quick Look metrics. */
   transactions?: ZReportPrintTransaction[];
+  /** Canonical booked activity used only for Daily-parity transaction pages. */
+  activities: RegisterReportActivity[];
   pickupsToday: {
     occurred_at: string;
     customer_name?: string | null;
@@ -990,109 +1282,7 @@ export async function openProfessionalZReportPrint(opts: {
           .join("")
       : "";
 
-  const txAuditRows =
-    transactions.length > 0
-      ? transactions
-          .map((t) => {
-            const tm = new Date(t.created_at).toLocaleString([], {
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-            const transactionSubtotalBeforeTaxCents =
-              auditItemsSubtotalBeforeTaxCents(t.items);
-            const transactionShippingCents =
-              parseMoneyToCents(t.shipping_amount ?? "0") +
-              (t.items ?? []).reduce(
-                (sum, item) =>
-                  item.line_kind === "shipping_service"
-                    ? sum +
-                      parseMoneyToCents(item.unit_price) *
-                        Math.max(item.quantity, 0)
-                    : sum,
-                0,
-              );
-            const transactionAlterationsCents = (t.items ?? []).reduce(
-              (sum, item) =>
-                item.line_kind === "alteration_service"
-                  ? sum +
-                    parseMoneyToCents(item.unit_price) *
-                      Math.max(item.quantity, 0)
-                  : sum,
-              0,
-            );
-            const visibleItems = (t.items ?? [])
-              .filter(isVisibleAuditItem)
-              .slice(0, 4);
-            const internalItems = (t.items ?? []).filter(
-              (item) => item.is_internal,
-            );
-            const giftCardIssued = internalItems.find(
-              (item) => item.line_kind === "pos_gift_card_load",
-            );
-
-            const itemsHtml = visibleItems
-              .map(
-                (item) => `
-              <div class="print-item-row">
-                <span><strong>${item.quantity}× ${item.name}</strong><br><span class="muted mono">${item.sku}${auditItemKindLabel(item) ? ` · ${auditItemKindLabel(item)}` : ""}${item.fulfillment ? ` · ${fulfillmentLabel(item.fulfillment)}` : ""}</span></span>
-                ${linePriceBreakdownHtml(item.unit_price, item.original_unit_price ?? item.unit_price)}
-              </div>
-            `,
-              )
-              .join("");
-
-            const extraCount = Math.max(
-              0,
-              (t.items ?? []).filter(isVisibleAuditItem).length -
-                visibleItems.length,
-            );
-            const notes = [
-              extraCount > 0
-                ? `+${extraCount} more line${extraCount === 1 ? "" : "s"}`
-                : null,
-              giftCardIssued ? "Gift card issued on this sale" : null,
-            ]
-              .filter(Boolean)
-              .join(" · ");
-
-            const paymentRows = zReportPaymentRows(t);
-
-            return `
-              <section class="activity-card">
-                <div class="activity-left">
-                  <div class="pill">Transaction</div>
-                  <div class="customer">${escapeReportHtml(t.customer_name || "Walk-in Customer")}</div>
-                  ${t.transaction_display_id ? `<div class="transaction-ref mono">${escapeReportHtml(t.transaction_display_id)}</div>` : ""}
-                  <div class="transaction-meta">
-                    ${t.transaction_status ? `<div><span>Status</span><strong>${escapeReportHtml(reportLabel(t.transaction_status))}</strong></div>` : ""}
-                    <div><span>Register</span><strong>Register ${t.register_lane}</strong></div>
-                    <div><span>Salesperson</span><strong>${escapeReportHtml(t.salesperson_name || "Unassigned")}</strong></div>
-                  </div>
-                  <div class="time">${tm}</div>
-                </div>
-                <div class="activity-items">
-                  <div class="section-label">Line Items</div>
-                  ${itemsHtml || `<div class="muted" style="padding:18px 0;text-align:center;">No item details recorded for this transaction</div>`}
-                  ${notes ? `<div class="muted" style="font-size:9px;margin-top:8px;">${notes}</div>` : ""}
-                </div>
-                <div class="activity-money">
-                  <div class="money-label">Transaction Amount</div>
-                  <div class="money-total">${formatReportMoney(t.amount)}</div>
-                  ${paymentRows ? `<div class="money-sub">${paymentRows}</div>` : ""}
-                  <div class="money-sub">Subtotal Before Tax: ${formatReportMoney(transactionSubtotalBeforeTaxCents)}</div>
-                  ${transactionShippingCents !== 0 ? `<div class="money-sub">Shipping: ${formatReportMoney(transactionShippingCents)}</div>` : ""}
-                  ${transactionAlterationsCents !== 0 ? `<div class="money-sub">Alterations: ${formatReportMoney(transactionAlterationsCents)}</div>` : ""}
-                  ${t.transaction_total ? `<div class="money-sub">Sale Total: ${formatReportMoney(t.transaction_total)}</div>` : ""}
-                  ${t.transaction_paid ? `<div class="money-sub">Paid: ${formatReportMoney(t.transaction_paid)}</div>` : ""}
-                  ${t.transaction_balance_due && parseMoneyToCents(t.transaction_balance_due) > 0 ? `<div class="money-due">Balance: ${formatReportMoney(t.transaction_balance_due)}</div>` : ""}
-                </div>
-              </section>
-            `;
-          })
-          .join("")
-      : "";
+  const txAuditRows = renderRegisterActivityRows(opts.activities);
   const pickupRows = (opts.pickupsToday ?? [])
     .map((pickup) => {
       const tm = new Date(pickup.occurred_at).toLocaleString([], {
@@ -1284,32 +1474,8 @@ export async function openProfessionalZReportPrint(opts: {
           "",
         ]
       : []),
-    ...(transactions.length
-      ? [
-          "TRANSACTION LIST",
-          ...transactions.flatMap((tx) => {
-            const transactionSubtotalBeforeTaxCents =
-              auditItemsSubtotalBeforeTaxCents(tx.items);
-            const header = `Transaction | ${tx.customer_name || "Walk-in Customer"}${
-              tx.transaction_display_id ? ` | ${tx.transaction_display_id}` : ""
-            }${tx.transaction_status ? ` | Status: ${reportLabel(tx.transaction_status)}` : ""} | Register ${tx.register_lane} | Salesperson: ${tx.salesperson_name || "Unassigned"} | ${new Date(tx.created_at).toLocaleString()} | Amount: ${formatReportMoney(tx.amount)}`;
-            const items = (tx.items ?? [])
-              .filter(isVisibleAuditItem)
-              .map(
-                (item) =>
-                  `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)}${auditItemKindLabel(item) ? ` | ${auditItemKindLabel(item)}` : ""} | ${fulfillmentLabel(
-                    item.fulfillment,
-                  )} | ${linePriceBreakdownText(item.unit_price, item.original_unit_price ?? item.unit_price)}`,
-              );
-            return [
-              header,
-              ...zReportPaymentTextRows(tx).map((payment) => `  ${payment}`),
-              `  Subtotal Before Tax: ${formatReportMoney(transactionSubtotalBeforeTaxCents)}`,
-              ...(items.length > 0 ? items : ["  No item details recorded"]),
-            ];
-          }),
-          "",
-        ]
+    ...(opts.activities.length
+      ? ["TRANSACTION LIST", ...registerActivityTextLines(opts.activities), ""]
       : []),
     ...(opts.pickupsToday?.length
       ? [
@@ -1396,6 +1562,12 @@ export async function openProfessionalZReportPrint(opts: {
     .signature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
     .page-break { break-before: page; page-break-before: always; }
     .quick-look-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+    .activity-group { margin-top: 18px; }
+    .group-head { align-items: center; border-bottom: 1px solid #cbd5e1; display: flex; justify-content: space-between; gap: 16px; margin-bottom: 12px; padding-bottom: 8px; }
+    .group-date { color: #0f172a; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+    .group-count { color: #64748b; font-size: 11px; font-weight: 700; margin-left: 6px; }
+    .group-total { color: #0f172a; font-size: 13px; font-weight: 800; }
+    .group-total span { color: #64748b; }
     .activity-card { display: grid; grid-template-columns: 1.05fr 1.6fr 1fr; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; margin-top: 14px; break-inside: avoid; }
     .activity-left, .activity-money { background: #f8fafc; padding: 18px; }
     .activity-items { padding: 18px; border-left: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; }
@@ -1689,55 +1861,7 @@ export async function openProfessionalDailySalesPrint(opts: {
     discount_total?: string;
     discount_count?: number;
   };
-  activities: {
-    occurred_at: string;
-    title: string;
-    subtitle?: string | null;
-    amount_label?: string | null;
-    subtotal_before_tax?: string | null;
-    tax_total?: string | null;
-    shipping_total?: string | null;
-    alterations_total?: string | null;
-    kind: string;
-    payment_summary?: string | null;
-    payments?:
-      | {
-          method: string;
-          amount_label: string;
-        }[]
-      | null;
-    payment_applications?: {
-      target_display_id: string;
-      amount_label: string;
-      remaining_balance: string;
-    }[];
-    customer_name?: string | null;
-    salesperson_name?: string | null;
-    customer_code?: string | null;
-    wedding_party_name?: string | null;
-    sales_total?: string | null;
-    transaction_total?: string | null;
-    wedding_deposit_contributions?: string | null;
-    wedding_deposit_member_count?: number | null;
-    deposits_paid?: string | null;
-    balance_due?: string | null;
-    short_id?: string | null;
-    imported_at?: string | null;
-    fulfillment_label?: string | null;
-    is_takeaway?: boolean | null;
-    channel?: string | null;
-    items?:
-      | {
-          name: string;
-          sku: string;
-          quantity: number;
-          reg_price: string;
-          price: string;
-          fulfillment?: string | null;
-          line_kind?: string | null;
-        }[]
-      | null;
-  }[];
+  activities: RegisterReportActivity[];
   pickupsToday?: {
     occurred_at: string;
     customer_name?: string | null;
@@ -1780,142 +1904,7 @@ export async function openProfessionalDailySalesPrint(opts: {
     return groups;
   }, {});
 
-  const activityRows = Object.entries(groupedActivities)
-    .map(([date, rows]) => {
-      const groupSubtotalCents = rows.reduce(
-        (sum, row) => sum + parseRegisterReportMoneyToCents(row.sales_total),
-        0,
-      );
-      const groupTaxCents = rows.reduce(
-        (sum, row) => sum + parseRegisterReportMoneyToCents(row.tax_total),
-        0,
-      );
-      const groupTotalWithTaxCents =
-        groupSubtotalCents +
-        groupTaxCents +
-        rows.reduce(
-          (sum, row) =>
-            sum + parseRegisterReportMoneyToCents(row.shipping_total),
-          0,
-        );
-      const cards = rows
-        .map((row) => {
-          const tm = new Date(row.occurred_at).toLocaleString([], {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-          const customerInfo = [
-            row.customer_name,
-            row.customer_code ? `(#${row.customer_code})` : null,
-            row.wedding_party_name ? `• ${row.wedding_party_name}` : null,
-          ]
-            .filter(Boolean)
-            .join(" ");
-
-          const itemsHtml = (row.items || [])
-            .map(
-              (item) => `
-        <div class="print-item-row">
-          <span><strong>${item.quantity}× ${item.name}</strong><br><span class="muted mono">${item.sku}${item.fulfillment ? ` · ${item.fulfillment.replace(/_/g, " ")}` : ""}</span></span>
-          ${linePriceBreakdownHtml(item.price, item.reg_price || item.price)}
-        </div>
-      `,
-            )
-            .join("");
-          const chips = [
-            row.fulfillment_label,
-            row.imported_at
-              ? `Imported at ${new Date(row.imported_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-              : null,
-            row.channel === "web" ? "Online" : null,
-          ]
-            .filter(Boolean)
-            .map((chip) => `<span class="chip">${chip}</span>`)
-            .join("");
-
-          const paymentRows =
-            row.payments && row.payments.length > 0
-              ? row.payments
-                  .map(
-                    (payment) =>
-                      `<div class="money-sub">${escapeReportHtml(payment.method)} ${formatReportMoney(payment.amount_label)}</div>`,
-                  )
-                  .join("")
-              : row.payment_summary
-                ? `<div class="money-sub">${escapeReportHtml(row.payment_summary)}</div>`
-                : "";
-          const orderPaymentRows = (row.payment_applications ?? [])
-            .map(
-              (application) => `
-                <div class="print-item-row">
-                  <span><strong>${parseRegisterReportMoneyToCents(application.remaining_balance) > 0 ? "Deposit on Order" : "Payment in Full on Order"} ${escapeReportHtml(application.target_display_id)}</strong><br><span class="muted">Remaining order balance: ${formatReportMoney(application.remaining_balance)}</span></span>
-                  <strong>${formatReportMoney(application.amount_label)}</strong>
-                </div>
-              `,
-            )
-            .join("");
-          const subtotalCents = parseRegisterReportMoneyToCents(
-            row.sales_total ?? row.subtotal_before_tax ?? "0",
-          );
-          const totalWithTaxCents =
-            subtotalCents +
-            parseRegisterReportMoneyToCents(row.tax_total) +
-            parseRegisterReportMoneyToCents(row.shipping_total);
-
-          return `
-        <section class="activity-card">
-          <div class="activity-left">
-            <div class="pill">${row.title}</div>
-            <div class="customer">${customerInfo || "Walk-in Customer"}</div>
-            ${row.short_id ? `<div class="transaction-ref mono">${escapeReportHtml(row.short_id)}</div>` : ""}
-            <div class="transaction-meta"><div><span>Salesperson</span><strong>${escapeReportHtml(row.salesperson_name || "Unassigned")}</strong></div></div>
-            <div class="chips">${chips}</div>
-            <div class="time">${tm}</div>
-          </div>
-          <div class="activity-items">
-            <div class="section-label">${row.kind === "payment" ? "Payment Details" : row.kind === "wedding_deposit" ? "Deposit Details" : "Line Items"}</div>
-            ${
-              row.kind === "payment"
-                ? `<div style="padding:18px 0;"><strong>${escapeReportHtml(row.title)} ${escapeReportHtml(row.subtitle || "—")}</strong><div class="muted" style="margin-top:6px;">Payment receipt: ${escapeReportHtml(row.short_id || "—")}</div></div>`
-                : row.kind === "wedding_deposit"
-                  ? `<div style="padding:18px 0;"><strong>${row.wedding_deposit_member_count ?? 0} member wedding deposit${row.wedding_deposit_member_count === 1 ? "" : "s"} funded</strong><div class="muted" style="margin-top:6px;">Payer Transaction: ${escapeReportHtml(row.short_id || "—")} · Held deposit activity, not a merchandise sale</div></div>`
-                : `${itemsHtml || `<div class="muted" style="padding:18px 0;text-align:center;">No item details recorded for this transaction</div>`}${orderPaymentRows}`
-            }
-          </div>
-          <div class="activity-money">
-            <div class="money-label">${row.kind === "payment" ? "Payment Applied Today" : row.kind === "wedding_deposit" ? "Wedding Deposits Collected" : "Total With Tax"}</div>
-            <div class="money-total">${row.kind === "payment" || row.kind === "wedding_deposit" ? formatReportMoney(row.transaction_total ?? row.amount_label ?? "0") : formatReportMoney(totalWithTaxCents)}</div>
-            ${row.kind !== "payment" && row.kind !== "wedding_deposit" ? `<div class="money-sub">Subtotal: ${formatReportMoney(subtotalCents)}</div>` : ""}
-            ${row.kind !== "payment" && row.kind !== "wedding_deposit" && row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
-            ${row.kind !== "payment" && row.kind !== "wedding_deposit" && parseRegisterReportMoneyToCents(row.shipping_total) !== 0 ? `<div class="money-sub">Shipping: ${formatReportMoney(row.shipping_total ?? "0")}</div>` : ""}
-            ${row.kind !== "payment" && row.kind !== "wedding_deposit" && parseRegisterReportMoneyToCents(row.alterations_total) !== 0 ? `<div class="money-sub">Alterations: ${formatReportMoney(row.alterations_total ?? "0")}</div>` : ""}
-            ${row.kind !== "payment" && row.kind !== "wedding_deposit" ? `<div class="money-sub">${row.payment_applications?.length ? "Total Paid Today" : "Transaction Total"}: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>` : ""}
-            ${row.kind !== "wedding_deposit" && row.wedding_deposit_contributions ? `<div class="money-good">Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} member${row.wedding_deposit_member_count === 1 ? "" : "s"}</div>` : ""}
-            ${row.kind !== "wedding_deposit" && row.wedding_deposit_contributions ? `<div class="money-sub">Total Tender Collected: ${formatReportMoney(registerReportTenderCollectedCents(row))}</div>` : ""}
-            ${paymentRows}
-            ${row.kind !== "wedding_deposit" && row.deposits_paid ? `<div class="money-good">Paid: $${row.deposits_paid}</div>` : ""}
-            ${row.kind !== "wedding_deposit" && row.balance_due && (row.kind === "payment" || parseRegisterReportMoneyToCents(row.balance_due) > 0) ? `<div class="money-due">${row.kind === "payment" ? "Remaining Balance" : "Balance"}: ${formatReportMoney(row.balance_due)}</div>` : ""}
-          </div>
-        </section>
-      `;
-        })
-        .join("");
-      return `
-        <section class="activity-group">
-          <div class="group-head">
-            <div>
-              <span class="group-date">${date}</span>
-              <span class="group-count">(${rows.length} activity ${rows.length === 1 ? "entry" : "entries"})</span>
-            </div>
-            <div class="group-total"><span>Subtotal:</span> ${formatReportMoney(groupSubtotalCents)} <span>Tax:</span> ${formatReportMoney(groupTaxCents)} <span>Total With Tax:</span> ${formatReportMoney(groupTotalWithTaxCents)}</div>
-          </div>
-          ${cards}
-        </section>
-      `;
-    })
-    .join("");
+  const activityRows = renderRegisterActivityRows(activities);
 
   const pickupRows = pickupsToday
     .map((pickup) => {
@@ -2053,126 +2042,7 @@ export async function openProfessionalDailySalesPrint(opts: {
     detailFilter
       ? `FILTERED TRANSACTION LIST (${detailFilter})`
       : "TRANSACTION LIST",
-    ...(activities.length > 0
-      ? activities.flatMap((row) => {
-          const rowTotalWithTaxCents =
-            parseRegisterReportMoneyToCents(row.sales_total) +
-            parseRegisterReportMoneyToCents(row.tax_total) +
-            parseRegisterReportMoneyToCents(row.shipping_total);
-          const customerInfo = [
-            row.customer_name,
-            row.customer_code ? `#${row.customer_code}` : null,
-            row.wedding_party_name,
-          ]
-            .filter(Boolean)
-            .join(" | ");
-          const header = `${new Date(row.occurred_at).toLocaleString()} | ${textValue(row.title)}${
-            row.kind === "payment" && row.subtitle
-              ? ` ${textValue(row.subtitle)}`
-              : ""
-          }${row.short_id ? ` | ${row.short_id}` : ""} | Salesperson: ${row.salesperson_name || "Unassigned"} | ${
-            customerInfo || "Walk-in Customer"
-          } | ${row.kind === "payment" ? "Payment" : row.kind === "wedding_deposit" ? "Wedding Deposits" : "Sales"}: ${
-            row.kind === "payment" || row.kind === "wedding_deposit"
-              ? formatReportMoney(
-                  row.transaction_total ?? row.amount_label ?? "0",
-                )
-              : row.sales_total
-                ? formatReportMoney(row.sales_total)
-                : textValue(row.amount_label) || "-"
-          }`;
-          const paymentDetails =
-            row.payments && row.payments.length > 0
-              ? row.payments.map(
-                  (payment) =>
-                    `Payment: ${payment.method} ${formatReportMoney(payment.amount_label)}`,
-                )
-              : row.payment_summary
-                ? [`Payment: ${row.payment_summary}`]
-                : [];
-          const details = [
-            row.short_id ? `Transaction: ${row.short_id}` : "",
-            row.kind === "payment"
-              ? `${textValue(row.title)}: ${textValue(row.subtitle)}`
-              : row.kind === "wedding_deposit"
-                ? `${row.wedding_deposit_member_count ?? 0} member wedding deposit${row.wedding_deposit_member_count === 1 ? "" : "s"} funded | Held deposit activity, not a merchandise sale`
-              : "",
-            ...(row.payment_applications ?? []).map(
-              (application) =>
-                `${parseRegisterReportMoneyToCents(application.remaining_balance) > 0 ? "Deposit on Order" : "Payment in Full on Order"} ${textValue(application.target_display_id)}: ${formatReportMoney(application.amount_label)} | Remaining order balance: ${formatReportMoney(application.remaining_balance)}`,
-            ),
-            row.imported_at
-              ? `Imported at: ${new Date(row.imported_at).toLocaleString()}`
-              : "",
-            ...paymentDetails,
-            row.kind !== "payment" &&
-            row.kind !== "wedding_deposit" &&
-            row.sales_total
-              ? `Subtotal: ${formatReportMoney(row.sales_total)}`
-              : "",
-            row.kind !== "payment" &&
-            row.kind !== "wedding_deposit" &&
-            row.tax_total
-              ? `Tax: ${formatReportMoney(row.tax_total)}`
-              : "",
-            row.kind !== "payment" &&
-            row.kind !== "wedding_deposit" &&
-            row.shipping_total &&
-            parseRegisterReportMoneyToCents(row.shipping_total) !== 0
-              ? `Shipping: ${formatReportMoney(row.shipping_total)}`
-              : "",
-            row.kind !== "payment" && row.kind !== "wedding_deposit"
-              ? `Total With Tax: ${formatReportMoney(rowTotalWithTaxCents)}`
-              : "",
-            row.kind !== "payment" &&
-            row.kind !== "wedding_deposit" &&
-            row.alterations_total &&
-            parseRegisterReportMoneyToCents(row.alterations_total) !== 0
-              ? `Alterations: ${formatReportMoney(row.alterations_total)}`
-              : "",
-            row.kind !== "payment" &&
-            row.kind !== "wedding_deposit" &&
-            row.transaction_total
-              ? `${row.payment_applications?.length ? "Total Paid Today" : "Transaction Total"}: ${formatReportMoney(row.transaction_total)}`
-              : "",
-            row.kind !== "wedding_deposit" &&
-            row.wedding_deposit_contributions
-              ? `Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} members`
-              : "",
-            row.kind !== "wedding_deposit" &&
-            row.wedding_deposit_contributions
-              ? `Total Tender Collected: ${formatReportMoney(registerReportTenderCollectedCents(row))}`
-              : "",
-            row.kind !== "wedding_deposit" && row.deposits_paid
-              ? `Paid: ${formatReportMoney(row.deposits_paid)}`
-              : "",
-            row.kind === "wedding_deposit"
-              ? `Wedding Deposits Collected: ${formatReportMoney(row.transaction_total ?? row.amount_label ?? "0")}`
-              : "",
-            row.kind !== "wedding_deposit" &&
-            row.balance_due &&
-            (row.kind === "payment" ||
-              parseRegisterReportMoneyToCents(row.balance_due) > 0)
-              ? `${row.kind === "payment" ? "Remaining Balance" : "Balance"}: ${formatReportMoney(row.balance_due)}`
-              : "",
-            row.fulfillment_label
-              ? `Fulfillment: ${row.fulfillment_label}`
-              : "",
-            row.channel ? `Channel: ${row.channel}` : "",
-          ].filter(Boolean);
-          const items = (row.items ?? []).map(
-            (item) =>
-              `  ${item.quantity}x ${textValue(item.name)} | ${textValue(item.sku)} | ${
-                item.fulfillment ? fulfillmentLabel(item.fulfillment) : ""
-              } | ${linePriceBreakdownText(item.price, item.reg_price || item.price)}`,
-          );
-          return [
-            header,
-            ...details.map((detail) => `  ${detail}`),
-            ...(items.length > 0 ? items : []),
-          ];
-        })
-      : ["No activity recorded for this period."]),
+    ...registerActivityTextLines(activities),
     "",
     "PICKUPS TODAY",
     ...(pickupsToday.length > 0
