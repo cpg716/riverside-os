@@ -16,8 +16,28 @@ function apiBase(): string {
 
 let canaryStaffOk = false;
 
+async function verifyAdminStaffId(
+  request: APIRequestContext,
+): Promise<string> {
+  const code = e2eBackofficeStaffCode();
+  const response = await request.post(
+    `${apiBase()}/api/staff/verify-cashier-code`,
+    {
+      headers: { "Content-Type": "application/json" },
+      data: { cashier_code: code, pin: code },
+      failOnStatusCode: false,
+    },
+  );
+  const responseText = await response.text();
+  expect(response.status(), responseText.slice(0, 1000)).toBe(200);
+  const body = JSON.parse(responseText) as { staff_id?: string };
+  expect(body.staff_id).toBeTruthy();
+  return body.staff_id ?? "";
+}
+
 async function closeOpenRegisterSessions(request: APIRequestContext) {
   const code = e2eBackofficeStaffCode();
+  const managerStaffId = await verifyAdminStaffId(request);
   const headers = {
     "x-riverside-staff-code": code,
     "x-riverside-staff-pin": code,
@@ -124,6 +144,10 @@ async function closeOpenRegisterSessions(request: APIRequestContext) {
         actual_cash: expectedCash,
         closing_notes: "E2E sign-in reset",
         closing_comments: "E2E sign-in reset",
+        manager_staff_id: managerStaffId,
+        manager_pin: code,
+        manager_reason:
+          "E2E Manager Access approves cleanup close with reconciliation evidence",
       },
       failOnStatusCode: false,
     },

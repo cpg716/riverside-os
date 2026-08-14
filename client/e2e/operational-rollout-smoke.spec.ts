@@ -141,15 +141,16 @@ async function selectCustomer(page: Page): Promise<void> {
 }
 
 async function openSettingsSubItem(page: Page, label: RegExp): Promise<void> {
-  const subButton = page.getByRole("button", { name: label }).first();
+  const settingsHub = page.getByTestId("settings-workspace-content");
+  const subButton = settingsHub.getByRole("button", { name: label }).first();
   if (!(await subButton.isVisible().catch(() => false))) {
-    const menuToggle = page.getByRole("button", { name: /toggle menu/i });
-    if (await menuToggle.isVisible().catch(() => false)) {
-      await menuToggle.click().catch(() => {});
-    }
+    await settingsHub
+      .getByRole("navigation", { name: "Settings categories" })
+      .getByRole("button", { name: /^help & system/i })
+      .click();
   }
   await expect(subButton).toBeVisible({ timeout: 20_000 });
-  await subButton.click({ force: true });
+  await subButton.click();
 }
 
 async function checkoutSeededProduct(
@@ -744,8 +745,13 @@ test.describe("operational rollout smoke", () => {
     );
 
     await openBackofficeSidebarTab(page, "settings");
-    await openSettingsSubItem(page, /^ros operations & support center$/i);
-    await page.getByRole("button", { name: /^bug manager$/i }).first().click();
+    await openSettingsSubItem(page, /^ros operations & support center/i);
+    await page
+      .getByRole("button", { name: /^advanced diagnostics$/i })
+      .click();
+    await page
+      .getByRole("button", { name: /^bug & error diagnostics$/i })
+      .click();
     await page.getByRole("button", { name: /^view$/i }).first().click();
 
     const detail = page.getByRole("dialog", { name: /bug report detail/i });

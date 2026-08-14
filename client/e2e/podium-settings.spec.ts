@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
   e2eBackofficeStaffCode,
+  openBackofficeSidebarTab,
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
 
@@ -47,42 +48,27 @@ test.beforeEach(() => {
 });
 
 test.describe("Settings Podium integration", () => {
-  test("Integrations overview opens Podium controls", async ({ page }) => {
+  test("Settings Hub opens Podium controls", async ({ page }) => {
     test.setTimeout(90_000);
     await signInToBackOffice(page);
-    const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
-    await expect(mainNav).toBeVisible({ timeout: 20_000 });
-    const settingsButton = mainNav.getByRole("button", {
-      name: /^settings(\s+bo)?$/i,
-    });
-    await expect(settingsButton).toBeVisible({ timeout: 15_000 });
-    await expect(settingsButton).toBeEnabled();
-    await settingsButton.click();
+    await openBackofficeSidebarTab(page, "settings");
 
-    const integrationsButton = mainNav.getByRole("button", {
-      name: /^integrations overview$/i,
+    const settingsHub = page.getByTestId("settings-workspace-content");
+    const categories = settingsHub.getByRole("navigation", {
+      name: "Settings categories",
     });
-    await expect(integrationsButton).toBeVisible({ timeout: 15_000 });
-    await expect(integrationsButton).toBeEnabled();
-    await integrationsButton.click();
+    await categories
+      .getByRole("button", { name: /^connected services/i })
+      .click();
+    const podiumButton = settingsHub.getByRole("button", {
+      name: /^podium/i,
+    });
+    await expect(podiumButton).toBeVisible({ timeout: 20_000 });
+    await expect(podiumButton).toBeEnabled();
+    await podiumButton.click();
     await expect(
-      page
-        .getByRole("heading", { name: /integrations & (bridges|hub)/i })
-        .first(),
+      page.getByRole("heading", { name: /^podium integration$/i }),
     ).toBeVisible({ timeout: 20_000 });
-
-    await expect(
-      page.getByRole("heading", { level: 3, name: /podium comms/i }).first(),
-    ).toBeVisible({ timeout: 25_000 });
-    await expect(
-      page.getByText(/sms, inbox & reviews/i).first(),
-    ).toBeVisible({ timeout: 25_000 });
-
-    const podiumCard = page
-      .getByRole("button", { name: /podium.*podium comms/i })
-      .first();
-    await expect(podiumCard).toBeEnabled();
-    await podiumCard.click();
     await page
       .getByText("Diagnostics and contact maintenance", { exact: true })
       .click();
