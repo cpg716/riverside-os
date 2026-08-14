@@ -77,6 +77,12 @@ fn integer_at(value: &Value, paths: &[&str]) -> Option<i64> {
     })
 }
 
+fn boolean_at(value: &Value, paths: &[&str]) -> Option<bool> {
+    paths
+        .iter()
+        .find_map(|path| value.pointer(path).and_then(Value::as_bool))
+}
+
 fn timestamp_at(value: &Value, paths: &[&str]) -> Option<DateTime<Utc>> {
     text_at(value, paths).and_then(|raw| {
         DateTime::parse_from_rfc3339(&raw)
@@ -282,6 +288,15 @@ fn parse_call_event(value: &Value) -> Option<ParsedCallEvent> {
         ),
         duration_seconds,
         has_voicemail: event_type == "call.voicemail_left"
+            || boolean_at(
+                value,
+                &[
+                    "/data/hasVoicemail",
+                    "/data/has_voicemail",
+                    "/data/call/hasVoicemail",
+                    "/data/call/has_voicemail",
+                ],
+            ) == Some(true)
             || text_at(
                 value,
                 &[
@@ -593,6 +608,43 @@ mod tests {
         assert_eq!(parsed.contact_phone_e164.as_deref(), Some("+17165551212"));
         assert_eq!(parsed.contact_name.as_deref(), Some("Chris Customer"));
         assert_eq!(parsed.duration_seconds, Some(125));
+    }
+
+    #[test]
+    fn parses_documented_call_object_fields() {
+        let parsed = parse_call_event(&json!({
+            "metadata": {
+                "eventType": "call.completed",
+                "eventUid": "event-documented"
+            },
+            "data": {
+                "status": "completed",
+                "direction": "inbound",
+                "uid": "call-documented",
+                "locationUid": "location-1",
+                "organizationUid": "organization-1",
+                "startedAt": "2026-08-13T14:00:00Z",
+                "endedAt": "2026-08-13T14:02:14Z",
+                "conversationUid": "conversation-documented",
+                "userUid": "user-1",
+                "customerPhoneNumber": "+18017580580",
+                "durationSeconds": 134,
+                "locationPhoneNumber": "+18015550100",
+                "hasVoicemail": true,
+                "isPrivate": false
+            }
+        }))
+        .expect("documented call payload");
+
+        assert_eq!(parsed.provider_call_uid, "call-documented");
+        assert_eq!(
+            parsed.provider_conversation_uid.as_deref(),
+            Some("conversation-documented")
+        );
+        assert_eq!(parsed.direction, "inbound");
+        assert_eq!(parsed.contact_phone_e164.as_deref(), Some("+18017580580"));
+        assert_eq!(parsed.duration_seconds, Some(134));
+        assert!(parsed.has_voicemail);
     }
 
     #[test]

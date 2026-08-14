@@ -114,6 +114,7 @@ const PODIUM_OAUTH_SCOPE = [
   "read_locations",
   "read_messages",
   "write_messages",
+  "read_phones",
   "read_reviews",
   "write_reviews",
   "read_users",
@@ -475,9 +476,12 @@ export default function PodiumSettingsPanel({ baseUrl }: { baseUrl: string }) {
             <li>
               <strong className="text-app-text">3. Approve Riverside.</strong>
               <p className="mt-1 text-xs font-semibold leading-5 text-app-text-muted">
-                Sign in as a Podium administrator who can access Messages, Calls, Contacts, and
-                Reviews. Podium can return HTTP 403 when the approving user lacks access to one of
-                the webhook event resources.
+                Sign in as a Podium administrator who can access Messages,
+                Calls, Contacts, and Reviews. Riverside requests Podium&apos;s
+                Read phones (`read_phones`) scope for call webhooks. Existing
+                connections must reconnect once to receive that scope. If Podium
+                refuses it during authorization, Podium must enable Calls / Read
+                phones for the Riverside developer app.
               </p>
               <div>
                 <button

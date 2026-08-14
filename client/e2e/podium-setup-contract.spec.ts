@@ -144,7 +144,11 @@ test("Podium provider contracts and webhook processing stay hardened", () => {
   expect(podiumLogic).toContain("PODIUM_REQUIRED_WEBHOOK_EVENT_TYPES");
   expect(settingsApi).toContain('"/podium/provider-setup"');
   expect(settingsApi).toContain('"/podium/webhook"');
+  expect(settingsApi).toContain(
+    "Call webhooks require the read_phones OAuth scope",
+  );
   expect(panel).toContain("Register Podium webhook?");
+  expect(panel).toContain('"read_phones"');
   expect(podiumLogic).toContain("StatusCode::TOO_MANY_REQUESTS");
   expect(podiumLogic).toContain("PodiumError::RateLimited");
   expect(podiumLogic).toContain("invalidate_podium_access_token");

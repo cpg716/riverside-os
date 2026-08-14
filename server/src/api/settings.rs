@@ -3428,7 +3428,7 @@ fn podium_provider_setup_response(
     {
         (
             "needs_update",
-            "The matching Podium webhook is disabled or missing required event types.",
+            "The matching Podium webhook is disabled or missing required event types. Call events require a current read_phones OAuth grant; reconnect Riverside before updating if this connection predates call support.",
         )
     } else {
         (
@@ -3524,7 +3524,7 @@ async fn post_podium_webhook_ensure(
     .map_err(|error| {
         if error.http_status() == Some(StatusCode::FORBIDDEN.as_u16()) {
             SettingsError::InvalidPayload(format!(
-                "Podium refused the webhook update. Reconnect Riverside using a Podium administrator who can access Messages, Calls, Contacts, and Reviews, then try again. Provider response: {error}"
+                "Podium refused one or more requested webhook event types. Call webhooks require the read_phones OAuth scope. Reconnect Riverside using a Podium administrator with Calls access, then retry. If Podium still refuses it, Podium must enable Calls / Read phones for the Riverside developer app. Provider response: {error}"
             ))
         } else {
             SettingsError::InvalidPayload(error.to_string())
