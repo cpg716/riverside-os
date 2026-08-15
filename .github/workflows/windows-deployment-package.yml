@@ -1261,6 +1261,25 @@ jobs:
           }
           "Deployment package: $($deploymentZipFiles[0].Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
 
+          .\deployment\windows\build-deployment-package.ps1 `
+            -Version $version `
+            -PackageFlavor "MainHub-Update" `
+            -ServerBinaryPath ".\target\release\riverside-server.exe" `
+            -ClientDistPath ".\client\dist" `
+            -RegisterBundlePath ".\target\release\bundle" `
+            -ManagerBinaryPath ".\target\release\riverside-deployment-manager.exe" `
+            -ServerManagerBinaryPath ".\target\release\ros-server-manager.exe" `
+            -AllowMissingManagerBinary `
+            -AllowMissingServerManagerBinary `
+            -SkipRosieVoiceModels
+          $mainHubZipPattern = "RiversideOS-v$version-*-MainHub-Update.zip"
+          $mainHubZipFiles = @(Get-ChildItem -Path "dist/deployment" -Filter $mainHubZipPattern -ErrorAction SilentlyContinue)
+          if ($mainHubZipFiles.Count -ne 1) {
+            $found = @(Get-ChildItem -Path "dist/deployment" -Filter "*.zip" -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ", "
+            throw "Expected exactly one current Main Hub update ZIP matching $mainHubZipPattern. Found: $found"
+          }
+          "Main Hub update package: $($mainHubZipFiles[0].Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
+
       - name: Verify Windows publisher signatures
         if: vars.RIVERSIDE_REQUIRE_AUTHENTICODE == 'true'
         shell: pwsh
@@ -1271,6 +1290,12 @@ jobs:
           retention-days: 7
           name: riverside-windows-deployment-package
           path: dist/deployment/RiversideOS-v*-Windows-Deployment.zip
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          retention-days: 7
+          name: riverside-main-hub-update-package
+          path: dist/deployment/RiversideOS-v*-MainHub-Update.zip
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -1306,8 +1331,9 @@ jobs:
             )
             foreach ($asset in $release.assets) {
               $isOlderDeploymentZip = $asset.name -like "RiversideOS-v$version-*-Windows-Deployment.zip"
+              $isOlderMainHubZip = $asset.name -like "RiversideOS-v$version-*-MainHub-Update.zip"
               $isRetiredExactAsset = $retiredAssetNames -contains $asset.name
-              if ($isOlderDeploymentZip -or $isRetiredExactAsset) {
+              if ($isOlderDeploymentZip -or $isOlderMainHubZip -or $isRetiredExactAsset) {
                 Write-Host "Deleting obsolete release asset: $($asset.name)"
                 gh release delete-asset $tag $asset.name --yes
               }
@@ -1325,6 +1351,18 @@ jobs:
           gh release upload $tag $zipFiles[0].FullName --clobber
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to upload deployment package to release $tag"
+          }
+          $mainHubZipPattern = "RiversideOS-v$version-*-MainHub-Update.zip"
+          $mainHubZipFiles = @(Get-ChildItem -Path "dist/deployment" -Filter $mainHubZipPattern -ErrorAction SilentlyContinue)
+          if ($mainHubZipFiles.Count -ne 1) {
+            $found = @(Get-ChildItem -Path "dist/deployment" -Filter "*.zip" -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ", "
+            throw "Expected exactly one current Main Hub update ZIP matching $mainHubZipPattern. Found: $found"
+          }
+          $mainHubZipSizeMb = [Math]::Round($mainHubZipFiles[0].Length / 1MB, 1)
+          Write-Host "Uploading Main Hub update package: $($mainHubZipFiles[0].Name) ($mainHubZipSizeMb MB)"
+          gh release upload $tag $mainHubZipFiles[0].FullName --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload Main Hub update package to release $tag"
           }
           if (Test-Path "client/updater-dist") {
             Write-Host "Uploading Windows app updater assets"

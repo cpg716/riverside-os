@@ -238,17 +238,18 @@ As of v0.80.9, **routine updates no longer require the Deployment Manager**. All
 
 On the Main Hub station, **Settings → Updates → Server update** shows a live version status banner and a one-click update button. When clicked, the system:
 
-1. Downloads the Windows deployment ZIP for the version/build reported by the update check.
-2. Extracts it to a temporary directory and verifies `deployment-package.manifest.json` against the target build SHA before launching any elevated script.
+1. Downloads the exact-build `MainHub-Update.zip` when the release provides it. The complete `Windows-Deployment.zip` remains the fallback and is still used for first-time installation and repair.
+2. Extracts it to a temporary directory, verifies its GitHub SHA-256 digest and `deployment-package.manifest.json` against the target build SHA, and verifies every packaged file before launching any elevated script.
 3. Uses the configured PostgreSQL administrator to create and verify a pre-migration database backup while the current Main Hub server is still running. If this backup fails, the update stops before replacing files or stopping Riverside.
-4. Runs `install-server.ps1` and `install-register.ps1` elevated via UAC in a PowerShell window. Existing staff credentials and permissions are preserved; bootstrap-admin recovery remains a separate lockout-only action.
-5. **Automatically restarts the `Riverside OS Server` scheduled task** after install. If a later install step fails, rollback independently restores the prior files/task, synchronizes the restored server environment with any completed database credential change, and attempts to restart the previous server.
-6. Polls `GET /api/ready` every 2 seconds (up to 60 s), then records the exact version, build SHA, transcript path, and final post-restart result in `C:\ProgramData\RiversideOS\deployment.status` before printing "Update Complete".
+4. Compares the package's deterministic ROSIE, Meilisearch, and Cube Core fingerprints with the last successfully installed manifest, then performs a fast installed-runtime check. Healthy exact matches remain running and are not recopied or recertified; changed, unhealthy, or previously untracked components use the existing complete update and verification path.
+5. Runs `install-server.ps1` and `install-register.ps1` elevated via UAC in a PowerShell window. Existing staff credentials and permissions are preserved; bootstrap-admin recovery remains a separate lockout-only action.
+6. Performs one guarded `Riverside OS Server` restart after the backup, file replacement, and migrations. If a later install step fails, rollback independently restores the prior files/task, synchronizes the restored server environment with any completed database credential change, and attempts to restart the previous server.
+7. Polls `GET /api/ready` every 2 seconds (up to 60 s), records the exact version, build SHA, transcript path, and final result in `C:\ProgramData\RiversideOS\deployment.status`, and confirms readiness remains healthy after the local desktop update without restarting the server a second time.
 
 During the managed Meilisearch restart, a detected legacy development key is replaced with a generated private key and the same value is written to the managed server configuration before Riverside restarts.
 
 ROSIE certification uses the functional artifacts themselves: TTS must create a structurally valid RIFF/WAVE fixture and STT must recognize the health-check phrase from that fixture. Native exit codes and diagnostic streams remain recorded, but a Windows process-status anomaly cannot discard valid generated speech or prevent the subsequent recognition probe.
-7. The operator relaunches Riverside on all stations when prompted.
+8. The operator relaunches Riverside on all stations when prompted.
 
 The updater requires an exact build SHA from the server update check before it downloads an asset. Missing provenance or a non-successful GitHub asset response stops before extraction, elevation, or any Main Hub change.
 
@@ -381,9 +382,9 @@ async fn run_inline_powershell(app: AppHandle, script_content: String) -> Result
 Logs are emitted asynchronously from Rust back to the Vite console using the `deployment-log` event emitter, allowing operators to monitor script output in real time.
 
 ### GitHub Actions CI/CD Pipeline
-The deployment manager packaging is automated by **Windows deployment package** (`.github/workflows/windows-deployment-package.yml`). It builds the Windows deployment ZIP with the server binary, client bundle, register installer, Deployment Manager installer bundle, ROS Server Manager installer bundle, Counterpoint Bridge GUI, and ROSIE installer/runtime support. Main Hub update packages may omit large ROSIE model files; the pinned ROSIE installer reuses verified installed files and downloads any changed or missing release-pinned assets before certification. Signed updater manifests/installers are uploaded as release assets beside the ZIP.
+The deployment manager packaging is automated by **Windows deployment package** (`.github/workflows/windows-deployment-package.yml`). Every tagged release publishes both the complete Windows deployment ZIP and an exact-build `MainHub-Update.zip`. The complete package contains first-install/recovery tools, companion managers, Counterpoint Bridge GUI, server, client, and runtime support. The Main Hub package excludes unrelated companion applications while retaining the server, client, migrations, signed desktop installer, rollback scripts, and any auxiliary runtime payload needed when a component fingerprint changes. Large ROSIE model files remain external and SHA-256 pinned. Signed updater manifests/installers are uploaded as release assets beside both ZIPs.
 
-For a routine in-app Main Hub update, use **In-app Main Hub update** (`.github/workflows/in-app-main-hub-update.yml`). This dispatches the verified `main-hub-update` scope and waits for completion. The resulting package includes the Rust server, client/PWA files, migrations, Register/Tauri updater assets, and the Main Hub update ZIP; it does not rebuild unrelated companion applications. Use the full Windows workflow for complete release packaging or companion-app refreshes.
+For a routine in-app Main Hub update, the normal tagged Windows release already supplies the preferred slim asset. **In-app Main Hub update** (`.github/workflows/in-app-main-hub-update.yml`) remains available to rebuild only that verified scope and wait for completion without rebuilding unrelated companion applications. Use the complete Windows package for first-time installation, repair, or companion-app recovery.
 
 Both pipelines use **`swatinem/rust-cache`** for Rust dependency reuse and **`sccache`** for Rust/Tauri compiler output reuse across repeated release builds. The Windows workspace builds these Rust/Tauri targets as separate workflow jobs so unchanged companion apps can be skipped by the faster app-updater-only release path:
 1.  `client/src-tauri` (Tauri Client Desktop application)

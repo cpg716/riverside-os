@@ -31,6 +31,37 @@ function Resolve-FullPath([string]$Path) {
   $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
 }
 
+function Get-PackageContentFingerprint([string]$BasePath, [string[]]$Paths) {
+  $files = @()
+  foreach ($path in $Paths) {
+    if (Test-Path $path -PathType Container) {
+      $files += @(Get-ChildItem $path -Recurse -File)
+    } elseif (Test-Path $path -PathType Leaf) {
+      $files += @(Get-Item $path)
+    }
+  }
+  if ($files.Count -eq 0) {
+    throw "Cannot fingerprint an empty deployment component: $($Paths -join ', ')"
+  }
+
+  $entries = @(
+    $files |
+      Sort-Object FullName |
+      ForEach-Object {
+        $relativePath = $_.FullName.Substring($BasePath.Length).TrimStart([char]92).Replace("\", "/")
+        $fileHash = (Get-FileHash -Algorithm SHA256 -Path $_.FullName).Hash.ToLowerInvariant()
+        "$relativePath=$fileHash"
+      }
+  )
+  $payload = [System.Text.Encoding]::UTF8.GetBytes([string]::Join("`n", $entries))
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return ([System.BitConverter]::ToString($sha.ComputeHash($payload))).Replace("-", "").ToLowerInvariant()
+  } finally {
+    $sha.Dispose()
+  }
+}
+
 function Get-GitShort([string]$RepoRoot) {
   try {
     return (& git -C $RepoRoot rev-parse --short=8 HEAD 2>$null).Trim()
@@ -421,10 +452,10 @@ if (-not (Test-Path $ClientDistPath)) {
 if (-not (Test-Path $RegisterBundlePath) -and -not $AllowMissingRegisterBundle) {
   throw "Register bundle not found: $RegisterBundlePath. Build it first with npm --prefix client run tauri:build, or pass -AllowMissingRegisterBundle."
 }
-if (-not (Test-Path $ManagerBinaryPath) -and -not $AllowMissingManagerBinary) {
+if ($PackageFlavor -eq "Windows-Deployment" -and -not (Test-Path $ManagerBinaryPath) -and -not $AllowMissingManagerBinary) {
   throw "Manager binary not found: $ManagerBinaryPath. Build it first with cd deployment/manager-app && npx tauri build, or pass -AllowMissingManagerBinary."
 }
-if (-not (Test-Path $ServerManagerBinaryPath) -and -not $AllowMissingServerManagerBinary) {
+if ($PackageFlavor -eq "Windows-Deployment" -and -not (Test-Path $ServerManagerBinaryPath) -and -not $AllowMissingServerManagerBinary) {
   throw "ROS Server Manager binary not found: $ServerManagerBinaryPath. Build it first with cd deployment/server-manager-app && npx tauri build, or pass -AllowMissingServerManagerBinary."
 }
 
@@ -477,19 +508,19 @@ if (Test-Path $integrationCredsSource) {
   Write-Host "Packaged integration-credentials.sql (encrypted credential dump)"
 }
 
-if (Test-Path $ManagerBinaryPath) {
+if ($PackageFlavor -eq "Windows-Deployment" -and (Test-Path $ManagerBinaryPath)) {
   Copy-Item $ManagerBinaryPath "$packageRoot\RiversideOS-Deployment-Manager.exe" -Force
   Write-Host "Packaged RiversideOS-Deployment-Manager.exe"
 }
-if (Test-Path $ServerManagerBinaryPath) {
+if ($PackageFlavor -eq "Windows-Deployment" -and (Test-Path $ServerManagerBinaryPath)) {
   Copy-Item $ServerManagerBinaryPath "$packageRoot\ROS-ServerManager.exe" -Force
   Write-Host "Packaged ROS-ServerManager.exe"
 }
-if (Test-Path $ManagerBundlePath) {
+if ($PackageFlavor -eq "Windows-Deployment" -and (Test-Path $ManagerBundlePath)) {
   Copy-Item "$ManagerBundlePath\*" "$packageRoot\deployment-app" -Recurse -Force
   Write-Host "Packaged Deployment Manager installer bundle"
 }
-if (Test-Path $ServerManagerBundlePath) {
+if ($PackageFlavor -eq "Windows-Deployment" -and (Test-Path $ServerManagerBundlePath)) {
   Copy-Item "$ServerManagerBundlePath\*" "$packageRoot\server-manager-app" -Recurse -Force
   Write-Host "Packaged ROS Server Manager installer bundle"
 }
@@ -536,12 +567,25 @@ Copy-Item "$PSScriptRoot\start-riverside-llama.ps1" $packageRoot -Force
 Copy-Item "$PSScriptRoot\Start-RiversideLlama.cmd" $packageRoot -Force
 Copy-Item "$PSScriptRoot\watch-rosie-stack.ps1" $packageRoot -Force
 
-
+$rosieFingerprint = Get-PackageContentFingerprint $packageRoot @(
+  (Join-Path $packageRoot "rosie"),
+  (Join-Path $packageRoot "Install-RosieAiStack.ps1"),
+  (Join-Path $packageRoot "start-riverside-llama.ps1"),
+  (Join-Path $packageRoot "watch-rosie-stack.ps1")
+)
+$meilisearchFingerprint = Get-PackageContentFingerprint $packageRoot @(
+  (Join-Path $packageRoot "meilisearch")
+)
+$cubeFingerprint = Get-PackageContentFingerprint $packageRoot @(
+  (Join-Path $packageRoot "cube")
+)
 $manifest = @{
   releaseVersion = $Version
   sourceGitShort = $gitShort
   sourceGitSha = $gitFull
   packageName = $packageLabel
+  packageFlavor = $PackageFlavor
+  updateContractVersion = 1
   builtAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
   clientDistPath = (Resolve-FullPath $ClientDistPath)
   serverBinaryPath = (Resolve-FullPath $ServerBinaryPath)
@@ -549,6 +593,11 @@ $manifest = @{
   meilisearchPath = "meilisearch\meilisearch.exe"
   cubePath = "cube"
   cubeVersion = "1.7.16"
+  components = @{
+    rosie = @{ fingerprint = $rosieFingerprint }
+    meilisearch = @{ fingerprint = $meilisearchFingerprint }
+    cube = @{ fingerprint = $cubeFingerprint }
+  }
 } | ConvertTo-Json -Depth 4
 Set-Content -Path "$packageRoot\deployment-package.manifest.json" -Value $manifest -Encoding UTF8
 
@@ -570,12 +619,17 @@ foreach ($doc in @(
 
 if (Test-Path $RegisterBundlePath) {
   Copy-Item "$RegisterBundlePath\*" "$packageRoot\register" -Recurse -Force
-  
-  # Copy bridge GUI installer files to their own clean directory.
-  New-Item -ItemType Directory -Force -Path "$packageRoot\counterpoint-bridge-gui" | Out-Null
-  Get-ChildItem "$packageRoot\register" -Recurse -Filter "*counterpoint-bridge-gui*" | ForEach-Object {
-    Copy-Item $_.FullName "$packageRoot\counterpoint-bridge-gui\" -Force
-    Remove-Item $_.FullName -Force
+
+  # Companion-app installers belong only in the complete deployment package.
+  $bridgeGuiFiles = @(Get-ChildItem "$packageRoot\register" -Recurse -Filter "*counterpoint-bridge-gui*")
+  if ($PackageFlavor -eq "Windows-Deployment") {
+    New-Item -ItemType Directory -Force -Path "$packageRoot\counterpoint-bridge-gui" | Out-Null
+    $bridgeGuiFiles | ForEach-Object {
+      Copy-Item $_.FullName "$packageRoot\counterpoint-bridge-gui\" -Force
+      Remove-Item $_.FullName -Force
+    }
+  } else {
+    $bridgeGuiFiles | Remove-Item -Force
   }
 
   # Remove deployment manager installer from register directory to save space and prevent confusion
@@ -620,6 +674,16 @@ $readme = "# RiversideOS $Version Windows Deployment Package`n" +
   "`nDatabase-only repair:`n" +
   "`n- If the app starts but a screen reports a missing relation/table, double-click Apply-RiversideMigrations.cmd.`n" +
   "`nUpdater manifests, installers, and signatures are published as GitHub release assets, not duplicated inside this deployment ZIP."
+if ($PackageFlavor -eq "MainHub-Update") {
+  $readme = "# RiversideOS $Version Main Hub Update Package`n" +
+    "`nPackage build: $gitShort`n" +
+    "`nThis exact-build package is for Settings -> Updates on an existing Main Hub.`n" +
+    "It is not a first-time installer or recovery package.`n" +
+    "`nThe updater verifies the GitHub digest, every packaged file, the existing Main Hub,`n" +
+    "a pre-migration database backup, migration checksums, exact build readiness, and rollback files.`n" +
+    "Unchanged ROSIE, Meilisearch, and Cube Core fingerprints are preserved; changed components`n" +
+    "use their complete verified setup path. Use Windows-Deployment.zip for installation or repair."
+}
 Set-Content -Path "$packageRoot\README.md" -Value $readme -Encoding UTF8
 
 $checksumLines = Get-ChildItem $packageRoot -Recurse -File |
@@ -632,6 +696,7 @@ $checksumLines = Get-ChildItem $packageRoot -Recurse -File |
   }
 Set-Content -Path "$packageRoot\deployment-package.files.sha256" -Value $checksumLines -Encoding ASCII
 
+& (Join-Path $packageRoot "verify-deployment-package.ps1") -PackageRoot $packageRoot
 Compress-Archive -Path "$packageRoot\*" -DestinationPath "$packageRoot.zip" -Force
 Write-Host "Deployment package created:"
 Write-Host $packageRoot

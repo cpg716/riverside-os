@@ -563,6 +563,23 @@ assertIncludes(
   "rev-parse --short=8 HEAD",
   "Windows deployment ZIP names must use the same 8-character build prefix as updater metadata",
 );
+for (const copy of [
+  "function Get-PackageContentFingerprint",
+  "packageFlavor = $PackageFlavor",
+  "updateContractVersion = 1",
+  "rosie = @{ fingerprint = $rosieFingerprint }",
+  "meilisearch = @{ fingerprint = $meilisearchFingerprint }",
+  "cube = @{ fingerprint = $cubeFingerprint }",
+  '$PackageFlavor -eq "Windows-Deployment"',
+  "This exact-build package is for Settings -> Updates on an existing Main Hub.",
+  '& (Join-Path $packageRoot "verify-deployment-package.ps1") -PackageRoot $packageRoot',
+]) {
+  assertIncludes(
+    deploymentPackageBuilder,
+    copy,
+    "deployment manifests must carry deterministic component fingerprints for optimized Main Hub updates",
+  );
+}
 for (const obsolete of [
   "CounterpointSyncSourcePath",
   "Copy-CounterpointSyncWorkbench",
@@ -622,6 +639,8 @@ for (const copy of [
   "gh release upload $tag client/updater-dist/* --clobber",
   "RiversideOS-v$version-*-MainHub-Update.zip",
   '-PackageFlavor "MainHub-Update"',
+  "name: riverside-main-hub-update-package",
+  "Uploading Main Hub update package:",
   "--manifest latest.json",
   "--build-manifest riverside-updater-build-manifest.json",
 ]) {
@@ -839,6 +858,17 @@ for (const copy of [
   "The Riverside OS update will continue while ROSIE reports degraded status and the watchdog retries.",
   "Deferring cleanup of superseded certified ROSIE asset until the Main Hub update is fully ready",
   "Removing superseded certified ROSIE asset after successful Main Hub update",
+  "function Test-DeploymentComponentChanged",
+  "function Test-DeploymentHttpReady",
+  '$packageFlavor -eq "MainHub-Update"',
+  "MainHub-Update packages require an existing Riverside Main Hub installation.",
+  "Optimized Main Hub update component plan:",
+  "ROSIE fingerprint matches, but its installed task or model is missing.",
+  "Meilisearch fingerprint matches, but its installed runtime is not healthy.",
+  "Cube Core fingerprint matches, but its installed runtime is not healthy.",
+  "Meilisearch component fingerprint is unchanged.",
+  "Cube Core component fingerprint is unchanged.",
+  "ROSIE component fingerprint is unchanged.",
 ]) {
   assertIncludes(
     mainHubInstaller,
@@ -1213,6 +1243,16 @@ if (!renderedMainHubUpdateRunner.includes("/api/ready")) {
 if (renderedMainHubUpdateRunner.includes("-PreserveExistingRosie")) {
   fail(
     `${mainHubUpdater}: generated update runner must install and certify release-pinned ROSIE assets`,
+  );
+}
+if (renderedMainHubUpdateRunner.includes("Step 4: Restarting Riverside OS Server")) {
+  fail(
+    `${mainHubUpdater}: generated update runner must not stop and restart the server a second time after install-server.ps1 has already passed readiness`,
+  );
+}
+if (!renderedMainHubUpdateRunner.includes("Step 4: Confirming Riverside OS Server remains ready")) {
+  fail(
+    `${mainHubUpdater}: generated update runner must retain a final readiness check after the desktop update`,
   );
 }
 if (renderedMainHubUpdateRunner.includes("/api/health")) {

@@ -64,6 +64,33 @@ function Set-SafeProperty($Object, $Name, $Value) {
   }
 }
 
+function Get-ManifestComponentFingerprint($Manifest, [string]$ComponentName) {
+  if (-not $Manifest -or -not $Manifest.components) { return "" }
+  $component = $Manifest.components.PSObject.Properties[$ComponentName]
+  if (-not $component -or -not $component.Value) { return "" }
+  return "$($component.Value.fingerprint)".Trim().ToLowerInvariant()
+}
+
+function Test-DeploymentComponentChanged($CurrentManifest, $InstalledManifest, [string]$ComponentName) {
+  $currentFingerprint = Get-ManifestComponentFingerprint $CurrentManifest $ComponentName
+  $installedFingerprint = Get-ManifestComponentFingerprint $InstalledManifest $ComponentName
+  if ([string]::IsNullOrWhiteSpace($currentFingerprint) -or
+      [string]::IsNullOrWhiteSpace($installedFingerprint)) {
+    return $true
+  }
+  return $currentFingerprint -ne $installedFingerprint
+}
+
+function Test-DeploymentHttpReady([string]$Url) {
+  if ([string]::IsNullOrWhiteSpace($Url)) { return $false }
+  try {
+    $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 3
+    return [int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 300
+  } catch {
+    return $false
+  }
+}
+
 $deploymentStatusPath = "C:\ProgramData\RiversideOS\deployment.status"
 $deploymentLogPath = "C:\ProgramData\RiversideOS\deployment-manager.log"
 
@@ -2440,20 +2467,87 @@ $rollbackDir = Join-Path $installRoot ".install-rollback"
 $hadExistingTask = $null -ne (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)
 $hadExistingCubeTask = $null -ne (Get-ScheduledTask -TaskName $cubeTaskName -ErrorAction SilentlyContinue)
 $hadExistingServerInstall = $hadExistingTask -or (Test-Path (Join-Path $serverDir "riverside-server.exe"))
+$packageFlavor = if ($packageManifest) { "$($packageManifest.packageFlavor)".Trim() } else { "" }
+$isOptimizedMainHubUpdate = $packageFlavor -eq "MainHub-Update"
+if ($isOptimizedMainHubUpdate) {
+  if (-not $hadExistingServerInstall) {
+    throw "MainHub-Update packages require an existing Riverside Main Hub installation. Use the Windows Deployment package for first-time installation or recovery."
+  }
+  if ([int]$packageManifest.updateContractVersion -ne 1) {
+    throw "MainHub-Update package contract '$($packageManifest.updateContractVersion)' is not supported by this installer. Use the matching Windows Deployment package."
+  }
+}
+
+$installedPackageManifest = $null
+$installedPackageManifestPath = Join-Path $releaseDir "deployment-package.manifest.json"
+if ($isOptimizedMainHubUpdate -and (Test-Path $installedPackageManifestPath)) {
+  try {
+    $installedPackageManifest = Get-Content $installedPackageManifestPath -Raw | ConvertFrom-Json
+  } catch {
+    Write-Warning "Installed deployment manifest could not be read. Auxiliary Main Hub components will be reconciled conservatively."
+  }
+}
+$updateRosieComponent = (-not $isOptimizedMainHubUpdate) -or
+  (Test-DeploymentComponentChanged $packageManifest $installedPackageManifest "rosie")
+$updateMeilisearchComponent = (-not $isOptimizedMainHubUpdate) -or
+  (Test-DeploymentComponentChanged $packageManifest $installedPackageManifest "meilisearch")
+$updateCubeComponent = (-not $isOptimizedMainHubUpdate) -or
+  (Test-DeploymentComponentChanged $packageManifest $installedPackageManifest "cube")
+
+if ($isOptimizedMainHubUpdate -and -not $updateRosieComponent) {
+  $installedRosieModel = Get-DotEnvValue (Join-Path $serverDir ".env") "RIVERSIDE_LLAMA_MODEL_PATH"
+  $hasRosieTask = $null -ne (Get-ScheduledTask -TaskName "Riverside OS LLM Host" -ErrorAction SilentlyContinue)
+  if (-not $hasRosieTask -or [string]::IsNullOrWhiteSpace($installedRosieModel) -or -not (Test-Path $installedRosieModel)) {
+    Write-Warning "ROSIE fingerprint matches, but its installed task or model is missing. The component will be reconciled."
+    $updateRosieComponent = $true
+  }
+}
+if ($isOptimizedMainHubUpdate -and -not $updateMeilisearchComponent) {
+  $meilisearchUrl = Get-ServerEnvironmentValue $config @("RIVERSIDE_MEILISEARCH_URL")
+  if ([string]::IsNullOrWhiteSpace($meilisearchUrl)) { $meilisearchUrl = "http://127.0.0.1:7700" }
+  $hasMeilisearchTask = $null -ne (Get-ScheduledTask -TaskName "Riverside OS Meilisearch" -ErrorAction SilentlyContinue)
+  $hasMeilisearchBinary = Test-Path (Join-Path $installRoot "meilisearch\meilisearch.exe")
+  if (-not $hasMeilisearchTask -or -not $hasMeilisearchBinary -or
+      -not (Test-DeploymentHttpReady "$($meilisearchUrl.TrimEnd('/'))/health")) {
+    Write-Warning "Meilisearch fingerprint matches, but its installed runtime is not healthy. The component will be reconciled."
+    $updateMeilisearchComponent = $true
+  }
+}
+if ($isOptimizedMainHubUpdate -and -not $updateCubeComponent) {
+  $cubeUrl = Get-ServerEnvironmentValue $config @("RIVERSIDE_CUBE_UPSTREAM")
+  if ([string]::IsNullOrWhiteSpace($cubeUrl)) { $cubeUrl = "http://127.0.0.1:4000" }
+  $hasCubeTask = $null -ne (Get-ScheduledTask -TaskName $cubeTaskName -ErrorAction SilentlyContinue)
+  $hasCubeBinary = Test-Path (Join-Path $installRoot "cube\node.exe")
+  if (-not $hasCubeTask -or -not $hasCubeBinary -or
+      -not (Test-DeploymentHttpReady "$($cubeUrl.TrimEnd('/'))/readyz")) {
+    Write-Warning "Cube Core fingerprint matches, but its installed runtime is not healthy. The component will be reconciled."
+    $updateCubeComponent = $true
+  }
+}
+$preserveRosieForOptimizedUpdate = $isOptimizedMainHubUpdate -and -not $updateRosieComponent
+if ($isOptimizedMainHubUpdate) {
+  Write-Host "Optimized Main Hub update component plan:" -ForegroundColor Cyan
+  Write-Host "  ROSIE: $(if ($updateRosieComponent) { 'update and certify' } else { 'preserve exact installed component' })"
+  Write-Host "  Meilisearch: $(if ($updateMeilisearchComponent) { 'update and verify' } else { 'preserve exact installed component' })"
+  Write-Host "  Cube Core: $(if ($updateCubeComponent) { 'update and verify' } else { 'preserve exact installed component' })"
+}
 Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $rollbackDir | Out-Null
 if ($hadExistingTask) {
   Export-ScheduledTask -TaskName $taskName | Set-Content (Join-Path $rollbackDir "server-task.xml") -Encoding Unicode
 }
-if ($hadExistingCubeTask) {
+if ($hadExistingCubeTask -and $updateCubeComponent) {
   Export-ScheduledTask -TaskName $cubeTaskName | Set-Content (Join-Path $rollbackDir "cube-task.xml") -Encoding Unicode
 }
-foreach ($entry in @(
+$rollbackEntries = @(
   @{ Source = $serverDir; Name = "server" },
   @{ Source = (Join-Path $installRoot "client"); Name = "client" },
-  @{ Source = $releaseDir; Name = "release" },
-  @{ Source = (Join-Path $installRoot "cube"); Name = "cube" }
-)) {
+  @{ Source = $releaseDir; Name = "release" }
+)
+if ($updateCubeComponent) {
+  $rollbackEntries += @{ Source = (Join-Path $installRoot "cube"); Name = "cube" }
+}
+foreach ($entry in $rollbackEntries) {
   if (Test-Path $entry.Source) {
     Copy-Item $entry.Source (Join-Path $rollbackDir $entry.Name) -Recurse -Force
   }
@@ -2625,7 +2719,7 @@ $preservedRosieEnvironment = $null
 $supersededRosieAssets = @()
 $rosieWatchdogTask = ""
 $previousRosieEnvironment = Get-PreservedRosieEnvironment $envPath
-if ($PreserveExistingRosie) {
+if ($PreserveExistingRosie -or $preserveRosieForOptimizedUpdate) {
   $preservedRosieEnvironment = $previousRosieEnvironment
   $rosieModelPath = Resolve-InstalledRosieModelPath $installRoot $ScriptRoot $preservedRosieEnvironment
   if ($rosieModelPath) {
@@ -2640,7 +2734,11 @@ if ($PreserveExistingRosie) {
       $preservedRosieEnvironment["RIVERSIDE_LLAMA_UPSTREAM"] = "http://127.0.0.1:8080"
     }
   }
-  Write-Host "ROSIE update preservation enabled. Existing ROSIE files, environment, processes, and scheduled task will not be changed."
+  if ($preserveRosieForOptimizedUpdate) {
+    Write-Host "ROSIE component fingerprint is unchanged. Preserving its files, environment, processes, and scheduled task."
+  } else {
+    Write-Host "ROSIE update preservation enabled. Existing ROSIE files, environment, processes, and scheduled task will not be changed."
+  }
   if ($preservedRosieEnvironment.Count -eq 0) {
     Write-Warning "No existing ROSIE environment settings were found at $envPath. The Main Hub update will continue without downloading or replacing ROSIE assets."
   }
@@ -2659,14 +2757,22 @@ if ($PreserveExistingRosie) {
 $script:meilisearchConfigModified = $false
 $script:legacyMeilisearchKeyRotated = $false
 $script:previousMeilisearchApiKey = $null
-Ensure-RiversideMeilisearchHost $ScriptRoot $installRoot $config (-not $NoStart)
+if ($updateMeilisearchComponent) {
+  Ensure-RiversideMeilisearchHost $ScriptRoot $installRoot $config (-not $NoStart)
+} else {
+  Write-Host "Meilisearch component fingerprint is unchanged. Preserving the running service and installed files."
+}
 if ($script:meilisearchConfigModified) {
   $configJson = $config | ConvertTo-Json -Depth 8
   Set-Content -Path $ConfigPath -Value $configJson -Encoding UTF8
   Write-Host "Saved Meilisearch runtime settings to $ConfigPath." -ForegroundColor Green
 }
 
-Ensure-RiversideCubeHost $ScriptRoot $installRoot $config $db (-not $NoStart)
+if ($updateCubeComponent) {
+  Ensure-RiversideCubeHost $ScriptRoot $installRoot $config $db (-not $NoStart)
+} else {
+  Write-Host "Cube Core component fingerprint is unchanged. Preserving the running service and installed files."
+}
 
 Write-ServerEnv $envPath $config $databaseUrl $backupDatabaseUrl $clientDist $rosieModelPath $preservedRosieEnvironment
 Set-MachineEnvironmentFromServerConfig $config
@@ -2709,7 +2815,7 @@ if ($server.environment) {
   if ($envBatchSize -match '^\d+$') { $llamaBatchSize = [math]::Min(2048, [math]::Max(32, [int]$envBatchSize)) }
   if ($envUbatchSize -match '^\d+$') { $llamaUbatchSize = [math]::Min($llamaBatchSize, [math]::Max(256, [int]$envUbatchSize)) }
 }
-if ($PreserveExistingRosie) {
+if ($PreserveExistingRosie -or $preserveRosieForOptimizedUpdate) {
   Write-Host "ROSIE scheduled task preserved without restart or re-registration."
 } else {
   Ensure-RiversideLlamaHost $ScriptRoot $installRoot $rosieModelPath $llamaHost $llamaPort $llamaPerfProfile $llamaContextSize $llamaParallel $llamaBatchSize $llamaUbatchSize
@@ -2800,13 +2906,18 @@ Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
   Write-DeploymentStatus "FAILED" $installFailure.Exception.Message
   try {
     Stop-RiversideServer $installedServerExe
-    Stop-RiversideCubeHost $installRoot
-    foreach ($entry in @(
+    if ($updateCubeComponent) {
+      Stop-RiversideCubeHost $installRoot
+    }
+    $rollbackRestoreEntries = @(
       @{ Target = $serverDir; Name = "server" },
       @{ Target = (Join-Path $installRoot "client"); Name = "client" },
-      @{ Target = $releaseDir; Name = "release" },
-      @{ Target = (Join-Path $installRoot "cube"); Name = "cube" }
-    )) {
+      @{ Target = $releaseDir; Name = "release" }
+    )
+    if ($updateCubeComponent) {
+      $rollbackRestoreEntries += @{ Target = (Join-Path $installRoot "cube"); Name = "cube" }
+    }
+    foreach ($entry in $rollbackRestoreEntries) {
       $saved = Join-Path $rollbackDir $entry.Name
       if (Test-Path $saved) {
         Remove-Item $entry.Target -Recurse -Force -ErrorAction SilentlyContinue
@@ -2875,14 +2986,16 @@ Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
     Write-Warning "Rollback scheduled-task restoration failed: $($_.Exception.Message)"
   }
 
-  try {
-    Unregister-ScheduledTask -TaskName $cubeTaskName -Confirm:$false -ErrorAction SilentlyContinue
-    if ($hadExistingCubeTask) {
-      $savedCubeTaskXml = Get-Content (Join-Path $rollbackDir "cube-task.xml") -Raw
-      Register-ScheduledTask -TaskName $cubeTaskName -Xml $savedCubeTaskXml | Out-Null
+  if ($updateCubeComponent) {
+    try {
+      Unregister-ScheduledTask -TaskName $cubeTaskName -Confirm:$false -ErrorAction SilentlyContinue
+      if ($hadExistingCubeTask) {
+        $savedCubeTaskXml = Get-Content (Join-Path $rollbackDir "cube-task.xml") -Raw
+        Register-ScheduledTask -TaskName $cubeTaskName -Xml $savedCubeTaskXml | Out-Null
+      }
+    } catch {
+      Write-Warning "Rollback Cube scheduled-task restoration failed: $($_.Exception.Message)"
     }
-  } catch {
-    Write-Warning "Rollback Cube scheduled-task restoration failed: $($_.Exception.Message)"
   }
 
   if ($hadExistingTask) {

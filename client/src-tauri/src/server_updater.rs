@@ -792,7 +792,7 @@ try {{
     if (Test-Path -Path $installRootConfig) {{
         $configPath = $installRootConfig
     }}
-    Write-MainHubUpdateStatus 'UPDATING' 'Server files installed; completing the desktop update and final restart.'
+    Write-MainHubUpdateStatus 'UPDATING' 'Server files installed; completing the desktop update and final readiness check.'
 
     Write-Host 'Step 2: Updating client app on this PC (preserving existing config)...'
     ./install-register.ps1 -ConfigPath $configPath -StationMode mainhub
@@ -806,20 +806,10 @@ try {{
         throw "Server binary was not installed correctly (missing file)."
     }}
 
-    Write-Host 'Step 4: Restarting Riverside OS Server...'
-    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    if ($task) {{
-        Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-        Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue |
-            ForEach-Object {{ $_.Kill(); $_.WaitForExit(5000) }}
-        Start-ScheduledTask -TaskName $taskName
-        Write-Host ('  Scheduled task ' + $taskName + ' restarted.')
-    }} else {{
-        Write-Warning ('  Scheduled task ' + $taskName + ' not found - server may need manual restart.')
-    }}
-
-    Write-Host 'Step 5: Waiting for server to become ready...'
+    # install-server.ps1 already performs the one required server restart and
+    # verifies /api/ready. Do not create a second outage after updating the
+    # local desktop application.
+    Write-Host 'Step 4: Confirming Riverside OS Server remains ready...'
     $ready = $false
     for ($i = 0; $i -lt 30; $i++) {{
         Start-Sleep -Seconds 2
