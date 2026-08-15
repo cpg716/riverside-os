@@ -1,7 +1,7 @@
 /**
  * POS checkout recovery queue (localforage).
  *
- * **Queued:** completed checkout payloads when `navigator.onLine` is false (see `Cart`).
+ * **Queued:** eligible simple take-now checkout payloads when `navigator.onLine` is false (see `useCartCheckout`).
  * **Blocked recovery:** online checkout outcomes that are unconfirmed, or paid
  * pickup follow-up work that did not complete. These rows do not auto-replay.
  * **Not queued:** cart edits, session open/close, back-office mutations — those require API access.

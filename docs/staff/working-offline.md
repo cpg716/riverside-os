@@ -14,7 +14,7 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 
 ## What still works
 
-- **Checkout queue** and similar offline-tolerant flows (see operational playbook) may let you **capture** sales when the API is temporarily unreachable, then **sync** when the connection returns.
+- Only a **simple take-now sale** paid with cash, a physical check, or a verified **Manual Card** approval completed outside ROS can queue while the device is offline. ROS prints **SALE SAVED - PENDING SYNC** with a recovery number. This is not yet a Main Hub Transaction Record; give the receipt to the customer and do not ring the sale again.
 - A card cannot be newly approved while Helcim or the internet is unavailable. But if Helcim already approved a **simple take-now** sale and the Main Hub drops before the save finishes, select the green **Ready to Save** box once. ROS prints a **PAYMENT APPROVED - PENDING SYNC** receipt and posts the same checkout automatically after reconnecting. Do not run the card again. This does not apply to shipping, pickup, orders, exchanges, alterations, or wedding work.
 - When Riverside shows **Pending syncs**, those are completed POS sales still waiting to post once the device is back online.
 - If a sync cannot be safely replayed, Riverside keeps it as **blocked recovery** for manager review. Do not clear browser storage, refresh aggressively, or ring the same sale again.
@@ -23,6 +23,8 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 ## What does not
 
 - Live **inventory** checks, **wedding** ledger updates, and **QBO** actions need the server.
+- Shipping, Fulfillment Orders, order payments, weddings, pickups, alterations, returns/exchanges, gift cards, deposits, Store Credit/account tenders, tax-exempt sales, backdated sales, and below-cost approvals do not queue offline.
+- A red **Server connection lost** banner does not enable ordinary offline checkout while the device still reports online. Keep the sale open until the Main Hub returns; only an exact already-approved Helcim take-now payment has the protected Pending Sync path.
 - **Back Office** heavy workflows (imports, backups, schedule edits) expect a stable connection.
 - Seeing the PWA shell open offline does **not** mean the whole app is safe to use offline.
 

@@ -130,19 +130,114 @@ function hasProviderBackedPayment(applied: AppliedPaymentLine[]): boolean {
   });
 }
 
+function isApprovedHelcimPayment(payment: AppliedPaymentLine): boolean {
+  const metadata = payment.metadata;
+  const provider = String(metadata?.payment_provider ?? "").trim().toLowerCase();
+  const status = String(metadata?.provider_status ?? "").trim().toLowerCase();
+  const attemptId = String(metadata?.payment_provider_attempt_id ?? "").trim();
+  return (
+    provider === "helcim" &&
+    (status === "approved" || status === "captured") &&
+    attemptId.length > 0 &&
+    payment.amountCents > 0
+  );
+}
+
 function hasApprovedHelcimPayment(applied: AppliedPaymentLine[]): boolean {
-  return applied.some((payment) => {
-    const metadata = payment.metadata;
-    const provider = String(metadata?.payment_provider ?? "").trim().toLowerCase();
-    const status = String(metadata?.provider_status ?? "").trim().toLowerCase();
-    const attemptId = String(metadata?.payment_provider_attempt_id ?? "").trim();
-    return (
-      provider === "helcim" &&
-      (status === "approved" || status === "captured") &&
-      attemptId.length > 0 &&
-      payment.amountCents > 0
-    );
-  });
+  return applied.some(isApprovedHelcimPayment);
+}
+
+const OFFLINE_NON_PROVIDER_TENDERS = new Set(["cash", "check", "card_manual"]);
+
+function isSafeOfflineNonProviderTender(payment: AppliedPaymentLine): boolean {
+  const provider = String(payment.metadata?.payment_provider ?? "").trim();
+  return (
+    provider.length === 0 &&
+    payment.amountCents > 0 &&
+    OFFLINE_NON_PROVIDER_TENDERS.has(payment.method.trim().toLowerCase())
+  );
+}
+
+function deferredSyncPaymentsEligible(
+  applied: AppliedPaymentLine[],
+  allowApprovedHelcim: boolean,
+): boolean {
+  return (
+    applied.length > 0 &&
+    applied.every((payment) => {
+      const provider = String(payment.metadata?.payment_provider ?? "").trim();
+      return provider.length > 0
+        ? allowApprovedHelcim && isApprovedHelcimPayment(payment)
+        : isSafeOfflineNonProviderTender(payment);
+    })
+  );
+}
+
+function deferredSyncWorkflowBlockReason(args: {
+  lines: CartLineItem[];
+  activeWeddingMember: WeddingMember | null;
+  weddingMemberOrderDraftCount: number;
+  disbursementCount: number;
+  hasShipping: boolean;
+  pendingAlterationCount: number;
+  orderPaymentCount: number;
+  pickupAlterationCount: number;
+  pickupTransactionId: string | null;
+  pickupTransactionCount: number;
+  hasExchangeSettlement: boolean;
+  hasBelowCostApproval: boolean;
+  hasBackdate: boolean;
+  isTaxExempt: boolean;
+  appliedDepositAmountCents: number;
+  hasOrderDepositOverride: boolean;
+}): string | null {
+  if (args.hasShipping) return "Shipping requires a live Main Hub connection.";
+  if (args.orderPaymentCount > 0) return "Order payments require a live Main Hub connection.";
+  if (
+    args.activeWeddingMember ||
+    args.weddingMemberOrderDraftCount > 0 ||
+    args.disbursementCount > 0
+  ) {
+    return "Wedding activity requires a live Main Hub connection.";
+  }
+  if (
+    args.pickupTransactionId ||
+    args.pickupTransactionCount > 0 ||
+    args.pickupAlterationCount > 0
+  ) {
+    return "Pickups require a live Main Hub connection.";
+  }
+  if (
+    args.pendingAlterationCount > 0 ||
+    args.lines.some((line) => line.alteration_intake_id)
+  ) {
+    return "Alteration intake requires a live Main Hub connection.";
+  }
+  if (args.hasExchangeSettlement || args.lines.some((line) => line.transaction_line_id)) {
+    return "Returns and exchanges require a live Main Hub connection.";
+  }
+  if (
+    args.lines.length === 0 ||
+    args.lines.some((line) => (line.fulfillment ?? "takeaway") !== "takeaway")
+  ) {
+    return "Offline checkout is limited to simple take-now merchandise.";
+  }
+  if (args.lines.some((line) => line.gift_card_load_code?.trim())) {
+    return "Gift Card activity requires a live Main Hub connection.";
+  }
+  if (args.appliedDepositAmountCents > 0 || args.hasOrderDepositOverride) {
+    return "Deposit activity requires a live Main Hub connection.";
+  }
+  if (args.hasBelowCostApproval) {
+    return "Below-cost checkout requires a live Main Hub connection.";
+  }
+  if (args.hasBackdate) {
+    return "Backdated checkout requires a live Main Hub connection.";
+  }
+  if (args.isTaxExempt) {
+    return "Tax-exempt checkout requires a live Main Hub connection.";
+  }
+  return null;
 }
 
 async function printApprovedPaymentPendingSyncReceipt(args: {
@@ -185,6 +280,72 @@ async function printApprovedPaymentPendingSyncReceipt(args: {
       `TOTAL PAID: $${centsToFixed2(args.totalCents)}`,
       "",
       "Keep this receipt. Do not run the card again.",
+    ].join("\n"),
+  );
+}
+
+async function printOfflineSalePendingSyncReceipt(args: {
+  checkoutClientId: string;
+  customer: Customer | null;
+  lines: CartLineItem[];
+  payments: AppliedPaymentLine[];
+  totalCents: number;
+}) {
+  const customerName = args.customer
+    ? `${args.customer.first_name} ${args.customer.last_name}`.trim()
+    : "Walk-in";
+  const items = args.lines
+    .map((line) => `${line.quantity}x ${line.name}`)
+    .join("\n");
+  const tenders = args.payments
+    .map((payment) => {
+      const method = payment.method.trim().toLowerCase();
+      const amount = `$${centsToFixed2(payment.amountCents)}`;
+      if (method === "check") {
+        const checkNumber = String(payment.metadata?.check_number ?? "").trim();
+        return `Check${checkNumber ? ` #${checkNumber}` : ""}: ${amount}`;
+      }
+      if (method === "card_manual") {
+        const last4 = String(payment.metadata?.card_last4 ?? "").trim();
+        const approval = String(payment.metadata?.external_auth_code ?? "").trim();
+        return `Manual Card${last4 ? ` ****${last4}` : ""}${approval ? ` AUTH ${approval}` : ""}: ${amount}`;
+      }
+      if (method === "cash") {
+        const tenderedCents = payment.metadata?.cash_tendered_cents;
+        const changeCents = payment.metadata?.change_due_cents;
+        if (
+          typeof tenderedCents === "number" &&
+          Number.isFinite(tenderedCents) &&
+          typeof changeCents === "number" &&
+          Number.isFinite(changeCents)
+        ) {
+          return [
+            `Cash received: $${centsToFixed2(tenderedCents)}`,
+            `Cash applied: ${amount}`,
+            `Change due: $${centsToFixed2(changeCents)}`,
+          ].join("\n");
+        }
+      }
+      return `${payment.label.trim() || "Cash"}: ${amount}`;
+    })
+    .join("\n");
+
+  await printReceiptText(
+    [
+      "RIVERSIDE MEN'S SHOP",
+      "SALE SAVED - PENDING SYNC",
+      "Saved on this Register but not yet posted",
+      "to the Main Hub or assigned a Transaction #.",
+      "",
+      `Customer: ${customerName}`,
+      `Recovery: ${args.checkoutClientId}`,
+      "",
+      items,
+      "",
+      tenders,
+      `TOTAL: $${centsToFixed2(args.totalCents)}`,
+      "",
+      "Keep this receipt. Do not ring this sale again.",
     ].join("\n"),
   );
 }
@@ -311,41 +472,44 @@ export function useCartCheckout({
       toast("Add at least one item, wedding deposit, order payment, or shipping charge before checking out.", "error");
       return null;
     }
-    if (!navigator.onLine && posShipping) {
-      toast("Shipping requires an online connection. Clear shipping or try again when online.", "error");
-      return null;
-    }
-    if (!navigator.onLine && orderPaymentLines.length > 0) {
-      toast("Order payments require an online connection. Remove the order payment or try again when online.", "error");
-      return null;
-    }
-
     const gotToken = await ensurePosTokenForSession();
     if (!gotToken) {
       toast("This device is missing the till session token. From POS, open or join the till.", "error");
       return null;
     }
 
+    const providerBackedPayment = hasProviderBackedPayment(applied);
     const approvedHelcimPayment = hasApprovedHelcimPayment(applied);
+    const deferredSyncBlockReason = deferredSyncWorkflowBlockReason({
+      lines: checkoutLines,
+      activeWeddingMember,
+      weddingMemberOrderDraftCount: weddingMemberOrderDrafts.length,
+      disbursementCount: disbursementMembers.length,
+      hasShipping: Boolean(posShipping),
+      pendingAlterationCount: pendingAlterationIntakes.length,
+      orderPaymentCount: orderPaymentLines.length,
+      pickupAlterationCount: pickupAlterationIds.length,
+      pickupTransactionId,
+      pickupTransactionCount: pickupTransactions.length,
+      hasExchangeSettlement: Boolean(execution?.exchangeSettlement),
+      hasBelowCostApproval: Boolean(belowCostApproval),
+      hasBackdate: Boolean(saleDateTimeLocal?.trim() || backdateApproval),
+      isTaxExempt: ledgerSignals.isTaxExempt,
+      appliedDepositAmountCents: ledgerSignals.appliedDepositAmountCents,
+      hasOrderDepositOverride: Boolean(ledgerSignals.orderDepositOverride),
+    });
+    const simpleTakeNowDeferredSyncEligible = deferredSyncBlockReason === null;
     // A deferred card sale is deliberately limited to an ordinary take-now sale.
     // Fulfillment, pickup, exchange, shipping, and alteration workflows make
     // additional server-side state changes that must be confirmed live.
     const approvedHelcimDeferredSyncEligible =
+      simpleTakeNowDeferredSyncEligible &&
       approvedHelcimPayment &&
-      checkoutLines.length > 0 &&
-      checkoutLines.every(
-        (line) =>
-          !line.transaction_line_id &&
-          !line.alteration_intake_id &&
-          (line.fulfillment ?? "takeaway") === "takeaway",
-      ) &&
-      !posShipping &&
-      orderPaymentLines.length === 0 &&
-      disbursementMembers.length === 0 &&
-      pickupAlterationIds.length === 0 &&
-      !pickupTransactionId &&
-      pickupTransactions.length === 0 &&
-      !execution?.exchangeSettlement;
+      deferredSyncPaymentsEligible(applied, true);
+    const nonProviderDeferredSyncEligible =
+      simpleTakeNowDeferredSyncEligible &&
+      !providerBackedPayment &&
+      deferredSyncPaymentsEligible(applied, false);
     let queueApprovedHelcimSale = false;
 
     if (navigator.onLine) {
@@ -402,7 +566,6 @@ export function useCartCheckout({
         ledgerCents,
         ledgerSignals.roundingAdjustmentCents ?? 0,
       );
-      const providerBackedPayment = hasProviderBackedPayment(applied);
       const pickupPaymentApprovalRequired = (message: string) =>
         message.includes("use Manager Access to approve a pickup payment override");
 
@@ -834,6 +997,39 @@ export function useCartCheckout({
         }
       };
 
+      const queueOfflineNonProviderSale = async () => {
+        await enqueueCheckout(payload, apiAuth());
+        startPosJourneyTiming("receipt_ready");
+        try {
+          await printOfflineSalePendingSyncReceipt({
+            checkoutClientId,
+            customer: selectedCustomer,
+            lines: checkoutLines,
+            payments: applied,
+            totalCents: checkoutTotals.totalCents,
+          });
+          toast(
+            "Sale saved locally and printed as Pending Sync. Riverside will post it automatically when the Main Hub reconnects.",
+            "success",
+          );
+          finishPosJourneyTiming("receipt_ready", true);
+        } catch (printError) {
+          console.error("Offline pending-sync receipt print failed", printError);
+          toast(
+            "Sale is saved locally for sync, but the Pending Sync receipt did not print. Do not ring this sale again.",
+            "error",
+          );
+          finishPosJourneyTiming("receipt_ready", false);
+        }
+        if (execution?.clearAfterCheckout !== false) {
+          clearCart();
+          setCheckoutClientId(newCheckoutClientId());
+        }
+        if (execution?.emitSaleCompleted !== false) {
+          onSaleCompleted?.();
+        }
+      };
+
       if (!navigator.onLine || queueApprovedHelcimSale) {
         if (providerBackedPayment && !approvedHelcimDeferredSyncEligible) {
           toast("Card provider payments cannot be queued offline. Keep the checkout open and reconnect before recording the sale.", "error");
@@ -844,15 +1040,15 @@ export function useCartCheckout({
           await queueApprovedProviderSale();
           return null;
         }
-        await enqueueCheckout(payload, apiAuth());
-        toast("Sale queued offline.", "info");
-        if (execution?.clearAfterCheckout !== false) {
-          clearCart();
-          setCheckoutClientId(newCheckoutClientId());
+        if (!nonProviderDeferredSyncEligible) {
+          const message =
+            deferredSyncBlockReason ??
+            "Offline checkout accepts only cash, check, or a verified Manual Card approval. Keep this checkout open and reconnect before recording the sale.";
+          toast(message, "error");
+          setCheckoutBusy(false);
+          return null;
         }
-        if (execution?.emitSaleCompleted !== false) {
-          onSaleCompleted?.();
-        }
+        await queueOfflineNonProviderSale();
         return null;
       }
 

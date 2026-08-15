@@ -109,17 +109,44 @@ test("a closed register session immediately discards only its own local cart", (
 test("an already-approved Helcim take-now sale can sync safely after a Hub outage", () => {
   const checkout = repoFile("client/src/hooks/useCartCheckout.ts");
 
+  expect(checkout).toContain("function isApprovedHelcimPayment");
   expect(checkout).toContain("function hasApprovedHelcimPayment");
   expect(checkout).toContain('provider === "helcim"');
   expect(checkout).toContain('status === "approved" || status === "captured"');
+  expect(checkout).toContain("deferredSyncPaymentsEligible(applied, true)");
+  expect(checkout).toContain("const simpleTakeNowDeferredSyncEligible");
   expect(checkout).toContain("const approvedHelcimDeferredSyncEligible");
-  expect(checkout).toContain("!posShipping");
-  expect(checkout).toContain("orderPaymentLines.length === 0");
-  expect(checkout).toContain("!execution?.exchangeSettlement");
+  expect(checkout).toContain('return "Shipping requires a live Main Hub connection."');
+  expect(checkout).toContain('return "Order payments require a live Main Hub connection."');
+  expect(checkout).toContain('return "Wedding activity requires a live Main Hub connection."');
+  expect(checkout).toContain('return "Pickups require a live Main Hub connection."');
+  expect(checkout).toContain('return "Alteration intake requires a live Main Hub connection."');
+  expect(checkout).toContain('return "Returns and exchanges require a live Main Hub connection."');
   expect(checkout).toContain("await enqueueCheckout(payload, apiAuth())");
   expect(checkout).toContain("printApprovedPaymentPendingSyncReceipt");
   expect(checkout).toContain("PAYMENT APPROVED - PENDING SYNC");
   expect(checkout).toContain("Do not run the card again.");
+});
+
+test("offline non-provider completion is fail-closed and prints pending-sync evidence", () => {
+  const checkout = repoFile("client/src/hooks/useCartCheckout.ts");
+
+  expect(checkout).toContain(
+    'const OFFLINE_NON_PROVIDER_TENDERS = new Set(["cash", "check", "card_manual"]);',
+  );
+  expect(checkout).toContain("deferredSyncPaymentsEligible(applied, false)");
+  expect(checkout).toContain("const nonProviderDeferredSyncEligible");
+  expect(checkout).toContain("if (!nonProviderDeferredSyncEligible)");
+  expect(checkout).toContain(
+    "Offline checkout accepts only cash, check, or a verified Manual Card approval.",
+  );
+  expect(checkout).toContain("printOfflineSalePendingSyncReceipt");
+  expect(checkout).toContain("SALE SAVED - PENDING SYNC");
+  expect(checkout).toContain("not yet posted");
+  expect(checkout).toContain("Cash received:");
+  expect(checkout).toContain("Cash applied:");
+  expect(checkout).toContain("Change due:");
+  expect(checkout).toContain("Do not ring this sale again.");
 });
 
 test("a nonmatching terminal attempt is refreshed without entering the active sale", () => {

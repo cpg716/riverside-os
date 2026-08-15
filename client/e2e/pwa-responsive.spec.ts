@@ -39,7 +39,7 @@ test.describe("PWA layout — phone (375×667, iPhone 8 preset)", () => {
     await context.setOffline(true);
     await expect(
       page.getByTitle(
-        /Offline: only completed POS checkouts can queue until connectivity returns/i,
+        /Offline: only simple take-now sales paid with cash, check, or verified Manual Card can queue/i,
       ),
     ).toBeVisible();
     await context.setOffline(false);
@@ -160,7 +160,7 @@ test.describe("PWA layout — tablet (iPad Pro 11 preset)", () => {
     await context.setOffline(true);
     await expect(
       page.getByTitle(
-        /Offline: only completed POS checkouts can queue until connectivity returns/i,
+        /Offline: only simple take-now sales paid with cash, check, or verified Manual Card can queue/i,
       ),
     ).toBeVisible();
     await context.setOffline(false);

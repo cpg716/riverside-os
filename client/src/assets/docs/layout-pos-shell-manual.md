@@ -38,6 +38,7 @@ This is the main **Register desktop shell** used on the Windows Tauri app after 
 - Standalone POS workflows like `Shipping`, `Layaways`, `RMS Charge`, `Podium Inbox`, and `Mailbox` stay top-level in the rail rather than being nested under `Customers` or `Inventory`.
 - The POS shell is separate from **Shop Host** and separate from **Remote Access**. A normal register station should not be used to start host mode unless that PC is intentionally acting as the host machine.
 - If a red **Server connection lost** banner appears after two failed Main Hub health checks, stop starting new sales, payments, receiving, or register close work until the banner clears. If Helcim already approved a simple take-now sale before the banner appeared, select the green **Ready to Save** box once so ROS can save it as **PAYMENT APPROVED - PENDING SYNC**; do not run the card again. Use **Recheck** after the Main Hub/server is back online; queued recovery remains handled by the recovery queue.
+- The ordinary offline queue is available only when the device itself reports offline, and only for a simple take-now sale paid with cash, a physical check, or a verified **Manual Card** approval. It prints **SALE SAVED - PENDING SYNC** with the recovery identity. A red Main Hub banner while the device still reports online does not enable this path.
 
 ## Screenshots
 

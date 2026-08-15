@@ -374,12 +374,12 @@ export default function GlobalTopBar({
           {!isOnline && (
             <div
               className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-700 dark:text-rose-200"
-              title="Offline: only completed POS checkouts can queue until connectivity returns. Inventory, settings, and most back-office changes still need the server."
+              title="Offline: only simple take-now sales paid with cash, check, or verified Manual Card can queue. Inventory, fulfillment, settings, and most back-office changes still need the Main Hub."
             >
               <div className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
               <span className="sm:hidden">Offline</span>
               <span className="hidden lg:inline">
-                Offline: POS checkout can queue
+                Offline: simple sales can queue
               </span>
               <span className="hidden sm:inline lg:hidden">Offline</span>
             </div>
