@@ -336,11 +336,11 @@
       "id": "offline-approved-sale-direct-receipt",
       "file": "client/src/hooks/useCartCheckout.ts",
       "callee": "printReceiptText",
-      "occurrences": 1,
+      "occurrences": 2,
       "kind": "payment-approved-pending-sync-receipt",
       "route": "direct",
       "printer": "receipt",
-      "proof": "An approved simple-sale recovery receipt uses the central receipt station service and identifies the sale as pending Main Hub sync."
+      "proof": "Approved simple-sale recovery receipts use the central receipt station service and identify either the saved sale or provider-approved payment as pending Main Hub sync."
     },
     {
       "id": "printer-settings-cash-drawer-test",

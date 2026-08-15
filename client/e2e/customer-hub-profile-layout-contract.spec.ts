@@ -24,3 +24,19 @@ test("Customer Hub puts compact profile details before summary cards", () => {
     'className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3"',
   );
 });
+
+test("Customer Hub presents linked Podium calls with messages and in History", () => {
+  const drawer = repoFile(
+    "client/src/components/customers/CustomerRelationshipHubDrawer.tsx",
+  );
+  const customerApi = repoFile("server/src/api/customers.rs");
+  const podiumCalls = repoFile("server/src/logic/podium_calls.rs");
+
+  expect(drawer).toContain("Text & calls");
+  expect(drawer).toContain("/podium/calls");
+  expect(drawer).toContain('case "call":');
+  expect(customerApi).toContain('"/{customer_id}/podium/calls"');
+  expect(customerApi).toContain('kind: "call".to_string()');
+  expect(customerApi).toContain('reference_type: Some("podium_call".to_string())');
+  expect(podiumCalls).toContain("pub async fn list_call_events_for_customer");
+});

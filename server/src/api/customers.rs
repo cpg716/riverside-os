@@ -4141,6 +4141,10 @@ pub fn router() -> Router<AppState> {
             get(get_customer_podium_messages).post(post_customer_podium_reply),
         )
         .route(
+            "/{customer_id}/podium/calls",
+            get(get_customer_podium_calls),
+        )
+        .route(
             "/{customer_id}/podium/contact-sync",
             get(get_customer_podium_contact_sync_status).post(post_customer_podium_contact_sync),
         )
@@ -6835,6 +6839,24 @@ async fn get_customer_podium_messages(
     Ok(Json(rows))
 }
 
+async fn get_customer_podium_calls(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+) -> Result<Json<Vec<crate::logic::podium_calls::PodiumCallEventApiRow>>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
+        .bind(customer_id)
+        .fetch_one(&state.db)
+        .await?;
+    if !exists {
+        return Err(CustomerError::NotFound);
+    }
+    Ok(Json(
+        crate::logic::podium_calls::list_call_events_for_customer(&state.db, customer_id).await?,
+    ))
+}
+
 #[derive(Debug, Deserialize)]
 struct PostCustomerPodiumReplyBody {
     channel: String,
@@ -8547,6 +8569,9 @@ pub(crate) async fn build_customer_timeline(
     .fetch_all(pool)
     .await?;
 
+    let call_events =
+        crate::logic::podium_calls::list_call_events_for_customer(pool, customer_id).await?;
+
     let mut events: Vec<CustomerTimelineEvent> = Vec::new();
 
     for o in orders {
@@ -8716,6 +8741,42 @@ pub(crate) async fn build_customer_timeline(
             summary: format!("Scheduled {} appointment", a.appt_type),
             reference_id: Some(a.id),
             reference_type: Some("appointment".to_string()),
+            wedding_party_id: None,
+        });
+    }
+
+    for call in call_events {
+        let call_label = if call.event_type == "call.voicemail_left" || call.has_voicemail {
+            "Voicemail received"
+        } else if call.event_type == "call.missed" {
+            "Missed call"
+        } else if call.event_type == "call.received" {
+            "Incoming call"
+        } else if call.direction == "outbound" {
+            "Outgoing call completed"
+        } else {
+            "Call completed"
+        };
+        let duration = call
+            .duration_seconds
+            .filter(|seconds| *seconds >= 0)
+            .map(|seconds| {
+                let minutes = seconds / 60;
+                let remaining_seconds = seconds % 60;
+                if minutes > 0 {
+                    format!("{minutes}m {remaining_seconds}s")
+                } else {
+                    format!("{remaining_seconds}s")
+                }
+            });
+        events.push(CustomerTimelineEvent {
+            at: call.occurred_at,
+            kind: "call".to_string(),
+            summary: duration
+                .map(|duration| format!("{call_label} · {duration}"))
+                .unwrap_or_else(|| call_label.to_string()),
+            reference_id: Some(call.id),
+            reference_type: Some("podium_call".to_string()),
             wedding_party_id: None,
         });
     }

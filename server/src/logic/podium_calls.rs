@@ -578,6 +578,71 @@ pub async fn list_call_events_for_conversation(
     .await
 }
 
+pub async fn list_call_events_for_customer(
+    pool: &PgPool,
+    customer_id: Uuid,
+) -> Result<Vec<PodiumCallEventApiRow>, sqlx::Error> {
+    sqlx::query_as::<_, PodiumCallEventApiRow>(
+        r#"
+        WITH ranked AS (
+            SELECT
+                pce.id,
+                pce.conversation_id,
+                pce.provider_call_uid,
+                pce.event_type,
+                pce.direction,
+                pce.contact_phone_e164,
+                pce.contact_name,
+                pce.duration_seconds,
+                pce.has_voicemail,
+                pce.occurred_at,
+                ROW_NUMBER() OVER (
+                    PARTITION BY pce.provider_call_uid
+                    ORDER BY
+                        CASE pce.event_type
+                            WHEN 'call.voicemail_left' THEN 4
+                            WHEN 'call.missed' THEN 3
+                            WHEN 'call.completed' THEN 2
+                            ELSE 1
+                        END DESC,
+                        pce.occurred_at DESC,
+                        pce.updated_at DESC
+                ) AS lifecycle_rank
+            FROM podium_call_event pce
+            WHERE pce.customer_id = $1
+               OR EXISTS (
+                    SELECT 1
+                    FROM podium_conversation conversation
+                    WHERE conversation.id = pce.conversation_id
+                      AND conversation.customer_id = $1
+               )
+        ), recent AS (
+            SELECT
+                id,
+                conversation_id,
+                provider_call_uid,
+                event_type,
+                direction,
+                contact_phone_e164,
+                contact_name,
+                duration_seconds,
+                has_voicemail,
+                occurred_at
+            FROM ranked
+            WHERE lifecycle_rank = 1
+            ORDER BY occurred_at DESC
+            LIMIT 100
+        )
+        SELECT *
+        FROM recent
+        ORDER BY occurred_at ASC
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

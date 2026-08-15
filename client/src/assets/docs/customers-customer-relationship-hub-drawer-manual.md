@@ -44,7 +44,7 @@ In Messages, use the draft chips for a quick check-in, pickup update, or wedding
 
 Draft chips do not bypass opt-in warnings, missing phone/email warnings, Podium delivery rules, or Manager Access requirements.
 
-Choose **Text** or **Email** to see that channel's single chronological history. Riverside does not repeat the same messages in a second combined timeline.
+Choose **Text & calls** or **Email** to see that channel's single chronological history. Text messages and Podium calls share the same dated conversation view, including incoming, outgoing, missed, and voicemail activity. Riverside does not repeat the same messages in a second combined timeline.
 
 ## Tabs and sub-sections
 
@@ -59,6 +59,8 @@ This applies to Transaction Records, fulfillment-order work, alterations, loyalt
 Transaction Records and Orders with returned merchandise are marked **Returned Item**. Settled exchange transactions are also marked **Exchange**. Opening the original record shows the returned quantity on the affected line; opening either side of a settled exchange and choosing **Reprint Receipt** produces the combined return/exchange customer receipt, including both the returned item and its replacement.
 
 The **History** tab keeps each completed receipt event, including payment-only, deposit, pickup-only, pickup-and-payment, sale, return, and exchange receipts. Select **Reprint Receipt** on the event row to reopen the exact customer receipt that was completed at that time. Payment and pickup events remain separate from the original Order receipt so reprinting never substitutes old merchandise or tender activity.
+
+Podium call activity linked to the customer also appears in **History**, with the call direction or outcome and duration when Podium provides it. Calls are recorded from Podium call webhooks; a message-history refresh does not reconstruct calls that occurred before call webhook delivery was enabled.
 
 Wedding split deposits are visible on the beneficiary member's customer profile. If the member already has an open Transaction Record, History shows the amount allocated to that member rather than the payer's combined party tender. If the member has no open Transaction Record yet, the profile shows **Deposit waiting** and History records the wedding deposit amount and payer name. Applying that held deposit later adds a separate deposit-applied entry.
 

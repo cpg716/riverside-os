@@ -9,6 +9,8 @@ import {
   Mail,
   MessageSquarePlus,
   Paperclip,
+  PhoneCall,
+  PhoneMissed,
   Printer,
   Receipt,
   Scissors,
@@ -140,6 +142,37 @@ type CommunicationTimelineRow = {
   actor: string | null;
   occurred_at: string;
 };
+
+type PodiumMessageRow = {
+  id: string;
+  conversation_id: string;
+  podium_conversation_uid: string | null;
+  direction: string;
+  channel: string;
+  body: string;
+  staff_id: string | null;
+  staff_full_name: string | null;
+  podium_sender_uid: string | null;
+  podium_sender_name: string | null;
+  created_at: string;
+};
+
+type PodiumCallRow = {
+  id: string;
+  conversation_id: string | null;
+  provider_call_uid: string;
+  event_type: string;
+  direction: string;
+  contact_phone_e164: string | null;
+  contact_name: string | null;
+  duration_seconds: number | null;
+  has_voicemail: boolean;
+  occurred_at: string;
+};
+
+type CustomerPodiumActivity =
+  | { kind: "message"; at: string; message: PodiumMessageRow }
+  | { kind: "call"; at: string; call: PodiumCallRow };
 
 function normalizeCustomerHubData(data: CustomerHubData): CustomerHubData {
   return {
@@ -308,6 +341,8 @@ function customerTimelineKindLabel(kind: string): string {
       return "Measurements";
     case "appointment":
       return "Appointment";
+    case "call":
+      return "Call";
     case "shipping":
       return "Shipment update";
     case "void":
@@ -367,6 +402,42 @@ function podiumThreadSentByLabel(m: {
     return "Podium";
   }
   return d;
+}
+
+function communicationDayLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Conversation";
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (left: Date, right: Date) =>
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate();
+  if (sameDay(date, today)) return "Today";
+  if (sameDay(date, yesterday)) return "Yesterday";
+  return date.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function callEventLabel(call: PodiumCallRow): string {
+  if (call.event_type === "call.voicemail_left" || call.has_voicemail) {
+    return "Voicemail received";
+  }
+  if (call.event_type === "call.missed") return "Missed call";
+  if (call.event_type === "call.received") return "Incoming call";
+  if (call.direction === "outbound") return "Outgoing call completed";
+  return "Call completed";
+}
+
+function callDurationLabel(seconds: number | null): string | null {
+  if (seconds === null || seconds < 0) return null;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`;
 }
 
 const messageEmojiChoices = ["🙂", "👍", "🙏", "👔", "📸"];
@@ -941,25 +1012,16 @@ export function CustomerRelationshipHubDrawer({
   >([]);
   const smsAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const emailAttachmentInputRef = useRef<HTMLInputElement | null>(null);
-  const [podiumThread, setPodiumThread] = useState<
-    {
-      id: string;
-      conversation_id: string;
-      podium_conversation_uid: string | null;
-      direction: string;
-      channel: string;
-      body: string;
-      staff_id: string | null;
-      staff_full_name: string | null;
-      podium_sender_uid: string | null;
-      podium_sender_name: string | null;
-      created_at: string;
-    }[]
-  >([]);
+  const [podiumThread, setPodiumThread] = useState<PodiumMessageRow[]>([]);
   const [podiumThreadLoading, setPodiumThreadLoading] = useState(false);
   const [podiumThreadLoadError, setPodiumThreadLoadError] = useState<
     string | null
   >(null);
+  const [podiumCalls, setPodiumCalls] = useState<PodiumCallRow[]>([]);
+  const [podiumCallsLoading, setPodiumCallsLoading] = useState(false);
+  const [podiumCallsLoadError, setPodiumCallsLoadError] = useState<string | null>(
+    null,
+  );
   const [contactSyncBusy, setContactSyncBusy] = useState(false);
   const [contactSyncStatus, setContactSyncStatus] =
     useState<PodiumContactSyncStatus | null>(null);
@@ -1491,6 +1553,8 @@ export function CustomerRelationshipHubDrawer({
       setCustomerAlterationsLoadError(null);
       setLoyaltyLoadError(null);
       setPodiumThreadLoadError(null);
+      setPodiumCalls([]);
+      setPodiumCallsLoadError(null);
       setRmsChargeStatus(null);
       setRmsChargeStatusError(null);
       return;
@@ -1511,6 +1575,8 @@ export function CustomerRelationshipHubDrawer({
       setCustomerAlterationsLoadError(null);
       setLoyaltyLoadError(null);
       setPodiumThreadLoadError(null);
+      setPodiumCalls([]);
+      setPodiumCallsLoadError(null);
       setRmsChargeStatus(null);
       setRmsChargeStatusError(null);
       setTab("profile");
@@ -1682,6 +1748,34 @@ export function CustomerRelationshipHubDrawer({
     }
   }, [baseUrl, customer.id, apiAuth]);
 
+  const loadPodiumCalls = useCallback(async () => {
+    setPodiumCallsLoading(true);
+    setPodiumCallsLoadError(null);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/customers/${customer.id}/podium/calls`,
+        { headers: apiAuth(), cache: "no-store" },
+      );
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(payload?.error ?? "podium-calls");
+      }
+      const data = (await res.json()) as PodiumCallRow[];
+      setPodiumCalls(Array.isArray(data) ? data : []);
+    } catch (error) {
+      setPodiumCalls([]);
+      setPodiumCallsLoadError(
+        error instanceof Error && error.message !== "podium-calls"
+          ? error.message
+          : "Customer call history could not load right now. Try again in a moment.",
+      );
+    } finally {
+      setPodiumCallsLoading(false);
+    }
+  }, [baseUrl, customer.id, apiAuth]);
+
   const loadCommunicationTimeline = useCallback(async () => {
     setCommunicationTimelineLoading(true);
     try {
@@ -1705,8 +1799,9 @@ export function CustomerRelationshipHubDrawer({
   useEffect(() => {
     if (!open || tab !== "messages") return;
     void loadPodiumThread();
+    void loadPodiumCalls();
     void loadCommunicationTimeline();
-  }, [open, tab, loadCommunicationTimeline, loadPodiumThread]);
+  }, [open, tab, loadCommunicationTimeline, loadPodiumCalls, loadPodiumThread]);
 
   useEffect(() => {
     if (!open || tab !== "messages" || messageViewMode !== "email" || !canHubEdit) {
@@ -1734,11 +1829,30 @@ export function CustomerRelationshipHubDrawer({
     () => podiumThread.filter((message) => message.channel !== "email"),
     [podiumThread],
   );
+  const podiumActivity = useMemo<CustomerPodiumActivity[]>(
+    () =>
+      [
+        ...podiumSmsThread.map((message) => ({
+          kind: "message" as const,
+          at: message.created_at,
+          message,
+        })),
+        ...podiumCalls.map((call) => ({
+          kind: "call" as const,
+          at: call.occurred_at,
+          call,
+        })),
+      ].sort((left, right) => Date.parse(left.at) - Date.parse(right.at)),
+    [podiumCalls, podiumSmsThread],
+  );
   const emailThread = useMemo(
     () =>
-      communicationTimeline.filter(
-        (item) => item.channel === "email" || item.source === "mailbox",
-      ),
+      communicationTimeline
+        .filter((item) => item.channel === "email" || item.source === "mailbox")
+        .sort(
+          (left, right) =>
+            Date.parse(left.occurred_at) - Date.parse(right.occurred_at),
+        ),
     [communicationTimeline],
   );
   const podiumNeedsReply = useMemo(
@@ -2462,6 +2576,7 @@ export function CustomerRelationshipHubDrawer({
         note: "bg-amber-500",
         measurement: "bg-violet-500",
         appointment: "bg-indigo-500",
+        call: "bg-blue-500",
         shipping: "bg-teal-500",
         void: "bg-red-500",
       }) as Record<string, string>,
@@ -4042,12 +4157,17 @@ export function CustomerRelationshipHubDrawer({
                       Messages
                     </h3>
                     <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                      Text and email history for {currentProfileName}.
+                      Text, call, and email history for {currentProfileName}.
                     </p>
                   </div>
                   <button
                     type="button"
-                    onClick={() => void loadPodiumThread()}
+                    onClick={() => {
+                      void loadPodiumThread();
+                      void loadPodiumCalls();
+                      void loadCommunicationTimeline();
+                      if (canTimeline) void loadTimeline();
+                    }}
                     className="ui-btn-secondary px-2 py-1 text-[9px] font-black uppercase tracking-widest"
                   >
                     Refresh
@@ -4070,7 +4190,7 @@ export function CustomerRelationshipHubDrawer({
                               : "text-app-text-muted hover:bg-app-surface-3"
                           }`}
                         >
-                          {mode === "podium" ? "Text" : "Email"}
+                          {mode === "podium" ? "Text & calls" : "Email"}
                           {needsReply ? (
                             <span className="ml-2 inline-flex h-2 w-2 rounded-full bg-red-500 align-middle" />
                           ) : null}
@@ -4082,56 +4202,155 @@ export function CustomerRelationshipHubDrawer({
 
                 <div className="space-y-4 bg-app-surface px-4 py-4">
                   {messageViewMode === "podium" ? (
-                    podiumThreadLoading ? (
-                      <p className="text-xs text-app-text-muted">Loading messages...</p>
-                    ) : podiumThreadLoadError ? (
-                      <InlineDegradedState
-                        message={podiumThreadLoadError}
-                        onRetry={() => void loadPodiumThread()}
-                      />
-                    ) : podiumSmsThread.length === 0 ? (
-                      <div className="flex min-h-[18rem] items-center justify-center rounded-2xl border border-dashed border-app-border bg-app-surface-2/50 px-4 text-center text-xs font-semibold text-app-text-muted">
-                        No Podium SMS activity has been recorded for this customer yet.
-                      </div>
-                    ) : (
-                      <ul className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
-                        {podiumSmsThread.map((m) => {
-                          const inbound = m.direction === "inbound";
-                          const auto = m.direction === "automated";
-                          const preview = formatMessagePreview(m.body, m.channel);
-                          const sentBy = podiumThreadSentByLabel(m);
-                          return (
-                            <li
-                              key={m.id}
-                              className={`flex ${inbound ? "justify-start" : "justify-end"}`}
-                            >
-                              <div
-                                className={`max-w-[84%] rounded-2xl border px-3 py-2 text-sm shadow-sm ${
-                                  inbound
-                                    ? "rounded-bl-md border-app-border bg-app-surface-2 text-app-text"
-                                    : auto
-                                      ? "border-app-border/60 bg-app-surface-2/60 text-app-text-muted"
-                                      : "rounded-br-md border-app-success/25 bg-app-success/10 text-app-text"
-                                }`}
-                              >
-                                <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                                  <span>SMS</span>
-                                  <span className="text-app-text/90 normal-case tracking-normal">
-                                    {sentBy}
-                                  </span>
-                                  <span className="font-normal normal-case tracking-normal">
-                                    {new Date(m.created_at).toLocaleString()}
-                                  </span>
+                    <>
+                      {podiumThreadLoadError ? (
+                        <InlineDegradedState
+                          message={podiumThreadLoadError}
+                          onRetry={() => void loadPodiumThread()}
+                        />
+                      ) : null}
+                      {podiumCallsLoadError ? (
+                        <InlineDegradedState
+                          message={podiumCallsLoadError}
+                          onRetry={() => void loadPodiumCalls()}
+                        />
+                      ) : null}
+                      {(podiumThreadLoading || podiumCallsLoading) &&
+                      podiumActivity.length === 0 ? (
+                        <p className="text-xs text-app-text-muted">
+                          Loading conversation...
+                        </p>
+                      ) : podiumActivity.length === 0 &&
+                        !podiumThreadLoadError &&
+                        !podiumCallsLoadError ? (
+                        <div className="flex min-h-[18rem] items-center justify-center rounded-2xl border border-dashed border-app-border bg-app-surface-2/50 px-4 text-center text-xs font-semibold text-app-text-muted">
+                          No Podium text or call activity has been recorded for this customer yet.
+                        </div>
+                      ) : podiumActivity.length > 0 ? (
+                        <ul className="max-h-[34rem] overflow-y-auto pr-1">
+                          {podiumActivity.map((activity, index) => {
+                            const previous = podiumActivity[index - 1];
+                            const showDay =
+                              !previous ||
+                              new Date(previous.at).toDateString() !==
+                                new Date(activity.at).toDateString();
+                            if (activity.kind === "call") {
+                              const call = activity.call;
+                              const missedOrVoicemail =
+                                call.event_type === "call.missed" ||
+                                call.event_type === "call.voicemail_left" ||
+                                call.has_voicemail;
+                              const CallIcon = missedOrVoicemail
+                                ? PhoneMissed
+                                : PhoneCall;
+                              const duration = callDurationLabel(
+                                call.duration_seconds,
+                              );
+                              return (
+                                <li key={`call-${call.id}`}>
+                                  {showDay ? (
+                                    <div className="my-3 flex items-center gap-3">
+                                      <span className="h-px flex-1 bg-app-border/70" />
+                                      <span className="text-[10px] font-bold text-app-text-muted">
+                                        {communicationDayLabel(call.occurred_at)}
+                                      </span>
+                                      <span className="h-px flex-1 bg-app-border/70" />
+                                    </div>
+                                  ) : null}
+                                  <div className="flex justify-center py-1">
+                                    <div
+                                      className={`flex max-w-[92%] items-center gap-3 rounded-2xl border px-4 py-3 shadow-sm sm:max-w-[76%] ${
+                                        missedOrVoicemail
+                                          ? "border-amber-300/70 bg-amber-50 text-amber-950"
+                                          : "border-app-border bg-app-surface text-app-text"
+                                      }`}
+                                    >
+                                      <span
+                                        className={`rounded-xl p-2 ${
+                                          missedOrVoicemail
+                                            ? "bg-amber-100"
+                                            : "bg-app-surface-2"
+                                        }`}
+                                      >
+                                        <CallIcon size={18} aria-hidden />
+                                      </span>
+                                      <span className="min-w-0">
+                                        <span className="block text-sm font-black">
+                                          {callEventLabel(call)}
+                                        </span>
+                                        <span
+                                          className={`block text-[11px] font-semibold ${
+                                            missedOrVoicemail
+                                              ? "text-amber-800"
+                                              : "text-app-text-muted"
+                                          }`}
+                                        >
+                                          {[
+                                            call.contact_name || currentProfileName,
+                                            call.contact_phone_e164,
+                                            duration,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" · ")}
+                                          {" · "}
+                                          {readableDateTime(call.occurred_at)}
+                                        </span>
+                                      </span>
+                                    </div>
+                                  </div>
+                                </li>
+                              );
+                            }
+                            const message = activity.message;
+                            const inbound = message.direction === "inbound";
+                            const automated = message.direction === "automated";
+                            const sentBy = podiumThreadSentByLabel(message);
+                            return (
+                              <li key={`message-${message.id}`}>
+                                {showDay ? (
+                                  <div className="my-3 flex items-center gap-3">
+                                    <span className="h-px flex-1 bg-app-border/70" />
+                                    <span className="text-[10px] font-bold text-app-text-muted">
+                                      {communicationDayLabel(message.created_at)}
+                                    </span>
+                                    <span className="h-px flex-1 bg-app-border/70" />
+                                  </div>
+                                ) : null}
+                                <div
+                                  className={`flex ${inbound ? "justify-start" : "justify-end"}`}
+                                >
+                                  <div
+                                    className={`max-w-[84%] rounded-[1.35rem] px-4 py-2.5 text-[15px] shadow-sm sm:max-w-[72%] ${
+                                      inbound
+                                        ? "rounded-bl-md bg-app-surface text-app-text ring-1 ring-app-border/70"
+                                        : automated
+                                          ? "bg-app-surface-2 text-app-text-muted ring-1 ring-app-border/60"
+                                          : "rounded-br-md bg-app-accent text-white"
+                                    }`}
+                                  >
+                                    <p className="whitespace-pre-wrap break-words leading-relaxed">
+                                      {formatMessagePreview(
+                                        message.body,
+                                        message.channel,
+                                      )}
+                                    </p>
+                                    <p
+                                      className={`mt-1.5 text-[10px] font-medium ${
+                                        !inbound && !automated
+                                          ? "text-white/70"
+                                          : "text-app-text-muted"
+                                      }`}
+                                    >
+                                      {sentBy} · {readableDateTime(message.created_at)}
+                                    </p>
+                                  </div>
                                 </div>
-                                <p className="whitespace-pre-wrap break-words leading-relaxed">
-                                  {preview}
-                                </p>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : null}
+                    </>
                   ) : communicationTimelineLoading ? (
                     <p className="text-xs text-app-text-muted">Loading email history...</p>
                   ) : emailThread.length === 0 ? (
@@ -4139,44 +4358,54 @@ export function CustomerRelationshipHubDrawer({
                       No email activity has been recorded for this customer yet.
                     </div>
                   ) : (
-                    <ul className="max-h-[34rem] space-y-3 overflow-y-auto pr-1">
-                      {emailThread.map((item) => {
+                    <ul className="max-h-[34rem] overflow-y-auto pr-1">
+                      {emailThread.map((item, index) => {
                         const inbound = item.direction === "inbound";
                         const sentBy = inbound
                           ? "Customer"
                           : item.actor?.trim() || "Riverside";
+                        const previous = emailThread[index - 1];
+                        const showDay =
+                          !previous ||
+                          new Date(previous.occurred_at).toDateString() !==
+                            new Date(item.occurred_at).toDateString();
                         return (
-                          <li
-                            key={`${item.source}-${item.id}`}
-                            className={`flex ${inbound ? "justify-start" : "justify-end"}`}
-                          >
-                            <div
-                              className={`max-w-[84%] rounded-2xl border px-3 py-2 text-sm shadow-sm ${
-                                inbound
-                                  ? "rounded-bl-md border-app-border bg-app-surface-2 text-app-text"
-                                  : "rounded-br-md border-app-success/25 bg-app-success/10 text-app-text"
-                              }`}
-                            >
-                              <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                                <span>Email</span>
-                                <span className="text-app-text/90 normal-case tracking-normal">
-                                  {sentBy}
+                          <li key={`${item.source}-${item.id}`}>
+                            {showDay ? (
+                              <div className="my-3 flex items-center gap-3">
+                                <span className="h-px flex-1 bg-app-border/70" />
+                                <span className="text-[10px] font-bold text-app-text-muted">
+                                  {communicationDayLabel(item.occurred_at)}
                                 </span>
-                                <span className="font-normal normal-case tracking-normal">
-                                  {new Date(item.occurred_at).toLocaleString()}
-                                </span>
+                                <span className="h-px flex-1 bg-app-border/70" />
                               </div>
-                              <p className="font-black">{item.title}</p>
-                              {item.body ? (
-                                <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">
-                                  {formatMessagePreview(item.body, item.channel)}
+                            ) : null}
+                            <div
+                              className={`flex ${inbound ? "justify-start" : "justify-end"}`}
+                            >
+                              <div
+                                className={`max-w-[84%] rounded-[1.35rem] px-4 py-2.5 text-sm shadow-sm sm:max-w-[72%] ${
+                                  inbound
+                                    ? "rounded-bl-md bg-app-surface text-app-text ring-1 ring-app-border/70"
+                                    : "rounded-br-md bg-app-accent text-white"
+                                }`}
+                              >
+                                <p className="font-black">{item.title}</p>
+                                {item.body ? (
+                                  <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed">
+                                    {formatMessagePreview(item.body, item.channel)}
+                                  </p>
+                                ) : null}
+                                <p
+                                  className={`mt-1.5 text-[10px] font-medium ${
+                                    inbound
+                                      ? "text-app-text-muted"
+                                      : "text-white/70"
+                                  }`}
+                                >
+                                  {sentBy} · {readableDateTime(item.occurred_at)}
                                 </p>
-                              ) : null}
-                              {item.actor ? (
-                                <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
-                                  {item.actor}
-                                </p>
-                              ) : null}
+                              </div>
                             </div>
                           </li>
                         );
