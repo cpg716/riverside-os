@@ -75,20 +75,17 @@ pub enum PaymentError {
 fn require_current_register_build_for_provider_dispatch(
     headers: &HeaderMap,
 ) -> Result<(), PaymentError> {
-    let Some(client_sha) = crate::api::incompatible_client_build_sha(headers) else {
+    let Err(message) = crate::api::require_current_client_build_sha(headers) else {
         return Ok(());
     };
-    let server_sha = env!("RIVERSIDE_GIT_SHA");
     tracing::error!(
         target = "helcim",
-        client_build_sha = client_sha,
-        server_build_sha = server_sha,
+        client_build_sha = ?headers.get(crate::api::CLIENT_BUILD_SHA_HEADER),
+        server_build_sha = env!("RIVERSIDE_GIT_SHA"),
         "refused Helcim dispatch from a Register/Main Hub build mismatch"
     );
     Err(PaymentError::Conflict(format!(
-        "Register and Main Hub are running different Riverside builds (Register {}, Main Hub {}). No card request was sent. Update or restart this Register, then retry.",
-        &client_sha[..client_sha.len().min(8)],
-        &server_sha[..server_sha.len().min(8)]
+        "{message} No card request was sent."
     )))
 }
 

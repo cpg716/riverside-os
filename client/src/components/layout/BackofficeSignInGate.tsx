@@ -1,11 +1,6 @@
-import { useEffect, useState, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useState, useMemo, useRef, type ReactNode } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { RefreshCw, ShieldCheck, Sparkles, Wifi } from "lucide-react";
-import { CLIENT_SEMVER } from "../../clientBuildMeta";
-import {
-  checkForAppUpdate,
-  installAppUpdate,
-} from "../../lib/appUpdater";
+import { ShieldCheck, Wifi } from "lucide-react";
 import {
   useBackofficeAuth,
   type StaffRole,
@@ -15,7 +10,14 @@ import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
 import RiversideLogo from "../../assets/images/riverside_logo.jpg";
 import { DEFAULT_BASE_URL } from "../../lib/apiConfig";
+import {
+  CLIENT_UPDATE_REQUIRED_EVENT,
+  checkClientUpdateRequirement,
+  type ClientUpdateCheckResult,
+  type ServerVersionIdentity,
+} from "../../lib/clientUpdateGate";
 import { getConnectionKey, getStableStationKey } from "../../lib/stationIdentity";
+import ClientUpdateRequiredModal from "./ClientUpdateRequiredModal";
 
 interface InstalledServerStartStatus {
   started: boolean;
@@ -30,6 +32,7 @@ interface ApiHostOption {
 
 const SIGN_IN_BOOTSTRAP_TIMEOUT_MS = 6_000;
 const SIGN_IN_REQUEST_TIMEOUT_MS = 12_000;
+const CLIENT_UPDATE_POLL_INTERVAL_MS = 30_000;
 
 async function fetchWithTimeout(
   input: RequestInfo | URL,
@@ -122,19 +125,6 @@ function isTailscaleUrl(url: string): boolean {
   }
 }
 
-function stripV(v: string): string {
-  return v.replace(/^v/, "");
-}
-
-function serverIsAhead(serverVer: string, clientVer: string): boolean {
-  const parse = (v: string) => stripV(v).split(".").map(Number);
-  const [sm, sn, sp] = parse(serverVer);
-  const [cm, cn, cp] = parse(clientVer);
-  if (sm !== cm) return sm > cm;
-  if (sn !== cn) return sn > cn;
-  return sp > cp;
-}
-
 /**
  * Blocks the Back Office shell until a valid 4-digit staff credential is stored.
  * Independent of the register: POS / checkout still require an open session where enforced.
@@ -173,10 +163,10 @@ export default function BackofficeSignInGate({
   });
   const [showTailscaleInput, setShowTailscaleInput] = useState(false);
   const [tempTailscaleUrl, setTempTailscaleUrl] = useState("");
-  const [serverVersion, setServerVersion] = useState<string | null>(null);
+  const [serverIdentity, setServerIdentity] =
+    useState<ServerVersionIdentity | null>(null);
   const [versionGateBlocked, setVersionGateBlocked] = useState(false);
-  const [appUpdateBusy, setAppUpdateBusy] = useState(false);
-  const [appUpdateDone, setAppUpdateDone] = useState(false);
+  const [versionCheckComplete, setVersionCheckComplete] = useState(false);
 
   const apiHostOptions = useMemo(() => {
     const current = normalizeApiBase(serverUrl);
@@ -243,28 +233,53 @@ export default function BackofficeSignInGate({
     window.location.reload(); // Reload to re-trigger the roster fetch with new URL
   };
 
+  const checkClientVersion = useCallback(async (force = false) => {
+    const result = await checkClientUpdateRequirement(serverUrl, { force });
+    setVersionCheckComplete(true);
+    if (result.status === "unavailable") return;
+    setServerIdentity(result.server);
+    setVersionGateBlocked(result.status === "required");
+  }, [serverUrl]);
+
+  useEffect(() => {
+    setVersionCheckComplete(false);
+    void checkClientVersion();
+
+    const interval = window.setInterval(
+      () => void checkClientVersion(true),
+      CLIENT_UPDATE_POLL_INTERVAL_MS,
+    );
+    const recheckWhenVisible = () => {
+      if (document.visibilityState === "visible") void checkClientVersion(true);
+    };
+    const recheck = () => void checkClientVersion(true);
+    const requireUpdate = (event: Event) => {
+      const result = (event as CustomEvent<ClientUpdateCheckResult>).detail;
+      if (result?.status !== "required") return;
+      setServerIdentity(result.server);
+      setVersionGateBlocked(true);
+      setVersionCheckComplete(true);
+    };
+
+    window.addEventListener("focus", recheck);
+    window.addEventListener("online", recheck);
+    document.addEventListener("visibilitychange", recheckWhenVisible);
+    window.addEventListener(CLIENT_UPDATE_REQUIRED_EVENT, requireUpdate);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", recheck);
+      window.removeEventListener("online", recheck);
+      document.removeEventListener("visibilitychange", recheckWhenVisible);
+      window.removeEventListener(CLIENT_UPDATE_REQUIRED_EVENT, requireUpdate);
+    };
+  }, [checkClientVersion]);
+
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
       let connectionFailed = false;
       try {
-        // Check version first — if server is ahead of client, gate the UI.
-        const verRes = await fetchWithTimeout(
-          `${serverUrl}/api/version`,
-          { cache: "no-store" },
-          SIGN_IN_BOOTSTRAP_TIMEOUT_MS,
-        ).catch(() => null);
-        if (verRes?.ok) {
-          const verData = await verRes.json() as { version: string };
-          if (cancelled) return;
-          setServerVersion(verData.version);
-          if (serverIsAhead(verData.version, CLIENT_SEMVER)) {
-            setVersionGateBlocked(true);
-            return;
-          }
-        }
-
         const res = await fetchWithTimeout(
           `${serverUrl}/api/staff/list-for-pos`,
           {},
@@ -465,11 +480,10 @@ export default function BackofficeSignInGate({
     trySignInRef.current();
   }, [busy, credential, selectedStaffId]);
 
-  if (hasStaffCode && permissionsLoaded && permissions.length > 0) {
-    return <>{children}</>;
-  }
-
-  if (hasStaffCode && !permissionsLoaded) {
+  if (
+    !versionCheckComplete ||
+    (hasStaffCode && !permissionsLoaded && !versionGateBlocked)
+  ) {
     return (
       <div className="flex h-screen items-center justify-center bg-app-bg font-sans text-app-text-muted antialiased">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-app-accent border-t-transparent" />
@@ -477,78 +491,25 @@ export default function BackofficeSignInGate({
     );
   }
 
-  // Version gate: server has been updated but this station hasn't yet.
-  if (versionGateBlocked && serverVersion) {
+  if (versionGateBlocked && serverIdentity) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center gap-6 bg-app-bg p-6 font-sans antialiased">
-        <div className="w-full max-w-sm overflow-hidden rounded-[32px] border border-app-border/40 bg-app-surface shadow-2xl">
-          <div className="border-b border-app-border bg-app-surface-2 px-8 py-6 text-center">
-            <div className="mx-auto mb-4 h-16 w-auto flex items-center justify-center overflow-hidden rounded-xl">
-              <img src={RiversideLogo} alt="Riverside Men's Shop" className="h-full w-auto object-contain" />
-            </div>
-            <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">
-              <Sparkles className="h-3.5 w-3.5" />
-              Update Required
-            </div>
-          </div>
-          <div className="space-y-5 px-8 py-7">
-            <p className="text-sm font-bold text-app-text text-center leading-relaxed">
-              The server has been updated to v{serverVersion}.
-            </p>
-            <p className="text-xs text-app-text-muted text-center leading-relaxed">
-              This station is running v{CLIENT_SEMVER}. You must update this app before signing in to keep everything in sync.
-            </p>
-            {isTauri() ? (
-              <>
-                {appUpdateDone ? (
-                  <p className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-center text-xs font-bold text-emerald-800">
-                    Update installed — please relaunch Riverside.
-                  </p>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={appUpdateBusy}
-                    onClick={async () => {
-                      setAppUpdateBusy(true);
-                      try {
-                        const check = await checkForAppUpdate();
-                        if (!check.available) {
-                          toast("No update found in the updater channel. Ask your manager to update this station manually.", "error");
-                          return;
-                        }
-                        await installAppUpdate();
-                        setAppUpdateDone(true);
-                      } catch (e) {
-                        toast(String(e), "error");
-                      } finally {
-                        setAppUpdateBusy(false);
-                      }
-                    }}
-                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-app-accent px-4 py-3 text-sm font-black text-white disabled:opacity-60"
-                  >
-                    {appUpdateBusy
-                      ? <><RefreshCw className="h-4 w-4 animate-spin" />Updating...</>
-                      : `Update to v${serverVersion}`
-                    }
-                  </button>
-                )}
-              </>
-            ) : (
-              <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-xs font-semibold text-amber-800">
-                Reload this page after the server admin has pushed the updated web files.
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="w-full text-center text-xs text-app-text-muted underline"
-            >
-              Recheck after manual update
-            </button>
-          </div>
-        </div>
-      </div>
+      <>
+        {hasStaffCode && permissions.length > 0 ? (
+          children
+        ) : (
+          <div className="min-h-screen bg-app-bg" aria-hidden="true" />
+        )}
+        <ClientUpdateRequiredModal
+          open
+          server={serverIdentity}
+          onRecheck={() => checkClientVersion(true)}
+        />
+      </>
     );
+  }
+
+  if (hasStaffCode && permissions.length > 0) {
+    return <>{children}</>;
   }
 
   return (

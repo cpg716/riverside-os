@@ -24,6 +24,14 @@ const checkoutLogic = repoFile("server/src/logic/transaction_checkout.rs");
 const paymentSummaryLogic = repoFile("server/src/logic/pos_rms_charge.rs");
 const posRegisterAuth = repoFile("client/src/lib/posRegisterAuth.ts");
 const viteConfig = repoFile("client/vite.config.ts");
+const clientUpdateGate = repoFile("client/src/lib/clientUpdateGate.ts");
+const clientUpdateModal = repoFile(
+  "client/src/components/layout/ClientUpdateRequiredModal.tsx",
+);
+const backofficeSignInGate = repoFile(
+  "client/src/components/layout/BackofficeSignInGate.tsx",
+);
+const apiModule = repoFile("server/src/api/mod.rs");
 
 test("payment requests identify the exact Register build before Helcim dispatch", () => {
   expect(viteConfig).toContain("__ROS_GIT_SHA__");
@@ -36,6 +44,45 @@ test("payment requests identify the exact Register build before Helcim dispatch"
     "require_current_register_build_for_provider_dispatch(&headers)?",
   );
   expect(paymentsApi).toContain("No card request was sent");
+});
+
+test("stale Tauri and PWA builds cannot start or complete a transaction", () => {
+  expect(apiModule).toContain("build_sha: env!(\"RIVERSIDE_GIT_SHA\")");
+  expect(apiModule).toContain("require_current_client_build_sha");
+  expect(transactionsApi).toContain(
+    "crate::api::require_current_client_build_sha(&headers)",
+  );
+  expect(transactionsApi).toContain("TransactionError::Conflict(message)");
+
+  expect(clientUpdateGate).toContain("serverBuildSha !== clientBuildSha");
+  expect(clientUpdateGate).toContain("navigator.serviceWorker.getRegistrations()");
+  expect(clientUpdateGate).toContain("window.caches.delete(cacheName)");
+  expect(backofficeSignInGate).toContain("CLIENT_UPDATE_POLL_INTERVAL_MS");
+  expect(backofficeSignInGate).toContain("CLIENT_UPDATE_REQUIRED_EVENT");
+  expect(backofficeSignInGate).toContain("<ClientUpdateRequiredModal");
+
+  const openPaymentStart = cart.indexOf(
+    "const openCheckoutDrawer = useCallback(async () =>",
+  );
+  const openPaymentEnd = cart.indexOf(
+    "const [belowCostApprovalPromptOpen",
+    openPaymentStart,
+  );
+  const openPaymentFlow = cart.slice(openPaymentStart, openPaymentEnd);
+  expect(openPaymentStart).toBeGreaterThan(-1);
+  expect(openPaymentFlow).toContain("await requireCurrentBuildForTransaction()");
+  expect(openPaymentFlow.indexOf("await requireCurrentBuildForTransaction()"))
+    .toBeLessThan(openPaymentFlow.indexOf("setCheckoutDrawerOpen(true)"));
+  expect(cart).toContain('data-testid="pos-client-update-check"');
+  expect(cart).toContain(
+    "if (!(await requireCurrentBuildForTransaction())) return;",
+  );
+
+  expect(clientUpdateModal).toContain('role="alertdialog"');
+  expect(clientUpdateModal).toContain("installAppUpdate()");
+  expect(clientUpdateModal).toContain("resyncPwaClient()");
+  expect(clientUpdateModal).not.toContain("Later");
+  expect(clientUpdateModal).not.toContain("onClose");
 });
 
 test("checkout and customer changes clear sale-scoped tender state only", () => {

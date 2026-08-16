@@ -62,6 +62,13 @@ Correcting Salesperson attribution after the sale always requires a fresh Access
 
 You must **open the register drawer** when prompted (lane, opening float, and **Open register**) before you can ring sales. The Windows register now shows a **Station Readiness** panel first so you can confirm API reachability and receipt-printer connectivity before customer checkout begins. If the till is already open for your shift, you go straight to the dashboard or register screen.
 
+Before Register becomes interactive and again before Payment, Riverside verifies
+that this station is running the same exact build as the Main Hub. If **Update
+Riverside to continue** appears, the Cart remains saved on screen but no sale can
+be started, Payment cannot open, and checkout cannot be recorded. Choose
+**Install update** in the Windows desktop app or **Resync and reopen** in a
+PWA/browser, then relaunch or recheck. The mandatory dialog cannot be dismissed.
+
 ![Register dashboard after the till is open](../images/help/pos/register-dashboard.png)
 
 ---

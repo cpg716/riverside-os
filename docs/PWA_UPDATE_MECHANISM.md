@@ -13,6 +13,22 @@ Riverside uses `vite-plugin-pwa` with `registerType: "prompt"`. This means:
 - The new service worker installs in the background but stays in the **waiting** state until the user confirms.
 - `PwaUpdatePrompt.tsx` displays a **"Reload now"** banner. When tapped, it calls `updateServiceWorker(true)`, which triggers `skipWaiting()` and reloads the page.
 
+The optional Workbox banner is separate from the transaction safety gate. Every
+Tauri, installed PWA, and browser station also compares the exact client build
+SHA with `GET /api/version` before Register becomes interactive, every 30
+seconds while Riverside is open, on focus/reconnect, and again before Payment.
+If the Main Hub reports a different build, a non-dismissible **Update required**
+dialog blocks Register and Payment. Tauri installs through the signed updater;
+PWA/browser uses **Resync and reopen** to unregister the service worker, delete
+Riverside's Cache Storage entries, and reload from the current Main Hub bundle.
+It deliberately preserves local/session storage and IndexedDB so an open Cart,
+Staff Access, and offline recovery evidence are not erased.
+
+`POST /api/transactions/checkout` independently rejects a known stale or
+unidentified production client build with HTTP 409. Payment-provider dispatch
+uses the same guard, so an older client cannot bypass the UI gate to record cash,
+check, zero-balance, or card activity.
+
 ## Build-time asset generation
 
 When `npm run build` runs in `client/`:
@@ -126,11 +142,14 @@ If aggressive CDN or reverse-proxy caching is in front of the app:
 
 ## Forcing a stale device to update
 
-If a device is stuck on an old version because a user keeps tapping **Later**:
+If a device is stuck on an old version:
 
 1. **In-app**: The user can eventually tap **Reload now**.
+   If Riverside has already identified a Main Hub/client mismatch, staff must use
+   **Resync and reopen**; that transaction-blocking dialog has no Later action.
 2. **Browser settings**: Clear site data / cache for the origin. On next visit, the newest `sw.js` installs immediately.
-3. **Programmatic**: Not exposed in the UI. For IT use only — unregister the SW via DevTools or remote MDM commands.
+3. **Programmatic**: The mandatory resync action performs the safe service-worker
+   and Cache Storage cleanup. DevTools or remote MDM remain IT-only fallbacks.
 
 ## CI/CD implications
 
@@ -145,4 +164,4 @@ The `windows-deployment-package.yml` workflow does **not** build the PWA directl
 - `docs/staff/pwa-updates-manual.md` — staff-facing explanation
 - `docs/staff/pwa-update-troubleshooting.md` — operational recovery steps
 
-**Last reviewed:** 2026-05-27
+**Last reviewed:** 2026-08-15

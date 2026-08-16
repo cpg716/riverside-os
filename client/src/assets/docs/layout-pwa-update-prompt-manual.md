@@ -45,6 +45,10 @@ Use this prompt when Riverside needs the workstation to install the app shell or
 
 - Use **Reload now** when staff can afford a quick refresh.
 - Use **Later** if you are in the middle of active work and need to finish first.
+- If **Update Riverside to continue** appears instead, the Main Hub has confirmed
+  that the exact builds differ. That dialog is mandatory: it preserves the Cart
+  but blocks Register and Payment. Choose **Resync and reopen**. There is no
+  **Later** action for a confirmed mismatch.
 
 ## Offline note
 

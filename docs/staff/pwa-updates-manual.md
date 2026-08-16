@@ -33,6 +33,23 @@ You have two choices:
 - **If you are in the middle of a sale,** finish the transaction first, then reload.
 - **If you tapped Later multiple times** and the banner keeps coming back, pick a safe moment and reload. Repeatedly dismissing it does not cause problems, but it does leave you on an older version.
 
+## Mandatory update before a transaction
+
+The normal bottom banner may still be deferred when Riverside has not found a
+Main Hub/client mismatch. A separate **Update Riverside to continue** dialog is
+mandatory. It appears when this device and the Main Hub are on different exact
+builds and it has no **Later** or close action.
+
+- Riverside preserves the open Cart but blocks Register controls and Payment.
+- Choose **Resync and reopen** on an installed PWA or browser. Riverside removes
+  its stale web cache and opens the current Main Hub copy.
+- On a Windows desktop app, choose **Install update**, then relaunch Riverside.
+- Use **Recheck Main Hub** only after the update or Main Hub deployment finishes.
+
+Do not start another sale or try another station workaround while this dialog is
+open. If the mandatory dialog returns immediately after reopening, get a manager
+or support so the published station build and Main Hub build can be checked.
+
 ## If you installed Riverside from your home screen (iPad / iPhone)
 
 The reload button refreshes the app inside its home-screen shell. You do **not** need to delete the icon and re-add it.
@@ -69,4 +86,4 @@ The reload button refreshes the browser tab. Your sign-in state is preserved. If
 - `REMOTE_ACCESS_GUIDE.md` — installing Riverside as a home-screen app.
 - `working-offline.md` — what happens when the network is down.
 
-**Last reviewed:** 2026-05-27
+**Last reviewed:** 2026-08-15

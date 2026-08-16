@@ -13,17 +13,36 @@ use tokio::sync::Mutex;
 
 pub(crate) const CLIENT_BUILD_SHA_HEADER: &str = "x-riverside-client-build-sha";
 
-pub(crate) fn incompatible_client_build_sha(headers: &HeaderMap) -> Option<&str> {
-    let client_sha = headers.get(CLIENT_BUILD_SHA_HEADER)?.to_str().ok()?.trim();
-    if client_sha.is_empty() || matches!(client_sha, "dev" | "unknown") {
-        return None;
-    }
-
-    let server_sha = env!("RIVERSIDE_GIT_SHA").trim();
-    if server_sha == client_sha {
+fn usable_build_sha(value: &str) -> Option<&str> {
+    let value = value.trim();
+    if value.is_empty() || matches!(value, "dev" | "unknown") {
         None
     } else {
-        Some(client_sha)
+        Some(value)
+    }
+}
+
+pub(crate) fn require_current_client_build_sha(headers: &HeaderMap) -> Result<(), String> {
+    let Some(server_sha) = usable_build_sha(env!("RIVERSIDE_GIT_SHA")) else {
+        return Ok(());
+    };
+    let client_sha = headers
+        .get(CLIENT_BUILD_SHA_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(usable_build_sha);
+
+    match client_sha {
+        Some(client_sha) if client_sha == server_sha => Ok(()),
+        Some(client_sha) => Err(format!(
+            "Register and Main Hub are running different Riverside builds (Register {}, Main Hub {}). Update or resync this Register before continuing the transaction.",
+            &client_sha[..client_sha.len().min(8)],
+            &server_sha[..server_sha.len().min(8)],
+        )),
+        None if env!("RIVERSIDE_RELEASE_BUILD") == "true" => Err(
+            "This Register does not identify a current Riverside release build. Update or resync this Register before continuing the transaction."
+                .to_string(),
+        ),
+        None => Ok(()),
     }
 }
 
@@ -87,12 +106,14 @@ use meilisearch_sdk::client::Client as MeilisearchClient;
 #[derive(Serialize)]
 struct ApiVersionResponse {
     version: &'static str,
+    build_sha: &'static str,
     component: &'static str,
 }
 
 async fn api_version() -> Json<ApiVersionResponse> {
     Json(ApiVersionResponse {
         version: env!("CARGO_PKG_VERSION"),
+        build_sha: env!("RIVERSIDE_GIT_SHA"),
         component: "server",
     })
 }
@@ -353,7 +374,7 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
-    use super::{incompatible_client_build_sha, CLIENT_BUILD_SHA_HEADER};
+    use super::{require_current_client_build_sha, CLIENT_BUILD_SHA_HEADER};
     use axum::http::{HeaderMap, HeaderValue};
 
     #[test]
@@ -364,17 +385,14 @@ mod tests {
             CLIENT_BUILD_SHA_HEADER,
             HeaderValue::from_str(server_sha).expect("server SHA header"),
         );
-        assert_eq!(incompatible_client_build_sha(&headers), None);
+        assert_eq!(require_current_client_build_sha(&headers), Ok(()));
 
         if server_sha.len() > 8 {
             headers.insert(
                 CLIENT_BUILD_SHA_HEADER,
                 HeaderValue::from_str(&server_sha[..8]).expect("short server SHA header"),
             );
-            assert_eq!(
-                incompatible_client_build_sha(&headers),
-                Some(&server_sha[..8])
-            );
+            assert!(require_current_client_build_sha(&headers).is_err());
         }
     }
 
@@ -385,12 +403,20 @@ mod tests {
             CLIENT_BUILD_SHA_HEADER,
             HeaderValue::from_static("0000000000000000000000000000000000000000"),
         );
-        assert_eq!(
-            incompatible_client_build_sha(&headers),
-            Some("0000000000000000000000000000000000000000")
+        assert!(require_current_client_build_sha(&headers).is_err());
+    }
+
+    #[test]
+    fn transaction_build_identity_rejects_a_known_mismatch() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CLIENT_BUILD_SHA_HEADER,
+            HeaderValue::from_static("0000000000000000000000000000000000000000"),
         );
 
-        headers.remove(CLIENT_BUILD_SHA_HEADER);
-        assert_eq!(incompatible_client_build_sha(&headers), None);
+        let error = require_current_client_build_sha(&headers)
+            .expect_err("mismatched Register must not record a checkout");
+        assert!(error.contains("different Riverside builds"));
+        assert!(error.contains("before continuing the transaction"));
     }
 }

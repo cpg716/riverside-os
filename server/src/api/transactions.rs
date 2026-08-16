@@ -106,6 +106,8 @@ pub enum TransactionError {
     #[error("{0}")]
     Forbidden(String),
     #[error("{0}")]
+    Conflict(String),
+    #[error("{0}")]
     BadGateway(String),
 }
 
@@ -125,6 +127,7 @@ impl IntoResponse for TransactionError {
             }
             TransactionError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
             TransactionError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
+            TransactionError::Conflict(m) => (StatusCode::CONFLICT, m),
             TransactionError::BadGateway(m) => (StatusCode::BAD_GATEWAY, m),
             TransactionError::Database(e) => {
                 if matches!(&e, SqlxError::RowNotFound) {
@@ -15078,6 +15081,14 @@ async fn checkout(
     headers: HeaderMap,
     Json(payload): Json<CheckoutRequest>,
 ) -> Result<Json<CheckoutResponse>, TransactionError> {
+    crate::api::require_current_client_build_sha(&headers).map_err(|message| {
+        tracing::warn!(
+            client_build_sha = ?headers.get(crate::api::CLIENT_BUILD_SHA_HEADER),
+            server_build_sha = env!("RIVERSIDE_GIT_SHA"),
+            "refused checkout from a Register/Main Hub build mismatch"
+        );
+        TransactionError::Conflict(message)
+    })?;
     if payload.checkout_client_id.is_none() {
         return Err(TransactionError::InvalidPayload(
             "Register checkout requires a non-null checkout_client_id".to_string(),

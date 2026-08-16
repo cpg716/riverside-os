@@ -257,14 +257,14 @@ The in-app, packaged, pushed-LAN, and fleet update paths all enforce the same ba
 
 ### Satellite Station Version Gate
 
-When a Register or Back Office station connects to the server, `BackofficeSignInGate` checks `GET /api/version`. If the server version is **ahead of the client version**, the sign-in PIN screen is replaced with a blocking **"Update Required"** screen showing:
+When a Register or Back Office station connects to the server, `BackofficeSignInGate` checks the version and exact build SHA returned by `GET /api/version`. It continues checking while staff are signed in, on focus/reconnect, and before Payment. Any known mismatch opens a non-dismissible **Update required** dialog showing:
 
 - The server version vs. the current station version.
-- A one-click **"Update to vX.X.X"** button (Windows Tauri: pulls the signed MSI via the Tauri updater channel).
-- A "Reload now" instruction for PWA / browser stations.
-- A "Recheck after manual update" link.
+- A one-click **Install update** button for Windows Tauri, using the signed updater channel.
+- A **Resync and reopen** action for PWA/browser stations that replaces stale service-worker and Cache Storage files without deleting Cart/auth/recovery storage.
+- A **Recheck Main Hub** action after an installer or deployment completes.
 
-**Staff cannot sign in until the client version matches the server.** This ensures all stations are always in sync after a server update.
+**Staff cannot start Register work, enter Payment, dispatch a provider payment, or record checkout until the client build matches the Main Hub.** The server independently returns HTTP 409 for stale or unidentified production builds. If the Main Hub is unreachable, Riverside does not invent a mismatch; existing strict offline-sale eligibility remains authoritative until reconnection.
 
 ### Admin Notifications
 

@@ -48,6 +48,7 @@ Example values:
 ## Notes
 
 - The last selected staff member is remembered on that device.
+- Before sign-in and while Riverside remains open, the station verifies its exact build against the Main Hub. If **Update Riverside to continue** appears, Register and Payment are blocked. Use **Install update** in the Windows desktop app or **Resync and reopen** in a PWA/browser; the dialog cannot be dismissed.
 - On the Main Hub, if the app is pointed at `localhost` or `127.0.0.1` and the staff roster cannot load, Riverside tries to start the installed **Riverside OS Server** Windows scheduled task and then retries the roster check.
 - If your name does not appear, the device may be pointed at the wrong host URL for its current role or location.
 - If a red **Server connection lost** banner appears after two failed health checks, Riverside cannot reach the Main Hub/server. Do not start new Back Office work until the banner clears; confirm the server is running or the host URL is correct, then use **Recheck**.

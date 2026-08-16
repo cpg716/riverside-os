@@ -92,6 +92,10 @@ import {
   CHECKOUT_RECOVERY_RESOLVED_EVENT,
   type CheckoutRecoveryResolvedDetail,
 } from "../../lib/offlineQueue";
+import {
+  announceClientUpdateRequired,
+  checkClientUpdateRequirement,
+} from "../../lib/clientUpdateGate";
 import { startPosJourneyTiming } from "../../lib/posJourneyTelemetry";
 
 export type { CheckoutPayload } from "./types";
@@ -598,6 +602,22 @@ export default function Cart({
     [backofficeHeaders],
   );
   const baseUrl = getBaseUrl();
+  const [transactionUpdateCheckPending, setTransactionUpdateCheckPending] =
+    useState(true);
+  const requireCurrentBuildForTransaction = useCallback(async (force = true) => {
+    setTransactionUpdateCheckPending(true);
+    const result = await checkClientUpdateRequirement(baseUrl, { force });
+    if (result.status === "required") {
+      announceClientUpdateRequired(result);
+      return false;
+    }
+    setTransactionUpdateCheckPending(false);
+    return true;
+  }, [baseUrl]);
+
+  useEffect(() => {
+    void requireCurrentBuildForTransaction(false);
+  }, [requireCurrentBuildForTransaction]);
 
   // --- External States (managed by hooks) ---
   const [rmsPaymentMeta, setRmsPaymentMeta] =
@@ -776,10 +796,11 @@ export default function Cart({
 
   // --- UI States (Restored to Cart.tsx) ---
   const [checkoutDrawerOpen, setCheckoutDrawerOpen] = useState(false);
-  const openCheckoutDrawer = useCallback(() => {
+  const openCheckoutDrawer = useCallback(async () => {
+    if (!(await requireCurrentBuildForTransaction())) return;
     startPosJourneyTiming("pay_open");
     setCheckoutDrawerOpen(true);
-  }, []);
+  }, [requireCurrentBuildForTransaction]);
   const [belowCostApprovalPromptOpen, setBelowCostApprovalPromptOpen] =
     useState(false);
   const [belowCostApproval, setBelowCostApproval] = useState<{
@@ -5166,6 +5187,19 @@ export default function Cart({
       onPointerDownCapture={() => onCartInteraction?.()}
       onFocusCapture={() => onCartInteraction?.()}
     >
+      {transactionUpdateCheckPending ? (
+        <div
+          className="absolute inset-0 z-[96] flex items-center justify-center bg-app-bg/90 backdrop-blur-sm"
+          role="status"
+          aria-live="polite"
+          data-testid="pos-client-update-check"
+        >
+          <div className="flex items-center gap-3 rounded-2xl border border-app-border bg-app-surface px-5 py-4 font-bold text-app-text shadow-xl">
+            <RefreshCw className="h-5 w-5 animate-spin text-app-accent" aria-hidden="true" />
+            Checking the current Riverside build...
+          </div>
+        </div>
+      ) : null}
       {checkoutDrawerOpen ? (
         <div
           className="pointer-events-none absolute inset-0 z-[95] bg-black/25"
@@ -6824,6 +6858,7 @@ export default function Cart({
                     return;
                   }
                   if (totals.totalCents === 0 && checkoutOperator) {
+                    if (!(await requireCurrentBuildForTransaction())) return;
                     const completedTransactionId = await executeCheckout(
                       [],
                       checkoutOperator,
