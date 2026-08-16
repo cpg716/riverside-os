@@ -207,7 +207,11 @@ test("Podium inbox keeps webhook and history status truthful", () => {
   expect(podiumWebhook).toContain('"/metadata/event_uid"');
   expect(historyFetcher).toContain('request.query(&[("cursor", cursor)])');
   expect(historyFetcher).not.toContain('request.query(&[("limit"');
-  expect(podiumMessaging).toContain("last_synced_at = NULL");
+  expect(podiumMessaging).toContain("last_synced_at = CASE");
+  expect(podiumMessaging).toContain(
+    "EXCLUDED.last_message_at > podium_conversation.last_message_at",
+  );
+  expect(podiumMessaging).toContain("THEN NULL");
   expect(podiumMessaging).toContain("mark_conversation_synced");
   expect(podiumInbox).toContain("incomplete_history_count");
   expect(podiumInbox).toContain("PROVIDER_PULL_STALE_MS = 30 * 60 * 1000");
@@ -272,7 +276,9 @@ test("Podium reply surfaces stay rich without duplicating message history", () =
   expect(podiumInbox).not.toContain(
     "Podium Inbox · Messages, calls, and linked reviews",
   );
-  expect(customerRelationshipHub).toContain("Text and email history");
+  expect(customerRelationshipHub).toContain(
+    "Text, call, and email history for",
+  );
   expect(customerRelationshipHub).not.toContain("Communication timeline");
 });
 

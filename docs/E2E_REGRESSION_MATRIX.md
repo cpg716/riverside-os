@@ -17,7 +17,7 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 
 ---
 
-## Current hardening + execution policy (2026-05-01)
+## Current hardening + execution policy (2026-08-16)
 
 ### Recently hardened
 
@@ -30,11 +30,18 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 - Added **Payments Operations** hardening coverage: API gates for Helcim operations endpoints/permissions, contract coverage for reconciliation/deposit mutation safety, UI smoke for Payments tabs/drawers/empty states, and pure Helcim parser edge cases.
 - Recent staff-facing copy and responsive layout sweeps are covered by the staff-label, settings-mobile, reports-mobile, loyalty-mobile, inventory-physical-mobile, and POS dropdown suites.
 
-### Blocking core suite (release gate)
+### Required GitHub suite
 
-Keep these **blocking**. They protect financial/tax/register/audit correctness and core UI/workflow contracts:
+Pull requests and pushes to `main` run the complete standard Playwright suite across four GitHub-hosted shards. The scheduled nightly run repeats that same suite against a fresh database as a drift and order-dependence check. The required gate must not use a hand-maintained spec allowlist; otherwise a green push can omit a deterministic failure that appears only in the nightly run.
+
+Full local E2E is not required for ordinary development. Use focused specs or the local blocking shortcut below, then rely on the required sharded GitHub run for complete-suite proof. Release certification still requires a green complete suite for the exact release SHA.
+
+### Focused local blocking suite
+
+`npm run test:e2e:blocking` is a faster local shortcut for financial/tax/register/audit correctness and core UI/workflow contracts. It is intentionally not a substitute for the required complete GitHub suite.
 
 - `checkout-tender-financial-contract.spec.ts`
+- `refund-split-tender.spec.ts`
 - `tax-audit-contract.spec.ts`
 - `commission-audit-contract.spec.ts`
 - `inventory-audit-contract.spec.ts`
@@ -50,6 +57,7 @@ Keep these **blocking**. They protect financial/tax/register/audit correctness a
 - `inventory-physical-ui.spec.ts`
 - `exchange-wizard.spec.ts`
 - `pos-navigation-contract.spec.ts`
+- `podium-setup-contract.spec.ts`
 - `ui-portaling-stacking.spec.ts`
 - `settings-deeplink-contract.spec.ts`
 - `notification-deep-link-contract.spec.ts`
@@ -59,22 +67,10 @@ Keep these **blocking**. They protect financial/tax/register/audit correctness a
 - `payments-operations-ui.spec.ts`
 - `phase2-finance-and-help-lifecycle.spec.ts`
 
-### Non-blocking / nightly candidates
+### Opt-in / non-standard coverage
 
-These remain useful but are lower-signal or environment-sensitive and should default to nightly/non-blocking lanes:
-
-- `visual-baselines.spec.ts` (already opt-in)
-- `qbo-staging.spec.ts`
-- `pwa-responsive.spec.ts`
-- `backoffice-mobile-workflow-smoke.spec.ts`
-- `pos-small-screen-smoke.spec.ts`
-- `pos-modal-smoke.spec.ts`
-- `reports-mobile-cards.spec.ts`
-- `gift-cards-mobile-cards.spec.ts`
-- `loyalty-eligible-mobile.spec.ts`
-- `scheduler-mobile-ergonomics.spec.ts`
-- `alterations-register-lookup-mobile.spec.ts`
-- `runtime-console-cleanliness.spec.ts`
+- `visual-baselines.spec.ts` remains opt-in through `E2E_RUN_VISUAL=1` because render-environment drift should not block the standard suite.
+- Every other standard Playwright spec runs in both the required GitHub gate and the scheduled nightly suite.
 
 ### Consolidation candidates (plan only, no removals yet)
 
@@ -83,7 +79,7 @@ These remain useful but are lower-signal or environment-sensitive and should def
 - `settings-mobile-sections.spec.ts` → merge candidate into `settings-mobile.spec.ts`.
 - `high-risk-regressions.spec.ts` → merge candidate into `phase2-finance-and-help-lifecycle.spec.ts` and/or `api-gates.spec.ts`.
 
-**Guardrail:** financial, tax, register, and audit contract suites stay blocking.
+**Guardrail:** financial, tax, register, audit, and selected high-risk deterministic source-contract suites stay in the focused local shortcut; every standard spec stays in the complete required GitHub suite.
 
 ### ROS Dev Center E2E Health telemetry config (Phase 2)
 
@@ -252,7 +248,7 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 
 ## CI
 
-- **`playwright-e2e.yml`:** on **PR** and **push** to **`main`** — Postgres (**`pgvector/pgvector:pg16`**), **`scripts/apply-migrations-psql.sh`**, required/RBAC/E2E seeds from **`scripts/seeds/`**, **`cargo build` / `cargo run`** with **`RIVERSIDE_HTTP_BIND=127.0.0.1:3000`**, **`RIVERSIDE_ENABLE_E2E_TEST_SUPPORT=1`**, **`client` `npm ci` + `npm run build`**, Playwright Chromium + **`npx playwright test --workers=1`**. **`E2E_BASE_URL`** targets **`http://localhost:3000`** (browser-safe SPA origin) while **`E2E_API_BASE`** targets **`http://127.0.0.1:3000`**. CI opens a default Register #1 session before the suite so the tender contract coverage cannot silently skip due to missing session state, and it now sanity-checks the test-support routes before the suite starts. Failure uploads **`playwright-output`** artifacts, including Playwright traces and the server/fake-host logs for faster debugging. Visual baselines are **non-blocking by default** because they are opt-in via **`E2E_RUN_VISUAL=1`**; when enabled, use stabilized visual settings (animations disabled, UTC timezone, en-US locale) and a pinned environment for snapshot authority.
+- **`playwright-e2e.yml`:** on **PR** and **push** to **`main`** — Postgres (**`pgvector/pgvector:pg16`**), **`scripts/apply-migrations-psql.sh`**, required/RBAC/E2E seeds from **`scripts/seeds/`**, **`cargo build` / `cargo run`** with **`RIVERSIDE_HTTP_BIND=127.0.0.1:3000`**, **`RIVERSIDE_ENABLE_E2E_TEST_SUPPORT=1`**, **`client` `npm ci` + `npm run build`**, and the complete standard Playwright suite split across four required shards. The scheduled workflow repeats the complete suite against a fresh database. **`E2E_BASE_URL`** targets **`http://localhost:3000`** (browser-safe SPA origin) while **`E2E_API_BASE`** targets **`http://127.0.0.1:3000`**. CI opens a default Register #1 session before the suite so tender coverage cannot silently skip due to missing session state, and it sanity-checks the test-support routes before tests start. Failures upload Playwright traces, result JSON, and server logs. Visual baselines remain opt-in through **`E2E_RUN_VISUAL=1`**.
 - **POS UI determinism:** the formerly quarantined POS UI subset now relies on explicit POS testability contracts and runs in CI as part of the release suite.
 - **`windows-deployment-package.yml`:** canonical Windows release workflow for the deployment ZIP and signed updater assets.
 
@@ -271,6 +267,7 @@ Local release gate remains the Vite path, but use **`E2E_BASE_URL=http://localho
 
 | Date | Change |
 |------|--------|
+| 2026-08-16 | Made the complete standard four-shard Playwright suite required on PRs and `main` pushes, kept focused local validation available, and promoted split-refund plus Podium source contracts into that local shortcut. |
 | 2026-05-14 | Recorded v0.50 GOLD certification: standard release gate reported **310 passed, 31 skipped, 0 failed**; the 31 environment/visual-gated lanes were then run with the E2E API/DB env and `E2E_RUN_VISUAL=1`, reporting **31 passed, 0 skipped, 0 failed**. Updated visual baseline guidance to reflect current viewport snapshots and separate visual certification. |
 | 2026-05-05 | Added Payments Operations contract/UI coverage and API gate notes for Helcim operations endpoints, reconciliation/deposit permissions, deterministic seed requirements, and no-live-Helcim boundaries. |
 | 2026-05-01 | Reconciled the matrix against all 64 top-level `client/e2e/*.spec.ts` files; added runtime console/API cleanliness coverage and updated ROS Dev Center E2E health buckets plus blocking-lane failure labels for recent staff-facing wording/layout and responsive checks. |

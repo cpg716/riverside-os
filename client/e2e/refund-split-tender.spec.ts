@@ -822,6 +822,41 @@ test.describe("refund split-tender capacity contract", () => {
         0,
       ),
     ).toBe(-grossCents);
+
+    const activityParams = new URLSearchParams({
+      preset: "today",
+      basis: "booked",
+      register_session_id: sessionId,
+    });
+    const activityRes = await request.get(
+      `${apiBase()}/api/insights/register-day-activity?${activityParams.toString()}`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const activityBodyText = await activityRes.text();
+    expect(activityRes.status(), activityBodyText.slice(0, 1000)).toBe(200);
+    const activityBody = JSON.parse(activityBodyText) as {
+      activities: Array<{
+        kind: string;
+        transaction_id?: string | null;
+        transaction_total?: string | null;
+        payments?: Array<{ method: string; amount_label: string }> | null;
+      }>;
+    };
+    const refundEvents = activityBody.activities.filter(
+      (activity) =>
+        activity.kind === "refund" &&
+        activity.transaction_id === checkout.transaction_id,
+    );
+    expect(refundEvents).toHaveLength(1);
+    expect(moneyToCents(refundEvents[0]!.transaction_total)).toBe(-grossCents);
+    expect(refundEvents[0]!.payments).toHaveLength(2);
   });
 
   test("refund API rejects unsupported tenders before writing a payment", async ({ request }) => {

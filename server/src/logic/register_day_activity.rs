@@ -326,6 +326,59 @@ fn merge_order_payment_into_sale(
     activity.payment_summary = payment_summary_label(payments);
 }
 
+fn merge_refund_payment_into_event(
+    activity: &mut RegisterActivityItem,
+    amount: Decimal,
+    payment_method: String,
+    merchant_fee: Option<Decimal>,
+    net_amount: Option<Decimal>,
+) {
+    let existing_total = activity
+        .transaction_total
+        .as_deref()
+        .and_then(|value| value.parse::<Decimal>().ok())
+        .unwrap_or(Decimal::ZERO);
+    let refund_total = existing_total + amount;
+    activity.transaction_total = Some(money_label(refund_total));
+    activity.deposits_paid = Some(money_label(refund_total));
+    activity.amount_label = Some(currency_label(refund_total));
+
+    let payments = activity.payments.get_or_insert_with(Vec::new);
+    if let Some(existing) = payments
+        .iter_mut()
+        .find(|payment| payment.method == payment_method)
+    {
+        let existing_amount = existing
+            .amount_label
+            .parse::<Decimal>()
+            .unwrap_or(Decimal::ZERO);
+        existing.amount_label = money_label(existing_amount + amount);
+    } else {
+        payments.push(RegisterActivityPayment {
+            method: payment_method,
+            amount_label: money_label(amount),
+        });
+    }
+    activity.payment_summary = payment_summary_label(payments);
+
+    if let Some(merchant_fee) = merchant_fee {
+        let existing_fee = activity
+            .merchant_fees_total
+            .as_deref()
+            .and_then(|value| value.parse::<Decimal>().ok())
+            .unwrap_or(Decimal::ZERO);
+        activity.merchant_fees_total = Some(money_label(existing_fee + merchant_fee));
+    }
+    if let Some(net_amount) = net_amount {
+        let existing_net = activity
+            .net_amount
+            .as_deref()
+            .and_then(|value| value.parse::<Decimal>().ok())
+            .unwrap_or(Decimal::ZERO);
+        activity.net_amount = Some(money_label(existing_net + net_amount));
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RegisterDaySummary {
     pub timezone: String,
@@ -3495,6 +3548,22 @@ async fn fetch_register_day_summary_page_on_connection(
         } else {
             None
         };
+        if let Some(refund_event_id) = refund_event_id {
+            if let Some(activity) = activities.iter_mut().find(|activity| {
+                activity.refund_event_id == Some(refund_event_id)
+                    && activity.transaction_id == p.target_transaction_id
+            }) {
+                merge_refund_payment_into_event(
+                    activity,
+                    p.amount,
+                    payment_label,
+                    p.merchant_fee,
+                    p.net_amount,
+                );
+                merged_payment_count = merged_payment_count.saturating_add(1);
+                continue;
+            }
+        }
         if !is_refund && !p.is_shipping_only_sale {
             if let Some(receipt_transaction_id) = p.receipt_transaction_id {
                 if let Some(activity) = activities.iter_mut().find(|activity| {
@@ -3590,7 +3659,7 @@ async fn fetch_register_day_summary_page_on_connection(
             refund_event_id,
             replacement_transaction_id,
             wedding_party_id: None,
-            amount_label: Some(format!("${}", money_label(p.amount))),
+            amount_label: Some(currency_label(p.amount)),
             payment_summary: Some(format!("{payment_label} ${payment_amount}")),
             payments: Some(vec![RegisterActivityPayment {
                 method: payment_label,
@@ -3909,10 +3978,10 @@ mod tests {
         activity_metadata_uuid, activity_search_pattern, compare_activity_desc, currency_label,
         ensure_complete_eod_counts, fetch_register_day_summary_page,
         fetch_register_day_summary_page_on_connection, fetch_register_sales_totals_on_connection,
-        format_weather_value, merge_order_payment_into_sale, payment_activity_id,
-        refund_activity_totals, reporting_tender_label, validate_complete_row_bounds,
-        validate_financial_activity_totals, ActivityPageOptions, RegisterActivityItem,
-        REGISTER_REPORT_OUTPUT_MAX_ROWS,
+        format_weather_value, merge_order_payment_into_sale, merge_refund_payment_into_event,
+        payment_activity_id, refund_activity_totals, reporting_tender_label,
+        validate_complete_row_bounds, validate_financial_activity_totals, ActivityPageOptions,
+        RegisterActivityItem, REGISTER_REPORT_OUTPUT_MAX_ROWS,
     };
     use crate::logic::report_basis::ReportBasis;
     use chrono::{TimeZone, Utc};
@@ -4655,6 +4724,49 @@ mod tests {
             "350.34"
         );
         assert_eq!(activity.payment_summary.as_deref(), Some("CC $350.34"));
+    }
+
+    #[test]
+    fn same_refund_event_merges_split_tenders() {
+        let transaction_id = Uuid::new_v4();
+        let refund_event_id = Uuid::new_v4();
+        let mut activity: RegisterActivityItem = serde_json::from_value(json!({
+            "id": format!("refund-event:{refund_event_id}"),
+            "kind": "refund",
+            "occurred_at": Utc::now(),
+            "title": "Return / Refund",
+            "transaction_id": transaction_id,
+            "refund_event_id": refund_event_id,
+            "amount_label": "-$60.00",
+            "transaction_total": "-60.00",
+            "deposits_paid": "-60.00",
+            "merchant_fees_total": "0.75",
+            "net_amount": "-59.25",
+            "payments": [{
+                "method": "Cash",
+                "amount_label": "-60.00"
+            }]
+        }))
+        .unwrap();
+
+        merge_refund_payment_into_event(
+            &mut activity,
+            Decimal::new(-5963, 2),
+            "Check".to_string(),
+            Some(Decimal::new(50, 2)),
+            Some(Decimal::new(-5913, 2)),
+        );
+
+        assert_eq!(activity.amount_label.as_deref(), Some("-$119.63"));
+        assert_eq!(activity.transaction_total.as_deref(), Some("-119.63"));
+        assert_eq!(activity.deposits_paid.as_deref(), Some("-119.63"));
+        assert_eq!(activity.merchant_fees_total.as_deref(), Some("1.25"));
+        assert_eq!(activity.net_amount.as_deref(), Some("-118.38"));
+        assert_eq!(
+            activity.payment_summary.as_deref(),
+            Some("Cash $-60.00, Check $-59.63")
+        );
+        assert_eq!(activity.payments.as_ref().map(Vec::len), Some(2));
     }
 
     #[test]

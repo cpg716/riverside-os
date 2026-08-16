@@ -248,11 +248,11 @@ jobs:
           echo "$body"
           exit 1
 
-      - name: Run blocking core suite
+      - name: Run required full suite
         run: |
           set -o pipefail
           cd client
-          npm run test:e2e:blocking:shardable -- --workers=1 --shard=${{ matrix.shard }}/${{ matrix.shardTotal }} 2>&1 | tee ../blocking-e2e.log
+          npm run test:e2e:release -- --shard=${{ matrix.shard }}/${{ matrix.shardTotal }} 2>&1 | tee ../blocking-e2e.log
 
       - name: Upload blocking lane report
         if: failure()
