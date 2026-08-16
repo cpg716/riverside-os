@@ -136,9 +136,18 @@ async function openPosRegisterSurface(page: Page): Promise<void> {
   await expect(page.getByTestId("pos-product-search")).toBeVisible({
     timeout: 20_000,
   });
-  await expect(page.getByTestId("pos-customer-search")).toBeVisible({
-    timeout: 20_000,
-  });
+  const compactCheckout = page.getByTestId("pos-compact-checkout-open");
+  if (await compactCheckout.isVisible().catch(() => false)) {
+    await compactCheckout.click();
+    await expect(page.getByTestId("pos-customer-search")).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.getByRole("button", { name: "Back to cart", exact: true }).click();
+  } else {
+    await expect(page.getByTestId("pos-customer-search")).toBeVisible({
+      timeout: 20_000,
+    });
+  }
 }
 
 async function ensureCartScrollable(page: Page): Promise<void> {
@@ -207,8 +216,8 @@ test("POS dropdowns stay visible near bottom of scrollable cart", async ({ page 
   await ensureCartScrollable(page);
   await closeExchangeWizardIfOpen(page);
 
+  await page.getByTestId("pos-compact-checkout-open").click();
   const customerInput = page.getByTestId("pos-customer-search");
-  const productInput = page.getByTestId("pos-product-search");
 
   await scrollNearestContainerNearBottom(customerInput);
   await customerInput.fill("e2e");
@@ -234,6 +243,8 @@ test("POS dropdowns stay visible near bottom of scrollable cart", async ({ page 
     timeout: 10_000,
   });
 
+  await page.getByRole("button", { name: "Back to cart", exact: true }).click();
+  const productInput = page.getByTestId("pos-product-search");
   await scrollNearestContainerNearBottom(productInput);
   await productInput.fill("e2e-vis");
   await productInput.press("Enter");

@@ -82,7 +82,9 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
   await expect(page.getByTestId("pos-camera-scan-button")).toBeVisible();
   await expect(page.getByTestId("pos-parked-sales-button")).toBeVisible();
   await page.getByTestId("pos-camera-scan-button").click();
-  const cameraScanner = page.getByRole("dialog", { name: "Camera Scanner" });
+  const cameraScanner = page.getByRole("dialog", {
+    name: "Register Product Scan",
+  });
   await expect(cameraScanner).toBeVisible();
   await cameraScanner.getByRole("button", { name: "Close scanner" }).click();
   await expect(cameraScanner).toHaveCount(0);

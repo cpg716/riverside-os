@@ -37,6 +37,8 @@ import { ArrowLeft } from "lucide-react";
 const REGISTER_IDLE_MS = 10 * 60 * 1000;
 /** Idle timeout: PIN overlay showing — 5 minutes of no interaction returns to dashboard */
 const PIN_IDLE_MS = 5 * 60 * 1000;
+/** Avoid rebuilding the idle timer for every pointer-move event. */
+const IDLE_ACTIVITY_THROTTLE_MS = 1_000;
 
 
 export interface SessionOpenedPayload {
@@ -170,8 +172,22 @@ export default function PosShell({
   useEffect(() => {
     // Start the idle timer and reset on any user interaction
     resetIdleTimer();
-    const events = ["mousemove", "pointerdown", "keydown", "touchstart", "scroll"] as const;
-    const handler = () => resetIdleTimer();
+    let lastPointerMoveResetAt = performance.now();
+    const events = [
+      "pointermove",
+      "pointerdown",
+      "keydown",
+      "touchstart",
+      "scroll",
+    ] as const;
+    const handler = (event: Event) => {
+      if (event.type === "pointermove") {
+        const now = performance.now();
+        if (now - lastPointerMoveResetAt < IDLE_ACTIVITY_THROTTLE_MS) return;
+        lastPointerMoveResetAt = now;
+      }
+      resetIdleTimer();
+    };
     events.forEach((ev) => document.addEventListener(ev, handler, { passive: true }));
     return () => {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);

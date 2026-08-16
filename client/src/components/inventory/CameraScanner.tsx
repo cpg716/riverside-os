@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 import { Html5Qrcode } from "html5-qrcode";
 import { Camera, CameraOff, X } from "lucide-react";
 import { playScanSuccess } from "../../lib/scanSounds";
+import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
 interface Props {
   /** Called with the decoded string on successful scan */
@@ -26,17 +27,42 @@ export default function CameraScanner({ onScan, onClose, label }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [lastCode, setLastCode] = useState<string | null>(null);
   const lastCodeRef = useRef<string | null>(null);
+  const lastCodeResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onScanRef = useRef(onScan);
+  const mountedRef = useRef(false);
+  const disposedRef = useRef(false);
 
   useEffect(() => {
     onScanRef.current = onScan;
   }, [onScan]);
 
-  const startCamera = useCallback(async () => {
-    setError(null);
+  const releaseScanner = useCallback(async (scanner: Html5Qrcode) => {
     try {
-      const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID, { verbose: false });
-      scannerRef.current = scanner;
+      if (scanner.isScanning) await scanner.stop();
+    } catch {
+      // A start/stop race can report that the camera is not running.
+    }
+    try {
+      scanner.clear();
+    } catch {
+      // The scan region may already have unmounted.
+    }
+  }, []);
+
+  const stopCamera = useCallback(async () => {
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    if (scanner) await releaseScanner(scanner);
+    if (mountedRef.current) setStarted(false);
+  }, [releaseScanner]);
+
+  const startCamera = useCallback(async () => {
+    await stopCamera();
+    if (disposedRef.current) return;
+    setError(null);
+    const scanner = new Html5Qrcode(SCANNER_ELEMENT_ID, { verbose: false });
+    scannerRef.current = scanner;
+    try {
 
       await scanner.start(
         { facingMode: "environment" }, // rear camera preferred
@@ -48,7 +74,10 @@ export default function CameraScanner({ onScan, onClose, label }: Props) {
           // Debounce: ignore repeat scans of the same code within 800ms
           if (decodedText === lastCodeRef.current) return;
           lastCodeRef.current = decodedText;
-          setTimeout(() => {
+          if (lastCodeResetRef.current) {
+            clearTimeout(lastCodeResetRef.current);
+          }
+          lastCodeResetRef.current = setTimeout(() => {
             if (lastCodeRef.current === decodedText) {
               lastCodeRef.current = null;
             }
@@ -62,8 +91,16 @@ export default function CameraScanner({ onScan, onClose, label }: Props) {
           // Frame decode failure — expected, not an error
         },
       );
-      setStarted(true);
+      if (disposedRef.current || scannerRef.current !== scanner) {
+        if (scannerRef.current === scanner) scannerRef.current = null;
+        await releaseScanner(scanner);
+        return;
+      }
+      if (mountedRef.current) setStarted(true);
     } catch (err) {
+      if (scannerRef.current === scanner) scannerRef.current = null;
+      await releaseScanner(scanner);
+      if (!mountedRef.current || disposedRef.current) return;
       const msg =
         err instanceof Error ? err.message : "Could not access camera";
       setError(
@@ -72,33 +109,29 @@ export default function CameraScanner({ onScan, onClose, label }: Props) {
           : `Camera error: ${msg}`,
       );
     }
-  }, []);
-
-  const stopCamera = useCallback(async () => {
-    if (scannerRef.current && started) {
-      try {
-        await scannerRef.current.stop();
-      } catch {
-        // Ignore errors on stop
-      }
-      scannerRef.current = null;
-    }
-    setStarted(false);
-  }, [started]);
+  }, [releaseScanner, stopCamera]);
 
   // Start on mount, stop on unmount
   useEffect(() => {
+    mountedRef.current = true;
+    disposedRef.current = false;
     void startCamera();
     return () => {
+      mountedRef.current = false;
+      disposedRef.current = true;
+      if (lastCodeResetRef.current) clearTimeout(lastCodeResetRef.current);
       void stopCamera();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [startCamera, stopCamera]);
 
-  const handleClose = async () => {
+  const handleClose = useCallback(async () => {
     await stopCamera();
     onClose();
-  };
+  }, [onClose, stopCamera]);
+
+  const { dialogRef, titleId } = useDialogAccessibility(true, {
+    onEscape: () => void handleClose(),
+  });
 
   const root = document.getElementById("drawer-root");
   if (!root) return null;
@@ -107,8 +140,11 @@ export default function CameraScanner({ onScan, onClose, label }: Props) {
     // Full-screen on mobile, floating modal on md+
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm md:inset-auto md:bottom-6 md:right-6 md:w-[380px] md:rounded-3xl md:shadow-2xl"
+      ref={dialogRef}
       role="dialog"
-      aria-label="Camera Scanner"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      tabIndex={-1}
     >
       <div className="flex w-full flex-col overflow-hidden bg-app-text text-white md:rounded-3xl">
         {/* Header */}
@@ -126,9 +162,12 @@ export default function CameraScanner({ onScan, onClose, label }: Props) {
               )}
             </div>
             <div>
-              <p className="text-xs font-black uppercase tracking-widest text-white/45">
+              <h2
+                id={titleId}
+                className="text-xs font-black uppercase tracking-widest text-white/45"
+              >
                 {label ?? "Camera Scanner"}
-              </p>
+              </h2>
               <p className="text-[10px] text-white/50">
                 {started ? "Scanning…" : "Starting camera…"}
               </p>

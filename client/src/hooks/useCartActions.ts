@@ -23,6 +23,7 @@ import {
 } from "../lib/cartTax";
 import { playPosScanSuccess } from "../lib/posAudio";
 import { isCustomOrderSku } from "../lib/customOrders";
+import { isVerifiedPosScanResult } from "../lib/posScanResolution";
 import {
   cancelPosJourneyTiming,
   finishPosJourneyTimingAfterPaint,
@@ -565,7 +566,9 @@ export function useCartActions({
       setSearch(trimmed);
       runSearch(trimmed).then(results => {
         if (!results) return;
-        const exact = results.filter(r => r.sku.toLowerCase() === trimmed.toLowerCase() || r.vendor_sku?.toLowerCase() === trimmed.toLowerCase());
+        const exact = results.filter((result) =>
+          isVerifiedPosScanResult(result, trimmed),
+        );
         if (exact.length === 1) {
           addItem(exact[0]);
         } else {

@@ -32,9 +32,10 @@ export async function selectBackofficeStaffMember(
 ) {
   const preferredName = resolveBackofficeStaffName(staffName);
   
-  // Use the new test-id for the selector button if available
+  // Use the stable test id when present, then fall back to the visible label
+  // for older or compact sign-in layouts.
   let selectorButton = (container as any).getByTestId?.("staff-selector-button");
-  if (!selectorButton) {
+  if (!(await selectorButton?.isVisible().catch(() => false))) {
     selectorButton = container.getByRole("button", {
       name: /select staff member|select\.\.\.|select your name/i,
     });

@@ -81,6 +81,10 @@ async function addGiftCardLoadLine(
 async function openCheckoutDrawer(
   page: Parameters<typeof test>[0]["page"],
 ): Promise<void> {
+  const compactCheckout = page.getByTestId("pos-compact-checkout-open");
+  if (await compactCheckout.isVisible().catch(() => false)) {
+    await compactCheckout.click();
+  }
   await page.getByTestId("pos-pay-button").click();
   const walkInDialog = page.getByRole("dialog", { name: /checkout as walk-in/i });
   if (await walkInDialog.isVisible().catch(() => false)) {

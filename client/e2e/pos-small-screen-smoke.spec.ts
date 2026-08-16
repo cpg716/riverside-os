@@ -68,6 +68,13 @@ for (const viewport of SMOKE_VIEWPORTS) {
     await openPosRegisterSurface(page);
     await addMinimalGiftCardLine(page, viewport.label);
 
+    const compactCheckout = page.getByTestId("pos-compact-checkout-open");
+    if (await compactCheckout.isVisible().catch(() => false)) {
+      await compactCheckout.click();
+      await expect(
+        page.getByRole("button", { name: "Back to cart", exact: true }),
+      ).toBeVisible();
+    }
     await page.getByTestId("pos-pay-button").click();
     const walkInDialog = page.getByRole("dialog", { name: /checkout as walk-in/i });
     if (await walkInDialog.isVisible().catch(() => false)) {

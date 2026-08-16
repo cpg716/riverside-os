@@ -9,6 +9,7 @@ import {
   startPosJourneyTiming,
 } from "../lib/posJourneyTelemetry";
 import { sortVariantsByVariation } from "../lib/variantSort";
+import { isVerifiedPosScanResult } from "../lib/posScanResolution";
 
 const POS_SEARCH_TIMEOUT_MS = 5_000;
 const POS_SEARCH_DEBOUNCE_MS = 250;
@@ -326,12 +327,18 @@ export function usePosSearch({
       const settled = await Promise.allSettled(requests);
       if (!isCurrent()) return [];
       const seen = new Set<string>();
-      const finalResults = collected.filter((it) => {
-        if (isInternalAlterationServiceSku(it.sku)) return false;
-        if (seen.has(it.variant_id)) return false;
-        seen.add(it.variant_id);
-        return true;
-      });
+      const finalResults = [...collected]
+        .sort(
+          (a, b) =>
+            Number(isVerifiedPosScanResult(b, q)) -
+            Number(isVerifiedPosScanResult(a, q)),
+        )
+        .filter((it) => {
+          if (isInternalAlterationServiceSku(it.sku)) return false;
+          if (seen.has(it.variant_id)) return false;
+          seen.add(it.variant_id);
+          return true;
+        });
       setSearchResults(finalResults);
       const failures = settled.filter(
         (result): result is PromiseRejectedResult => result.status === "rejected",

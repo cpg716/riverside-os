@@ -7,6 +7,15 @@ export interface ResolvedSkuItem {
   product_id: string;
   variant_id: string;
   sku: string;
+  /** Authoritative match path returned by exact inventory resolution. */
+  resolution_kind?:
+    | "variant_id"
+    | "sku"
+    | "barcode"
+    | "barcode_alias"
+    | "catalog_handle"
+    | "vendor_upc"
+    | "product_name";
   name: string;
   variation_label?: string | null;
   standard_retail_price: string | number;

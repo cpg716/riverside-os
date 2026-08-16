@@ -99,6 +99,8 @@ import {
   checkClientUpdateRequirement,
 } from "../../lib/clientUpdateGate";
 import { startPosJourneyTiming } from "../../lib/posJourneyTelemetry";
+import { isVerifiedPosScanResult } from "../../lib/posScanResolution";
+import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
 export type { CheckoutPayload } from "./types";
 
@@ -942,6 +944,7 @@ export default function Cart({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const [cameraScannerOpen, setCameraScannerOpen] = useState(false);
+  const [compactCheckoutRailOpen, setCompactCheckoutRailOpen] = useState(false);
   const requestProductSearchFocus = useCallback(() => {
     window.requestAnimationFrame(() => {
       searchInputRef.current?.focus();
@@ -3271,6 +3274,42 @@ export default function Cart({
     setExchangeWizardInitialReturnLineId,
   ] = useState<string | null>(null);
   const [shippingModalOpen, setShippingModalOpen] = useState(false);
+  const editingOrderPaymentInputRef = useRef<HTMLInputElement | null>(null);
+  const closeOrderPaymentEdit = useCallback(() => {
+    setEditingOrderPaymentLine(null);
+    setEditingOrderPaymentAmount("");
+  }, []);
+  const {
+    dialogRef: moreSaleActionsDialogRef,
+    titleId: moreSaleActionsTitleId,
+  } = useDialogAccessibility(showAllSaleActions, {
+    onEscape: () => setShowAllSaleActions(false),
+  });
+  const {
+    dialogRef: orderPaymentEditDialogRef,
+    titleId: orderPaymentEditTitleId,
+  } = useDialogAccessibility(Boolean(editingOrderPaymentLine), {
+    onEscape: closeOrderPaymentEdit,
+    initialFocusRef: editingOrderPaymentInputRef,
+  });
+  const {
+    dialogRef: parkedSalesDialogRef,
+    titleId: parkedSalesTitleId,
+  } = useDialogAccessibility(parkedListOpen, {
+    onEscape: () => setParkedListOpen(false),
+  });
+  const {
+    dialogRef: parkedCustomerDialogRef,
+    titleId: parkedCustomerTitleId,
+  } = useDialogAccessibility(Boolean(parkedCustomerPrompt), {
+    onEscape: () => setParkedCustomerPrompt(null),
+  });
+  const {
+    dialogRef: printRetryDialogRef,
+    titleId: printRetryTitleId,
+  } = useDialogAccessibility(showPrintRetryPanel, {
+    onEscape: () => setShowPrintRetryPanel(false),
+  });
 
   const handleTransactionBarcode = useCallback(
     async (receiptCode: string) => {
@@ -5211,7 +5250,9 @@ export default function Cart({
           aria-hidden
         />
       ) : null}
-      <div className="relative z-0 flex min-h-0 min-w-0 flex-col border-r border-app-border">
+      <div
+        className={`${compactCheckoutRailOpen ? "hidden lg:flex" : "flex"} relative z-0 min-h-0 min-w-0 flex-col border-r border-app-border`}
+      >
         <div className="shrink-0 border-b border-app-border bg-app-surface px-3 py-2 shadow-sm sm:px-4 lg:px-6 lg:py-3">
           <div className="space-y-2 rounded-2xl border border-app-border/90 bg-[color-mix(in_srgb,var(--app-surface)_90%,var(--app-surface-2))] p-2.5 shadow-[0_14px_40px_-24px_rgba(15,23,42,0.22)]">
             {/* Wedding link badge */}
@@ -5469,10 +5510,8 @@ export default function Cart({
                   runSearch(search)
                     .then((results) => {
                   if (!results) return;
-                      const exact = results.filter(
-                        (r) =>
-                          r.sku.toLowerCase() === q.toLowerCase() ||
-                          r.vendor_sku?.toLowerCase() === q.toLowerCase(),
+                      const exact = results.filter((result) =>
+                        isVerifiedPosScanResult(result, q),
                       );
                   if (exact.length === 1) {
                     onSearchResultClick(exact[0]);
@@ -5596,6 +5635,7 @@ export default function Cart({
                 type="button"
                 onClick={() => setShowAllSaleActions((current) => !current)}
                 aria-expanded={showAllSaleActions}
+                aria-controls="pos-more-sale-actions-dialog"
                 className="ui-touch-target flex min-h-[86px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/40 bg-app-info/10 px-2 text-center text-app-info shadow-sm transition-all hover:border-app-info/70 hover:bg-app-info/20 active:scale-95"
               >
                 <Grid3X3 size={20} aria-hidden />
@@ -5622,15 +5662,23 @@ export default function Cart({
               {showAllSaleActions ? createPortal(
                 <div className="ui-overlay-backdrop !z-[200] flex items-center justify-center p-4">
                   <div
+                    id="pos-more-sale-actions-dialog"
+                    ref={moreSaleActionsDialogRef}
                     role="dialog"
                     aria-modal="true"
-                    aria-labelledby="more-sale-actions-title"
+                    aria-labelledby={moreSaleActionsTitleId}
+                    tabIndex={-1}
                     className="ui-modal max-h-[min(42rem,calc(100dvh-2rem))] w-full max-w-3xl overflow-y-auto p-5"
                   >
                     <div className="mb-4 flex items-center justify-between gap-3">
                       <div>
                         <p className="text-[10px] font-black uppercase tracking-[0.24em] text-app-text-muted">Register tools</p>
-                        <h2 id="more-sale-actions-title" className="text-xl font-black text-app-text">More sale actions</h2>
+                        <h2
+                          id={moreSaleActionsTitleId}
+                          className="text-xl font-black text-app-text"
+                        >
+                          More sale actions
+                        </h2>
                       </div>
                       <button
                         type="button"
@@ -5925,7 +5973,7 @@ export default function Cart({
         </div>
 
         {/* Scrollable line items — designed for 5-6 items visible */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-20 pt-2 sm:px-3 sm:pb-20 sm:pt-3 lg:p-4">
           {sortedCartLines.length > 0 ? (
             <div className="space-y-1.5">
               <p className="px-1 pt-0.5 text-[9px] font-black uppercase tracking-[0.22em] text-app-text-muted">
@@ -6240,12 +6288,39 @@ export default function Cart({
              </div>
           )}
         </div>
+        <button
+          type="button"
+          data-testid="pos-compact-checkout-open"
+          onClick={() => setCompactCheckoutRailOpen(true)}
+          className="absolute bottom-3 left-3 right-3 z-20 flex min-h-14 items-center justify-between rounded-2xl border-b-4 border-app-success bg-app-success px-4 text-left text-white shadow-2xl shadow-app-success/30 transition active:translate-y-0.5 active:border-b-2 lg:hidden"
+          aria-label={`Open customer and payment panel, sale total $${centsToFixed2(totals.totalCents)}`}
+        >
+          <span className="text-[10px] font-black uppercase tracking-widest">
+            Customer &amp; Pay
+          </span>
+          <span className="text-xl font-black tabular-nums">
+            ${centsToFixed2(totals.totalCents)}
+          </span>
+        </button>
       </div>
 
       <aside
-        className={`relative z-0 flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-app-border/80 bg-[color-mix(in_srgb,var(--app-surface-2)_84%,var(--app-bg))] shadow-[-8px_0_32px_-12px_rgba(15,23,42,0.18)] ${checkoutDrawerOpen ? "pointer-events-none select-none opacity-40" : ""}`}
+        className={`${compactCheckoutRailOpen ? "flex" : "hidden"} relative z-0 h-full min-h-0 w-full flex-col overflow-hidden border-l border-app-border/80 bg-[color-mix(in_srgb,var(--app-surface-2)_84%,var(--app-bg))] shadow-[-8px_0_32px_-12px_rgba(15,23,42,0.18)] lg:flex ${checkoutDrawerOpen ? "pointer-events-none select-none opacity-40" : ""}`}
         aria-label="Customer, sale totals and keypad"
       >
+        <div className="flex min-h-12 shrink-0 items-center justify-between border-b border-app-border bg-app-surface px-3 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setCompactCheckoutRailOpen(false)}
+            className="ui-touch-target inline-flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text"
+          >
+            <X size={16} aria-hidden />
+            Back to cart
+          </button>
+          <span className="text-sm font-black tabular-nums text-app-text">
+            ${centsToFixed2(totals.totalCents)}
+          </span>
+        </div>
         <div
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
           data-testid="pos-checkout-rail-scroll"
@@ -6976,6 +7051,11 @@ export default function Cart({
         createPortal(
         <div className="ui-overlay-backdrop !z-[200]">
           <div
+            ref={orderPaymentEditDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={orderPaymentEditTitleId}
+            tabIndex={-1}
             className="ui-modal w-full max-w-sm p-6"
             data-testid="pos-order-payment-edit-modal"
           >
@@ -6984,16 +7064,16 @@ export default function Cart({
                 <p className="text-[10px] font-black uppercase tracking-[0.28em] text-app-text-muted">
                   Edit Transaction Payment
                 </p>
-                <h3 className="text-lg font-black text-app-text">
+                <h3
+                  id={orderPaymentEditTitleId}
+                  className="text-lg font-black text-app-text"
+                >
                   {editingOrderPaymentLine.target_display_id}
                 </h3>
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setEditingOrderPaymentLine(null);
-                  setEditingOrderPaymentAmount("");
-                }}
+                onClick={closeOrderPaymentEdit}
                 className="rounded-lg p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
                 aria-label="Close transaction payment edit"
               >
@@ -7012,6 +7092,7 @@ export default function Cart({
               Payment amount
             </label>
             <input
+              ref={editingOrderPaymentInputRef}
               data-testid="pos-order-payment-edit-amount"
               value={editingOrderPaymentAmount}
               onChange={(e) => setEditingOrderPaymentAmount(e.target.value)}
@@ -7022,10 +7103,7 @@ export default function Cart({
             <div className="mt-5 flex gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  setEditingOrderPaymentLine(null);
-                  setEditingOrderPaymentAmount("");
-                }}
+                onClick={closeOrderPaymentEdit}
                 className="flex-1 rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-xs font-black uppercase tracking-widest text-app-text"
               >
                 Cancel
@@ -7818,14 +7896,16 @@ export default function Cart({
         ? createPortal(
             <div className="ui-overlay-backdrop !z-[200]">
               <div
+                ref={parkedSalesDialogRef}
                 className="relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[min(560px,85vh)] sm:max-w-md sm:rounded-2xl"
                 role="dialog"
                 aria-modal="true"
-                aria-labelledby="parked-sales-title"
+                aria-labelledby={parkedSalesTitleId}
+                tabIndex={-1}
               >
                 <div className="flex items-center justify-between border-b border-app-border px-4 py-3">
                   <h2
-                    id="parked-sales-title"
+                    id={parkedSalesTitleId}
                     className="text-sm font-black uppercase tracking-widest text-app-text"
                   >
                     Parked sales
@@ -7921,13 +8001,15 @@ export default function Cart({
                 aria-hidden="true"
               />
               <div
+                ref={parkedCustomerDialogRef}
                 className="relative w-full max-w-none rounded-t-3xl border border-app-border bg-app-surface p-5 shadow-2xl sm:max-w-md sm:rounded-2xl"
                 role="dialog"
                 aria-modal="true"
-                aria-labelledby="parked-customer-prompt-title"
+                aria-labelledby={parkedCustomerTitleId}
+                tabIndex={-1}
               >
                 <h2
-                  id="parked-customer-prompt-title"
+                  id={parkedCustomerTitleId}
                   className="text-sm font-black uppercase tracking-widest text-app-text"
                 >
                   Parked sale for this customer
@@ -9553,12 +9635,23 @@ export default function Cart({
       {showPrintRetryPanel &&
         createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-app-border bg-app-surface p-5 shadow-2xl">
+          <div
+            ref={printRetryDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={printRetryTitleId}
+            tabIndex={-1}
+            className="w-full max-w-md rounded-2xl border border-app-border bg-app-surface p-5 shadow-2xl"
+          >
             <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                <h3
+                  id={printRetryTitleId}
+                  className="text-sm font-black uppercase tracking-widest text-app-text"
+                >
                   Retry Failed Prints
                 </h3>
                 <button
+                  type="button"
                   onClick={() => setShowPrintRetryPanel(false)}
                   className="p-1 text-app-text-muted hover:text-app-text"
                 >
