@@ -75,7 +75,7 @@ test.describe("Register recovery history UI contracts", () => {
     expect(blockerExpression).not.toContain("Checkout recovery");
   });
 
-  test("current recovery stays visible and close requires dedicated Manager Access", () => {
+  test("recovery stays audited while the final Z review stays concise", () => {
     const countSubmit = closeRegisterSource.slice(
       closeRegisterSource.indexOf("const handleBlindCountSubmit"),
       closeRegisterSource.indexOf("const internalCancel"),
@@ -122,6 +122,23 @@ test.describe("Register recovery history UI contracts", () => {
     );
     expect(closeRegisterSource).toContain(
       "Exact replay is unavailable because the saved order-payment target is no longer open.",
+    );
+
+    const finalZReview = closeRegisterSource.slice(
+      closeRegisterSource.indexOf(
+        'className="ui-modal relative flex h-[min(94dvh,58rem)]',
+      ),
+      closeRegisterSource.lastIndexOf("<ConfirmationModal"),
+    );
+    expect(finalZReview).toContain("overflow-hidden");
+    expect(finalZReview).not.toContain(
+      "ui-modal-body flex-1 overflow-y-auto",
+    );
+    expect(finalZReview).not.toContain("renderOfflineQueueBlocker");
+    expect(finalZReview).not.toContain("renderHistoricalRecovery");
+    expect(finalZReview).not.toContain("renderHelcimReviewBlocker");
+    expect(finalZReview).toContain(
+      "Cash, checks, deposit, and required notes are complete.",
     );
 
     const blockerExpression = closeRegisterSource.slice(

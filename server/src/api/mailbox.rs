@@ -109,7 +109,7 @@ pub fn router() -> Router<AppState> {
         .route("/health", get(get_health))
         .route("/customer/{customer_id}", get(list_customer_messages))
         .route("/bulk-state", post(patch_message_states))
-        .route("/{id}", patch(patch_message_state))
+        .route("/{id}", get(get_message).patch(patch_message_state))
 }
 
 async fn get_health(
@@ -227,6 +227,16 @@ struct ListMailboxQuery {
     customer_id: Option<Uuid>,
     unmatched_only: Option<bool>,
     limit: Option<i64>,
+    summary_only: Option<bool>,
+}
+
+async fn get_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<email::MailboxMessageRow>, MailboxError> {
+    require_perm(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
+    Ok(Json(email::get_mailbox_message(&state.db, id).await?))
 }
 
 async fn list_messages(
@@ -241,6 +251,7 @@ async fn list_messages(
             q.customer_id,
             q.unmatched_only.unwrap_or(false),
             q.limit.unwrap_or(100),
+            q.summary_only.unwrap_or(false),
         )
         .await?,
     ))
@@ -253,7 +264,7 @@ async fn list_customer_messages(
 ) -> Result<Json<Vec<email::MailboxMessageRow>>, MailboxError> {
     require_perm(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
     Ok(Json(
-        email::list_mailbox_messages(&state.db, Some(customer_id), false, 100).await?,
+        email::list_mailbox_messages(&state.db, Some(customer_id), false, 100, false).await?,
     ))
 }
 

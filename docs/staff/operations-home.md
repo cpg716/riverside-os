@@ -85,11 +85,11 @@ If the Timeline says a source feed did not refresh, treat it as a partial view a
 
 1. **Operations** → **Mailbox**.
 2. Requires **customers.hub_view**. Use this for store email from `info@riversidemens.com`.
-3. Use the folder list for **Inbox**, **Important**, **Follow-up**, **Sent**, **Archived**, **Trash**, or **All mail**. Use search or **Unmatched only** to narrow the conversation list.
+3. Use the folder list for **Inbox**, **Important**, **Follow-up**, **Sent**, **Archived**, **Trash**, or **All mail**. The compact **Unmatched** toggle beside search instantly limits the current folder to email that is not linked to a Customer; select it again to return to all conversations.
 4. Opening an inbound conversation marks it read. Use **Mark unread** if someone still needs to follow up. Select multiple conversation checkboxes for group **Read**, **Unread**, **Archive**, or **Delete**.
 5. **Delete** moves the conversation to recoverable **Trash**; it does not permanently erase the email. **Restore** returns Archived or Trash conversations to Inbox.
 6. The selected conversation keeps **Reply**, **Reply all**, **Forward**, **Important**, **Follow-up**, **Archive**, folder movement, and matched-customer access together above the message.
-7. Formatted email opens inside the contained viewer. Use **View plain text** when needed; email scripts, forms, and embedded frames are blocked, and links open separately.
+7. The conversation list loads first, then Riverside loads the selected email body on demand. Formatted email opens inside the contained viewer. Use **View plain text** when needed; email scripts, forms, and embedded frames are blocked, and links open separately.
 8. Choose **New email** for a general customer email. Add multiple To recipients with commas or semicolons; open **Cc / Bcc** when needed. The message editor supports bold, italic, underline, bulleted and numbered lists, attachments up to 5 MB total, and the saved staff signature.
 9. Message text saves automatically as one local draft on that workstation. Closing the composer keeps the draft; **Discard** removes it. Attachments stay with the open composer but must be re-added after a browser reload.
 10. Click **Sync** to pull recent IONOS email into ROS. Matched customer email also appears in the customer **Messages** tab; unmatched email stays here for staff follow-up. SMS still belongs in **Podium Inbox** or the customer **Messages** tab.

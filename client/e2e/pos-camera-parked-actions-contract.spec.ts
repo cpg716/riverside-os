@@ -72,18 +72,23 @@ test("Register throttles idle activity and focus-manages cart-owned dialogs", as
   }
 });
 
-test("Register keeps the current parked-sale count directly available", async () => {
+test("Register resumes parked sales from the 3 by 3 More Actions grid", async () => {
   const [cart, helpManual, staffGuide] = await Promise.all([
     repositoryFile("client/src/components/pos/Cart.tsx"),
     repositoryFile("client/src/assets/docs/pos-manual.md"),
     repositoryFile("docs/staff/pos-register-cart.md"),
   ]);
 
-  expect(cart).toContain('data-testid="pos-parked-sales-button"');
-  expect(cart).toContain("Parked Sales · {parkedRows.length}");
-  expect(cart).toContain("onClick={() => setParkedListOpen(true)}");
+  expect(cart).not.toContain('data-testid="pos-parked-sales-button"');
+  expect(cart).toContain('data-testid="pos-action-resume-parked-sale"');
+  expect(cart).toContain("Resume Parked Sale");
+  expect(cart).toContain("grid grid-cols-3 gap-3");
+  expect(cart).toContain("setParkedListOpen(true)");
+  expect(cart).toContain("Resume Sale");
+  expect(cart).not.toContain('data-testid="pos-wedding-order-guidance"');
+  expect(cart).toContain("order-first sticky top-0 z-10");
   expect(cart).toContain('data-testid="pos-compact-checkout-open"');
   expect(cart).toContain("Customer &amp; Pay");
-  expect(helpManual).toContain("**Parked Sales** remains visible above product search");
-  expect(staffGuide).toContain("**Parked Sales** remains visible above product search");
+  expect(helpManual).toContain("**Resume Parked Sale**");
+  expect(staffGuide).toContain("**Resume Parked Sale**");
 });

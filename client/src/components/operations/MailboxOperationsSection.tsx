@@ -353,6 +353,9 @@ export default function MailboxOperationsSection({
   const [showRecipientSuggestions, setShowRecipientSuggestions] = useState(false);
   const [folderFilter, setFolderFilter] = useState<FolderFilter>("INBOX");
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const [messageDetails, setMessageDetails] = useState<Record<string, MailboxRow>>({});
+  const [loadingMessageId, setLoadingMessageId] = useState<string | null>(null);
+  const [messageLoadError, setMessageLoadError] = useState<string | null>(null);
   const [selectedThreadKeys, setSelectedThreadKeys] = useState<Set<string>>(new Set());
   const [trashThreadKeys, setTrashThreadKeys] = useState<string[] | null>(null);
   const [showPlainText, setShowPlainText] = useState(false);
@@ -365,11 +368,12 @@ export default function MailboxOperationsSection({
     setLoading(true);
     try {
       const res = await fetch(
-        `${baseUrl}/api/mailbox?limit=200${unmatchedOnly ? "&unmatched_only=true" : ""}`,
+        `${baseUrl}/api/mailbox?limit=200&summary_only=true`,
         { headers: apiAuth() },
       );
       if (!res.ok) throw new Error("mailbox");
       const data = (await res.json()) as MailboxRow[];
+      setMessageDetails({});
       setRows(Array.isArray(data) ? data : []);
       setLoadError(null);
     } catch {
@@ -377,7 +381,7 @@ export default function MailboxOperationsSection({
     } finally {
       setLoading(false);
     }
-  }, [apiAuth, unmatchedOnly]);
+  }, [apiAuth]);
 
   const loadSignature = useCallback(async () => {
     try {
@@ -477,13 +481,17 @@ export default function MailboxOperationsSection({
       .toLowerCase()
       .split(/\s+/)
       .filter(Boolean);
-    const scopedRows = rows.filter((row) => folderMatches(row, folderFilter));
+    const scopedRows = rows.filter(
+      (row) =>
+        folderMatches(row, folderFilter) &&
+        (!unmatchedOnly || !row.customer_id),
+    );
     if (tokens.length === 0) return scopedRows;
     return scopedRows.filter((row) => {
       const haystack = rowHaystack(row);
       return tokens.every((token) => haystack.includes(token));
     });
-  }, [folderFilter, rows, search]);
+  }, [folderFilter, rows, search, unmatchedOnly]);
 
   const allThreads = useMemo(() => groupThreads(rows), [rows]);
   const visibleThreads = useMemo(() => groupThreads(visibleRows), [visibleRows]);
@@ -499,9 +507,49 @@ export default function MailboxOperationsSection({
   }, [selectedRowId, visibleRows, visibleThreads]);
 
   const selectedRow = useMemo(
-    () => rows.find((row) => row.id === selectedRowId) ?? null,
-    [rows, selectedRowId],
+    () =>
+      (selectedRowId ? messageDetails[selectedRowId] : null) ??
+      rows.find((row) => row.id === selectedRowId) ??
+      null,
+    [messageDetails, rows, selectedRowId],
   );
+
+  useEffect(() => {
+    if (!selectedRowId || messageDetails[selectedRowId]) {
+      setLoadingMessageId(null);
+      setMessageLoadError(null);
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    setLoadingMessageId(selectedRowId);
+    setMessageLoadError(null);
+    void fetch(`${baseUrl}/api/mailbox/${encodeURIComponent(selectedRowId)}`, {
+      headers: apiAuth(),
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("mailbox message");
+        const detail = (await res.json()) as MailboxRow;
+        if (!active) return;
+        setMessageDetails((current) => ({ ...current, [detail.id]: detail }));
+      })
+      .catch((error: unknown) => {
+        if (
+          !active ||
+          (error instanceof DOMException && error.name === "AbortError")
+        )
+          return;
+        setMessageLoadError("This email could not be opened. Try again.");
+      })
+      .finally(() => {
+        if (active) setLoadingMessageId(null);
+      });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [apiAuth, messageDetails, selectedRowId]);
 
   const selectedThread = useMemo(() => {
     if (!selectedRow) return null;
@@ -713,6 +761,22 @@ export default function MailboxOperationsSection({
       const updated = (await res.json()) as MailboxRow[];
       const updatedById = new Map(updated.map((row) => [row.id, row]));
       setRows((current) => current.map((row) => updatedById.get(row.id) ?? row));
+      setMessageDetails((current) => {
+        let changed = false;
+        const next = { ...current };
+        for (const row of updated) {
+          const detail = current[row.id];
+          if (!detail) continue;
+          next[row.id] = {
+            ...detail,
+            folder: row.folder,
+            status: row.status,
+            is_read: row.is_read,
+          };
+          changed = true;
+        }
+        return changed ? next : current;
+      });
       await refreshNavigationCounts?.();
       if (!quiet && successMessage) toast(successMessage, "success");
       return true;
@@ -1170,7 +1234,36 @@ export default function MailboxOperationsSection({
       ) : null}
 
       {loading ? (
-        <p className="text-sm text-app-text-muted">Loading mailbox...</p>
+        <div
+          role="status"
+          aria-label="Loading mailbox"
+          className="grid min-h-[40rem] flex-1 animate-pulse overflow-hidden rounded-xl border border-app-border bg-app-surface motion-reduce:animate-none lg:grid-cols-[10rem_minmax(17rem,0.8fr)_minmax(22rem,1.2fr)]"
+        >
+          <div className="space-y-3 border-b border-app-border bg-app-surface-2 p-4 lg:border-b-0 lg:border-r">
+            {Array.from({ length: 7 }, (_, index) => (
+              <div key={index} className="h-8 rounded-lg bg-app-border/60" />
+            ))}
+          </div>
+          <div className="space-y-4 border-b border-app-border p-4 lg:border-b-0 lg:border-r">
+            <div className="h-9 rounded-lg bg-app-border/60" />
+            {Array.from({ length: 6 }, (_, index) => (
+              <div key={index} className="space-y-2 border-t border-app-border pt-4">
+                <div className="h-3 w-2/5 rounded bg-app-border/60" />
+                <div className="h-4 w-4/5 rounded bg-app-border/60" />
+                <div className="h-3 w-full rounded bg-app-border/40" />
+              </div>
+            ))}
+          </div>
+          <div className="space-y-4 bg-app-surface-2 p-5">
+            <div className="h-5 w-4/5 rounded bg-app-border/60" />
+            <div className="h-3 w-2/5 rounded bg-app-border/50" />
+            <div className="h-12 rounded-xl bg-app-border/50" />
+            <div className="h-80 rounded-xl bg-app-border/40" />
+          </div>
+          <span className="sr-only">
+            Loading mailbox conversations and folders.
+          </span>
+        </div>
       ) : (
         <div className="grid min-h-[40rem] flex-1 rounded-xl border border-app-border bg-app-surface lg:grid-cols-[10rem_minmax(17rem,0.8fr)_minmax(22rem,1.2fr)]">
           <aside className="flex gap-2 overflow-x-auto border-b border-app-border bg-app-surface-2 p-3 lg:block lg:border-b-0 lg:border-r">
@@ -1199,31 +1292,50 @@ export default function MailboxOperationsSection({
                 </button>
               );
             })}
-            <label className="mt-3 flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted lg:w-full">
-              <input
-                type="checkbox"
-                checked={unmatchedOnly}
-                onChange={(event) => setUnmatchedOnly(event.target.checked)}
-                className="h-4 w-4 rounded border-app-border accent-app-accent"
-              />
-              Unmatched only
-            </label>
           </aside>
 
           <section className="flex min-h-0 flex-col border-b border-app-border lg:border-b-0 lg:border-r">
             <div className="border-b border-app-border p-3">
-              <label className="relative block">
-                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-app-text-muted" aria-hidden />
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  className="ui-input h-9 w-full pl-9 pr-3 text-xs"
-                  placeholder="Search mail"
-                  aria-label="Search mail"
-                />
-              </label>
+              <div className="flex items-center gap-2">
+                <label className="relative min-w-0 flex-1">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-app-text-muted"
+                    aria-hidden
+                  />
+                  <input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    className="ui-input h-9 w-full pl-9 pr-3 text-xs"
+                    placeholder="Search mail"
+                    aria-label="Search mail"
+                  />
+                </label>
+                <button
+                  type="button"
+                  aria-pressed={unmatchedOnly}
+                  title="Show only email that is not linked to a customer"
+                  onClick={() => {
+                    setUnmatchedOnly((current) => !current);
+                    setSelectedThreadKeys(new Set());
+                  }}
+                  className={`ui-btn-secondary inline-flex h-9 shrink-0 items-center gap-1.5 px-3 text-[10px] font-black uppercase tracking-widest ${
+                    unmatchedOnly
+                      ? "border-app-warning/50 bg-app-warning/10 text-app-warning"
+                      : "text-app-text-muted"
+                  }`}
+                >
+                  <UserRound className="h-3.5 w-3.5" aria-hidden />
+                  Unmatched
+                  <span className="rounded-full bg-app-surface-2 px-1.5 py-0.5 text-[9px]">
+                    {stats.unmatched}
+                  </span>
+                </button>
+              </div>
               <div className="mt-2 flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                <span>{visibleThreads.length} conversations</span>
+                <span>
+                  {visibleThreads.length} {unmatchedOnly ? "unmatched " : ""}
+                  conversations
+                </span>
                 {selectedThreadKeys.size > 0 ? (
                   <button
                     type="button"
@@ -1624,6 +1736,12 @@ export default function MailboxOperationsSection({
                   <div className="space-y-3">
                     {(selectedThread?.rows ?? [selectedRow]).map((threadRow) => {
                       const active = threadRow.id === selectedRow.id;
+                      const detailRow = messageDetails[threadRow.id];
+                      const displayRow = detailRow ?? threadRow;
+                      const detailLoading =
+                        active &&
+                        !detailRow &&
+                        (loadingMessageId === threadRow.id || !messageLoadError);
                       return (
                         <article
                           key={threadRow.id}
@@ -1652,26 +1770,52 @@ export default function MailboxOperationsSection({
                           </button>
                           {active ? (
                             <div className="border-t border-app-border p-3">
-                              {threadRow.body_html && threadRow.body_text ? (
-                                <div className="mb-2 flex justify-end">
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowPlainText((current) => !current)}
-                                    className="text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
-                                  >
-                                    View {showPlainText ? "formatted email" : "plain text"}
-                                  </button>
+                              {detailLoading ? (
+                                <div className="space-y-3" role="status">
+                                  <div className="h-3 w-1/3 animate-pulse rounded bg-app-border/60 motion-reduce:animate-none" />
+                                  <div className="h-72 animate-pulse rounded-lg bg-app-border/40 motion-reduce:animate-none" />
+                                  <span className="sr-only">
+                                    Loading selected email.
+                                  </span>
                                 </div>
-                              ) : null}
-                              <iframe
-                                title={`Email message from ${threadRow.from_name || threadRow.from_email || "Riverside"}`}
-                                sandbox="allow-popups allow-popups-to-escape-sandbox"
-                                referrerPolicy="no-referrer"
-                                srcDoc={safeEmailDocument(
-                                  showPlainText ? { ...threadRow, body_html: null } : threadRow,
-                                )}
-                                className="h-[30rem] w-full rounded-lg border border-app-border bg-white"
-                              />
+                              ) : messageLoadError ? (
+                                <div className="rounded-lg border border-app-warning/40 bg-app-warning/10 px-4 py-5 text-sm font-bold text-app-text">
+                                  {messageLoadError}
+                                </div>
+                              ) : (
+                                <>
+                                  {displayRow.body_html &&
+                                  displayRow.body_text ? (
+                                    <div className="mb-2 flex justify-end">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setShowPlainText(
+                                            (current) => !current,
+                                          )
+                                        }
+                                        className="text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
+                                      >
+                                        View{" "}
+                                        {showPlainText
+                                          ? "formatted email"
+                                          : "plain text"}
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                  <iframe
+                                    title={`Email message from ${displayRow.from_name || displayRow.from_email || "Riverside"}`}
+                                    sandbox="allow-popups allow-popups-to-escape-sandbox"
+                                    referrerPolicy="no-referrer"
+                                    srcDoc={safeEmailDocument(
+                                      showPlainText
+                                        ? { ...displayRow, body_html: null }
+                                        : displayRow,
+                                    )}
+                                    className="h-[30rem] w-full rounded-lg border border-app-border bg-white"
+                                  />
+                                </>
+                              )}
                             </div>
                           ) : (
                             <p className="truncate border-t border-app-border px-4 py-2 text-xs text-app-text-muted">

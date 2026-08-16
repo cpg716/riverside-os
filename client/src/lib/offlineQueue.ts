@@ -88,9 +88,12 @@ const checkoutStore = localforage.createInstance({
 
 const CHECKOUT_REPLAY_TIMEOUT_MS = 15_000;
 const RECOVERY_SYNC_INTERVAL_MS = 10_000;
+const RECOVERY_MIRROR_CONCURRENCY = 4;
+const RECOVERY_MIRROR_FAILURE_RETRY_MS = 60_000;
 type CheckoutMirrorVersion = {
   version: number;
   settled: boolean;
+  retryAfter: number;
   promise: Promise<ServerRecoveryJob | null>;
 };
 
@@ -214,7 +217,9 @@ function mirrorQueuedCheckout(
   const previous = recoveryMirrorInFlight.get(item.id);
   if (
     previous?.version === version &&
-    (!previous.settled || reuseSettledVersion)
+    (!previous.settled ||
+      reuseSettledVersion ||
+      Date.now() < previous.retryAfter)
   ) {
     return previous.promise;
   }
@@ -225,15 +230,28 @@ function mirrorQueuedCheckout(
   const entry: CheckoutMirrorVersion = {
     version,
     settled: false,
+    retryAfter: 0,
     promise: request,
   };
   recoveryMirrorInFlight.set(item.id, entry);
-  void request.finally(() => {
+  void request.then((mirrored) => {
     if (recoveryMirrorInFlight.get(item.id) === entry) {
       entry.settled = true;
+      entry.retryAfter = mirrored
+        ? 0
+        : Date.now() + RECOVERY_MIRROR_FAILURE_RETRY_MS;
     }
   });
   return request;
+}
+
+function recoveryMirrorRetryDeferred(item: QueuedCheckout): boolean {
+  const previous = recoveryMirrorInFlight.get(item.id);
+  return Boolean(
+    previous?.version === checkoutQueueVersion(item.id) &&
+      previous.settled &&
+      Date.now() < previous.retryAfter,
+  );
 }
 
 export async function syncCheckoutRecoveryWithServer(
@@ -241,20 +259,40 @@ export async function syncCheckoutRecoveryWithServer(
 ): Promise<void> {
   const liveAuthHeaders = getLiveAuthHeaders?.();
   const local = await getCheckoutQueue();
-  const mirrorResults = await Promise.all(
-    local.map(async (item) => {
-      const mirrored = await mirrorQueuedCheckout(item, false, liveAuthHeaders);
-      return {
-        item,
-        job:
-          mirrored ??
-          (await readPriorSessionRecoveryAfterMirrorFailure(
+  const mirrorResults: Array<{
+    item: QueuedCheckout;
+    job: ServerRecoveryJob | null;
+  }> = [];
+  for (
+    let offset = 0;
+    offset < local.length;
+    offset += RECOVERY_MIRROR_CONCURRENCY
+  ) {
+    const batch = await Promise.all(
+      local
+        .slice(offset, offset + RECOVERY_MIRROR_CONCURRENCY)
+        .map(async (item) => {
+          const retryDeferred = recoveryMirrorRetryDeferred(item);
+          const mirrored = await mirrorQueuedCheckout(
             item,
+            false,
             liveAuthHeaders,
-          )),
-      };
-    }),
-  );
+          );
+          return {
+            item,
+            job:
+              mirrored ??
+              (retryDeferred
+                ? null
+                : await readPriorSessionRecoveryAfterMirrorFailure(
+                    item,
+                    liveAuthHeaders,
+                  )),
+          };
+        }),
+    );
+    mirrorResults.push(...batch);
+  }
   let changed = false;
   for (const { item, job } of mirrorResults) {
     if (!job) continue;

@@ -22,6 +22,8 @@ The Mailbox navigation badge counts unread inbound `mailbox_messages` outside Tr
 
 Operations Mailbox uses a familiar three-pane mail layout: folders on the left, conversations in the middle, and the selected conversation on the right. The default folder is **Inbox**; **Important**, **Follow-up**, **Sent**, **Archived**, **Trash**, and **All mail** remain one click away. **New email** opens the composer only when staff needs it, preserving the message workspace for daily triage.
 
+The primary mailbox request returns bounded message previews rather than every stored HTML body. The client loads the selected message through the permission-checked message-detail route, so large marketing emails do not delay the folder and conversation list. The **Unmatched** control filters the already-loaded list beside search and does not trigger another mailbox download.
+
 - Opening an inbound conversation marks every unread message in that conversation read.
 - **Mark unread** returns a conversation to follow-up state. Checkboxes support group **Read**, **Unread**, **Archive**, and **Delete** actions.
 - **Archive** removes a conversation from Inbox without deleting its retained email record. **Restore** returns Archived or Trash conversations to Inbox.

@@ -4,6 +4,8 @@ import {
   type APIRequestContext,
   type Page,
 } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
 import {
   enterPosShell,
@@ -55,6 +57,18 @@ declare global {
 }
 
 test.use({ serviceWorkers: "block" });
+
+test("Recovery mirroring is bounded and backs off failed unchanged items", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("../src/lib/offlineQueue.ts", import.meta.url)),
+    "utf8",
+  );
+  expect(source).toContain("const RECOVERY_MIRROR_CONCURRENCY = 4");
+  expect(source).toContain("const RECOVERY_MIRROR_FAILURE_RETRY_MS = 60_000");
+  expect(source).toContain("offset += RECOVERY_MIRROR_CONCURRENCY");
+  expect(source).toContain("Date.now() < previous.retryAfter");
+  expect(source).toContain("recoveryMirrorRetryDeferred(item)");
+});
 
 async function loadOfflineRecoveryHarness(page: Page): Promise<void> {
   await page.evaluate(async () => {

@@ -1068,6 +1068,44 @@ pub async fn unread_mailbox_count(pool: &PgPool) -> Result<i64, sqlx::Error> {
     .await
 }
 
+pub async fn get_mailbox_message(pool: &PgPool, id: Uuid) -> Result<MailboxMessageRow, EmailError> {
+    let row = sqlx::query_as::<_, MailboxMessageDbRow>(
+        r#"
+        SELECT
+            m.id,
+            m.message_id,
+            m.thread_key,
+            m.direction,
+            m.subject,
+            m.from_email,
+            m.from_name,
+            m.to_emails,
+            m.cc_emails,
+            m.body_text,
+            m.body_html,
+            m.received_at,
+            m.sent_at,
+            m.customer_id,
+            c.customer_code,
+            NULLIF(trim(concat_ws(' ', c.first_name, c.last_name)), '') AS customer_name,
+            m.staff_id,
+            s.full_name AS staff_full_name,
+            m.folder,
+            m.status,
+            m.is_read
+        FROM mailbox_messages m
+        LEFT JOIN customers c ON c.id = m.customer_id
+        LEFT JOIN staff s ON s.id = m.staff_id
+        WHERE m.id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| EmailError::InvalidPayload("Mailbox message not found.".to_string()))?;
+    Ok(row.into_public())
+}
+
 pub async fn update_mailbox_message_state(
     pool: &PgPool,
     id: Uuid,
@@ -1419,6 +1457,7 @@ pub async fn list_mailbox_messages(
     customer_id: Option<Uuid>,
     unmatched_only: bool,
     limit: i64,
+    summary_only: bool,
 ) -> Result<Vec<MailboxMessageRow>, EmailError> {
     let limit = limit.clamp(1, 200);
     let rows = sqlx::query_as::<_, MailboxMessageDbRow>(
@@ -1433,8 +1472,11 @@ pub async fn list_mailbox_messages(
             m.from_name,
             m.to_emails,
             m.cc_emails,
-            m.body_text,
-            m.body_html,
+            CASE
+                WHEN $4::bool THEN LEFT(COALESCE(NULLIF(m.body_text, ''), m.body_html), 1200)
+                ELSE m.body_text
+            END AS body_text,
+            CASE WHEN $4::bool THEN NULL::text ELSE m.body_html END AS body_html,
             m.received_at,
             m.sent_at,
             m.customer_id,
@@ -1457,33 +1499,12 @@ pub async fn list_mailbox_messages(
     .bind(customer_id)
     .bind(unmatched_only)
     .bind(limit)
+    .bind(summary_only)
     .fetch_all(pool)
     .await?;
     Ok(rows
         .into_iter()
-        .map(|r| MailboxMessageRow {
-            id: r.id,
-            message_id: r.message_id,
-            thread_key: r.thread_key,
-            direction: r.direction,
-            subject: r.subject,
-            from_email: r.from_email,
-            from_name: r.from_name,
-            to_emails: r.to_emails,
-            cc_emails: r.cc_emails,
-            body_text: r.body_text,
-            body_html: r.body_html,
-            received_at: r.received_at,
-            sent_at: r.sent_at,
-            customer_id: r.customer_id,
-            customer_code: r.customer_code,
-            customer_name: r.customer_name,
-            staff_id: r.staff_id,
-            staff_full_name: r.staff_full_name,
-            folder: r.folder,
-            status: r.status,
-            is_read: r.is_read,
-        })
+        .map(MailboxMessageDbRow::into_public)
         .collect())
 }
 

@@ -37,8 +37,6 @@ import {
   verifyGlobalRecoveryFollowUp,
   type ServerRecoveryJob,
 } from "../../lib/serverRecovery";
-import RosieInsightSummary from "../help/RosieInsightSummary";
-import RosieIcon from "../common/RosieIcon";
 import ManagerApprovalModal from "./ManagerApprovalModal";
 import {
   finishPosJourneyTiming,
@@ -2987,84 +2985,12 @@ export default function CloseRegisterModal({
   const cashDepositCents = parseMoneyToCents(cashDepositAmount);
   const totalDepositCents = cashDepositCents + checkTotalCents;
   const needsNote = Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
-  const hasUnresolvedCloseIssues = currentUnresolvedCloseIssues != null;
   const closeBlockers = [
     checkPayments.length > 0 && !checksReady ? "Check review" : null,
     needsNote && notes.trim() === "" ? "Cash discrepancy note" : null,
     cashDepositDate.trim() === "" ? "Cash deposit date" : null,
   ].filter(Boolean);
   const closeReady = closeBlockers.length === 0;
-  const closeInsightFacts = {
-    title: `Register #${registerOrdinal ?? registerLane ?? "?"} close review`,
-    metrics: [
-      {
-        id: "expected-cash",
-        label: "Expected cash",
-        value: `$${centsToFixed2(expectedCents)}`,
-      },
-      {
-        id: "actual-cash",
-        label: "Actual counted",
-        value: `$${centsToFixed2(actualCents)}`,
-      },
-      {
-        id: "cash-deposit",
-        label: "Daily cash deposit",
-        value: `${cashDepositDate || "No date"} · $${centsToFixed2(cashDepositCents)}`,
-      },
-      {
-        id: "total-deposit",
-        label: "Total deposit",
-        value: `$${centsToFixed2(totalDepositCents)} including checks`,
-      },
-      {
-        id: "cash-discrepancy",
-        label: "Cash over or short",
-        value: `${discrepancyCents < 0 ? "-" : "+"}$${centsToFixed2(Math.abs(discrepancyCents))}`,
-        tone: isOff ? "warning" : "success",
-      },
-      {
-        id: "tender-count",
-        label: "Tender families",
-        value: String(recon.tenders.length),
-      },
-    ],
-    bullets: [
-      {
-        id: "close-ready",
-        label: closeReady
-          ? hasUnresolvedCloseIssues
-            ? "Required close fields are complete. Visible recovery and payment follow-up is nonblocking; the Main Hub captures close-time evidence it can verify."
-            : "All required close fields are complete; staff still reviews the Z-report before final close."
-          : `Close is blocked by ${closeBlockers.join(", ")}.`,
-        severity: closeReady ? "success" : "warning",
-      },
-      {
-        id: "cash-note",
-        label: needsNote
-          ? "Cash discrepancy is over the required note threshold."
-          : "Cash discrepancy is within the no-note threshold, but staff can still document it.",
-        severity: needsNote ? "warning" : "info",
-      },
-      {
-        id: "card-review",
-        label:
-          helcimReviewMessage ??
-          "No approved Helcim card payments are missing from ROS.",
-        severity: helcimReviewMessage ? "info" : "success",
-      },
-      {
-        id: "offline-queue",
-        label: hasUnresolvedCloseIssues
-          ? `${offlineQueueSummary.totalCount} local checkout, ${currentUnresolvedCloseIssues?.recovery_job_keys.length ?? 0} Main Hub recovery, ${currentUnresolvedCloseIssues?.station_warnings.length ?? 0} workstation warning, and ${currentUnresolvedCloseIssues?.helcim_attempts.length ?? 0} Helcim review item${(currentUnresolvedCloseIssues?.helcim_attempts.length ?? 0) === 1 ? "" : "s"} remain visible without blocking close.`
-          : "No unresolved checkout, workstation, or Helcim follow-up is visible.",
-        severity: hasUnresolvedCloseIssues ? "warning" : "success",
-      },
-    ],
-    disclaimers: [
-      "Explain visible close facts only. Do not close the register, change tender totals, change counted cash, or approve payment outcomes.",
-    ],
-  };
 
   if (step === "checks") {
     return createPortal(
@@ -3268,7 +3194,7 @@ export default function CloseRegisterModal({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal relative flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-3xl sm:rounded-3xl"
+        className="ui-modal relative flex h-[min(94dvh,58rem)] w-[min(96vw,88rem)] max-w-none flex-col overflow-hidden rounded-3xl animate-workspace-snap outline-none"
       >
         <div className="ui-modal-header flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -3306,32 +3232,28 @@ export default function CloseRegisterModal({
           </button>
         </div>
 
-        <div className="ui-modal-body flex-1 overflow-y-auto space-y-6">
-          {renderWorkflowSummary("report")}
+        <div className="ui-modal-body grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden lg:grid-cols-[1.05fr_1fr_0.95fr] lg:grid-rows-[auto_minmax(0,1fr)_auto]">
           {recon?.qbo_activity_date ? (
             <div className="rounded-2xl border border-app-warning/30 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
-                Z-Report business date
+                Business date
               </p>
               <p className="mt-1 text-lg font-black tabular-nums">
                 {recon.qbo_activity_date}
               </p>
               {(recon.pending_business_dates?.length ?? 0) > 1 ? (
-                <p className="mt-1 font-semibold leading-relaxed text-app-text-muted">
-                  This legacy till group was partially closed by an older
-                  version. Finish {recon.qbo_activity_date} before the remaining
-                  legacy date.
+                <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
+                  Finish this legacy date before the remaining date.
                 </p>
               ) : (
-                <p className="mt-1 font-semibold text-app-text-muted">
-                  This date was fixed when Register #1 opened. Closing the
-                  following morning does not change it to today.
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                  Fixed when Register #1 opened.
                 </p>
               )}
             </div>
           ) : null}
           <div
-            className={`rounded-2xl border px-4 py-3 ${
+            className={`rounded-2xl border px-4 py-3 lg:col-span-2 ${
               closeReady
                 ? "border-emerald-200 bg-emerald-50 text-emerald-900"
                 : "border-rose-200 bg-rose-50 text-rose-900"
@@ -3349,52 +3271,17 @@ export default function CloseRegisterModal({
             </div>
             <p className="mt-1 text-sm font-semibold">
               {closeReady
-                ? hasUnresolvedCloseIssues
-                  ? "Required close checks are clear. Visible follow-up remains open; the Main Hub captures close-time evidence it can verify."
-                  : "Required close checks are clear."
+                ? "Cash, checks, deposit, and required notes are complete."
                 : `Before closing: ${closeBlockers.join(", ")}.`}
             </p>
           </div>
-          <div className="rounded-2xl border border-app-accent/25 bg-app-accent/5 px-4 py-3">
-            <p className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-accent">
-              <RosieIcon size={14} alt="" />
-              Register close explainer
-            </p>
-            <p className="mt-1 text-xs font-semibold text-app-text-muted">
-              ROSIE explains the visible close facts only. Final close, cash
-              counts, and payment outcomes stay in the normal manager-reviewed
-              workflow.
-            </p>
-            <RosieInsightSummary
-              surface="register_close_review"
-              title="Register Close"
-              mode="explain"
-              getHeaders={() => Object.fromEntries(jsonAuthHeaders().entries())}
-              facts={closeInsightFacts}
-              className="mt-3"
-            />
-          </div>
-          {renderOfflineQueueBlocker(false)}
-          {renderHistoricalRecovery()}
-          {renderHelcimReviewBlocker()}
-          {(recon.tenders_by_lane?.length ?? 0) > 1 ? (
-            <div className="ui-panel ui-tint-accent p-4 text-xs text-app-text-muted">
-              <p className="font-black uppercase tracking-widest text-[10px] text-app-text mb-1">
-                One physical drawer
-              </p>
-              <p>
-                Expected cash includes cash tendered on linked registers in this
-                till shift. Finalizing closes every open lane in the group.
-              </p>
-            </div>
-          ) : null}
           <div
-            className={`ui-panel p-5 ${isOff ? "ui-tint-danger" : "ui-tint-success"}`}
+            className={`ui-panel min-h-0 p-4 ${isOff ? "ui-tint-danger" : "ui-tint-success"}`}
           >
-            <h3 className="mb-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border pb-2">
+            <h3 className="mb-2 border-b border-app-border pb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               Cash drawer count
             </h3>
-            <div className="space-y-2.5 text-sm">
+            <div className="space-y-1.5 text-xs">
               <div className="flex justify-between text-app-text-muted font-medium">
                 <span>Opening Float:</span>
                 <span className="font-mono">
@@ -3439,7 +3326,7 @@ export default function CloseRegisterModal({
                   </span>
                 </div>
               ) : null}
-              <div className="flex justify-between pt-1 font-black text-app-accent text-lg">
+              <div className="flex justify-between pt-1 text-base font-black text-app-accent">
                 <span>Actual Counted:</span>
                 <span className="font-mono">${centsToFixed2(actualCents)}</span>
               </div>
@@ -3466,7 +3353,7 @@ export default function CloseRegisterModal({
                 </span>
               </div>
             </div>
-            <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-3">
+            <div className="mt-2 rounded-xl border border-app-border bg-app-surface/70 p-2">
               <div className="grid gap-3 sm:grid-cols-[1fr_1fr]">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Deposit Date
@@ -3474,7 +3361,7 @@ export default function CloseRegisterModal({
                     type="date"
                     value={cashDepositDate}
                     onChange={(event) => setCashDepositDate(event.target.value)}
-                    className="ui-input mt-1 w-full p-3 text-xs normal-case tracking-normal"
+                    className="ui-input mt-1 w-full p-2 text-xs normal-case tracking-normal"
                   />
                 </label>
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -3486,25 +3373,25 @@ export default function CloseRegisterModal({
                       setCashDepositAmount(event.target.value);
                     }}
                     inputMode="decimal"
-                    className="ui-input mt-1 w-full p-3 text-xs normal-case tracking-normal"
+                    className="ui-input mt-1 w-full p-2 text-xs normal-case tracking-normal"
                     placeholder="0.00"
                   />
                 </label>
               </div>
-              <p className="mt-2 text-[11px] font-semibold text-app-text-muted">
+              <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
                 {cashCountIsSingleDay
                   ? "Default is actual counted cash minus opening float. Adjust only when retaining a different start bank."
                   : "This is the current physical drawer deposit across the missed dates. It is retained for the final till-group audit and is not assigned to this historical day."}
               </p>
             </div>
-            <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-3">
+            <div className="mt-2 rounded-xl border border-app-border bg-app-surface/70 p-2">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                 <label className="flex-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Edit count reason
                   <input
                     value={countEditReason}
                     onChange={(event) => setCountEditReason(event.target.value)}
-                    className="ui-input mt-1 w-full p-3 text-xs normal-case tracking-normal"
+                    className="ui-input mt-1 w-full p-2 text-xs normal-case tracking-normal"
                     placeholder="Required if you re-open the drawer count after reviewing discrepancy"
                   />
                 </label>
@@ -3520,20 +3407,20 @@ export default function CloseRegisterModal({
                     }
                     setStep("count");
                   }}
-                  className="ui-btn-secondary px-4 py-3 text-xs font-black uppercase tracking-widest"
+                  className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
                 >
                   Edit Count
                 </button>
               </div>
               {countEditReason.trim() ? (
-                <p className="mt-2 text-[10px] font-bold text-app-text-muted">
+                <p className="mt-1 text-[10px] font-bold text-app-text-muted">
                   This reason will be saved in the internal Z-report notes with
                   the staff member closing the shift.
                 </p>
               ) : null}
             </div>
             {isOff && (
-              <div className="ui-panel ui-tint-danger mt-4 p-4">
+              <div className="ui-panel ui-tint-danger mt-2 p-2">
                 <div className="flex justify-between text-app-danger font-black text-xs uppercase tracking-widest">
                   <span>
                     Discrepancy ({discrepancyCents < 0 ? "Short" : "Over"}):
@@ -3558,8 +3445,8 @@ export default function CloseRegisterModal({
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4 md:col-span-2">
+          <div className="min-h-0">
+            <div className="space-y-2">
               <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Tender breakdown (all lanes)
               </h3>
@@ -3592,189 +3479,56 @@ export default function CloseRegisterModal({
               </div>
             </div>
 
-            {(recon.tenders_by_lane?.length ?? 0) > 0 ? (
-              <div className="space-y-4 md:col-span-2">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  By register
-                </h3>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {recon.tenders_by_lane!.map((row) => (
-                    <div
-                      key={row.register_lane}
-                      className="ui-panel overflow-hidden border-app-border/40"
-                    >
-                      <p className="border-b border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        Register #{row.register_lane}
-                      </p>
-                      <table className="w-full text-xs">
-                        <thead className="text-app-text-muted">
-                          <tr>
-                            <th className="px-3 py-2">Method</th>
-                            <th className="px-3 py-2 text-center">Txs</th>
-                            <th className="px-3 py-2 text-right">Total</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-app-border/30">
-                          {row.tenders.map((t) => (
-                            <tr
-                              key={`${row.register_lane}-${t.payment_method}`}
-                            >
-                              <td className="px-3 py-2 font-bold capitalize">
-                                {t.payment_method}
-                              </td>
-                              <td className="px-3 py-2 text-center">
-                                {t.tx_count}
-                              </td>
-                              <td className="px-3 py-2 text-right font-mono font-bold">
-                                $
-                                {centsToFixed2(
-                                  parseMoneyToCents(t.total_amount),
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="space-y-4 md:col-span-2">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Overrides & Adjusts
-              </h3>
-              <div className="ui-panel p-3 space-y-4 max-h-[160px] overflow-y-auto">
-                {recon.cash_adjustments?.map((a) => (
-                  <div
-                    key={a.id}
-                    className="flex justify-between items-start gap-2 border-b border-app-border/30 pb-2 last:border-0 last:pb-0"
-                  >
-                    <span className="text-[10px] text-app-text uppercase font-bold leading-tight">
-                      {a.reason}
-                      <br />
-                      <span className="text-app-text-muted font-normal text-[9px] capitalize">
-                        {a.direction}
-                      </span>
-                    </span>
-                    <span
-                      className={`font-mono text-[10px] font-black ${a.direction === "paid_in" ? "text-app-success" : "text-app-danger"}`}
-                    >
-                      ${centsToFixed2(parseMoneyToCents(a.amount))}
-                    </span>
-                  </div>
-                ))}
-                {(recon.cash_adjustments?.length ?? 0) === 0 && (
-                  <p className="text-[10px] text-center text-app-text-muted py-4">
-                    No adjustments recorded
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-4 md:col-span-2">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Manual Drawer Opens
-              </h3>
-              <div className="ui-panel p-3 space-y-4 max-h-[160px] overflow-y-auto">
-                {recon.manual_drawer_opens?.map((event) => (
-                  <div
-                    key={event.id}
-                    className="flex justify-between items-start gap-2 border-b border-app-border/30 pb-2 last:border-0 last:pb-0"
-                  >
-                    <span className="text-[10px] text-app-text uppercase font-bold leading-tight">
-                      {event.reason}
-                      <br />
-                      <span className="text-app-text-muted font-normal text-[9px] normal-case">
-                        {event.staff_name} ·{" "}
-                        {new Date(event.created_at).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                    </span>
-                  </div>
-                ))}
-                {(recon.manual_drawer_opens?.length ?? 0) === 0 && (
-                  <p className="text-[10px] text-center text-app-text-muted py-4">
-                    No manual drawer opens recorded
-                  </p>
-                )}
-              </div>
-            </div>
           </div>
 
-          {recon.transactions.length > 0 ? (
+          <div className="grid min-h-0 gap-3 lg:row-start-2">
             <div className="space-y-2">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Payments (shift)
-              </h3>
-              <div className="ui-panel max-h-48 overflow-auto border-app-border/40">
-                <table className="w-full text-[10px]">
-                  <thead className="sticky top-0 bg-app-surface-2 text-app-text-muted">
-                    <tr>
-                      <th className="px-2 py-2 text-left">Time</th>
-                      <th className="px-2 py-2 text-left">Reg</th>
-                      <th className="px-2 py-2 text-left">Method</th>
-                      <th className="px-2 py-2 text-right">Amount</th>
-                      <th className="px-2 py-2 text-left">Customer</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border/30">
-                    {recon.transactions.map((t) => (
-                      <tr key={paymentLineId(t)}>
-                        <td className="px-2 py-1.5 font-mono text-app-text-muted whitespace-nowrap">
-                          {new Date(t.created_at).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </td>
-                        <td className="px-2 py-1.5 font-bold text-app-text">
-                          #{t.register_lane ?? 1}
-                        </td>
-                        <td className="px-2 py-1.5 capitalize text-app-text">
-                          {t.payment_method}
-                        </td>
-                        <td className="px-2 py-1.5 text-right font-mono font-bold text-app-text">
-                          ${centsToFixed2(parseMoneyToCents(t.amount))}
-                        </td>
-                        <td className="px-2 py-1.5 truncate text-app-text-muted">
-                          {t.customer_name}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">
+                Shift Notes (Internal)
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="ui-input min-h-[72px] w-full p-3 text-xs"
+                placeholder="Explain any discrepancy or shift events..."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">
+                Closing Comments (Public)
+              </label>
+              <textarea
+                value={closingComments}
+                onChange={(e) => setClosingComments(e.target.value)}
+                className="ui-input min-h-[72px] w-full p-3 text-xs"
+                placeholder="Add comments for the Z report..."
+              />
+            </div>
+
+            <div className="ui-panel ui-tint-neutral grid grid-cols-3 gap-2 p-3 text-center text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              <div>
+                <span className="block text-lg text-app-text">
+                  {recon.transactions.length}
+                </span>
+                Payments
+              </div>
+              <div>
+                <span className="block text-lg text-app-text">
+                  {recon.cash_adjustments?.length ?? 0}
+                </span>
+                Adjustments
+              </div>
+              <div>
+                <span className="block text-lg text-app-text">
+                  {recon.manual_drawer_opens?.length ?? 0}
+                </span>
+                Drawer opens
               </div>
             </div>
-          ) : null}
-
-          <div className="space-y-3 pt-2">
-            <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">
-              Shift Notes (Internal)
-            </label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="ui-input w-full p-4 text-xs min-h-[80px]"
-              placeholder="Explain any discrepancy or shift events..."
-            />
           </div>
 
-          <div className="space-y-3">
-            <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">
-              Closing Comments (Public)
-            </label>
-            <textarea
-              value={closingComments}
-              onChange={(e) => setClosingComments(e.target.value)}
-              className="ui-input w-full p-4 text-xs min-h-[60px]"
-              placeholder="Add comments for the Z report..."
-            />
-          </div>
-
-          <div className="sticky bottom-0 -mx-1 flex gap-3 border-t border-app-border bg-app-surface/95 px-1 py-4 backdrop-blur">
+          <div className="flex gap-3 border-t border-app-border pt-3 lg:col-span-3">
             <button
               type="button"
               onClick={() => void internalCancel()}

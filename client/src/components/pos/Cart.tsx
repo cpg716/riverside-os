@@ -156,7 +156,6 @@ import {
   type FundedWeddingOrderSource,
 } from "../../lib/weddingOrderBatch";
 
-const WEDDINGS_ICON = getAppIcon("weddings");
 const GIFT_CARDS_ICON = getAppIcon("giftCards");
 const ORDER_HISTORY_ICON = getAppIcon("orderHistory");
 const ALTERATION_SERVICE_PRODUCT_ID = "b7c0a006-0006-4006-8006-000000000006";
@@ -5254,31 +5253,7 @@ export default function Cart({
         className={`${compactCheckoutRailOpen ? "hidden lg:flex" : "flex"} relative z-0 min-h-0 min-w-0 flex-col border-r border-app-border`}
       >
         <div className="shrink-0 border-b border-app-border bg-app-surface px-3 py-2 shadow-sm sm:px-4 lg:px-6 lg:py-3">
-          <div className="space-y-2 rounded-2xl border border-app-border/90 bg-[color-mix(in_srgb,var(--app-surface)_90%,var(--app-surface-2))] p-2.5 shadow-[0_14px_40px_-24px_rgba(15,23,42,0.22)]">
-            {/* Wedding link badge */}
-            {activeWeddingMember && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-app-accent/30 bg-app-accent/5 p-2 animate-in slide-in-from-top duration-300" data-testid="pos-wedding-order-guidance">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-app-accent text-white shadow-lg shadow-app-accent/20">
-                  <WEDDINGS_ICON size={14} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-accent">
-                    {weddingDepositOrderSource ? "Wedding order in progress" : "Wedding member linked"}
-                  </p>
-                  <p className="truncate text-xs font-black italic text-app-text-muted">
-                      {activeWeddingMember.first_name}{" "}
-                      {activeWeddingMember.last_name} — {activeWeddingPartyName}
-                  </p>
-                  <p className="text-[10px] font-semibold text-app-text-muted">Add items from the Wedding Checklist or search/scan below. For deferred items, choose Order (Wedding), confirm the salesperson, then choose Pay. Nothing posts until Complete Sale / Record Sale succeeds.</p>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <button type="button" onClick={() => { if (hasCheckoutWork) { toast("Finish or clear the current Cart before changing the Wedding member. Riverside will not move items or deposits to another Customer account.", "error"); return; } setWeddingDrawerInitialPartyId(null); setWeddingDepositInitialView("deposit"); setWeddingDrawerPreferGroupPay(false); setWeddingDrawerOpen(true); }} className="ui-btn-secondary h-9 px-3 text-[9px] font-black uppercase tracking-widest">Change Member</button>
-                <button type="button" aria-label="Clear wedding member" onClick={() => { if (hasCheckoutWork) { toast("Finish or clear the current Cart before removing the Wedding member.", "error"); return; } setActiveWeddingMember(null); setActiveWeddingPartyName(null); setWeddingDepositOrderSource(null); }} className="shrink-0 p-2 text-app-text-muted transition-colors hover:text-red-500"><X size={16} /></button>
-              </div>
-              </div>
-            )}
+          <div className="flex flex-col gap-2 rounded-2xl border border-app-border/90 bg-[color-mix(in_srgb,var(--app-surface)_90%,var(--app-surface-2))] p-2.5 shadow-[0_14px_40px_-24px_rgba(15,23,42,0.22)]">
 
             {collectingWeddingOrderDraft ? (
               <div className="grid gap-3 rounded-2xl border-2 border-app-accent/30 bg-app-accent/5 p-3 md:grid-cols-2" data-testid="wedding-builder-member-settings">
@@ -5351,21 +5326,10 @@ export default function Cart({
               </div>
             ) : null}
 
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-bold text-app-text-muted">
-              <button
-                type="button"
-                data-testid="pos-parked-sales-button"
-                onClick={() => setParkedListOpen(true)}
-                aria-label={`Open parked sales, ${parkedRows.length} available`}
-                className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-black uppercase tracking-widest transition-colors ${
-                  parkedRows.length > 0
-                    ? "border-app-accent/40 bg-app-accent/10 text-app-accent hover:bg-app-accent/20"
-                    : "border-app-border bg-app-surface-2 text-app-text-muted hover:text-app-text"
-                }`}
-              >
-                <Clock size={12} aria-hidden />
-                Parked Sales · {parkedRows.length}
-              </button>
+            {pendingAlterationIntakes.length > 0 ||
+            pickupReadyAlterations.length > 0 ||
+            failedPrintCount > 0 ? (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-bold text-app-text-muted">
               {pendingAlterationIntakes.length > 0 ? (
                 <span className="inline-flex items-center gap-1 rounded-lg border border-app-accent/20 bg-app-accent/10 px-2 py-1 font-black uppercase tracking-widest text-app-accent">
                   <Scissors size={12} aria-hidden />
@@ -5391,11 +5355,12 @@ export default function Cart({
                   {failedPrintCount} print retry
                 </button>
               ) : null}
-            </div>
+              </div>
+            ) : null}
 
           {/* Staff Access + default salesperson on one row after sign-in. */}
           {checkoutOperator ? (
-            <div className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border/70 bg-app-surface-2/70 px-3 py-1.5">
+            <div className="order-first sticky top-0 z-10 flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border/70 bg-app-surface-2 px-3 py-1.5 shadow-sm">
               <div className="flex min-w-0 items-center gap-2">
                 <span className="shrink-0 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                   Staff:
@@ -5689,7 +5654,7 @@ export default function Cart({
                         <X size={20} aria-hidden />
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 [&>button]:!min-h-[104px] [&>button]:!w-full [&>button]:!basis-auto">
+                    <div className="grid grid-cols-3 gap-3 [&>button]:!min-h-[104px] [&>button]:!w-full [&>button]:!basis-auto">
               <button
                 type="button"
                 data-testid="pos-action-suit-swap"
@@ -5886,6 +5851,24 @@ export default function Cart({
                 <Zap size={20} className="shrink-0" aria-hidden />
                 <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
                   Order options
+                </span>
+              </button>
+              <button
+                type="button"
+                data-testid="pos-action-resume-parked-sale"
+                onClick={() => {
+                  setShowAllSaleActions(false);
+                  setParkedListOpen(true);
+                }}
+                aria-label={`Resume Parked Sale, ${parkedRows.length} available`}
+                className="ui-touch-target flex min-h-[86px] flex-[1_0_104px] flex-col items-center justify-center gap-2 rounded-xl border border-app-info/60 bg-app-info/10 px-2 text-center text-app-info shadow-sm ring-1 ring-black/5 transition-all hover:bg-app-info hover:text-white active:scale-95 dark:ring-white/10 sm:flex-[1_0_116px] xl:min-h-[94px] xl:flex-[1_0_125px]"
+              >
+                <Clock size={20} aria-hidden />
+                <span className="text-[10px] font-black uppercase leading-[12px] tracking-widest">
+                  Resume Parked Sale
+                </span>
+                <span className="text-[9px] font-black uppercase tracking-widest opacity-75">
+                  {parkedRows.length} available
                 </span>
               </button>
               <button
@@ -7897,7 +7880,7 @@ export default function Cart({
             <div className="ui-overlay-backdrop !z-[200]">
               <div
                 ref={parkedSalesDialogRef}
-                className="relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[min(560px,85vh)] sm:max-w-md sm:rounded-2xl"
+                className="relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[min(640px,85vh)] sm:max-w-xl sm:rounded-2xl"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={parkedSalesTitleId}
@@ -7908,7 +7891,7 @@ export default function Cart({
                     id={parkedSalesTitleId}
                     className="text-sm font-black uppercase tracking-widest text-app-text"
                   >
-                    Parked sales
+                    Resume Parked Sale
                   </h2>
                   <button
                     type="button"
@@ -7972,7 +7955,7 @@ export default function Cart({
                                 onClick={() => void recallParkedSale(p.id)}
                                 className="ui-btn-primary flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest"
                               >
-                                Recall
+                                Resume Sale
                               </button>
                               <button
                                 type="button"

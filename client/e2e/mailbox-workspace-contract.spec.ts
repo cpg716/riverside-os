@@ -39,6 +39,20 @@ test("Mailbox exposes familiar conversation and bulk triage actions", () => {
   expect(mailboxWorkspace).toContain("Forward");
 });
 
+test("Mailbox loads compact summaries before selected message bodies", () => {
+  expect(mailboxWorkspace).toContain("summary_only=true");
+  expect(mailboxWorkspace).toContain(
+    "`${baseUrl}/api/mailbox/${encodeURIComponent(selectedRowId)}`",
+  );
+  expect(mailboxWorkspace).toContain("Loading selected email.");
+  expect(mailboxWorkspace).toContain("aria-pressed={unmatchedOnly}");
+  expect(mailboxApi).toContain(
+    '.route("/{id}", get(get_message).patch(patch_message_state))',
+  );
+  expect(mailboxLogic).toContain("pub async fn get_mailbox_message");
+  expect(mailboxLogic).toContain("WHEN $4::bool THEN LEFT");
+});
+
 test("Mailbox composer supports rich, addressed, recoverable email drafts", () => {
   expect(mailboxWorkspace).toContain("contentEditable");
   expect(mailboxWorkspace).toContain('applyComposerFormat("bold")');
