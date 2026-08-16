@@ -260,7 +260,7 @@ test("wedding deposit posting is prevention-first, source-tracked, and receipt t
   expect(receiptSummarySource).toContain("wedding deposit payer—not the member");
   expect(paymentDrawerSource).toContain("Refund recipient: {refundRecipientName}");
   expect(paymentDrawerSource).toContain("not go to the member.");
-  expect(cartSource).toContain('data-testid="pos-wedding-order-guidance"');
+  expect(cartSource).not.toContain('data-testid="pos-wedding-order-guidance"');
   expect(cartSource).toContain("Order (Wedding), confirm the salesperson");
   expect(cartSource).toContain("Open Wedding Builder");
   expect(cartSource).toContain("startAdditionalWeddingMemberOrder");

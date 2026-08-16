@@ -80,7 +80,7 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
   );
   await expect(page.getByRole("button", { name: "Clear Sale" })).toBeVisible();
   await expect(page.getByTestId("pos-camera-scan-button")).toBeVisible();
-  await expect(page.getByTestId("pos-parked-sales-button")).toBeVisible();
+  await expect(page.getByTestId("pos-parked-sales-button")).toHaveCount(0);
   await page.getByTestId("pos-camera-scan-button").click();
   const cameraScanner = page.getByRole("dialog", {
     name: "Register Product Scan",
@@ -88,8 +88,17 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
   await expect(cameraScanner).toBeVisible();
   await cameraScanner.getByRole("button", { name: "Close scanner" }).click();
   await expect(cameraScanner).toHaveCount(0);
-  await page.getByTestId("pos-parked-sales-button").click();
-  const parkedSales = page.getByRole("dialog", { name: "Parked sales" });
+  await page.getByRole("button", { name: "More Actions" }).click();
+  const moreActions = page.getByRole("dialog", { name: "More sale actions" });
+  await expect(
+    moreActions.getByRole("button", { name: /Resume Parked Sale/ }),
+  ).toBeVisible();
+  await moreActions
+    .getByRole("button", { name: /Resume Parked Sale/ })
+    .click();
+  const parkedSales = page.getByRole("dialog", {
+    name: "Resume Parked Sale",
+  });
   await expect(parkedSales).toBeVisible();
   await parkedSales.getByRole("button", { name: "Close" }).click();
   await expect(parkedSales).toHaveCount(0);

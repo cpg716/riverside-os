@@ -1029,9 +1029,7 @@ test.describe("Register report output integrity contracts", () => {
     expect(reportPrintSource).toContain("Print Date/Time:");
     expect(reportPrintSource).toContain("Open Period Started:");
     expect(reportPrintSource).toContain("Open Period Closed:");
-    expect(closeRegisterSource).toContain(
-      "following morning does not change it to today.",
-    );
+    expect(closeRegisterSource).toContain("Fixed when Register #1 opened.");
   });
 
   test("the dashboard distinguishes a physical Register from its session sequence", () => {
