@@ -2259,8 +2259,8 @@ export async function openProfessionalTablePrint(opts: {
   subtitle?: string;
   columns: string[];
   rows: Record<string, unknown>[];
-  /** Trusted, application-generated SVG used by visual report workspaces. */
-  visualHtml?: string;
+  /** Trusted, application-generated PNG used by visual report workspaces. */
+  visualDataUrl?: string;
 }): Promise<boolean> {
   const target = createPrintDocument(opts.title);
 
@@ -2274,9 +2274,13 @@ export async function openProfessionalTablePrint(opts: {
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
-  const visualHtml = opts.visualHtml?.trim().startsWith("<svg")
-    ? opts.visualHtml.trim()
-    : "";
+  const visualDataUrl = opts.visualDataUrl?.trim() ?? "";
+  if (
+    visualDataUrl &&
+    !/^data:image\/png;base64,[a-zA-Z0-9+/=]+$/.test(visualDataUrl)
+  ) {
+    throw new Error("Report visual must be an application-generated PNG.");
+  }
 
   const headerCells = opts.columns
     .map(
@@ -2327,14 +2331,20 @@ export async function openProfessionalTablePrint(opts: {
     .write(`<!DOCTYPE html><html><head><title>${escapeHtml(opts.title)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
+    @page { size: letter ${visualDataUrl ? "landscape" : "portrait"}; margin: 0.4in; }
     body { font-family: 'Inter', system-ui, sans-serif; font-size: 11px; line-height: 1.4; color: #0f172a; padding: 40px; }
     h1 { font-size: 22px; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
     table { width: 100%; border-collapse: collapse; margin-top: 20px; table-layout: auto; }
     th { font-size: 9px; font-weight: 800; color: #64748b; letter-spacing: 0.1em; }
     .muted { color: #64748b; }
     .report-visual { margin-top: 20px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 12px; break-inside: avoid; }
-    .report-visual svg { display: block; width: 100%; height: auto; max-height: 430px; }
-    @media print { body { padding: 0; } .report-visual { break-inside: avoid; } }
+    .report-visual img { display: block; width: 100%; height: auto; max-height: 3.8in; object-fit: contain; }
+    @media print {
+      body { padding: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+      .report-visual { break-inside: avoid; }
+      thead { display: table-header-group; }
+      tr { break-inside: avoid; page-break-inside: avoid; }
+    }
   </style></head><body>
   <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 4px solid #0f172a; padding-bottom: 20px;">
     <div>
@@ -2350,7 +2360,7 @@ export async function openProfessionalTablePrint(opts: {
 
   ${opts.subtitle ? `<p style="margin-top:20px;font-weight:700;font-size:12px">${escapeHtml(opts.subtitle)}</p>` : ""}
 
-  ${visualHtml ? `<section class="report-visual" aria-label="Report visual summary">${visualHtml}</section>` : ""}
+  ${visualDataUrl ? `<section class="report-visual" aria-label="Report visual summary"><img src="${visualDataUrl}" alt="Report visual summary" /></section>` : ""}
 
   <table>
     <thead><tr>${headerCells}</tr></thead>

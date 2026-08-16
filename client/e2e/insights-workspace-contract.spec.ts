@@ -30,10 +30,14 @@ test.describe("Insights workspace delivery contract", () => {
     expect(workspaceSource).toContain("Include visual chart");
   });
 
-  test("passes the application chart SVG into the professional print path", () => {
-    expect(workspaceSource).toContain('querySelector("svg")?.outerHTML');
-    expect(printSource).toContain("visualHtml?: string");
+  test("captures a stable chart image for the professional print path", () => {
+    expect(workspaceSource).toContain("captureChartForPrint");
+    expect(workspaceSource).toContain('canvas.toDataURL("image/png")');
+    expect(workspaceSource).toContain("isAnimationActive={false}");
+    expect(printSource).toContain("visualDataUrl?: string");
+    expect(printSource).toContain("data:image\\/png;base64");
     expect(printSource).toContain('class="report-visual"');
+    expect(printSource).toContain("thead { display: table-header-group; }");
   });
 
   test("offers local presentation controls without rerunning governed data", () => {

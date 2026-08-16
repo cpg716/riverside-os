@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import html2canvas from "html2canvas";
 import {
   Area,
   AreaChart,
@@ -166,6 +167,27 @@ function safeFilename(title: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
   return `${slug || "riverside-report"}-${todayYmd()}.csv`;
+}
+
+async function captureChartForPrint(target: HTMLDivElement): Promise<string> {
+  const bounds = target.getBoundingClientRect();
+  if (bounds.width <= 1 || bounds.height <= 1) {
+    throw new Error("The chart is not ready to print yet.");
+  }
+  const canvas = await html2canvas(target, {
+    backgroundColor: "#ffffff",
+    logging: false,
+    scale: Math.min(2, 1800 / bounds.width),
+    useCORS: true,
+    width: Math.ceil(bounds.width),
+    height: Math.ceil(bounds.height),
+    windowWidth: Math.ceil(bounds.width),
+    windowHeight: Math.ceil(bounds.height),
+  });
+  if (canvas.width <= 1 || canvas.height <= 1) {
+    throw new Error("The chart image was empty.");
+  }
+  return canvas.toDataURL("image/png");
 }
 
 function getErrorMessage(payload: unknown, fallback: string): string {
@@ -499,30 +521,43 @@ export default function NativeInsightsWorkspace() {
 
   const printReport = async (includeVisual: boolean) => {
     if (!result) return;
-    const range = result.spec.time_dimension?.date_range;
-    const period =
-      Array.isArray(range) && range.length === 2
-        ? `${range[0]} through ${range[1]}`
-        : null;
-    await openProfessionalTablePrint({
-      title: result.spec.title,
-      subtitle: [
-        result.spec.explanation,
-        period,
-        `${result.row_count.toLocaleString()} rows`,
-        `Generated ${new Date(result.generated_at).toLocaleString()}`,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      columns: columns.map(labelFor),
-      rows: printRows,
-      visualHtml:
-        includeVisual && chartRef.current
-          ? chartRef.current.querySelector("svg")?.outerHTML
-          : undefined,
-      action: "preview",
-    });
-    setShowPrintOptions(false);
+    try {
+      const range = result.spec.time_dimension?.date_range;
+      const period =
+        Array.isArray(range) && range.length === 2
+          ? `${range[0]} through ${range[1]}`
+          : null;
+      let visualDataUrl: string | undefined;
+      if (includeVisual) {
+        if (!chartRef.current) {
+          throw new Error("The chart is not available for this report.");
+        }
+        visualDataUrl = await captureChartForPrint(chartRef.current);
+      }
+      const opened = await openProfessionalTablePrint({
+        title: result.spec.title,
+        subtitle: [
+          result.spec.explanation,
+          period,
+          `${result.row_count.toLocaleString()} rows`,
+          `Generated ${new Date(result.generated_at).toLocaleString()}`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        columns: columns.map(labelFor),
+        rows: printRows,
+        visualDataUrl,
+        action: "preview",
+      });
+      if (opened) setShowPrintOptions(false);
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? error.message
+          : "The report preview could not be prepared.",
+        "error",
+      );
+    }
   };
 
   const chart = useMemo(() => {
@@ -530,15 +565,21 @@ export default function NativeInsightsWorkspace() {
     const xMember = result.spec.visualization.x_member;
     const yMembers = result.spec.visualization.y_members;
     if (!xMember || yMembers.length === 0) return null;
-    return result.rows.map((row) => ({
-      label: displayValue(
+    return result.rows.map((row) => {
+      const label = displayValue(
         rowValue(row, xMember),
         result.member_formats[xMember] ?? "text",
-      ),
-      ...Object.fromEntries(
-        yMembers.map((member, index) => [`value_${index}`, numberValue(rowValue(row, member))]),
-      ),
-    }));
+      );
+      return {
+        label: label === "—" ? "Unassigned" : label,
+        ...Object.fromEntries(
+          yMembers.map((member, index) => [
+            `value_${index}`,
+            numberValue(rowValue(row, member)),
+          ]),
+        ),
+      };
+    });
   }, [result]);
 
   const renderChart = () => {
@@ -561,7 +602,19 @@ export default function NativeInsightsWorkspace() {
       return (
         <ResponsiveContainer width="100%" height={330}>
           <PieChart>
-            <Pie data={chart} dataKey="value_0" nameKey="label" outerRadius={120} label>
+            <Pie
+              data={chart}
+              dataKey="value_0"
+              nameKey="label"
+              outerRadius={120}
+              isAnimationActive={false}
+              labelLine={false}
+              label={({ name, percent }) =>
+                numberValue(percent) >= 0.04
+                  ? `${String(name)} ${(numberValue(percent) * 100).toFixed(1)}%`
+                  : ""
+              }
+            >
               {chart.map((_, index) => (
                 <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
               ))}
@@ -594,6 +647,7 @@ export default function NativeInsightsWorkspace() {
                 name={result.member_labels[member] ?? fallbackLabel(member)}
                 stroke={CHART_COLORS[index % CHART_COLORS.length]}
                 strokeWidth={3}
+                isAnimationActive={false}
               />
             ))}
           </LineChart>
@@ -614,6 +668,7 @@ export default function NativeInsightsWorkspace() {
                 stroke={CHART_COLORS[index % CHART_COLORS.length]}
                 fill={CHART_COLORS[index % CHART_COLORS.length]}
                 fillOpacity={0.18}
+                isAnimationActive={false}
               />
             ))}
           </AreaChart>
@@ -631,6 +686,7 @@ export default function NativeInsightsWorkspace() {
               name={result.member_labels[member] ?? fallbackLabel(member)}
               fill={CHART_COLORS[index % CHART_COLORS.length]}
               radius={[5, 5, 0, 0]}
+              isAnimationActive={false}
             />
           ))}
         </BarChart>

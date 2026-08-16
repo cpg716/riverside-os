@@ -55,7 +55,7 @@ Use the **From** and **To** controls above a result, then select **Run period**.
 Every successful result includes:
 
 - **Export CSV** — downloads the complete returned table using the displayed business labels.
-- **Print / PDF** — opens report options before the system preview. A visible chart is included by default with the title, period, generated time, basis explanation, columns, and rows. Turn off **Include visual chart** for a data-only report, then choose a physical printer or **Save as PDF**.
+- **Print / PDF** — opens report options before the system preview. A visible chart is captured exactly as shown and included by default with the title, period, generated time, basis explanation, columns, and every returned row. Visual reports use a landscape page, repeat table headings across pages, and keep rows together when possible. Turn off **Include visual chart** for a portrait, data-only report, then choose a physical printer or **Save as PDF**.
 
 ## Customize the presentation
 
