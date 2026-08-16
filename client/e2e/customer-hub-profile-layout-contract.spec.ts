@@ -9,7 +9,7 @@ function repoFile(relativePath: string): string {
   );
 }
 
-test("Customer Hub puts compact profile details before summary cards", () => {
+test("Customer Hub nests quick-look cards below contact details", () => {
   const drawer = repoFile(
     "client/src/components/customers/CustomerRelationshipHubDrawer.tsx",
   );
@@ -17,11 +17,29 @@ test("Customer Hub puts compact profile details before summary cards", () => {
   expect(drawer).toContain(
     'className="order-1 space-y-4" data-testid="customer-profile-details"',
   );
-  expect(drawer).toContain(
-    'className="order-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4"',
-  );
+  expect(drawer).toContain('data-testid="customer-profile-quick-look"');
   expect(drawer).toContain(
     'className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3"',
+  );
+  expect(
+    drawer.indexOf('data-testid="customer-profile-quick-look"'),
+  ).toBeGreaterThan(
+    drawer.indexOf('className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3"'),
+  );
+  expect(
+    drawer.indexOf('data-testid="customer-profile-quick-look"'),
+  ).toBeLessThan(drawer.indexOf("Register defaults"));
+});
+
+test("Customer History groups activity that happened in the same second", () => {
+  const drawer = repoFile(
+    "client/src/components/customers/CustomerRelationshipHubDrawer.tsx",
+  );
+
+  expect(drawer).toContain("groupCustomerTimelineEvents(timeline)");
+  expect(drawer).toContain('data-testid="customer-history-group"');
+  expect(drawer).toContain(
+    'group.events.length === 1 ? "activity" : "activities"',
   );
 });
 

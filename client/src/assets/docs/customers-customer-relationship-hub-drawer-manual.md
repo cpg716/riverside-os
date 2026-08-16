@@ -28,7 +28,7 @@ Deterministic customer facts stay primary. Optional ROSIE customer snapshot insi
 ## How to use it
 
 1. Confirm the customer name and contact details.
-2. Review Customer Snapshot and profile facts.
+2. Review **Quick look** directly below the contact fields for balances, loyalty, active work, wedding status, and recent customer context.
 3. Open the needed tab for orders, alterations, loyalty, messages, measurements, or timeline.
 4. Treat degraded section messages as missing data until that section reloads.
 
@@ -58,7 +58,9 @@ This applies to Transaction Records, fulfillment-order work, alterations, loyalt
 
 Transaction Records and Orders with returned merchandise are marked **Returned Item**. Settled exchange transactions are also marked **Exchange**. Opening the original record shows the returned quantity on the affected line; opening either side of a settled exchange and choosing **Reprint Receipt** produces the combined return/exchange customer receipt, including both the returned item and its replacement.
 
-The **History** tab keeps each completed receipt event, including payment-only, deposit, pickup-only, pickup-and-payment, sale, return, and exchange receipts. Select **Reprint Receipt** on the event row to reopen the exact customer receipt that was completed at that time. Payment and pickup events remain separate from the original Order receipt so reprinting never substitutes old merchandise or tender activity.
+The **History** interaction timeline combines activity recorded in the same second into one dated card. Purchase, payment, pickup, wedding, appointment, call, shipment, and note details remain visible as labeled activity inside that card, including links to the related record.
+
+The receipt list still keeps each completed receipt event, including payment-only, deposit, pickup-only, pickup-and-payment, sale, return, and exchange receipts. Select **Reprint Receipt** on the event row to reopen the exact customer receipt that was completed at that time. Grouping the interaction timeline does not merge or discard the underlying payment and pickup receipt records, so reprinting never substitutes old merchandise or tender activity.
 
 Podium call activity linked to the customer also appears in **History**, with the call direction or outcome and duration when Podium provides it. Calls are recorded from Podium call webhooks; a message-history refresh does not reconstruct calls that occurred before call webhook delivery was enabled.
 
@@ -105,4 +107,4 @@ If ROSIE is unavailable, the hub remains usable.
 - [Customers Workspace](manual:customers-workspace)
 - [Orders Workspace](manual:orders-workspace)
 
-On the **Profile** tab, customer contact details appear first: name, phone, email, and address. The operational summary and insight cards follow below in a compact layout so staff can review or complete the customer record with less scrolling.
+On the **Profile** tab, customer contact details appear first: name, phone, email, and address. **Quick look** now sits immediately beneath those fields in the same left workspace, using the previously empty space beside the longer settings column. Its cards keep balances, loyalty, open work, wedding status, recent activity, and profile completeness readable without scrolling past the entire settings form.

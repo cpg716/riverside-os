@@ -206,6 +206,35 @@ export interface CustomerTimelineEvent {
   wedding_party_id: string | null;
 }
 
+interface CustomerTimelineGroup {
+  at: string;
+  events: CustomerTimelineEvent[];
+}
+
+function groupCustomerTimelineEvents(
+  events: CustomerTimelineEvent[],
+): CustomerTimelineGroup[] {
+  const groups = new Map<string, CustomerTimelineEvent[]>();
+
+  for (const event of events) {
+    const timestamp = Date.parse(event.at);
+    const key = Number.isFinite(timestamp)
+      ? String(Math.floor(timestamp / 1000))
+      : event.at;
+    const group = groups.get(key);
+    if (group) {
+      group.push(event);
+    } else {
+      groups.set(key, [event]);
+    }
+  }
+
+  return Array.from(groups.values()).map((groupEvents) => ({
+    at: groupEvents[0].at,
+    events: groupEvents,
+  }));
+}
+
 export interface MeasurementRecord {
   id: string;
   neck: string | null;
@@ -2582,6 +2611,10 @@ export function CustomerRelationshipHubDrawer({
       }) as Record<string, string>,
     [],
   );
+  const groupedTimeline = useMemo(
+    () => groupCustomerTimelineEvents(timeline),
+    [timeline],
+  );
   const linkedPartnerName = hub?.partner
     ? `${hub.partner.first_name} ${hub.partner.last_name}`.trim() ||
       hub.partner.customer_code
@@ -2713,76 +2746,95 @@ export function CustomerRelationshipHubDrawer({
                   No customer interactions recorded yet.
                 </p>
               ) : (
-                <ul className="space-y-0">
-                  {timeline.map((ev, i) => (
+                <ul className="space-y-3">
+                  {groupedTimeline.map((group) => (
                     <li
-                      key={`${ev.at}-${i}`}
-                      className="grid grid-cols-[14px_1fr] gap-3 pb-5 last:pb-0"
+                      key={group.at}
+                      data-testid="customer-history-group"
+                      className="overflow-hidden rounded-2xl border border-app-border bg-app-surface-2/70 shadow-sm"
                     >
-                      <span
-                        className={`mt-1.5 h-3 w-3 rounded-full border-2 border-app-surface shadow-sm ${
-                          kindDot[ev.kind] ?? "bg-app-text-muted"
-                        }`}
-                      />
-                      <div className="min-w-0">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-app-border/70 bg-app-surface px-3 py-2.5">
                         <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          {readableDateTime(ev.at)} ·{" "}
-                          {customerTimelineKindLabel(ev.kind)}
+                          {readableDateTime(group.at)}
                         </p>
-                        {ev.reference_type === "transaction" && ev.reference_id ? (
-                          <button
-                            type="button"
-                            className="mt-1 w-full text-left text-sm font-semibold text-app-accent hover:underline"
-                            onClick={() => {
-                              setHistoryReceiptTransactionId(null);
-                              setSelectedTransactionId(ev.reference_id!);
-                            }}
-                          >
-                            {ev.summary}
-                          </button>
-                        ) : ev.kind === "appointment" && ev.reference_id && onOpenAppointment ? (
-                          <button
-                            type="button"
-                            className="mt-1 w-full text-left text-sm font-semibold text-app-accent hover:underline"
-                            onClick={() => {
-                              onOpenAppointment(ev.reference_id!);
-                              onClose();
-                            }}
-                          >
-                            {ev.summary}
-                          </button>
-                        ) : ev.kind === "shipping" &&
-                        ev.reference_type === "shipment" &&
-                        ev.reference_id &&
-                        canShipmentsView ? (
-                          <button
-                            type="button"
-                            className="mt-1 w-full text-left text-sm font-semibold text-app-accent hover:underline"
-                            onClick={() => {
-                              setHubShipmentFocusId(ev.reference_id!);
-                              setTab("shipments");
-                            }}
-                          >
-                            {ev.summary}
-                          </button>
-                        ) : (
-                          <p className="mt-1 text-sm font-semibold text-app-text">
-                            {ev.summary}
-                          </p>
-                        )}
-                        {ev.wedding_party_id ? (
-                          <button
-                            type="button"
-                            className="mt-2 text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
-                            onClick={() => {
-                              onOpenWeddingParty(ev.wedding_party_id!);
-                              onClose();
-                            }}
-                          >
-                            Open wedding
-                          </button>
-                        ) : null}
+                        <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          {group.events.length} {group.events.length === 1 ? "activity" : "activities"}
+                        </span>
                       </div>
+                      <ul className="divide-y divide-app-border/60 px-3">
+                        {group.events.map((ev, i) => (
+                          <li
+                            key={`${ev.kind}-${ev.reference_id ?? "activity"}-${i}`}
+                            className="grid grid-cols-[14px_1fr] gap-3 py-3"
+                          >
+                            <span
+                              className={`mt-1 h-3 w-3 rounded-full border-2 border-app-surface shadow-sm ${
+                                kindDot[ev.kind] ?? "bg-app-text-muted"
+                              }`}
+                            />
+                            <div className="min-w-0">
+                              <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                {customerTimelineKindLabel(ev.kind)}
+                              </p>
+                              {ev.reference_type === "transaction" && ev.reference_id ? (
+                                <button
+                                  type="button"
+                                  className="mt-1 w-full text-left text-sm font-semibold leading-relaxed text-app-accent hover:underline"
+                                  onClick={() => {
+                                    setHistoryReceiptTransactionId(null);
+                                    setSelectedTransactionId(ev.reference_id!);
+                                  }}
+                                >
+                                  {ev.summary}
+                                </button>
+                              ) : ev.kind === "appointment" &&
+                                ev.reference_id &&
+                                onOpenAppointment ? (
+                                <button
+                                  type="button"
+                                  className="mt-1 w-full text-left text-sm font-semibold leading-relaxed text-app-accent hover:underline"
+                                  onClick={() => {
+                                    onOpenAppointment(ev.reference_id!);
+                                    onClose();
+                                  }}
+                                >
+                                  {ev.summary}
+                                </button>
+                              ) : ev.kind === "shipping" &&
+                                ev.reference_type === "shipment" &&
+                                ev.reference_id &&
+                                canShipmentsView ? (
+                                <button
+                                  type="button"
+                                  className="mt-1 w-full text-left text-sm font-semibold leading-relaxed text-app-accent hover:underline"
+                                  onClick={() => {
+                                    setHubShipmentFocusId(ev.reference_id!);
+                                    setTab("shipments");
+                                  }}
+                                >
+                                  {ev.summary}
+                                </button>
+                              ) : (
+                                <p className="mt-1 text-sm font-semibold leading-relaxed text-app-text">
+                                  {ev.summary}
+                                </p>
+                              )}
+                              {ev.wedding_party_id ? (
+                                <button
+                                  type="button"
+                                  className="mt-2 text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
+                                  onClick={() => {
+                                    onOpenWeddingParty(ev.wedding_party_id!);
+                                    onClose();
+                                  }}
+                                >
+                                  Open wedding
+                                </button>
+                              ) : null}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
                     </li>
                   ))}
                 </ul>
@@ -3387,257 +3439,6 @@ export function CustomerRelationshipHubDrawer({
         </p>
       ) : (
         <div className="flex flex-col gap-3">
-          {showHubSummary ? (
-            <div className="order-2 flex flex-wrap items-center gap-2">
-              {hub.is_vip ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-app-warning/20 bg-app-warning/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
-                  <Sparkles size={12} aria-hidden />
-                  VIP
-                </span>
-              ) : null}
-              {hub.employee_discount_eligible ? (
-                <span className="inline-flex items-center rounded-full border border-app-info/20 bg-app-info/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-info">
-                  Staff
-                </span>
-              ) : null}
-              {hub.customer_created_source === "online_store" ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-app-info/20 bg-app-info/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-info">
-                  Online signup
-                </span>
-              ) : null}
-              {(hub.stats.loyalty_points ?? 0) > 0 ? (
-                <span className="flex items-center gap-1 rounded-full bg-app-accent/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-app-accent">
-                  ★ {(hub.stats.loyalty_points ?? 0).toLocaleString()} pts
-                </span>
-              ) : null}
-              {balanceDue ? (
-                <span className="rounded-full border border-app-accent/40 bg-app-accent/15 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent shadow-app-accent/30">
-                  Balance due {fmtMoney(hub.stats.balance_due_usd)}
-                </span>
-              ) : null}
-              {storeCreditBal != null &&
-              parseMoneyToCents(storeCreditBal) > 0 ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/20 bg-app-accent/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent">
-                  Store credit {fmtMoney(storeCreditBal)}
-                </span>
-              ) : null}
-              {openDepositBal != null &&
-              parseMoneyToCents(openDepositBal) > 0 ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-app-success/20 bg-app-success/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-success">
-                  Deposit waiting {fmtMoney(openDepositBal)}
-                </span>
-              ) : null}
-              {activeWedding ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onOpenWeddingParty(activeWedding.wedding_party_id);
-                    onClose();
-                  }}
-                  className="inline-flex items-center gap-1 rounded-full border border-app-accent/40 bg-app-accent/20 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text"
-                >
-                  <CalendarDays size={12} aria-hidden />
-                  Wedding Active: {activeWedding.party_name}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-
-          {showHubSummary ? (
-            <div className="order-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-              {[
-                {
-                  label: "Balance answer",
-                  value: balanceDue ? fmtMoney(hub.stats.balance_due_usd) : "Clear",
-                  helper: balanceDue ? "Collect before pickup or release." : "No balance due visible.",
-                  tone: balanceDue ? "warn" : "ok",
-                },
-                {
-                  label: "Open service",
-                  value: `${openSummary.orders ?? 0}/${openSummary.alterations ?? 0}`,
-                  helper: "Orders / alterations open.",
-                  tone:
-                    (openSummary.orders ?? 0) > 0 || (openSummary.alterations ?? 0) > 0
-                      ? "info"
-                      : "calm",
-                },
-                {
-                  label: "Wedding",
-                  value: activeWedding ? "Active" : "None",
-                  helper: activeWedding ? activeWedding.party_name : "No active wedding link.",
-                  tone: activeWedding ? "info" : "calm",
-                },
-                {
-                  label: "Contact",
-                  value: hub.profile_complete ? "Complete" : "Needs info",
-                  helper: hub.profile_complete ? "Phone and email are present." : profileMissingHint,
-                  tone: hub.profile_complete ? "ok" : "warn",
-                },
-              ].map((card) => (
-                <div
-                  key={card.label}
-                  className={`rounded-2xl border px-3 py-2 ${
-                    card.tone === "ok"
-                      ? "border-app-success/20 bg-app-success/10 text-app-success"
-                      : card.tone === "warn"
-                        ? "border-app-warning/25 bg-app-warning/10 text-app-warning"
-                        : card.tone === "info"
-                          ? "border-app-accent/25 bg-app-accent/10 text-app-accent"
-                          : "border-app-border bg-app-surface-2 text-app-text"
-                  }`}
-                >
-                  <p className="text-[9px] font-black uppercase tracking-widest opacity-70">
-                    {card.label}
-                  </p>
-                  <p className="mt-1 truncate text-base font-black">{card.value}</p>
-                  <p className="mt-1 truncate text-[11px] font-semibold opacity-75">
-                    {card.helper}
-                  </p>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {showHubSummary ? (
-            <div className="order-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
-              {[
-                {
-                  label: `Lifetime${hub.couple_id ? " (Joint)" : ""}`,
-                  value: fmtLifetimeCompact(hub.stats.lifetime_spend_usd),
-                  target: "transactions" as HubTab,
-                  disabled: !canOrdersView,
-                  disabledReason: "Manager access is needed to view transaction history.",
-                },
-                {
-                  label: "Open orders",
-                  value: openSummary.orders == null ? "View" : String(openSummary.orders),
-                  target: "orders" as HubTab,
-                  disabled: !canOrdersView,
-                  disabledReason: "Manager access is needed to view customer orders.",
-                },
-                {
-                  label: "Open layaways",
-                  value: openSummary.layaways == null ? "View" : String(openSummary.layaways),
-                  target: "layaways" as HubTab,
-                  disabled: !canOrdersView,
-                  disabledReason: "Manager access is needed to view customer layaways.",
-                },
-                {
-                  label: "Open alterations",
-                  value: openSummary.alterations == null ? "View" : String(openSummary.alterations),
-                  target: "alterations" as HubTab,
-                  disabled: !canAlterationsView,
-                  disabledReason: "Manager access is needed to view customer alterations.",
-                },
-                {
-                  label: "Last visit",
-                  value: lastVisitLabel(hub.stats.days_since_last_visit),
-                  target: "transactions" as HubTab,
-                  disabled: !canOrdersView,
-                  disabledReason: "Manager access is needed to view customer history.",
-                },
-                {
-                  label: "Loyalty",
-                  value: `${(hub.stats.loyalty_points ?? 0).toLocaleString()} pts`,
-                  target: "loyalty" as HubTab,
-                  disabled: false,
-                  disabledReason: "",
-                },
-                {
-                  label: "Profile",
-                  value: hub.profile_complete ? "Complete" : "Incomplete",
-                  target: hub.profile_complete ? "profile" as HubTab : "profile_missing" as const,
-                  disabled: false,
-                  disabledReason: "",
-                },
-              ].map(({ label, value, target, disabled, disabledReason }) => (
-                <button
-                  key={label}
-                  type="button"
-                  disabled={disabled}
-                  title={disabled ? disabledReason : undefined}
-                  aria-label={disabled ? `${label}. ${disabledReason}` : undefined}
-                  onClick={() => openHubStatTarget(target)}
-                  className={`rounded-2xl border px-3 py-2 ${
-                    label === "Profile" && hub.profile_complete
-                      ? "border-app-success/20 bg-app-success/10"
-                      : "border-app-border bg-app-surface-2/90"
-                  } text-left transition hover:border-app-accent/40 hover:bg-app-accent/5 disabled:cursor-not-allowed disabled:opacity-60`}
-                >
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    {label}
-                  </p>
-                  <p
-                    className={`mt-1 text-lg font-black tabular-nums ${
-                      label === "Profile" && hub.profile_complete
-                        ? "text-app-success"
-                        : "text-app-text"
-                    }`}
-                  >
-                    {value}
-                  </p>
-                </button>
-              ))}
-            </div>
-          ) : null}
-
-          {showHubSummary && hub.snapshot_items.length > 0 ? (
-            <section
-              data-testid="customer-snapshot-card"
-              className="order-2 rounded-2xl border border-app-border bg-app-surface-2/90 p-3"
-            >
-              <h3 className="mb-3 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                <RosieIcon size={14} alt="" />
-                Things to know
-              </h3>
-              <ul className="grid gap-2 sm:grid-cols-2">
-                {hub.snapshot_items.slice(0, 7).map((item) => (
-                  <li
-                    key={item.label}
-                    className={`rounded-xl border px-3 py-2 text-sm font-semibold ${snapshotItemTone(item.severity)}`}
-                  >
-                    {item.label}
-                  </li>
-                ))}
-              </ul>
-              <RosieInsightSummary
-                surface="customer_snapshot"
-                title="Customer Snapshot"
-                getHeaders={apiAuth}
-                facts={{
-                  title: "Customer Things To Know",
-                  bullets: hub.snapshot_items.slice(0, 7).map((item, index) => ({
-                    id: `snapshot-${index}`,
-                    label: item.label,
-                    severity: item.severity,
-                  })),
-                }}
-              />
-            </section>
-          ) : null}
-
-          {showHubSummary ? (
-            <section
-              data-testid="follow-up-opportunities-card"
-              className="order-2 border-t border-app-border pt-3"
-            >
-              <h3 className="mb-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                Follow-Up Opportunities
-              </h3>
-              <p className="text-xs font-semibold leading-relaxed text-app-text-muted">
-                Optional explanation of visible contact and open-work signals. Staff still decides
-                whether outreach is appropriate.
-              </p>
-              <RosieInsightSummary
-                surface="follow_up_opportunities"
-                title="Follow-Up Opportunities"
-                mode="explain"
-                getHeaders={apiAuth}
-                facts={followUpInsightFacts}
-              />
-            </section>
-          ) : null}
-
           {showHubSummary ? (
             <div className="order-4 flex flex-wrap gap-2 border-t border-app-border pt-4">
               <button
@@ -4949,7 +4750,8 @@ export function CustomerRelationshipHubDrawer({
           {tab === "profile" && (
             <div className="order-1 space-y-4" data-testid="customer-profile-details">
               <div className="grid gap-3 xl:grid-cols-[1.45fr_0.55fr]">
-                <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-3">
+                <div className="min-w-0 space-y-3">
+                  <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-3">
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <div>
                       <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -5163,7 +4965,296 @@ export function CustomerRelationshipHubDrawer({
                       />
                     </label>
                   </div>
-                </section>
+                  </section>
+
+                  <section
+                    data-testid="customer-profile-quick-look"
+                    className="space-y-3 rounded-2xl border border-app-border bg-app-surface/60 p-3 shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <h3 className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                          <Sparkles size={14} aria-hidden />
+                          Quick look
+                        </h3>
+                        <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                          Balances, loyalty, active work, wedding details, and recent context.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {hub.is_vip ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-app-warning/20 bg-app-warning/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
+                            <Sparkles size={12} aria-hidden />
+                            VIP
+                          </span>
+                        ) : null}
+                        {hub.employee_discount_eligible ? (
+                          <span className="inline-flex items-center rounded-full border border-app-info/20 bg-app-info/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-info">
+                            Staff
+                          </span>
+                        ) : null}
+                        {hub.customer_created_source === "online_store" ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-app-info/20 bg-app-info/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-info">
+                            Online signup
+                          </span>
+                        ) : null}
+                        {(hub.stats.loyalty_points ?? 0) > 0 ? (
+                          <span className="flex items-center gap-1 rounded-full border border-app-accent/20 bg-app-accent/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent">
+                            ★ {(hub.stats.loyalty_points ?? 0).toLocaleString()} pts
+                          </span>
+                        ) : null}
+                        {balanceDue ? (
+                          <span className="rounded-full border border-app-accent/40 bg-app-accent/15 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent shadow-app-accent/30">
+                            Balance due {fmtMoney(hub.stats.balance_due_usd)}
+                          </span>
+                        ) : null}
+                        {storeCreditBal != null &&
+                        parseMoneyToCents(storeCreditBal) > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/20 bg-app-accent/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent">
+                            Store credit {fmtMoney(storeCreditBal)}
+                          </span>
+                        ) : null}
+                        {openDepositBal != null &&
+                        parseMoneyToCents(openDepositBal) > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-app-success/20 bg-app-success/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-success">
+                            Deposit waiting {fmtMoney(openDepositBal)}
+                          </span>
+                        ) : null}
+                        {activeWedding ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onOpenWeddingParty(activeWedding.wedding_party_id);
+                              onClose();
+                            }}
+                            className="inline-flex items-center gap-1 rounded-full border border-app-accent/40 bg-app-accent/20 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text"
+                          >
+                            <CalendarDays size={12} aria-hidden />
+                            Wedding Active: {activeWedding.party_name}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-4">
+                      {[
+                        {
+                          label: "Balance answer",
+                          value: balanceDue ? fmtMoney(hub.stats.balance_due_usd) : "Clear",
+                          helper: balanceDue
+                            ? "Collect before pickup or release."
+                            : "No balance due visible.",
+                          tone: balanceDue ? "warn" : "ok",
+                        },
+                        {
+                          label: "Open service",
+                          value: `${openSummary.orders ?? 0}/${openSummary.alterations ?? 0}`,
+                          helper: "Orders / alterations open.",
+                          tone:
+                            (openSummary.orders ?? 0) > 0 ||
+                            (openSummary.alterations ?? 0) > 0
+                              ? "info"
+                              : "calm",
+                        },
+                        {
+                          label: "Wedding",
+                          value: activeWedding ? "Active" : "None",
+                          helper: activeWedding
+                            ? activeWedding.party_name
+                            : "No active wedding link.",
+                          tone: activeWedding ? "info" : "calm",
+                        },
+                        {
+                          label: "Contact",
+                          value: hub.profile_complete ? "Complete" : "Needs info",
+                          helper: hub.profile_complete
+                            ? "Phone and email are present."
+                            : profileMissingHint,
+                          tone: hub.profile_complete ? "ok" : "warn",
+                        },
+                      ].map((card) => (
+                        <div
+                          key={card.label}
+                          className={`rounded-2xl border px-3 py-2.5 ${
+                            card.tone === "ok"
+                              ? "border-app-success/20 bg-app-success/10 text-app-success"
+                              : card.tone === "warn"
+                                ? "border-app-warning/25 bg-app-warning/10 text-app-warning"
+                                : card.tone === "info"
+                                  ? "border-app-accent/25 bg-app-accent/10 text-app-accent"
+                                  : "border-app-border bg-app-surface-2 text-app-text"
+                          }`}
+                        >
+                          <p className="text-[9px] font-black uppercase tracking-widest opacity-70">
+                            {card.label}
+                          </p>
+                          <p className="mt-1 break-words text-base font-black">
+                            {card.value}
+                          </p>
+                          <p className="mt-1 text-[11px] font-semibold leading-relaxed opacity-75">
+                            {card.helper}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                      {[
+                        {
+                          label: `Lifetime${hub.couple_id ? " (Joint)" : ""}`,
+                          value: fmtLifetimeCompact(hub.stats.lifetime_spend_usd),
+                          target: "transactions" as HubTab,
+                          disabled: !canOrdersView,
+                          disabledReason:
+                            "Manager access is needed to view transaction history.",
+                        },
+                        {
+                          label: "Open orders",
+                          value:
+                            openSummary.orders == null
+                              ? "View"
+                              : String(openSummary.orders),
+                          target: "orders" as HubTab,
+                          disabled: !canOrdersView,
+                          disabledReason:
+                            "Manager access is needed to view customer orders.",
+                        },
+                        {
+                          label: "Open layaways",
+                          value:
+                            openSummary.layaways == null
+                              ? "View"
+                              : String(openSummary.layaways),
+                          target: "layaways" as HubTab,
+                          disabled: !canOrdersView,
+                          disabledReason:
+                            "Manager access is needed to view customer layaways.",
+                        },
+                        {
+                          label: "Open alterations",
+                          value:
+                            openSummary.alterations == null
+                              ? "View"
+                              : String(openSummary.alterations),
+                          target: "alterations" as HubTab,
+                          disabled: !canAlterationsView,
+                          disabledReason:
+                            "Manager access is needed to view customer alterations.",
+                        },
+                        {
+                          label: "Last visit",
+                          value: lastVisitLabel(hub.stats.days_since_last_visit),
+                          target: "transactions" as HubTab,
+                          disabled: !canOrdersView,
+                          disabledReason:
+                            "Manager access is needed to view customer history.",
+                        },
+                        {
+                          label: "Loyalty",
+                          value: `${(hub.stats.loyalty_points ?? 0).toLocaleString()} pts`,
+                          target: "loyalty" as HubTab,
+                          disabled: false,
+                          disabledReason: "",
+                        },
+                        {
+                          label: "Profile",
+                          value: hub.profile_complete ? "Complete" : "Incomplete",
+                          target: hub.profile_complete
+                            ? "profile" as HubTab
+                            : "profile_missing" as const,
+                          disabled: false,
+                          disabledReason: "",
+                        },
+                      ].map(({ label, value, target, disabled, disabledReason }) => (
+                        <button
+                          key={label}
+                          type="button"
+                          disabled={disabled}
+                          title={disabled ? disabledReason : undefined}
+                          aria-label={
+                            disabled ? `${label}. ${disabledReason}` : undefined
+                          }
+                          onClick={() => openHubStatTarget(target)}
+                          className={`rounded-2xl border px-3 py-2.5 ${
+                            label === "Profile" && hub.profile_complete
+                              ? "border-app-success/20 bg-app-success/10"
+                              : "border-app-border bg-app-surface-2/90"
+                          } text-left transition hover:border-app-accent/40 hover:bg-app-accent/5 disabled:cursor-not-allowed disabled:opacity-60`}
+                        >
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            {label}
+                          </p>
+                          <p
+                            className={`mt-1 break-words text-lg font-black tabular-nums ${
+                              label === "Profile" && hub.profile_complete
+                                ? "text-app-success"
+                                : "text-app-text"
+                            }`}
+                          >
+                            {value}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+
+                    {hub.snapshot_items.length > 0 ? (
+                      <section
+                        data-testid="customer-snapshot-card"
+                        className="rounded-2xl border border-app-border bg-app-surface-2/90 p-3"
+                      >
+                        <h3 className="mb-3 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                          <RosieIcon size={14} alt="" />
+                          Things to know
+                        </h3>
+                        <ul className="grid gap-2 sm:grid-cols-2">
+                          {hub.snapshot_items.slice(0, 7).map((item) => (
+                            <li
+                              key={item.label}
+                              className={`rounded-xl border px-3 py-2 text-sm font-semibold ${snapshotItemTone(item.severity)}`}
+                            >
+                              {item.label}
+                            </li>
+                          ))}
+                        </ul>
+                        <RosieInsightSummary
+                          surface="customer_snapshot"
+                          title="Customer Snapshot"
+                          getHeaders={apiAuth}
+                          facts={{
+                            title: "Customer Things To Know",
+                            bullets: hub.snapshot_items
+                              .slice(0, 7)
+                              .map((item, index) => ({
+                                id: `snapshot-${index}`,
+                                label: item.label,
+                                severity: item.severity,
+                              })),
+                          }}
+                        />
+                      </section>
+                    ) : null}
+
+                    <section
+                      data-testid="follow-up-opportunities-card"
+                      className="rounded-2xl border border-app-border bg-app-surface-2/60 p-3"
+                    >
+                      <h3 className="mb-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                        Follow-Up Opportunities
+                      </h3>
+                      <p className="text-xs font-semibold leading-relaxed text-app-text-muted">
+                        Optional explanation of visible contact and open-work signals. Staff still
+                        decides whether outreach is appropriate.
+                      </p>
+                      <RosieInsightSummary
+                        surface="follow_up_opportunities"
+                        title="Follow-Up Opportunities"
+                        mode="explain"
+                        getHeaders={apiAuth}
+                        facts={followUpInsightFacts}
+                      />
+                    </section>
+                  </section>
+                </div>
 
                 <div className="space-y-3">
                   <label

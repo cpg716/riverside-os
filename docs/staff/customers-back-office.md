@@ -4,7 +4,7 @@
 
 **Where in ROS:** Back Office → **Customers**. Subsections: **All Customers**, **Add Customer**, **Layaways** (all-customer layaway workspace), **RMS Charge** (all-customer private-label credit workspace), and **Duplicate Review** (all-customer profile review queue). Full-store shipment work now lives in the standalone **Shipping** workspace.
 
-In a customer's **Profile** tab, contact details are first: name, phone, email, and address. Summary and insight cards follow in a denser layout, keeping the fields staff use most above the fold and reducing scrolling.
+In a customer's **Profile** tab, contact details are first: name, phone, email, and address. **Quick look** sits directly below them in the left workspace and summarizes balances, loyalty, open work, wedding status, recent activity, and profile completeness while the longer settings column continues on the right.
 
 **Related permissions:** Browse/search/create use general customer access. Some hub tabs and customer-related workspaces are role-limited. If a tab or action is missing, ask a manager to review your customer, Orders, Shipping, RMS Charge, or Duplicate Review access.
 
@@ -31,6 +31,8 @@ In a customer's **Profile** tab, contact details are first: name, phone, email, 
 - **Shipments** — this customer’s shipment history and shipment drill-in.
 - **Measurements** — this customer’s sizing records; **PII** — verify identity before reading aloud.
 - **Wedding Links** — this customer’s wedding party linkage and wedding shortcuts.
+
+In **History**, activity recorded in the same second appears as one dated card with each purchase, payment, pickup, call, appointment, shipment, wedding, or note detail retained inside it. Receipt rows remain separate below so staff can still open or reprint the exact completed event.
 
 ### Relationship hub versus RMS Charge
 

@@ -240,6 +240,22 @@ async function mockCustomersDrawerApis(page: Page): Promise<void> {
             reference_type: "transaction",
             wedding_party_id: null,
           },
+          {
+            at: "2026-04-10T15:30:00.450Z",
+            kind: "payment",
+            summary: "Payment recorded: $199.99 via card",
+            reference_id: "22222222-2222-4222-8222-222222222222",
+            reference_type: "transaction",
+            wedding_party_id: null,
+          },
+          {
+            at: "2026-04-10T15:30:00.900Z",
+            kind: "pickup",
+            summary: "Transaction TXN-9012 picked up (2 lines)",
+            reference_id: "22222222-2222-4222-8222-222222222222",
+            reference_type: "transaction",
+            wedding_party_id: null,
+          },
         ],
       }),
     });
@@ -453,6 +469,7 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
   await expect(dialog.getByText(/lifecycle/i)).toHaveCount(0);
 
   await expect(dialog.getByText(/register defaults/i)).toBeVisible();
+  await expect(dialog.getByTestId("customer-profile-quick-look")).toBeVisible();
   await expect(dialog.getByTestId("customer-snapshot-card")).toBeVisible();
   await expect(dialog.getByText("1 open order")).toBeVisible();
   await expect(
@@ -538,7 +555,11 @@ test("Customer relationship drawer exposes profile defaults, history, and loyalt
     dialog.getByText(/customer notes, visits, and every completed receipt event/i),
   ).toBeVisible();
   await expect(dialog.getByText(/Purchased 2 items/i)).toBeVisible();
-  await expect(dialog.getByText(/TXN-9012/i)).toBeVisible();
+  await expect(dialog.getByTestId("customer-history-group")).toHaveCount(1);
+  await expect(dialog.getByText("3 activities")).toBeVisible();
+  await expect(dialog.getByText(/Payment recorded: \$199\.99 via card/i)).toBeVisible();
+  await expect(dialog.getByText(/TXN-9012 picked up \(2 lines\)/i)).toBeVisible();
+  await expect(dialog.getByText("TXN-9012", { exact: true })).toBeVisible();
 
   await dialog.getByRole("tab", { name: /^Loyalty$/i }).click();
   await expect(dialog.getByText(/historical earned/i)).toBeVisible({ timeout: 20_000 });
