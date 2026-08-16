@@ -45,7 +45,7 @@ interface CustomerSelectorProps {
   onOpenParkedSales?: () => void;
 }
 
-const CUSTOMER_SELECTOR_PAGE = 50;
+const CUSTOMER_SELECTOR_PAGE = 25;
 
 type ResultsPanelPosition = {
   left: number;
@@ -536,7 +536,7 @@ export default function CustomerSelector({
           />
           <input
             data-testid="pos-customer-search"
-            placeholder="Search by name, phone, or email..."
+            placeholder="Try Ch Gar, phone, email, or customer code..."
             className="ui-input w-full py-2.5 pl-9 pr-4 transition-all border-2 border-app-border focus:border-app-accent"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

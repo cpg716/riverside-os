@@ -518,7 +518,7 @@ export default function ProductMasterForm({
     setCopyBusy(true);
     try {
       const res = await fetch(
-        apiUrl(baseUrl, `/api/inventory/control-board?search=${encodeURIComponent(q)}&limit=80`),
+        apiUrl(baseUrl, `/api/inventory/control-board?search=${encodeURIComponent(q)}&limit=80&include_stats=false`),
         { headers: apiAuth() },
       );
       if (!res.ok) {

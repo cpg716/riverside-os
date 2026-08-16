@@ -45,8 +45,8 @@ import { sortVariantsByVariation } from "../../lib/variantSort";
 
 const HIGH_VALUE_MIN_USD = 500;
 
-/** Paged loads — keep the list scannable and use "Load more" for deep paging. */
-const BOARD_PAGE_LIMIT = 1000;
+/** Paged loads — keep the first paint light and use "Load more" for deep paging. */
+const BOARD_PAGE_LIMIT = 200;
 
 type QuickPick = "suits" | "shirts" | "alterations" | null;
 type ReadinessFilter = "missing_category" | "missing_vendor" | "missing_brand";
@@ -119,17 +119,8 @@ interface BoardRow {
   hidden_from_inventory?: boolean;
 }
 
-interface BoardStats {
-  total_asset_value: string;
-  skus_out_of_stock: number;
-  active_vendors: number;
-  need_label_skus: number;
-  oos_replenishment_skus?: number;
-}
-
 interface BoardResponse {
   rows: BoardRow[];
-  stats: BoardStats;
 }
 
 interface ProductListRow {
@@ -543,6 +534,7 @@ export default function InventoryControlBoard({
   }, [maintenanceQty, maintenanceTarget]);
 
   const boardPageLimit = BOARD_PAGE_LIMIT;
+  const searchSettling = searchInput.trim() !== debouncedSearch;
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(searchInput.trim()), 350);
@@ -600,6 +592,7 @@ export default function InventoryControlBoard({
     if (webOnly) params.set("web_published_only", "true");
     params.set("limit", String(boardPageLimit));
     params.set("offset", "0");
+    params.set("include_stats", "false");
 
     setBoardRefreshing(true);
     try {
@@ -691,6 +684,7 @@ export default function InventoryControlBoard({
     if (webOnly) params.set("web_published_only", "true");
     params.set("limit", String(boardPageLimit));
     params.set("offset", String(rows.length));
+    params.set("include_stats", "false");
 
     setBoardLoadingMore(true);
     try {
@@ -1620,7 +1614,7 @@ export default function InventoryControlBoard({
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search product, SKU, or variation..."
+              placeholder="Try partial product + style/SKU..."
               className="ui-input ui-tint-info h-12 w-full rounded-2xl border-app-border/70 pl-12 pr-4 text-sm font-semibold placeholder:text-app-text-muted/60 shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
               aria-busy={boardRefreshing}
             />
@@ -1643,6 +1637,18 @@ export default function InventoryControlBoard({
             </div>
           ) : null}
         </div>
+
+        {searchSettling || boardRefreshing ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-xl border border-app-accent/15 bg-app-accent/5 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+          >
+            {searchSettling
+              ? "Waiting for typing to pause — current inventory remains visible."
+              : "Refreshing inventory results — current rows remain visible until the new results arrive."}
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-3">
           <select
@@ -1799,7 +1805,7 @@ export default function InventoryControlBoard({
           onKeyDown={onTableKeyDown}
           tabIndex={0}
         >
-          <div className="flex flex-col gap-px bg-app-border/20">
+          <div className={`flex flex-col gap-px bg-app-border/20 transition-opacity ${boardRefreshing && rows.length > 0 ? "opacity-60" : ""}`} aria-busy={boardRefreshing}>
             {groupByPrimaryVendor && groupedRowsByVendor ? (
               groupedRowsByVendor.map(([v, items]) => {
                 const stats = groupStats(items);

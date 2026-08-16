@@ -478,6 +478,16 @@ export default function ProductHubDrawer({
   const [cleanupSuggestionError, setCleanupSuggestionError] = useState<string | null>(null);
   const [cleanupApplyingKey, setCleanupApplyingKey] = useState<string | null>(null);
   const [reprintPrompt, setReprintPrompt] = useState<ProductModelPriceChangeVariant[] | null>(null);
+  const hubRequestRef = useRef(0);
+  const hubAbortRef = useRef<AbortController | null>(null);
+  const timelineRequestRef = useRef(0);
+  const timelineAbortRef = useRef<AbortController | null>(null);
+  const catalogAnalysisRequestRef = useRef(0);
+  const catalogAnalysisAbortRef = useRef<AbortController | null>(null);
+  const catalogSuggestionRequestRef = useRef(0);
+  const catalogSuggestionAbortRef = useRef<AbortController | null>(null);
+  const cleanupSuggestionRequestRef = useRef(0);
+  const cleanupSuggestionAbortRef = useRef<AbortController | null>(null);
 
   const showVariantInInventory = useCallback(
     async (variant: HubApiVariant) => {
@@ -511,48 +521,74 @@ export default function ProductHubDrawer({
 
   const loadHub = useCallback(async () => {
     if (!productId) return;
+    const requestId = ++hubRequestRef.current;
+    hubAbortRef.current?.abort();
+    const controller = new AbortController();
+    hubAbortRef.current = controller;
     setLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/products/${productId}/hub`, {
         headers: apiAuth(),
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error("Failed to load product hub");
+      if (requestId !== hubRequestRef.current) return;
       setHub((await res.json()) as ProductHubResponse);
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== hubRequestRef.current) return;
       setHub(null);
       toast("Could not load product hub.", "error");
     } finally {
-      setLoading(false);
+      if (requestId === hubRequestRef.current) setLoading(false);
+      if (hubAbortRef.current === controller) hubAbortRef.current = null;
     }
   }, [productId, baseUrl, toast, apiAuth]);
 
   const loadTimeline = useCallback(async () => {
     if (!productId) return;
+    const requestId = ++timelineRequestRef.current;
+    timelineAbortRef.current?.abort();
+    const controller = new AbortController();
+    timelineAbortRef.current = controller;
     setTimelineLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/products/${productId}/timeline`, {
         headers: apiAuth(),
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error("bad");
       const data = (await res.json()) as { events: TimelineEvent[] };
+      if (requestId !== timelineRequestRef.current) return;
       setTimeline(data.events ?? []);
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== timelineRequestRef.current) return;
       setTimeline([]);
     } finally {
-      setTimelineLoading(false);
+      if (requestId === timelineRequestRef.current) setTimelineLoading(false);
+      if (timelineAbortRef.current === controller) timelineAbortRef.current = null;
     }
   }, [productId, baseUrl, apiAuth]);
 
   const loadCatalogAnalysis = useCallback(async () => {
     if (!productId) return;
+    const requestId = ++catalogAnalysisRequestRef.current;
+    catalogAnalysisAbortRef.current?.abort();
+    const controller = new AbortController();
+    catalogAnalysisAbortRef.current = controller;
     setCatalogAnalysisLoading(true);
     setCatalogAnalysisError(null);
     try {
       const analysis = await rosieProductCatalogAnalyze(productId, {
         headers: apiAuth(),
+        signal: controller.signal,
       });
+      if (requestId !== catalogAnalysisRequestRef.current) return;
       setCatalogAnalysis(analysis);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== catalogAnalysisRequestRef.current) return;
       setCatalogAnalysis(null);
       setCatalogAnalysisError(
         error instanceof Error
@@ -560,20 +596,33 @@ export default function ProductHubDrawer({
           : "ROSIE catalog analysis is unavailable right now.",
       );
     } finally {
-      setCatalogAnalysisLoading(false);
+      if (requestId === catalogAnalysisRequestRef.current) {
+        setCatalogAnalysisLoading(false);
+      }
+      if (catalogAnalysisAbortRef.current === controller) {
+        catalogAnalysisAbortRef.current = null;
+      }
     }
   }, [productId, apiAuth]);
 
   const loadCatalogSuggestion = useCallback(async () => {
     if (!productId) return;
+    const requestId = ++catalogSuggestionRequestRef.current;
+    catalogSuggestionAbortRef.current?.abort();
+    const controller = new AbortController();
+    catalogSuggestionAbortRef.current = controller;
     setCatalogSuggestionLoading(true);
     setCatalogSuggestionError(null);
     try {
       const suggestion = await rosieProductCatalogSuggest(productId, {
         headers: apiAuth(),
+        signal: controller.signal,
       });
+      if (requestId !== catalogSuggestionRequestRef.current) return;
       setCatalogSuggestion(suggestion);
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== catalogSuggestionRequestRef.current) return;
       setCatalogSuggestion(null);
       setCatalogSuggestionError(
         error instanceof Error
@@ -581,43 +630,95 @@ export default function ProductHubDrawer({
           : "ROSIE catalog suggestion is unavailable right now.",
       );
     } finally {
-      setCatalogSuggestionLoading(false);
+      if (requestId === catalogSuggestionRequestRef.current) {
+        setCatalogSuggestionLoading(false);
+      }
+      if (catalogSuggestionAbortRef.current === controller) {
+        catalogSuggestionAbortRef.current = null;
+      }
     }
   }, [productId, apiAuth]);
 
   useEffect(() => {
     if (!isOpen || !productId) return;
+    catalogAnalysisRequestRef.current += 1;
+    catalogSuggestionRequestRef.current += 1;
+    cleanupSuggestionRequestRef.current += 1;
+    catalogAnalysisAbortRef.current?.abort();
+    catalogSuggestionAbortRef.current?.abort();
+    cleanupSuggestionAbortRef.current?.abort();
+    setCatalogAnalysisLoading(false);
+    setCatalogSuggestionLoading(false);
+    setCleanupSuggestionLoading(false);
     void loadHub();
     void loadTimeline();
-    void loadCatalogAnalysis();
+    setCatalogAnalysis(null);
+    setCatalogAnalysisError(null);
     setCatalogSuggestion(null);
+    setCatalogSuggestionError(null);
     setCleanupSuggestion(null);
     setCleanupSuggestionError(null);
     setTab("general");
-  }, [isOpen, productId, loadHub, loadTimeline, loadCatalogAnalysis]);
+  }, [isOpen, productId, loadHub, loadTimeline]);
 
   useEffect(() => {
-    if (!isOpen || !productId) return;
+    if (!isOpen) return;
+    const controller = new AbortController();
     void (async () => {
-      const headers = apiAuth();
-      const [vendorRes, categoryRes] = await Promise.all([
-        fetch(`${baseUrl}/api/vendors`, { headers }),
-        fetch(`${baseUrl}/api/categories`, { headers }),
-      ]);
-      if (!vendorRes.ok) {
-        setVendors([]);
-      } else {
-        const data = (await vendorRes.json()) as { id: string; name: string }[];
-        setVendors(Array.isArray(data) ? data.map((v) => ({ id: v.id, name: v.name })) : []);
-      }
-      if (!categoryRes.ok) {
-        setCategories([]);
-      } else {
-        const data = (await categoryRes.json()) as { id: string; name: string }[];
-        setCategories(Array.isArray(data) ? data.map((c) => ({ id: c.id, name: c.name })) : []);
-      }
+      try {
+        const headers = apiAuth();
+        const [vendorRes, categoryRes] = await Promise.all([
+          fetch(`${baseUrl}/api/vendors`, { headers, signal: controller.signal }),
+          fetch(`${baseUrl}/api/categories`, { headers, signal: controller.signal }),
+        ]);
+        if (!vendorRes.ok) {
+          setVendors([]);
+        } else {
+          const data = (await vendorRes.json()) as { id: string; name: string }[];
+          setVendors(Array.isArray(data) ? data.map((v) => ({ id: v.id, name: v.name })) : []);
+        }
+        if (!categoryRes.ok) {
+          setCategories([]);
+        } else {
+          const data = (await categoryRes.json()) as { id: string; name: string }[];
+          setCategories(Array.isArray(data) ? data.map((c) => ({ id: c.id, name: c.name })) : []);
+        }
+      } catch { /* Drawer close or a transient reference-data failure. */ }
     })();
-  }, [isOpen, productId, baseUrl, apiAuth]);
+    return () => controller.abort();
+  }, [apiAuth, baseUrl, isOpen]);
+
+  useEffect(() => {
+    if (isOpen && productId) return;
+    hubRequestRef.current += 1;
+    timelineRequestRef.current += 1;
+    catalogAnalysisRequestRef.current += 1;
+    catalogSuggestionRequestRef.current += 1;
+    cleanupSuggestionRequestRef.current += 1;
+    hubAbortRef.current?.abort();
+    timelineAbortRef.current?.abort();
+    catalogAnalysisAbortRef.current?.abort();
+    catalogSuggestionAbortRef.current?.abort();
+    cleanupSuggestionAbortRef.current?.abort();
+    setLoading(false);
+    setTimelineLoading(false);
+    setCatalogAnalysisLoading(false);
+    setCatalogSuggestionLoading(false);
+    setCleanupSuggestionLoading(false);
+  }, [isOpen, productId]);
+
+  useEffect(() => () => {
+    hubRequestRef.current += 1;
+    timelineRequestRef.current += 1;
+    catalogAnalysisRequestRef.current += 1;
+    catalogSuggestionRequestRef.current += 1;
+    cleanupSuggestionRequestRef.current += 1;
+    hubAbortRef.current?.abort();
+    timelineAbortRef.current?.abort();
+    catalogAnalysisAbortRef.current?.abort();
+    catalogSuggestionAbortRef.current?.abort();
+    cleanupSuggestionAbortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     if (!isOpen || !productId || tab !== "history") return;
@@ -909,6 +1010,10 @@ export default function ProductHubDrawer({
 
   const generateCleanupSuggestion = async () => {
     if (!hub?.normalization_review?.needs_normalization) return;
+    const requestId = ++cleanupSuggestionRequestRef.current;
+    cleanupSuggestionAbortRef.current?.abort();
+    const controller = new AbortController();
+    cleanupSuggestionAbortRef.current = controller;
     setCleanupSuggestionLoading(true);
     setCleanupSuggestionError(null);
     try {
@@ -982,12 +1087,15 @@ export default function ProductHubDrawer({
       };
       const completion = await rosieChatCompletions(
         cleanupCompletionPayload,
-        { headers: apiAuth() },
+        { headers: apiAuth(), signal: controller.signal },
       );
+      if (requestId !== cleanupSuggestionRequestRef.current) return;
       const answer = extractRosieAnswer(completion);
       if (!answer) throw new Error("ROSIE did not return a cleanup suggestion.");
       setCleanupSuggestion(parseRosieCleanupSuggestion(answer));
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (requestId !== cleanupSuggestionRequestRef.current) return;
       setCleanupSuggestion(null);
       setCleanupSuggestionError(
         error instanceof Error
@@ -995,7 +1103,12 @@ export default function ProductHubDrawer({
           : "ROSIE cleanup suggestion is unavailable right now.",
       );
     } finally {
-      setCleanupSuggestionLoading(false);
+      if (requestId === cleanupSuggestionRequestRef.current) {
+        setCleanupSuggestionLoading(false);
+      }
+      if (cleanupSuggestionAbortRef.current === controller) {
+        cleanupSuggestionAbortRef.current = null;
+      }
     }
   };
 
@@ -1209,9 +1322,21 @@ export default function ProductHubDrawer({
         }
       >
         {loading || !hub ? (
-          <p className="text-sm text-app-text-muted">
-            {loading ? "Loading hub…" : "No data."}
-          </p>
+          loading ? (
+            <div role="status" aria-label="Loading Product Hub" className="space-y-4 animate-pulse">
+              <div className="h-24 rounded-2xl border border-app-border bg-app-surface-2" />
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="h-20 rounded-2xl border border-app-border bg-app-surface-2" />
+                <div className="h-20 rounded-2xl border border-app-border bg-app-surface-2" />
+                <div className="h-20 rounded-2xl border border-app-border bg-app-surface-2" />
+              </div>
+              <p className="text-center text-xs font-black uppercase tracking-widest text-app-text-muted">
+                Loading product details…
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-app-text-muted">No data.</p>
+          )
         ) : (
           <>
           {tab === "general" && (
@@ -2185,7 +2310,11 @@ export default function ProductHubDrawer({
                     disabled={catalogAnalysisLoading}
                     className="ui-btn-secondary rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest"
                   >
-                    {catalogAnalysisLoading ? "Analyzing…" : "Refresh analysis"}
+                    {catalogAnalysisLoading
+                      ? "Analyzing…"
+                      : catalogAnalysis
+                        ? "Refresh analysis"
+                        : "Analyze product"}
                   </button>
                 </div>
 
@@ -2263,6 +2392,10 @@ export default function ProductHubDrawer({
                       </div>
                     ) : null}
                   </div>
+                ) : !catalogAnalysisLoading && !catalogAnalysisError ? (
+                  <p className="mt-4 rounded-xl border border-dashed border-app-border bg-app-surface-2 px-4 py-3 text-sm text-app-text-muted">
+                    Analysis runs only when requested, so opening Product Hub stays fast and does not start ROSIE in the background.
+                  </p>
                 ) : null}
               </section>
 

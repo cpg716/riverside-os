@@ -86,7 +86,8 @@ The relationship hub supports customer review. The RMS workspace supports financ
 
 - Start with the active Riverside customer profile, not a name-only match.
 - Use phone, customer code, and wedding context to confirm the right record before taking action.
-- Customer search accepts a full first-and-last name and phone digits even when the stored phone uses different punctuation. Use **Load more records** when the matching customer is not on the first page.
+- Customer search accepts initials or partial fragments from both names in either order, such as `C Garcia`, `Ch Gar`, or `Gar C`, as well as a full name and phone digits even when the stored phone uses different punctuation. Confirm phone, email, customer code, or wedding context before selecting a similar name. Use **Load more records** when the matching customer is not on the first page.
+- Riverside waits for a short pause in typing before it searches. Existing rows stay visible but dimmed while the latest results load; wait for **Updating customer results** to clear before treating the list as the latest match set.
 - A blocked merge is a data-protection stop, not a failed search. Keep the record named by the linked-history warning as the master, or resolve the listed link in its normal workspace before merging.
 - When adding a customer, keep the required identity/contact fields complete before moving to optional preferences. The four contact approvals are prechecked for new accounts but remain editable before save.
 - If the issue is financing-specific, do not try to solve it from the relationship hub alone. Open `RMS Charge`.

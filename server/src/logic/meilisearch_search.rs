@@ -14,6 +14,7 @@ use crate::logic::meilisearch_client::{
 };
 
 const CONTROL_BOARD_MEILI_HIT_CAP: usize = 5_000;
+const PRODUCT_FRAGMENT_MEILI_HIT_CAP: usize = 1_000;
 const STORE_PRODUCT_MEILI_HIT_CAP: usize = 500;
 const CUSTOMER_MEILI_HIT_CAP: usize = 1_000;
 const WEDDING_MEILI_HIT_CAP: usize = 1_000;
@@ -26,6 +27,15 @@ const APPOINTMENT_MEILI_HIT_CAP: usize = 1_000;
 const ALTERATION_MEILI_HIT_CAP: usize = 1_000;
 const ID_ATTRIBUTES: &[&str] = &["id"];
 const CUSTOMER_NAME_ATTRIBUTES: &[&str] = &["first_name", "last_name", "full_name"];
+const PRODUCT_SEARCH_ATTRIBUTES: &[&str] = &[
+    "sku",
+    "barcode",
+    "vendor_upc",
+    "product_name",
+    "brand",
+    "variation_label",
+    "catalog_handle",
+];
 pub const AUTHORITATIVE_INDEX_MAX_AGE_HOURS: i64 = 36;
 const FUTURE_PROOF_CLOCK_SKEW_MINUTES: i64 = 5;
 
@@ -224,16 +234,47 @@ pub fn customer_name_query_tokens(query: &str) -> Option<Vec<&str>> {
     Some(tokens)
 }
 
+/// Product shorthand commonly mixes fragments from different fields, such as a partial brand or
+/// style name plus the beginning of a SKU/catalog number. Each returned token is safe to send as a
+/// separate prefix query; punctuation-only separators are ignored.
+pub fn product_query_tokens(query: &str) -> Option<Vec<&str>> {
+    let tokens = query
+        .split_whitespace()
+        .filter(|token| token.chars().any(char::is_alphanumeric))
+        .collect::<Vec<_>>();
+    if !(2..=6).contains(&tokens.len())
+        || tokens.iter().any(|token| {
+            token.chars().count() > 64
+                || !token.chars().all(|c| {
+                    c.is_alphanumeric()
+                        || matches!(c, '\'' | '-' | '’' | '/' | '_' | '.' | '#' | '+' | '&')
+                })
+        })
+    {
+        return None;
+    }
+    Some(tokens)
+}
+
 fn structurally_valid_candidate_ids(ids: &[Uuid]) -> bool {
     ids.iter().all(|id| !id.is_nil())
         && ids.iter().copied().collect::<HashSet<_>>().len() == ids.len()
 }
 
-fn merge_customer_search_result_sets(mut result_sets: Vec<Vec<Uuid>>) -> Vec<Uuid> {
+fn merge_prefix_search_result_sets(
+    mut result_sets: Vec<Vec<Uuid>>,
+    exact_hit_cap: usize,
+    fragment_hit_cap: usize,
+    exact_results_first: bool,
+) -> Vec<Uuid> {
     if result_sets.len() < 3
-        || result_sets.iter().any(|ids| {
-            ids.len() >= CUSTOMER_MEILI_HIT_CAP || !structurally_valid_candidate_ids(ids)
-        })
+        || result_sets[0].len() >= exact_hit_cap
+        || result_sets[1..]
+            .iter()
+            .any(|ids| ids.len() >= fragment_hit_cap)
+        || result_sets
+            .iter()
+            .any(|ids| !structurally_valid_candidate_ids(ids))
     {
         // Force the shared authority gate to use SQL rather than trust a truncated or malformed
         // component of the multi-search intersection.
@@ -255,15 +296,40 @@ fn merge_customer_search_result_sets(mut result_sets: Vec<Vec<Uuid>>) -> Vec<Uui
         .map(|(_, ids)| ids.iter().copied().collect::<HashSet<_>>())
         .collect::<Vec<_>>();
 
-    let mut seen = HashSet::new();
-    let mut merged = ranked_name_ids
+    let prefix_intersection = ranked_name_ids
         .into_iter()
         .filter(|id| other_sets.iter().all(|ids| ids.contains(id)))
-        .filter(|id| seen.insert(*id))
         .collect::<Vec<_>>();
-    merged.extend(exact_ids.into_iter().filter(|id| seen.insert(*id)));
-    merged.truncate(CUSTOMER_MEILI_HIT_CAP);
+    let mut seen = HashSet::new();
+    let mut merged = Vec::with_capacity(exact_ids.len() + prefix_intersection.len());
+    let ordered_sets = if exact_results_first {
+        [exact_ids, prefix_intersection]
+    } else {
+        [prefix_intersection, exact_ids]
+    };
+    for ids in ordered_sets {
+        merged.extend(ids.into_iter().filter(|id| seen.insert(*id)));
+    }
+    merged.truncate(exact_hit_cap);
     merged
+}
+
+fn merge_customer_search_result_sets(result_sets: Vec<Vec<Uuid>>) -> Vec<Uuid> {
+    merge_prefix_search_result_sets(
+        result_sets,
+        CUSTOMER_MEILI_HIT_CAP,
+        CUSTOMER_MEILI_HIT_CAP,
+        false,
+    )
+}
+
+fn merge_product_search_result_sets(result_sets: Vec<Vec<Uuid>>) -> Vec<Uuid> {
+    merge_prefix_search_result_sets(
+        result_sets,
+        CONTROL_BOARD_MEILI_HIT_CAP,
+        PRODUCT_FRAGMENT_MEILI_HIT_CAP,
+        true,
+    )
 }
 
 /// Candidate IDs must be valid and unique before a Meilisearch response can constrain SQL.
@@ -473,16 +539,56 @@ pub async fn control_board_search_variant_ids(
         negative_stock_only,
         include_hidden,
     });
-    let mut sq = index.search();
-    sq.with_query(query_text)
+    let Some(tokens) = product_query_tokens(query_text) else {
+        let mut sq = index.search();
+        sq.with_query(query_text)
+            .with_matching_strategy(MatchingStrategies::ALL)
+            .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
+            .with_limit(CONTROL_BOARD_MEILI_HIT_CAP);
+        if let Some(ref f) = filter {
+            sq.with_filter(f);
+        }
+        let res = sq.execute::<IdHit>().await?;
+        return Ok(parse_hit_ids(&res.hits));
+    };
+
+    let mut exact_query = index.search();
+    exact_query
+        .with_query(query_text)
         .with_matching_strategy(MatchingStrategies::ALL)
         .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
         .with_limit(CONTROL_BOARD_MEILI_HIT_CAP);
     if let Some(ref f) = filter {
-        sq.with_filter(f);
+        exact_query.with_filter(f);
     }
-    let res = sq.execute::<IdHit>().await?;
-    Ok(parse_hit_ids(&res.hits))
+
+    let expected_result_count = tokens.len() + 1;
+    let mut multi_search = client.multi_search();
+    multi_search.with_search_query(exact_query);
+    for token in tokens {
+        let mut prefix_query = index.search();
+        prefix_query
+            .with_query(token)
+            .with_attributes_to_search_on(PRODUCT_SEARCH_ATTRIBUTES)
+            .with_attributes_to_retrieve(Selectors::Some(ID_ATTRIBUTES))
+            .with_limit(PRODUCT_FRAGMENT_MEILI_HIT_CAP);
+        if let Some(ref f) = filter {
+            prefix_query.with_filter(f);
+        }
+        multi_search.with_search_query(prefix_query);
+    }
+
+    let response = multi_search.execute::<IdHit>().await?;
+    if response.results.len() != expected_result_count {
+        return Ok(vec![Uuid::nil()]);
+    }
+    Ok(merge_product_search_result_sets(
+        response
+            .results
+            .iter()
+            .map(|result| parse_hit_ids(&result.hits))
+            .collect(),
+    ))
 }
 
 pub async fn store_product_search_ids(
@@ -714,8 +820,9 @@ mod tests {
     use super::{
         candidate_ids_are_unique, candidate_ids_may_be_truncated, classify_full_reindex_proof,
         control_board_search_variant_ids, customer_name_query_tokens,
-        merge_customer_search_result_sets, recorded_index_health_allows_authority,
-        FullReindexProofRow, FullReindexProofStatus, SearchHealthRow, CUSTOMER_MEILI_HIT_CAP,
+        merge_customer_search_result_sets, merge_product_search_result_sets, product_query_tokens,
+        recorded_index_health_allows_authority, FullReindexProofRow, FullReindexProofStatus,
+        SearchHealthRow, CUSTOMER_MEILI_HIT_CAP,
     };
     use crate::logic::meilisearch_client::{INDEX_CUSTOMERS, INDEX_HELP, INDEX_VARIANTS};
     use chrono::{Duration, Utc};
@@ -763,6 +870,55 @@ mod tests {
         let requests = mock.received_requests().await.expect("search requests");
         let body: Value = serde_json::from_slice(&requests[0].body).expect("search body JSON");
         assert_eq!(body["matchingStrategy"], "all");
+    }
+
+    #[tokio::test]
+    async fn control_board_search_intersects_every_product_fragment() {
+        let mock = MockServer::start().await;
+        let exact = Uuid::from_u128(1);
+        let partial = Uuid::from_u128(2);
+        let wrong_name = Uuid::from_u128(3);
+        let wrong_number = Uuid::from_u128(4);
+        let result = |query: &str, hits: Vec<Uuid>| {
+            json!({
+                "indexUid": INDEX_VARIANTS,
+                "hits": hits.into_iter().map(|id| json!({ "id": id })).collect::<Vec<_>>(),
+                "query": query,
+                "processingTimeMs": 1,
+                "limit": 5_000,
+                "offset": 0,
+                "estimatedTotalHits": 2
+            })
+        };
+        Mock::given(method("POST"))
+            .and(path("/multi-search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "results": [
+                    result("Ral 409", vec![exact]),
+                    result("Ral", vec![partial, exact, wrong_name]),
+                    result("409", vec![exact, partial, wrong_number])
+                ]
+            })))
+            .mount(&mock)
+            .await;
+        let client = Client::new(mock.uri(), None::<&str>).expect("Meilisearch client");
+
+        let results = control_board_search_variant_ids(
+            &client, "Ral 409", None, None, None, false, false, None, None, None, false,
+        )
+        .await
+        .expect("multi-prefix control-board search");
+
+        assert_eq!(results, vec![exact, partial]);
+        let requests = mock
+            .received_requests()
+            .await
+            .expect("multi-search request");
+        let body: Value = serde_json::from_slice(&requests[0].body).expect("multi-search JSON");
+        assert_eq!(body["queries"].as_array().map(Vec::len), Some(3));
+        assert_eq!(body["queries"][0]["matchingStrategy"], "all");
+        assert_eq!(body["queries"][1]["q"], "Ral");
+        assert_eq!(body["queries"][2]["q"], "409");
     }
 
     #[test]
@@ -816,6 +972,35 @@ mod tests {
         ]);
 
         assert_eq!(merged, vec![target, exact_company_match]);
+    }
+
+    #[test]
+    fn product_queries_accept_partial_name_and_number_terms() {
+        assert_eq!(
+            product_query_tokens("Ral 40901/1"),
+            Some(vec!["Ral", "40901/1"])
+        );
+        assert_eq!(
+            product_query_tokens("navy & blazer 42"),
+            Some(vec!["navy", "blazer", "42"])
+        );
+        assert_eq!(product_query_tokens("40901/1"), None);
+    }
+
+    #[test]
+    fn product_prefix_search_keeps_exact_ranking_then_intersects_every_term() {
+        let exact = Uuid::from_u128(1);
+        let partial = Uuid::from_u128(2);
+        let wrong_name = Uuid::from_u128(3);
+        let wrong_number = Uuid::from_u128(4);
+
+        let merged = merge_product_search_result_sets(vec![
+            vec![exact],
+            vec![partial, exact, wrong_name],
+            vec![exact, partial, wrong_number],
+        ]);
+
+        assert_eq!(merged, vec![exact, partial]);
     }
 
     #[test]

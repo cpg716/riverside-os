@@ -28,6 +28,7 @@ pub struct ReadyResponse {
     pub build_sha: String,
     pub database: DatabaseStatus,
     pub background_workers: WorkerStatus,
+    pub search: SearchReadinessStatus,
     pub backup: BackupReadinessStatus,
     pub rosie: RosieReadinessStatus,
     /// Required dependencies/workers that are not currently ready. Empty only when status is
@@ -67,9 +68,21 @@ pub struct WorkerStatus {
     pub qbo_sync_worker: bool,
     pub job_queue_worker: bool,
     pub metrics_worker: bool,
+    pub meilisearch_reindex_worker: bool,
     pub redis_configured: bool,
     pub redis_connected: bool,
     pub job_queue_enabled: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SearchReadinessStatus {
+    pub configured: bool,
+    pub worker_healthy: bool,
+    pub heartbeat_current: bool,
+    pub authoritative: bool,
+    pub automatic_repair_enabled: bool,
+    pub automatic_repair_needed: bool,
+    pub detail: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -110,6 +123,7 @@ pub struct WorkerHealth {
     pub qbo_sync_worker: Option<Instant>,
     pub job_queue_worker: Option<Instant>,
     pub metrics_worker: Option<Instant>,
+    pub meilisearch_reindex_worker: Option<Instant>,
 }
 
 impl WorkerHealth {
@@ -128,6 +142,7 @@ impl WorkerHealth {
             "qbo_sync" => health.qbo_sync_worker = Some(now),
             "job_queue" => health.job_queue_worker = Some(now),
             "metrics" => health.metrics_worker = Some(now),
+            "meilisearch_reindex" => health.meilisearch_reindex_worker = Some(now),
             _ => {}
         }
     }
@@ -147,6 +162,7 @@ impl WorkerHealth {
             "qbo_sync" => health.qbo_sync_worker,
             "job_queue" => health.job_queue_worker,
             "metrics" => health.metrics_worker,
+            "meilisearch_reindex" => health.meilisearch_reindex_worker,
             _ => None,
         };
         last.map(|t| t.elapsed() < threshold).unwrap_or(false)
@@ -197,6 +213,7 @@ pub async fn ready(State(state): State<AppState>) -> Response {
         )
         .await,
         metrics_worker: WorkerHealth::is_healthy("metrics", 7200).await,
+        meilisearch_reindex_worker: WorkerHealth::is_healthy("meilisearch_reindex", 3600).await,
         redis_configured: std::env::var("RIVERSIDE_REDIS_URL")
             .ok()
             .is_some_and(|value| !value.trim().is_empty()),
@@ -208,11 +225,17 @@ pub async fn ready(State(state): State<AppState>) -> Response {
     } else {
         unavailable_backup_readiness(backup_worker_healthy)
     };
+    let search_status = if database_status.connected {
+        check_search_readiness(&state).await
+    } else {
+        unavailable_search_readiness(state.meilisearch.is_some())
+    };
     let rosie_status = check_rosie_readiness(&state).await;
 
     let unavailable_components = readiness_failures(
         &database_status,
         &worker_status,
+        &search_status,
         &backup_status,
         &rosie_status,
     );
@@ -231,6 +254,7 @@ pub async fn ready(State(state): State<AppState>) -> Response {
         build_sha: build_sha().to_string(),
         database: database_status,
         background_workers: worker_status,
+        search: search_status,
         backup: backup_status,
         rosie: rosie_status,
         unavailable_components,
@@ -245,6 +269,100 @@ pub async fn ready(State(state): State<AppState>) -> Response {
         Json(response),
     )
         .into_response()
+}
+
+async fn check_search_readiness(state: &AppState) -> SearchReadinessStatus {
+    let configured = state.meilisearch.is_some();
+    let worker_healthy = WorkerHealth::is_healthy("meilisearch_reindex", 3600).await;
+    let automatic_repair_enabled = crate::logic::meilisearch_sync::automatic_reindex_enabled();
+    if !configured {
+        return unavailable_search_readiness(false);
+    }
+
+    let heartbeat = sqlx::query_as::<
+        _,
+        (
+            String,
+            Option<String>,
+            chrono::DateTime<chrono::Utc>,
+        ),
+    >(
+        "SELECT status, detail, updated_at FROM integration_alert_state WHERE source = 'meilisearch'",
+    )
+    .fetch_optional(&state.db)
+    .await;
+    let (heartbeat_good, heartbeat_current, heartbeat_detail) = match heartbeat {
+        Ok(Some((status, detail, updated_at))) => (
+            status == "GOOD",
+            updated_at >= chrono::Utc::now() - chrono::Duration::seconds(150),
+            detail,
+        ),
+        _ => (false, false, None),
+    };
+    let proof = crate::logic::meilisearch_search::full_reindex_proof(&state.db).await;
+    let unverified_index_count = crate::logic::meilisearch_sync::unverified_index_count(&state.db)
+        .await
+        .unwrap_or(i64::MAX);
+    let automatic_repair_need = if automatic_repair_enabled {
+        crate::logic::meilisearch_sync::automatic_reindex_need(&state.db)
+            .await
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
+    let proof_is_fresh = proof.as_ref().is_ok_and(|proof| proof.is_fresh());
+    let authoritative = worker_healthy
+        && heartbeat_good
+        && heartbeat_current
+        && proof_is_fresh
+        && unverified_index_count == 0
+        && automatic_repair_need.is_none();
+    let detail = if let Some(need) = automatic_repair_need.as_ref() {
+        format!("Automatic staged repair is queued. {}", need.reason)
+    } else if !worker_healthy {
+        "The automatic Meilisearch maintenance worker heartbeat is stale.".to_string()
+    } else if !heartbeat_current {
+        "The Meilisearch connectivity heartbeat has not completed recently.".to_string()
+    } else if !heartbeat_good {
+        heartbeat_detail.unwrap_or_else(|| "Meilisearch is not reachable.".to_string())
+    } else if unverified_index_count > 0 && unverified_index_count != i64::MAX {
+        format!(
+            "{unverified_index_count} search index area(s) are awaiting current revision/count verification."
+        )
+    } else if unverified_index_count == i64::MAX {
+        "Meilisearch revision/count proof could not be read.".to_string()
+    } else if let Ok(proof) = proof {
+        proof.detail
+    } else {
+        "Meilisearch rebuild proof could not be read.".to_string()
+    };
+
+    SearchReadinessStatus {
+        configured,
+        worker_healthy,
+        heartbeat_current,
+        authoritative,
+        automatic_repair_enabled,
+        automatic_repair_needed: automatic_repair_need.is_some(),
+        detail,
+    }
+}
+
+fn unavailable_search_readiness(configured: bool) -> SearchReadinessStatus {
+    SearchReadinessStatus {
+        configured,
+        worker_healthy: false,
+        heartbeat_current: false,
+        authoritative: false,
+        automatic_repair_enabled: crate::logic::meilisearch_sync::automatic_reindex_enabled(),
+        automatic_repair_needed: false,
+        detail: if configured {
+            "Search readiness cannot be proven while PostgreSQL is unavailable.".to_string()
+        } else {
+            "Meilisearch is not configured.".to_string()
+        },
+    }
 }
 
 async fn check_rosie_readiness(state: &AppState) -> RosieReadinessStatus {
@@ -566,6 +684,7 @@ pub(crate) fn uptime_seconds() -> u64 {
 fn readiness_failures(
     database: &DatabaseStatus,
     workers: &WorkerStatus,
+    search: &SearchReadinessStatus,
     backup: &BackupReadinessStatus,
     rosie: &RosieReadinessStatus,
 ) -> Vec<String> {
@@ -591,6 +710,9 @@ fn readiness_failures(
     }
     if workers.job_queue_enabled && !workers.job_queue_worker {
         failures.push("job_queue_worker".to_string());
+    }
+    if search.configured && !search.authoritative {
+        failures.push("meilisearch".to_string());
     }
     if !backup.tooling_ready {
         failures.push("backup_tooling".to_string());
@@ -641,7 +763,7 @@ mod tests {
     use super::{
         blocking_readiness_failures, readiness_failures, unavailable_backup_readiness,
         verified_backup_is_recent, BackupReadinessStatus, DatabaseStatus, RosieReadinessStatus,
-        WorkerHealth, WorkerStatus, JOB_QUEUE_HEARTBEAT_MAX_AGE_SECONDS,
+        SearchReadinessStatus, WorkerHealth, WorkerStatus, JOB_QUEUE_HEARTBEAT_MAX_AGE_SECONDS,
     };
 
     fn healthy_workers() -> WorkerStatus {
@@ -654,9 +776,22 @@ mod tests {
             qbo_sync_worker: true,
             job_queue_worker: false,
             metrics_worker: true,
+            meilisearch_reindex_worker: true,
             redis_configured: false,
             redis_connected: false,
             job_queue_enabled: false,
+        }
+    }
+
+    fn healthy_search() -> SearchReadinessStatus {
+        SearchReadinessStatus {
+            configured: true,
+            worker_healthy: true,
+            heartbeat_current: true,
+            authoritative: true,
+            automatic_repair_enabled: true,
+            automatic_repair_needed: false,
+            detail: "Search is current.".to_string(),
         }
     }
 
@@ -700,6 +835,7 @@ mod tests {
         assert!(readiness_failures(
             &database,
             &healthy_workers(),
+            &healthy_search(),
             &healthy_backup(),
             &healthy_rosie(),
         )
@@ -722,7 +858,13 @@ mod tests {
         workers.job_queue_enabled = true;
         workers.metrics_worker = false;
         assert_eq!(
-            readiness_failures(&database, &workers, &healthy_backup(), &healthy_rosie()),
+            readiness_failures(
+                &database,
+                &workers,
+                &healthy_search(),
+                &healthy_backup(),
+                &healthy_rosie()
+            ),
             vec!["metrics_worker", "redis", "job_queue_worker"]
         );
         assert_eq!(
@@ -738,6 +880,32 @@ mod tests {
     }
 
     #[test]
+    fn configured_non_authoritative_search_is_visible_but_does_not_block_register_readiness() {
+        let database = DatabaseStatus {
+            connected: true,
+            pool_size: 4,
+            active_connections: 1,
+            idle_connections: 3,
+        };
+        let mut search = healthy_search();
+        search.authoritative = false;
+        search.automatic_repair_needed = true;
+        assert_eq!(
+            readiness_failures(
+                &database,
+                &healthy_workers(),
+                &search,
+                &healthy_backup(),
+                &healthy_rosie()
+            ),
+            vec!["meilisearch"]
+        );
+        assert!(
+            blocking_readiness_failures(&database, &healthy_workers(), &healthy_rosie()).is_empty()
+        );
+    }
+
+    #[test]
     fn missing_verified_backup_degrades_without_blocking_register_connectivity() {
         let database = DatabaseStatus {
             connected: true,
@@ -748,7 +916,13 @@ mod tests {
         let mut backup = healthy_backup();
         backup.recent_verified_backup = false;
         assert_eq!(
-            readiness_failures(&database, &healthy_workers(), &backup, &healthy_rosie()),
+            readiness_failures(
+                &database,
+                &healthy_workers(),
+                &healthy_search(),
+                &backup,
+                &healthy_rosie()
+            ),
             vec!["backup_recent_verified"]
         );
         assert!(
@@ -767,7 +941,13 @@ mod tests {
         let mut rosie = healthy_rosie();
         rosie.llm_available = false;
         assert_eq!(
-            readiness_failures(&database, &healthy_workers(), &healthy_backup(), &rosie),
+            readiness_failures(
+                &database,
+                &healthy_workers(),
+                &healthy_search(),
+                &healthy_backup(),
+                &rosie
+            ),
             vec!["rosie_llm"]
         );
         assert!(blocking_readiness_failures(&database, &healthy_workers(), &rosie).is_empty());
@@ -790,7 +970,13 @@ mod tests {
         let mut rosie = healthy_rosie();
         rosie.multimodal_available = false;
         assert_eq!(
-            readiness_failures(&database, &healthy_workers(), &healthy_backup(), &rosie),
+            readiness_failures(
+                &database,
+                &healthy_workers(),
+                &healthy_search(),
+                &healthy_backup(),
+                &rosie
+            ),
             vec!["rosie_multimodal"]
         );
         assert!(blocking_readiness_failures(&database, &healthy_workers(), &rosie).is_empty());

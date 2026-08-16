@@ -4260,6 +4260,12 @@ async fn browse_customers(
         .map(str::trim)
         .filter(|s| !s.is_empty());
     let search_pattern = search_raw.map(literal_ilike_pattern);
+    let search_name_prefixes = search_raw
+        .and_then(crate::logic::meilisearch_search::customer_name_query_tokens)
+        .unwrap_or_default()
+        .into_iter()
+        .map(literal_ilike_prefix_pattern)
+        .collect::<Vec<_>>();
     let party_search_pattern = party_search_raw.map(literal_ilike_pattern);
 
     let group_code = query
@@ -4274,15 +4280,17 @@ async fn browse_customers(
         if search_raw.is_some() && party_search_raw.is_none() {
             if let (Some(qs), Some(c)) = (search_raw, state.meilisearch.as_ref()) {
                 match crate::logic::meilisearch_search::customer_search_ids(c, qs).await {
-                    Ok(ids) => {
-                        crate::logic::meilisearch_search::authoritative_candidate_ids(
-                            &state.db,
-                            c,
-                            crate::logic::meilisearch_client::INDEX_CUSTOMERS,
-                            ids,
-                        )
-                        .await
-                    }
+                    Ok(ids) => match crate::logic::meilisearch_search::authoritative_candidate_ids(
+                        &state.db,
+                        c,
+                        crate::logic::meilisearch_client::INDEX_CUSTOMERS,
+                        ids,
+                    )
+                    .await
+                    {
+                        Some(ids) if ids.is_empty() => None,
+                        result => result,
+                    },
                     Err(e) => {
                         tracing::warn!(
                             error = %e,
@@ -4624,6 +4632,21 @@ async fn browse_customers(
                         AND regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g')
                             LIKE ('%' || regexp_replace($5::text, '[^0-9]', '', 'g') || '%')
                     )
+                    OR (
+                        COALESCE(array_length($11::text[], 1), 0) >= 2
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM unnest($11::text[]) AS wanted(prefix)
+                            WHERE NOT EXISTS (
+                                SELECT 1
+                                FROM regexp_split_to_table(
+                                    CONCAT_WS(' ', c.first_name, c.last_name),
+                                    '[[:space:]-]+'
+                                ) AS name_part(value)
+                                WHERE name_part.value ILIKE wanted.prefix
+                            )
+                        )
+                    )
                   )
                   AND (
                     $6::text IS NULL
@@ -4824,6 +4847,7 @@ async fn browse_customers(
         .bind(limit)
         .bind(offset)
         .bind(CUSTOMER_LIFECYCLE_ACTIVE_DAYS)
+        .bind(&search_name_prefixes)
         .fetch_all(&state.db)
         .await?
     } else {
@@ -4976,6 +5000,21 @@ async fn browse_customers(
                         AND regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g')
                             LIKE ('%' || regexp_replace($5::text, '[^0-9]', '', 'g') || '%')
                     )
+                    OR (
+                        COALESCE(array_length($12::text[], 1), 0) >= 2
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM unnest($12::text[]) AS wanted(prefix)
+                            WHERE NOT EXISTS (
+                                SELECT 1
+                                FROM regexp_split_to_table(
+                                    CONCAT_WS(' ', c.first_name, c.last_name),
+                                    '[[:space:]-]+'
+                                ) AS name_part(value)
+                                WHERE name_part.value ILIKE wanted.prefix
+                            )
+                        )
+                    )
                   )
                   AND (
                     $6::text IS NULL
@@ -5081,6 +5120,7 @@ async fn browse_customers(
         .bind(offset)
         .bind(CUSTOMER_LIFECYCLE_ACTIVE_DAYS)
         .bind(lifecycle_filter)
+        .bind(&search_name_prefixes)
         .fetch_all(&state.db)
         .await?
     };
@@ -5206,13 +5246,17 @@ async fn search_customers(
     let meili_ids: Option<Vec<uuid::Uuid>> = if let Some(c) = state.meilisearch.as_ref() {
         match crate::logic::meilisearch_search::customer_search_ids(c, q).await {
             Ok(ids) => {
-                crate::logic::meilisearch_search::authoritative_candidate_ids(
+                match crate::logic::meilisearch_search::authoritative_candidate_ids(
                     &state.db,
                     c,
                     crate::logic::meilisearch_client::INDEX_CUSTOMERS,
                     ids,
                 )
                 .await
+                {
+                    Some(ids) if ids.is_empty() => None,
+                    result => result,
+                }
             }
             Err(e) => {
                 tracing::warn!(

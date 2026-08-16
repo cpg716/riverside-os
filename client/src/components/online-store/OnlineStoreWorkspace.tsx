@@ -1373,7 +1373,7 @@ export default function OnlineStoreWorkspace({
         await Promise.all([
           fetch(`${baseUrl}/api/admin/store/pages`, { headers: headers() }),
           fetch(`${baseUrl}/api/admin/store/coupons`, { headers: headers() }),
-          fetch(apiUrl(baseUrl, "/api/inventory/control-board?limit=5000"), {
+          fetch(apiUrl(baseUrl, "/api/inventory/control-board?limit=5000&include_stats=false"), {
             headers: headers(),
           }),
           fetch(apiUrl(baseUrl, "/api/store/checkout/config")),

@@ -52,7 +52,7 @@ export default function WeddingPartySearchInput({
   const suppressNextSearchRef = useRef(false);
 
   const performSearch = useCallback(async (q: string) => {
-    if (q.trim().length < 1) {
+    if (q.trim().length < 2) {
       setResults([]);
       return;
     }
@@ -96,9 +96,9 @@ export default function WeddingPartySearchInput({
       return;
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!query.trim()) {
+    if (query.trim().length < 2) {
       setResults([]);
-      setIsOpen(false);
+      setIsOpen(query.trim().length > 0);
       return;
     }
     setIsOpen(true);
@@ -144,7 +144,7 @@ export default function WeddingPartySearchInput({
         />
       </div>
 
-      {isOpen && query.trim().length >= 1 && (
+      {isOpen && query.trim().length >= 2 && (
         <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto rounded-xl border border-app-border bg-app-surface shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200 ring-1 ring-black/5">
           {loading ? (
             <div className="p-4 text-center text-xs text-app-text-muted">Searching parties…</div>

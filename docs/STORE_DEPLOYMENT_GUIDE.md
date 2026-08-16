@@ -47,7 +47,7 @@ flowchart TB
 
 - The server listens on **`0.0.0.0:3000`** by default so **LAN and Tailscale** clients can reach it. Override with **`RIVERSIDE_HTTP_BIND`** if you terminate TLS on a reverse proxy and bind the app to loopback only (see [`DEVELOPER.md`](../DEVELOPER.md) environment table).
 
-**Meilisearch on Windows Main Hub:** The packaged Windows Main Hub deployment installs a local **Meilisearch** runtime, registers the **Riverside OS Meilisearch** startup task, and configures the API for `http://127.0.0.1:7700`. PostgreSQL remains authoritative; Meilisearch is the fast search copy for inventory, CRM, wedding, order, transaction, alteration, Help Center, and storefront PLP search. Meilisearch does not watch PostgreSQL by itself: automatic updates happen only on ROS write paths that explicitly upsert the affected search document, and the API runs one staged full rebuild per store-local day after 3 AM by default. After deploy, restore, Meilisearch wipe, database reset, or major Counterpoint import, still run **Settings → Integrations → Meilisearch → Rebuild search index** (or **`POST /api/settings/meilisearch/reindex`**) immediately instead of waiting for the daily safety net. Details: [`SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md).
+**Meilisearch on Windows Main Hub:** The packaged Windows Main Hub deployment installs a local **Meilisearch** runtime, registers the **Riverside OS Meilisearch** startup/automatic-restart task, and configures the API for `http://127.0.0.1:7700`. Strict-production API startup requires that pinned runtime to be configured, reachable, and version-compatible. PostgreSQL remains authoritative; Meilisearch is the fast search copy for inventory, CRM, wedding, order, transaction, alteration, Help Center, and storefront PLP search. ROS pushes record changes incrementally, verifies current revisions in the background, and checks once per minute for failed/divergent/mismatched/missing indexes that need an automatic staged rebuild; the store-local rebuild after 3 AM remains a second layer. A manual **Rebuild search** is normally reserved for an explicit restore/wipe or Support-directed immediate retry. Details: [`SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md).
 
 ---
 
@@ -155,7 +155,7 @@ Production checklist:
 - [ ] `RIVERSIDE_STRICT_PRODUCTION=true` starts successfully.
 - [ ] Server URL loads from another machine on the store LAN.
 - [ ] Backup path is writable and visible in Settings.
-- [ ] Meilisearch status is connected on the Main Hub and rebuilt after import/reset.
+- [ ] Main Hub audit reports Meilisearch connected, current, count-verified, and maintained automatically; restore/wipe procedures completed one immediate rebuild.
 - [ ] If Shop Host is used, the local satellite URL opens the sign-in gate from a second device.
 
 ### 3.2 Windows desktop app (Register 1 + Back office)

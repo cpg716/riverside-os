@@ -522,6 +522,9 @@ pub struct InventoryBoardQuery {
     pub include_hidden: Option<bool>,
     /// POS-only display cleanup: hide impossible odd suit sizes for vendors that stock even sizes only.
     pub pos_size_filter: Option<bool>,
+    /// Skip the catalog-wide summary aggregation when the caller only needs result rows.
+    /// Defaults to true for backward compatibility with Inventory dashboard consumers.
+    pub include_stats: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -593,8 +596,12 @@ fn pos_parent_search_term_groups(raw: &str) -> Vec<Vec<String>> {
 }
 
 fn push_pos_parent_token_match(qb: &mut QueryBuilder<'_, Postgres>, groups: &[Vec<String>]) {
-    for group in groups {
-        qb.push(" AND (");
+    qb.push("(");
+    for (group_index, group) in groups.iter().enumerate() {
+        if group_index > 0 {
+            qb.push(" AND ");
+        }
+        qb.push("(");
         for (idx, term) in group.iter().enumerate() {
             if idx > 0 {
                 qb.push(" OR ");
@@ -630,6 +637,7 @@ fn push_pos_parent_token_match(qb: &mut QueryBuilder<'_, Postgres>, groups: &[Ve
         }
         qb.push(")");
     }
+    qb.push(")");
 }
 
 fn push_pos_allowed_variant_predicate(
@@ -672,6 +680,32 @@ pub async fn pos_parent_search(
     let pat = control_board_ilike_pattern(search_raw);
     let term_groups = pos_parent_search_term_groups(search_raw);
     let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let meili_variant_ids = if let Some(client) = state.meilisearch.as_ref() {
+        match crate::logic::meilisearch_search::control_board_search_variant_ids(
+            client, search_raw, None, None, None, false, false, None, None, None, false,
+        )
+        .await
+        {
+            Ok(ids) => {
+                crate::logic::meilisearch_search::authoritative_candidate_ids(
+                    &state.db,
+                    client,
+                    crate::logic::meilisearch_client::INDEX_VARIANTS,
+                    ids,
+                )
+                .await
+            }
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "Meilisearch Register product search failed; using PostgreSQL"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     let mut qb = QueryBuilder::new(
         r#"
@@ -683,7 +717,22 @@ pub async fn pos_parent_search(
             WHERE p.is_active = true
         "#,
     );
+    qb.push(" AND (");
     push_pos_parent_token_match(&mut qb, &term_groups);
+    if let Some(ids) = meili_variant_ids.as_ref().filter(|ids| !ids.is_empty()) {
+        qb.push(
+            r#" OR EXISTS (
+                SELECT 1
+                FROM product_variants pv_meili
+                WHERE pv_meili.product_id = p.id
+                  AND pv_meili.id = ANY("#,
+        );
+        qb.push_bind(ids.clone());
+        qb.push(") AND ");
+        push_pos_allowed_variant_predicate(&mut qb, "pv_meili", "p", "pvendor");
+        qb.push(")");
+    }
+    qb.push(")");
     qb.push(
         r#"
             ORDER BY
@@ -860,7 +909,8 @@ pub struct InventoryStats {
 #[derive(Debug, Serialize)]
 pub struct InventoryControlResponse {
     pub rows: Vec<InventoryControlRow>,
-    pub stats: InventoryStats,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stats: Option<InventoryStats>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -1715,15 +1765,17 @@ pub async fn list_control_board(
             )
             .await
             {
-                Ok(ids) => {
-                    crate::logic::meilisearch_search::authoritative_candidate_ids(
-                        &state.db,
-                        c,
-                        crate::logic::meilisearch_client::INDEX_VARIANTS,
-                        ids,
-                    )
-                    .await
-                }
+                Ok(ids) => match crate::logic::meilisearch_search::authoritative_candidate_ids(
+                    &state.db,
+                    c,
+                    crate::logic::meilisearch_client::INDEX_VARIANTS,
+                    ids,
+                )
+                .await
+                {
+                    Some(ids) if ids.is_empty() => None,
+                    result => result,
+                },
                 Err(e) => {
                     tracing::warn!(
                         error = %e,
@@ -1887,6 +1939,13 @@ pub async fn list_control_board(
         }
     } else if has_search {
         let pat = control_board_ilike_pattern(search_raw);
+        let token_patterns = crate::logic::meilisearch_search::product_query_tokens(search_raw)
+            .map(|tokens| {
+                tokens
+                    .into_iter()
+                    .map(control_board_ilike_pattern)
+                    .collect::<Vec<_>>()
+            });
         qb.push(" AND (pv.sku ILIKE ");
         qb.push_bind(pat.clone());
         qb.push(" ESCAPE '\\' OR COALESCE(pv.barcode, '') ILIKE ");
@@ -1915,6 +1974,15 @@ pub async fn list_control_board(
             qb.push(" ESCAPE '\\' OR COALESCE(pv_match.variation_label, '') ILIKE ");
             qb.push_bind(pat);
             qb.push(" ESCAPE '\\')");
+        }
+        if let Some(token_patterns) = token_patterns {
+            qb.push(" OR NOT EXISTS (SELECT 1 FROM unnest(");
+            qb.push_bind(token_patterns);
+            qb.push("::text[]) AS wanted(pattern) WHERE NOT (pv.sku ILIKE wanted.pattern ESCAPE '\\' OR COALESCE(pv.barcode, '') ILIKE wanted.pattern ESCAPE '\\' OR COALESCE(pv.vendor_upc, '') ILIKE wanted.pattern ESCAPE '\\' OR p.name ILIKE wanted.pattern ESCAPE '\\' OR COALESCE(p.catalog_handle, '') ILIKE wanted.pattern ESCAPE '\\' OR COALESCE(p.brand, '') ILIKE wanted.pattern ESCAPE '\\' OR COALESCE(pv.variation_label, '') ILIKE wanted.pattern ESCAPE '\\' OR COALESCE(c.name, '') ILIKE wanted.pattern ESCAPE '\\' OR COALESCE(pvendor.name, '') ILIKE wanted.pattern ESCAPE '\\'");
+            if expand_parent_matches {
+                qb.push(" OR EXISTS (SELECT 1 FROM product_variants pv_match WHERE pv_match.product_id = p.id AND (pv_match.sku ILIKE wanted.pattern ESCAPE '\\' OR COALESCE(pv_match.barcode, '') ILIKE wanted.pattern ESCAPE '\\' OR COALESCE(pv_match.vendor_upc, '') ILIKE wanted.pattern ESCAPE '\\' OR COALESCE(pv_match.variation_label, '') ILIKE wanted.pattern ESCAPE '\\'))");
+            }
+            qb.push("))");
         }
         qb.push(")");
     }
@@ -2026,8 +2094,9 @@ pub async fn list_control_board(
         })
         .collect();
 
-    let stats = if let Some(vid) = query.vendor_id {
-        sqlx::query_as::<_, InventoryStats>(
+    let stats = if query.include_stats.unwrap_or(true) {
+        Some(if let Some(vid) = query.vendor_id {
+            sqlx::query_as::<_, InventoryStats>(
             r#"
             SELECT
                 COALESCE(SUM((COALESCE(pv.cost_override, p.base_cost) * pv.stock_on_hand)::numeric), 0)::numeric(12,2) AS total_asset_value,
@@ -2056,11 +2125,11 @@ pub async fn list_control_board(
               AND p.primary_vendor_id = $1
             "#,
         )
-        .bind(vid)
-        .fetch_one(&state.db)
-        .await?
-    } else {
-        sqlx::query_as::<_, InventoryStats>(
+            .bind(vid)
+            .fetch_one(&state.db)
+            .await?
+        } else {
+            sqlx::query_as::<_, InventoryStats>(
             r#"
             SELECT
                 COALESCE(SUM((COALESCE(pv.cost_override, p.base_cost) * pv.stock_on_hand)::numeric), 0)::numeric(12,2) AS total_asset_value,
@@ -2087,8 +2156,11 @@ pub async fn list_control_board(
             WHERE p.is_active = true
             "#,
         )
-        .fetch_one(&state.db)
-        .await?
+            .fetch_one(&state.db)
+            .await?
+        })
+    } else {
+        None
     };
 
     Ok(Json(InventoryControlResponse { rows, stats }))

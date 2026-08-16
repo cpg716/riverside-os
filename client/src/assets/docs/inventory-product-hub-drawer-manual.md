@@ -81,6 +81,7 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 8. Review the shared retail price-tag dialog, adjust quantities, and confirm the final print batch.
 9. Use recent inventory events when you need to confirm why the number changed.
 10. Open **Stock Report** to review every variation's current quantity, last sold date, average monthly unit sales, and average yearly unit sales, then select **Print Report**.
+11. Select **Analyze product** only when you want the optional read-only ROSIE catalog review. Product Hub does not run that analysis automatically when the drawer opens.
 
 ## Parent stock and sales report
 

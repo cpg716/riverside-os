@@ -3678,6 +3678,14 @@ struct MeilisearchSyncDbRow {
     pub is_success: bool,
     pub row_count: i64,
     pub error_message: Option<String>,
+    pub source_revision: i64,
+    pub indexed_revision: i64,
+    pub verified_revision: Option<i64>,
+    pub last_verified_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub verification_state: String,
+    pub verification_detail: Option<String>,
+    pub verified_source_count: Option<i64>,
+    pub verified_document_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3698,6 +3706,8 @@ pub struct MeilisearchSyncRow {
     pub error_message: Option<String>,
     pub document_count: Option<usize>,
     pub count_parity: Option<bool>,
+    pub verified_source_count: Option<i64>,
+    pub last_verified_at: Option<chrono::DateTime<chrono::Utc>>,
     pub recent_enough: bool,
     pub search_ready: bool,
     pub health_message: String,
@@ -3716,6 +3726,9 @@ pub struct MeilisearchStatusResponse {
     pub indices: Vec<MeilisearchSyncRow>,
     pub is_indexing: bool,
     pub full_rebuild_current: bool,
+    pub automatic_repair_enabled: bool,
+    pub automatic_repair_needed: bool,
+    pub automatic_repair_message: Option<String>,
 }
 
 fn meili_connection_error_message(e: &meilisearch_sdk::errors::Error) -> String {
@@ -3780,7 +3793,21 @@ async fn get_meilisearch_status(
     ];
     let sync_rows = sqlx::query_as::<_, MeilisearchSyncDbRow>(
         r#"
-        SELECT index_name, last_success_at, last_attempt_at, is_success, row_count, error_message
+        SELECT
+            index_name,
+            last_success_at,
+            last_attempt_at,
+            is_success,
+            row_count,
+            error_message,
+            source_revision,
+            indexed_revision,
+            verified_revision,
+            last_verified_at,
+            verification_state,
+            verification_detail,
+            verified_source_count,
+            verified_document_count
         FROM meilisearch_sync_status
         WHERE index_name = ANY($1)
         ORDER BY index_name
@@ -3857,6 +3884,10 @@ async fn get_meilisearch_status(
     let version_supported = runtime_version.as_deref()
         == Some(crate::logic::meilisearch_client::EXPECTED_MEILISEARCH_VERSION);
     let cutoff = chrono::Utc::now() - chrono::Duration::hours(36);
+    let verification_cutoff = chrono::Utc::now()
+        - chrono::Duration::seconds(
+            crate::logic::meilisearch_sync::INDEX_VERIFICATION_MAX_AGE_SECONDS,
+        );
     let rebuild_sync = sync_by_index.get("ros_reindex_run");
     let full_rebuild_current = rebuild_sync.is_some_and(|row| {
         row.is_success
@@ -3874,9 +3905,28 @@ async fn get_meilisearch_status(
             let row_count = sync.map(|row| row.row_count).unwrap_or(0);
             let document_count = doc_counts.get(&index_name).copied();
             let count_parity = (index_name != "ros_reindex_run")
-                .then(|| document_count.map(|count| count == row_count.max(0) as usize))
+                .then(|| {
+                    sync.and_then(|row| {
+                        row.verified_source_count
+                            .zip(row.verified_document_count)
+                            .map(|(source_count, verified_count)| {
+                                source_count == verified_count
+                                    && document_count == usize::try_from(verified_count.max(0)).ok()
+                            })
+                    })
+                })
                 .flatten();
             let sync_success = sync.map(|row| row.is_success).unwrap_or(false);
+            let revision_current = sync.is_some_and(|row| {
+                row.source_revision == row.indexed_revision
+                    && row.verified_revision == Some(row.source_revision)
+            });
+            let verification_current = sync.is_some_and(|row| {
+                row.verification_state == "verified"
+                    && row
+                        .last_verified_at
+                        .is_some_and(|verified_at| verified_at >= verification_cutoff)
+            });
             let latest_task_failed = latest_by_index
                 .get(&index_name)
                 .is_some_and(|task| task.status == "failed");
@@ -3889,6 +3939,8 @@ async fn get_meilisearch_status(
                     && sync_success
                     && recent_enough
                     && full_rebuild_current
+                    && revision_current
+                    && verification_current
                     && count_parity == Some(true)
                     && !latest_task_failed
             };
@@ -3907,6 +3959,13 @@ async fn get_meilisearch_status(
             } else if !sync_success {
                 sync.and_then(|row| row.error_message.clone())
                     .unwrap_or_else(|| "No successful index build is recorded.".to_string())
+            } else if !revision_current {
+                "A search update did not finish; automatic staged repair is queued.".to_string()
+            } else if !verification_current {
+                sync.and_then(|row| row.verification_detail.clone())
+                    .unwrap_or_else(|| {
+                        "The background verifier is confirming this search area.".to_string()
+                    })
             } else if latest_task_failed {
                 latest_by_index
                     .get(&index_name)
@@ -3935,6 +3994,8 @@ async fn get_meilisearch_status(
                 error_message: sync.and_then(|row| row.error_message.clone()),
                 document_count,
                 count_parity,
+                verified_source_count: sync.and_then(|row| row.verified_source_count),
+                last_verified_at: sync.and_then(|row| row.last_verified_at),
                 recent_enough,
                 search_ready,
                 health_message,
@@ -3943,6 +4004,16 @@ async fn get_meilisearch_status(
             }
         })
         .collect();
+
+    let automatic_repair_enabled = crate::logic::meilisearch_sync::automatic_reindex_enabled();
+    let automatic_repair_need = if automatic_repair_enabled {
+        crate::logic::meilisearch_sync::automatic_reindex_need(&state.db)
+            .await
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
 
     Ok(Json(MeilisearchStatusResponse {
         configured,
@@ -3954,6 +4025,9 @@ async fn get_meilisearch_status(
         indices,
         is_indexing,
         full_rebuild_current,
+        automatic_repair_enabled,
+        automatic_repair_needed: automatic_repair_need.is_some(),
+        automatic_repair_message: automatic_repair_need.map(|need| need.reason),
     }))
 }
 

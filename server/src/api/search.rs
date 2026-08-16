@@ -284,6 +284,14 @@ fn like_query(q: &str) -> String {
     format!("%{escaped}%")
 }
 
+fn prefix_like_query(q: &str) -> String {
+    let escaped = q
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("{escaped}%")
+}
+
 fn phone_like_pattern(value: &str) -> Option<String> {
     let phone_like = value.chars().all(|c| {
         c.is_ascii_digit()
@@ -600,6 +608,11 @@ async fn search_customers(
 
     let like = like_query(q);
     let phone_like = phone_like_pattern(q);
+    let name_prefixes = crate::logic::meilisearch_search::customer_name_query_tokens(q)
+        .unwrap_or_default()
+        .into_iter()
+        .map(prefix_like_query)
+        .collect::<Vec<_>>();
     sqlx::query_as::<_, UniversalCustomerHit>(
         r#"
         SELECT
@@ -661,12 +674,28 @@ async fn search_customers(
            OR COALESCE(c.phone, '') ILIKE $1
            OR ($2::text IS NOT NULL AND regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g') LIKE $2)
            OR COALESCE(c.company_name, '') ILIKE $1
+           OR (
+                COALESCE(array_length($3::text[], 1), 0) >= 2
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM unnest($3::text[]) AS wanted(prefix)
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM regexp_split_to_table(
+                            CONCAT_WS(' ', c.first_name, c.last_name),
+                            '[[:space:]-]+'
+                        ) AS name_part(value)
+                        WHERE name_part.value ILIKE wanted.prefix
+                    )
+                )
+           )
         ORDER BY c.created_at DESC, c.id DESC
-        LIMIT $3
+        LIMIT $4
         "#,
     )
     .bind(like)
     .bind(phone_like)
+    .bind(name_prefixes)
     .bind(limit as i64)
     .fetch_all(pool)
     .await
@@ -694,7 +723,7 @@ async fn search_products(
                 )
                 .await
                 {
-                    Some(ids) if ids.is_empty() => return Ok(Vec::new()),
+                    Some(ids) if ids.is_empty() => None,
                     ids => ids,
                 }
             }
@@ -750,6 +779,11 @@ async fn search_products(
     }
 
     let like = like_query(q);
+    let token_patterns = crate::logic::meilisearch_search::product_query_tokens(q)
+        .unwrap_or_default()
+        .into_iter()
+        .map(like_query)
+        .collect::<Vec<_>>();
     sqlx::query_as::<_, UniversalProductHit>(
         r#"
         SELECT
@@ -768,12 +802,29 @@ async fn search_products(
             OR p.name ILIKE $1
             OR COALESCE(p.brand, '') ILIKE $1
             OR COALESCE(pv.variation_label, '') ILIKE $1
+            OR (
+                COALESCE(array_length($2::text[], 1), 0) >= 2
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM unnest($2::text[]) AS wanted(pattern)
+                    WHERE NOT (
+                        pv.sku ILIKE wanted.pattern
+                        OR COALESCE(pv.barcode, '') ILIKE wanted.pattern
+                        OR COALESCE(pv.vendor_upc, '') ILIKE wanted.pattern
+                        OR p.name ILIKE wanted.pattern
+                        OR COALESCE(p.brand, '') ILIKE wanted.pattern
+                        OR COALESCE(p.catalog_handle, '') ILIKE wanted.pattern
+                        OR COALESCE(pv.variation_label, '') ILIKE wanted.pattern
+                    )
+                )
+            )
           )
         ORDER BY p.name ASC, pv.sku ASC, pv.id ASC
-        LIMIT $2
+        LIMIT $3
         "#,
     )
     .bind(like)
+    .bind(token_patterns)
     .bind(limit as i64)
     .fetch_all(pool)
     .await

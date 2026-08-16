@@ -105,6 +105,7 @@ fn meilisearch_daily_reindex_hour() -> u32 {
 }
 
 const MEILISEARCH_DAILY_REINDEX_MAX_ATTEMPTS: u32 = 3;
+const MEILISEARCH_AUTO_REPAIR_COOLDOWN_MINUTES: i64 = 15;
 
 fn meilisearch_daily_reindex_retry_delay(completed_attempts: u32) -> std::time::Duration {
     let exponent = completed_attempts.saturating_sub(1).min(2);
@@ -121,6 +122,17 @@ fn meilisearch_daily_reindex_is_due(
     hour >= reindex_hour
         && attempted_day != Some(today)
         && last_success_day.is_none_or(|last_success| last_success < today)
+}
+
+fn meilisearch_auto_repair_is_due(
+    now: chrono::DateTime<Utc>,
+    last_attempt_at: Option<chrono::DateTime<Utc>>,
+) -> bool {
+    last_attempt_at.is_none_or(|last_attempt| {
+        last_attempt > now + chrono::Duration::minutes(5)
+            || now - last_attempt
+                >= chrono::Duration::minutes(MEILISEARCH_AUTO_REPAIR_COOLDOWN_MINUTES)
+    })
 }
 
 fn daily_backup_is_due(
@@ -419,10 +431,31 @@ async fn resolve_meilisearch_client(
     strict_production: bool,
 ) -> Result<Option<meilisearch_sdk::client::Client>, Box<dyn std::error::Error>> {
     let Some(client) = crate::logic::meilisearch_client::meilisearch_from_env() else {
+        if strict_production {
+            return Err(
+                "Strict production requires a configured Meilisearch URL and API key".into(),
+            );
+        }
         return Ok(None);
     };
 
-    let health = crate::logic::meilisearch_client::health_check(&client).await;
+    let health = match tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        crate::logic::meilisearch_client::health_check(&client),
+    )
+    .await
+    {
+        Ok(health) => health,
+        Err(_) if strict_production => {
+            return Err("Strict production Meilisearch readiness check timed out".into());
+        }
+        Err(_) => {
+            tracing::error!(
+                "Meilisearch readiness check timed out; retaining the client for automatic recovery while search uses PostgreSQL fallback"
+            );
+            return Ok(Some(client));
+        }
+    };
     if health.reachable {
         if !health.version_supported {
             let msg = health.message.clone();
@@ -446,9 +479,9 @@ async fn resolve_meilisearch_client(
     tracing::error!(
         message = %health.message,
         latency_ms = health.latency_ms,
-        "Meilisearch is configured but unavailable; search will use PostgreSQL fallback"
+        "Meilisearch is configured but unavailable; retaining the client for automatic recovery while search uses PostgreSQL fallback"
     );
-    Ok(None)
+    Ok(Some(client))
 }
 
 async fn launch_server_inner(
@@ -765,17 +798,79 @@ async fn launch_server_inner(
         }
     });
 
+    let meilisearch_daily_reindex_enabled =
+        !env_flag_disabled("RIVERSIDE_MEILISEARCH_DAILY_REINDEX_ENABLED");
+    let meilisearch_auto_repair_enabled =
+        crate::logic::meilisearch_sync::automatic_reindex_enabled();
     if state.meilisearch.is_some()
-        && !env_flag_disabled("RIVERSIDE_MEILISEARCH_DAILY_REINDEX_ENABLED")
+        && (meilisearch_daily_reindex_enabled || meilisearch_auto_repair_enabled)
     {
         let meilisearch_reindex_state = state.clone();
         let reindex_hour = meilisearch_daily_reindex_hour();
         tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
             let mut attempted_day: Option<chrono::NaiveDate> = None;
             loop {
                 ticker.tick().await;
                 crate::api::health::WorkerHealth::mark_heartbeat("meilisearch_reindex").await;
+                let Some(client) = meilisearch_reindex_state.meilisearch.as_ref() else {
+                    continue;
+                };
+
+                if meilisearch_auto_repair_enabled {
+                    match crate::logic::meilisearch_sync::automatic_reindex_need(
+                        &meilisearch_reindex_state.db,
+                    )
+                    .await
+                    {
+                        Ok(Some(need))
+                            if meilisearch_auto_repair_is_due(
+                                Utc::now(),
+                                need.last_attempt_at,
+                            ) =>
+                        {
+                            let health = tokio::time::timeout(
+                                std::time::Duration::from_secs(3),
+                                crate::logic::meilisearch_client::health_check(client),
+                            )
+                            .await;
+                            if let Ok(health) = health {
+                                if health.reachable
+                                    && health.version_supported
+                                    && !health.indexing
+                                {
+                                    tracing::warn!(
+                                        reason = %need.reason,
+                                        "Meilisearch automatic repair: rebuilding all search indexes"
+                                    );
+                                    if let Err(e) = run_daily_meilisearch_reindex_with_retry(
+                                        client,
+                                        &meilisearch_reindex_state.db,
+                                    )
+                                    .await
+                                    {
+                                        tracing::error!(
+                                            error = %e,
+                                            "Meilisearch automatic repair exhausted bounded retries"
+                                        );
+                                    }
+                                    continue;
+                                }
+                            }
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::error!(
+                                error = %e,
+                                "Meilisearch automatic repair: failed to inspect persisted index health"
+                            );
+                        }
+                    }
+                }
+
+                if !meilisearch_daily_reindex_enabled {
+                    continue;
+                }
                 let (today, hour) =
                     match store_local_today_and_hour(&meilisearch_reindex_state.db).await {
                         Ok(v) => v,
@@ -810,9 +905,6 @@ async fn launch_server_inner(
                 ) {
                     continue;
                 }
-                let Some(client) = meilisearch_reindex_state.meilisearch.as_ref() else {
-                    continue;
-                };
                 attempted_day = Some(today);
                 tracing::info!(
                     activity_date = %today,
@@ -1361,8 +1453,8 @@ pub async fn launch_server_with_ready_signal(
 mod tests {
     use super::{
         daily_backup_is_due, helcim_value_looks_placeholder, is_startup_readiness_failure,
-        meilisearch_daily_reindex_is_due, meilisearch_daily_reindex_retry_delay,
-        static_cache_control_for_path,
+        meilisearch_auto_repair_is_due, meilisearch_daily_reindex_is_due,
+        meilisearch_daily_reindex_retry_delay, static_cache_control_for_path,
     };
     use axum::http::StatusCode;
 
@@ -1491,6 +1583,24 @@ mod tests {
             3,
             Some(today),
             Some(yesterday)
+        ));
+    }
+
+    #[test]
+    fn meilisearch_auto_repair_retries_after_a_bounded_cooldown() {
+        let now = chrono::Utc::now();
+        assert!(meilisearch_auto_repair_is_due(now, None));
+        assert!(!meilisearch_auto_repair_is_due(
+            now,
+            Some(now - chrono::Duration::minutes(14))
+        ));
+        assert!(meilisearch_auto_repair_is_due(
+            now,
+            Some(now - chrono::Duration::minutes(15))
+        ));
+        assert!(meilisearch_auto_repair_is_due(
+            now,
+            Some(now + chrono::Duration::minutes(6))
         ));
     }
 

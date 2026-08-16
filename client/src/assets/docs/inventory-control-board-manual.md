@@ -33,11 +33,13 @@ The product list is primary. Item Readiness and Inventory Cleanup Review sit bel
 
 ## Search and filters
 
-Use the main search field for product name, SKU, product UPC, catalog/vendor style number, or variation text. The list is product-centered and shows each product's variation count; direct SKU or exact variation searches show the matched SKU/variation on that product row. Use vendor, category, stock, label, high value, web, and department filters to narrow the list.
+Use the main search field for product name, SKU, product UPC, catalog/vendor style number, or variation text. You can combine partial fragments from different fields—for example, part of the product or brand name plus the beginning of its style/SKU number—and Riverside requires every fragment somewhere on the matching item. The list is product-centered and shows each product's variation count; direct SKU or exact variation searches show the matched SKU/variation on that product row. Use vendor, category, stock, label, high value, web, and department filters to narrow the list.
 
 Riverside keeps the full variation matrix visible for qualifying parent products. Zero stock on hand does not hide a size, color, or style option; staff should use the stock count on the variation row to decide whether it can be sold immediately, ordered, or handled as a special order.
 
 Select **Load More Inventory** to keep paging through results without losing the current filters.
+
+Riverside waits for a short pause in typing before it searches. While the new result is loading, the current rows stay visible in a dimmed updating state instead of disappearing and reappearing. Wait for the updating message to clear before treating the visible list as the result for the latest text.
 
 ## Open Product Hub
 
@@ -70,6 +72,7 @@ Use **Show diagnostics** only when you need the detailed reference counters. The
 - A true empty result means the current filters returned no matching inventory.
 - A failed load should show a degraded state rather than pretending the inventory is empty.
 - The last-checked time applies to the loaded inventory page. New searches and filter changes supersede older requests, so only the newest result is shown.
+- Opening Product Hub does not automatically start ROSIE analysis. Choose **Analyze product** only when you want that optional read-only review.
 - Do not treat readiness counts as automatic changes. Staff still review and apply fixes deliberately.
 
 ## Related workflows

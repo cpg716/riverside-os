@@ -281,7 +281,7 @@ export function usePosSearch({
     // 2. Parent Product Fuzzy Search
     requests.push(
       fetchWithTimeout(
-        `${baseUrl}/api/products/pos-parent-search?search=${encodeURIComponent(q)}&limit=100`,
+        `${baseUrl}/api/products/pos-parent-search?search=${encodeURIComponent(q)}&limit=40`,
         {
           headers: apiAuth(),
           signal: abortController.signal,

@@ -353,7 +353,9 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
     async (
       variantId: string,
       patch: VariantPatch,
+      options: { refreshParent?: boolean; promptReprint?: boolean } = {},
     ): Promise<VariantPricingPatchResponse | null> => {
+      const { refreshParent = true, promptReprint = true } = options;
       const isStock = "quantity_delta" in patch;
       const endpoint = isStock ? "stock-adjust" : "pricing";
 
@@ -372,7 +374,12 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
       const payload = (await res.json().catch(() => null)) as
         | VariantPricingPatchResponse
         | null;
-      if (!isStock && payload?.price_changed && (payload.stock_on_hand ?? 0) > 0) {
+      if (
+        promptReprint &&
+        !isStock &&
+        payload?.price_changed &&
+        (payload.stock_on_hand ?? 0) > 0
+      ) {
         const currentVariant = variants.find((variant) => variant.id === variantId);
         const effectiveRetail =
           payload.effective_retail ??
@@ -389,7 +396,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
           stockOnHand: payload.stock_on_hand ?? 0,
         });
       }
-      onVariantUpdated();
+      if (refreshParent) onVariantUpdated();
       return payload;
     },
     [baseUrl, apiAuth, onVariantUpdated, variants],
@@ -412,13 +419,15 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
     try {
       await Promise.all(
         [...selectedIds].map((id) =>
-          patchVariant(id, { web_published: status }),
+          patchVariant(id, { web_published: status }, { refreshParent: false }),
         ),
       );
       toast(`Successfully updated ${selectedIds.size} variants`, "success");
       setSelectedIds(new Set());
     } catch {
       toast("Some updates failed", "error");
+    } finally {
+      onVariantUpdated();
     }
   };
 
@@ -426,13 +435,15 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
     try {
       await Promise.all(
         [...selectedIds].map((id) =>
-          patchVariant(id, { track_low_stock: status }),
+          patchVariant(id, { track_low_stock: status }, { refreshParent: false }),
         ),
       );
       toast(`Tracking updated for ${selectedIds.size} variants`, "success");
       setSelectedIds(new Set());
     } catch {
       toast("Update failed", "error");
+    } finally {
+      onVariantUpdated();
     }
   };
 
@@ -1024,7 +1035,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                         patchVariant(id, {
                           quantity_delta: delta,
                           notes: batchStockReason.trim(),
-                        }),
+                        }, { refreshParent: false }),
                       ),
                     );
                     toast("Count correction complete", "success");
@@ -1037,6 +1048,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                   } catch (error) {
                     toast(error instanceof Error ? error.message : "Count correction failed", "error");
                   } finally {
+                    onVariantUpdated();
                     setBatchStockSubmitting(false);
                   }
                 }}
@@ -1131,7 +1143,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                       }
                       return patchVariant(id, {
                         retail_price_override: centsToFixed2(finalPriceCents),
-                      });
+                      }, { refreshParent: false, promptReprint: false });
                     });
 
                     const responses = await Promise.all(updates);
@@ -1170,6 +1182,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                       "error",
                     );
                   } finally {
+                    onVariantUpdated();
                     setBatchPriceSubmitting(false);
                   }
                 }}

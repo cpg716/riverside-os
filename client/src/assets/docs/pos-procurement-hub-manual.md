@@ -51,6 +51,7 @@ Use this workspace when you need to:
 - The receiving worksheet is the source for prefilled tag quantities.
 - Direct invoices and standard POs both flow through Receive Stock for the final receipt step.
 - The stock status chip reports when stock was actually checked. **Stock unavailable** means the current lookup failed; retry before treating an empty list or old count as current stock.
+- Product search waits for typing to pause and keeps the current stock rows visible until the latest result arrives. **Waiting for typing** and **Refreshing stock** make that state explicit.
 
 ## What happens next
 

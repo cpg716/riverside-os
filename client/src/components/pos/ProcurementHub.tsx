@@ -13,6 +13,7 @@ import { parseMoney, formatMoney } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { sortVariantsByVariation } from "../../lib/variantSort";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 
 interface BoardRow {
   variant_id: string;
@@ -48,7 +49,7 @@ interface ProcurementHubProps {
   onAddItemToCart: (sku: string) => void;
 }
 
-const PAGE_SIZE = 120;
+const PAGE_SIZE = 80;
 
 function sortVariantsForPicker(variants: Variant[]): Variant[] {
   return sortVariantsByVariation(variants);
@@ -107,6 +108,7 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
     [backofficeHeaders],
   );
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebouncedValue(search.trim(), 300);
   const [boardRows, setBoardRows] = useState<BoardRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -119,6 +121,26 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
   const abortRef = useRef<AbortController | null>(null);
 
   const baseUrl = getBaseUrl();
+  const searchSettling = search.trim() !== debouncedSearch;
+  const searchNeedsMoreCharacters = !searchSettling && debouncedSearch.length === 1;
+  const stockStatusLabel = loadError
+    ? "Stock unavailable"
+    : searchSettling
+      ? "Waiting for typing…"
+      : searchNeedsMoreCharacters
+        ? "Enter 2 characters — current stock stays visible"
+        : loading
+          ? "Refreshing stock…"
+          : lastLoadedAt
+            ? `Stock checked ${lastLoadedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+            : "Stock not loaded";
+  const stockStatusTone = loadError
+    ? "ui-status-warn"
+    : searchSettling || searchNeedsMoreCharacters || loading
+      ? "ui-status-info"
+      : lastLoadedAt
+        ? "ui-status-ok"
+        : "ui-status-info";
 
   const products = useMemo(() => boardRowsToProducts(boardRows), [boardRows]);
 
@@ -129,7 +151,7 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
 
   useEffect(() => {
     setPickerProduct(null);
-  }, [search]);
+  }, [debouncedSearch]);
 
   useEffect(() => {
     if (!pickerProduct) return;
@@ -141,10 +163,11 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
   const fetchPage = useCallback(
     async (offset: number, signal: AbortSignal): Promise<BoardRow[]> => {
       const params = new URLSearchParams();
-      const q = search.trim();
+      const q = debouncedSearch;
       if (q.length >= 2) params.set("search", q);
       params.set("limit", String(PAGE_SIZE));
       params.set("offset", String(offset));
+      params.set("include_stats", "false");
       const res = await fetch(
         `${baseUrl}/api/products/control-board?${params.toString()}`,
         { headers: apiAuth(), signal },
@@ -153,21 +176,18 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
       const data = (await res.json()) as { rows: BoardRow[] };
       return data.rows ?? [];
     },
-    [baseUrl, search, apiAuth],
+    [apiAuth, baseUrl, debouncedSearch],
   );
 
   useEffect(() => {
-    const t = search.trim();
+    const query = debouncedSearch;
     const requestId = ++requestRef.current;
     abortRef.current?.abort();
     abortRef.current = null;
     setLoading(false);
     setLoadingMore(false);
     setLoadError(null);
-    setBoardRows([]);
-    setHasMore(false);
-    setLastLoadedAt(null);
-    if (t.length === 1) {
+    if (query.length === 1) {
       return;
     }
     const run = async () => {
@@ -190,9 +210,8 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
         if (abortRef.current === controller) abortRef.current = null;
       }
     };
-    const timer = setTimeout(() => void run(), 300);
-    return () => clearTimeout(timer);
-  }, [fetchPage, retryNonce, search]);
+    void run();
+  }, [debouncedSearch, fetchPage, retryNonce]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMore || loading) return;
@@ -251,16 +270,10 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
                 Search products and stock
               </p>
             </div>
-            <div className={`${loadError ? "ui-status-warn" : lastLoadedAt ? "ui-status-ok" : "ui-status-info"} ui-pill flex shrink-0 items-center gap-1.5 px-3 py-2`}>
+            <div role="status" aria-live="polite" className={`${stockStatusTone} ui-pill flex shrink-0 items-center gap-1.5 px-3 py-2`}>
               <TrendingUp size={14} className="shrink-0" aria-hidden />
               <span className="text-[11px] font-bold sm:text-xs">
-                {loadError
-                  ? "Stock unavailable"
-                  : loading
-                    ? "Refreshing stock…"
-                    : lastLoadedAt
-                      ? `Stock checked ${lastLoadedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-                      : "Stock not loaded"}
+                {stockStatusLabel}
               </span>
             </div>
           </header>
@@ -274,7 +287,7 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
               type="search"
               enterKeyHint="search"
               autoComplete="off"
-              placeholder="Search (2+ characters)…"
+              placeholder="Search partial product + SKU (2+ characters)…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="ui-input min-h-[48px] w-full pl-11 text-base sm:text-sm"

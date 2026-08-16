@@ -67,6 +67,17 @@ const structuralContracts = [
   [weddingQueries.includes("index_results_are_authoritative"), "wedding Meilisearch authority gate"],
   [meilisearchSearch.includes("candidate_ids_may_be_truncated"), "candidate-cap fallback signal"],
   [meilisearchSync.includes("finish_incremental_task"), "incremental task completion tracking"],
+  [meilisearchSync.includes("automatic_reindex_need"), "persisted automatic rebuild detection"],
+  [meilisearchSync.includes("FULL_REINDEX_MUTEX"), "single-flight full rebuild coordination"],
+  [
+    meilisearchSync.includes("last_verified_at ASC NULLS FIRST"),
+    "pending search revision verification priority",
+  ],
+  [
+    meilisearchSync.includes("INDEX_HELP,") &&
+      meilisearchSync.includes("load_help_chunk_docs_with_policies"),
+    "Help index background count verification",
+  ],
   [meilisearchSync.match(/delete_document\(/g)?.length === 1, "centralized incremental delete task tracking"],
   [
     meilisearchSync.includes(

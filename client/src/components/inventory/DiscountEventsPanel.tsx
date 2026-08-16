@@ -562,7 +562,7 @@ export default function DiscountEventsPanel() {
         // Fuzzy search remains available through the explicit picker. The scan-to-add
         // action accepts only a literal identifier match and never a ranked first row.
         const res = await fetch(
-          `${baseUrl}/api/products/control-board?search=${encodeURIComponent(trimmed)}&limit=8`,
+          `${baseUrl}/api/products/control-board?search=${encodeURIComponent(trimmed)}&limit=8&include_stats=false`,
           { headers },
         );
         if (!res.ok) return { kind: "unavailable" };

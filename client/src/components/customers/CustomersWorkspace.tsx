@@ -91,7 +91,7 @@ async function downloadLightspeedImportIssuesCsv(
 }
 
 /** Must match server `browse` max clamp (1000); keep ≤ 1000. */
-const BROWSE_PAGE_SIZE = 500;
+const BROWSE_PAGE_SIZE = 100;
 
 interface CustomersWorkspaceProps {
   onOpenWeddingParty: (partyId: string) => void;
@@ -497,6 +497,8 @@ export default function CustomersWorkspace({
   );
   const browseFiltersKeyRef = useRef(browseFiltersKey);
   browseFiltersKeyRef.current = browseFiltersKey;
+  const browseSearchSettling = _q.trim() !== _qDebounced;
+  const browseUpdating = browseSearchSettling || loading;
 
   useEffect(() => {
     if (posSurface) {
@@ -574,7 +576,7 @@ export default function CustomersWorkspace({
   );
 
   useEffect(() => {
-    void loadFirstPage(true);
+    void loadFirstPage(false);
   }, [browseFiltersKey, loadFirstPage]);
 
   useEffect(() => () => {
@@ -1159,7 +1161,7 @@ export default function CustomersWorkspace({
                   aria-label="Search customers"
                   value={_q}
                   onChange={(e) => _setQ(e.target.value)}
-                  placeholder="Search name, code, company, contact..."
+                  placeholder="Try Ch Gar, phone, code, or company..."
                   className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
                 />
               </div>
@@ -1290,16 +1292,20 @@ export default function CustomersWorkspace({
                   </select>
                 </label>
               </div>
-              <div className="text-[10px] font-black uppercase tracking-widest text-app-text-disabled">
-                {rows.length} records detected
+              <div
+                role="status"
+                aria-live="polite"
+                className="text-[10px] font-black uppercase tracking-widest text-app-text-disabled"
+              >
+                {browseUpdating ? "Updating customer results…" : `${rows.length} records detected`}
               </div>
             </div> : (
-              <div className="border-b border-app-border bg-app-surface-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted lg:px-5">
-                {loading ? "Finding customers…" : `${rows.length} recent or matching customer${rows.length === 1 ? "" : "s"}`}
+              <div role="status" aria-live="polite" className="border-b border-app-border bg-app-surface-3 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted lg:px-5">
+                {browseUpdating ? "Updating customer results…" : `${rows.length} recent or matching customer${rows.length === 1 ? "" : "s"}`}
               </div>
             )}
 
-            <div className="grid gap-3 p-3 lg:hidden">
+            <div className={`grid gap-3 p-3 transition-opacity lg:hidden ${browseUpdating && rows.length > 0 ? "opacity-60" : ""}`} aria-busy={browseUpdating}>
               {browseLoadFailed && (
                 <div className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-warning">
                   Customer lookup is temporarily unavailable. Try refresh.
@@ -1473,7 +1479,8 @@ export default function CustomersWorkspace({
               onFocus={() => _setTableFocus(true)}
               onBlur={() => _setTableFocus(false)}
               onKeyDown={onTableKeyDown}
-              className="ui-table-shell hidden min-w-0 outline-none lg:block"
+              className={`ui-table-shell hidden min-w-0 outline-none transition-opacity lg:block ${browseUpdating && rows.length > 0 ? "opacity-60" : ""}`}
+              aria-busy={browseUpdating}
             >
               {browseLoadFailed && (
                 <div className="border-b border-app-warning/20 bg-app-warning/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-warning">

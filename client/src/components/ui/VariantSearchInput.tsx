@@ -62,7 +62,8 @@ export default function VariantSearchInput({
     try {
       const params = new URLSearchParams({
         search: q,
-        limit: "200",
+        limit: "80",
+        include_stats: "false",
       });
       if (productId) params.set("product_id", productId);
       if (expandParentMatches) params.set("expand_parent_matches", "true");

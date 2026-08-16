@@ -126,9 +126,10 @@ RIVERSIDE_JOB_TIMEOUT=300
 # =============================================================================
 # External Integrations
 # =============================================================================
-# Meilisearch (optional; independent of Redis)
+# Meilisearch (required by strict production; independent of Redis)
 RIVERSIDE_MEILISEARCH_URL=http://meilisearch:7700
 RIVERSIDE_MEILISEARCH_API_KEY=<match-the-private-self-hosted-service-key>
+RIVERSIDE_MEILISEARCH_AUTO_REPAIR_ENABLED=true
 
 # QBO (optional)
 RIVERSIDE_QBO_CLIENT_ID=your_qbo_client_id

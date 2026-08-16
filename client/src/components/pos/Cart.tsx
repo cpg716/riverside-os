@@ -5447,7 +5447,7 @@ export default function Cart({
               ref={searchInputRef}
               type="text"
               data-testid="pos-product-search"
-              placeholder="Search Name, SKU, or Supplier SKUs..."
+              placeholder="Search partial product + style/SKU..."
               value={search}
               onFocus={() => setSearchFocused(true)}
               onChange={(e) => {

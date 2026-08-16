@@ -501,7 +501,7 @@ export default function ReceivingBay({ poId, onComplete, onClose, onOpenAddItem 
         // The server exact resolver is the only authority for automatic selection.
         // A fuzzy result may guide staff to the picker, but never proves uniqueness.
         const res = await fetchWithTimeout(
-          `${BASE_URL}/api/products/control-board?search=${encodeURIComponent(trimmed)}&limit=8`,
+          `${BASE_URL}/api/products/control-board?search=${encodeURIComponent(trimmed)}&limit=8&include_stats=false`,
           { headers },
           RECEIVING_LOOKUP_TIMEOUT_MS,
         );

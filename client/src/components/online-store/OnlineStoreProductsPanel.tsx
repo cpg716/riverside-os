@@ -149,6 +149,7 @@ export default function OnlineStoreProductsPanel({
     try {
       const params = new URLSearchParams();
       params.set("limit", "5000");
+      params.set("include_stats", "false");
       if (query.trim()) params.set("search", query.trim());
       const res = await fetch(
         apiUrl(baseUrl, `/api/inventory/control-board?${params.toString()}`),

@@ -229,6 +229,18 @@ for (const copy of [
     "Windows release builds must cancel superseded same-tag runs, restore workspace outputs, overlap compilation with pre-retag checks, and keep publication gated",
   );
 }
+for (const proof of [
+  'Get-ScheduledTask -TaskName "Riverside OS Meilisearch"',
+  "$readyData.search.authoritative",
+  "$readyData.search.worker_healthy",
+  "$readyData.search.heartbeat_current",
+]) {
+  assertIncludes(
+    "deployment/windows/audit-system.ps1",
+    proof,
+    "Main Hub audit must prove Meilisearch runtime and automatic-maintenance readiness",
+  );
+}
 const windowsReleaseWorkflow = read(
   ".github/workflows/windows-deployment-package.yml",
 );
@@ -780,6 +792,8 @@ for (const copy of [
   "data-incompatible-",
   "--no-analytics",
   "--schedule-snapshot=86400",
+  "-RestartCount 999",
+  "-StartWhenAvailable",
   "Replaced the legacy Meilisearch development key with a private Main Hub key.",
   "Restored the previous Meilisearch service key after the failed update.",
 ]) {

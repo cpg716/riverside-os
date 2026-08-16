@@ -8,7 +8,7 @@ use meilisearch_sdk::task_info::TaskInfo;
 use serde::Serialize;
 use sqlx::PgPool;
 use std::sync::{Arc, OnceLock};
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, Semaphore};
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
@@ -22,13 +22,15 @@ use crate::logic::meilisearch_documents::{
     StaffDoc, StoreProductDoc, TaskDoc, TransactionDoc, VendorDoc, WeddingPartyDoc,
 };
 use futures_util::StreamExt;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const MAX_INCREMENTAL_MEILI_TASKS: usize = 4;
 static INCREMENTAL_MEILI_SEMAPHORE: OnceLock<Arc<Semaphore>> = OnceLock::new();
-static VERIFICATION_CURSOR: AtomicUsize = AtomicUsize::new(0);
+static FULL_REINDEX_MUTEX: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
+static SUCCESSFUL_FULL_REINDEX_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 pub const INDEX_VERIFICATION_MAX_AGE_SECONDS: i64 = 300;
+pub const AUTOMATIC_REINDEX_MAX_AGE_HOURS: i64 = 30;
 
 pub const VERIFIED_INDEXES: &[&str] = &[
     INDEX_VARIANTS,
@@ -43,7 +45,165 @@ pub const VERIFIED_INDEXES: &[&str] = &[
     INDEX_APPOINTMENTS,
     INDEX_TASKS,
     INDEX_ALTERATIONS,
+    INDEX_HELP,
 ];
+
+#[derive(Debug, Clone)]
+pub struct AutomaticReindexNeed {
+    pub reason: String,
+    pub last_attempt_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct AutomaticReindexState {
+    missing_index_count: i64,
+    failed_index_count: i64,
+    divergent_index_count: i64,
+    mismatched_index_count: i64,
+    rebuild_is_success: Option<bool>,
+    rebuild_last_success_at: Option<chrono::DateTime<chrono::Utc>>,
+    rebuild_last_attempt_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub fn automatic_reindex_enabled() -> bool {
+    !std::env::var("RIVERSIDE_MEILISEARCH_AUTO_REPAIR_ENABLED")
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "0" | "false" | "off" | "disabled" | "no"
+            )
+        })
+        .unwrap_or(false)
+}
+
+pub async fn unverified_index_count(pool: &PgPool) -> Result<i64, sqlx::Error> {
+    let tracked_indices = VERIFIED_INDEXES
+        .iter()
+        .map(|index_name| (*index_name).to_string())
+        .collect::<Vec<_>>();
+    sqlx::query_scalar(
+        r#"
+        WITH expected(index_name) AS (
+            SELECT UNNEST($1::text[])
+        )
+        SELECT COUNT(*)::bigint
+        FROM expected
+        LEFT JOIN meilisearch_sync_status AS status USING (index_name)
+        WHERE status.index_name IS NULL
+           OR NOT COALESCE(status.is_success, FALSE)
+           OR status.source_revision <> status.indexed_revision
+           OR status.verified_revision IS DISTINCT FROM status.source_revision
+           OR status.verification_state <> 'verified'
+           OR status.last_verified_at IS NULL
+           OR status.last_verified_at
+                < NOW() - make_interval(secs => $2::double precision)
+        "#,
+    )
+    .bind(&tracked_indices)
+    .bind(INDEX_VERIFICATION_MAX_AGE_SECONDS)
+    .fetch_one(pool)
+    .await
+}
+
+fn automatic_reindex_reason(
+    state: &AutomaticReindexState,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<String> {
+    if state.rebuild_is_success.is_none() {
+        Some("No complete search rebuild has been recorded yet.".to_string())
+    } else if state.missing_index_count > 0 {
+        Some(format!(
+            "{} search index area(s) have not completed an initial build.",
+            state.missing_index_count
+        ))
+    } else if state.rebuild_is_success == Some(false) {
+        Some("The latest full search rebuild did not complete.".to_string())
+    } else if state.failed_index_count > 0 {
+        Some(format!(
+            "{} search index area(s) have an unresolved incremental update failure.",
+            state.failed_index_count
+        ))
+    } else if state.divergent_index_count > 0 {
+        Some(format!(
+            "{} search index area(s) are behind their PostgreSQL revision.",
+            state.divergent_index_count
+        ))
+    } else if state.mismatched_index_count > 0 {
+        Some(format!(
+            "{} search index area(s) have a PostgreSQL/Meilisearch count mismatch.",
+            state.mismatched_index_count
+        ))
+    } else if state.rebuild_last_success_at.is_none_or(|last_success| {
+        last_success < now - chrono::Duration::hours(AUTOMATIC_REINDEX_MAX_AGE_HOURS)
+    }) {
+        Some(format!(
+            "The last complete search rebuild is approaching the {}-hour authority limit.",
+            crate::logic::meilisearch_search::AUTHORITATIVE_INDEX_MAX_AGE_HOURS
+        ))
+    } else {
+        None
+    }
+}
+
+/// Return the persisted reason a staged rebuild is needed. Pending verification is intentionally
+/// excluded: the lightweight verifier can prove a successful incremental update without rebuilding
+/// the catalog. Sticky task failures, revision divergence, count mismatches, and aging aggregate
+/// proof require the full atomic repair path.
+pub async fn automatic_reindex_need(
+    pool: &PgPool,
+) -> Result<Option<AutomaticReindexNeed>, sqlx::Error> {
+    let tracked_indices = VERIFIED_INDEXES
+        .iter()
+        .map(|index_name| (*index_name).to_string())
+        .collect::<Vec<_>>();
+    let state = sqlx::query_as::<_, AutomaticReindexState>(
+        r#"
+        WITH expected(index_name) AS (
+            SELECT UNNEST($1::text[])
+        ), index_health AS (
+            SELECT
+                COUNT(*) FILTER (WHERE status.index_name IS NULL)::bigint AS missing_index_count,
+                COUNT(*) FILTER (
+                    WHERE status.index_name IS NOT NULL
+                      AND NOT COALESCE(status.is_success, FALSE)
+                )::bigint AS failed_index_count,
+                COUNT(*) FILTER (
+                    WHERE status.index_name IS NOT NULL
+                      AND status.source_revision <> status.indexed_revision
+                )::bigint AS divergent_index_count,
+                COUNT(*) FILTER (
+                    WHERE status.index_name IS NOT NULL
+                      AND status.verification_state = 'count_mismatch'
+                )::bigint AS mismatched_index_count
+            FROM expected
+            LEFT JOIN meilisearch_sync_status AS status USING (index_name)
+        )
+        SELECT
+            index_health.missing_index_count,
+            index_health.failed_index_count,
+            index_health.divergent_index_count,
+            index_health.mismatched_index_count,
+            rebuild.is_success AS rebuild_is_success,
+            rebuild.last_success_at AS rebuild_last_success_at,
+            rebuild.last_attempt_at AS rebuild_last_attempt_at
+        FROM index_health
+        LEFT JOIN meilisearch_sync_status AS rebuild
+          ON rebuild.index_name = 'ros_reindex_run'
+        "#,
+    )
+    .bind(&tracked_indices)
+    .fetch_one(pool)
+    .await?;
+
+    let reason = automatic_reindex_reason(&state, chrono::Utc::now());
+
+    Ok(reason.map(|reason| AutomaticReindexNeed {
+        reason,
+        last_attempt_at: (state.rebuild_is_success == Some(false))
+            .then_some(state.rebuild_last_attempt_at)
+            .flatten(),
+    }))
+}
 
 #[derive(sqlx::FromRow)]
 struct VariantRow {
@@ -1279,7 +1439,15 @@ pub async fn upsert_alteration_document(client: &Client, pool: &PgPool, alterati
     .await;
 }
 
-async fn source_document_count(pool: &PgPool, index_name: &str) -> Result<i64, sqlx::Error> {
+async fn source_document_count(pool: &PgPool, index_name: &str) -> anyhow::Result<i64> {
+    if index_name == INDEX_HELP {
+        return Ok(
+            crate::logic::help_corpus::load_help_chunk_docs_with_policies(pool)
+                .await
+                .map_err(|error| anyhow::anyhow!(error.to_string()))?
+                .len() as i64,
+        );
+    }
     let sql = match index_name {
         INDEX_VARIANTS => "SELECT COUNT(*)::bigint FROM product_variants pv INNER JOIN products p ON p.id = pv.product_id WHERE p.is_active = TRUE",
         INDEX_STORE_PRODUCTS => "SELECT COUNT(*)::bigint FROM products p WHERE p.is_active = TRUE AND NULLIF(BTRIM(p.catalog_handle::text), '') IS NOT NULL AND EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND COALESCE(pv.web_published, FALSE))",
@@ -1293,35 +1461,53 @@ async fn source_document_count(pool: &PgPool, index_name: &str) -> Result<i64, s
         INDEX_APPOINTMENTS => "SELECT COUNT(*)::bigint FROM wedding_appointments",
         INDEX_TASKS => "SELECT COUNT(*)::bigint FROM task_instance",
         INDEX_ALTERATIONS => "SELECT COUNT(*)::bigint FROM alteration_orders",
-        _ => return Err(sqlx::Error::Protocol(format!("unsupported Meilisearch verification index: {index_name}"))),
+        _ => anyhow::bail!("unsupported Meilisearch verification index: {index_name}"),
     };
-    sqlx::query_scalar(sql).fetch_one(pool).await
+    Ok(sqlx::query_scalar(sql).fetch_one(pool).await?)
 }
 
 /// Verify one derived index outside request handling. A proof only applies to the exact source
 /// revision observed before the count and Meilisearch-stat checks complete.
 pub async fn verify_next_index_authority(client: &Client, pool: &PgPool) {
-    let index_name = VERIFIED_INDEXES
-        [VERIFICATION_CURSOR.fetch_add(1, Ordering::Relaxed) % VERIFIED_INDEXES.len()];
-    let state: Result<Option<(i64, i64, bool)>, sqlx::Error> = sqlx::query_as(
-        "SELECT source_revision, indexed_revision, is_success FROM meilisearch_sync_status WHERE index_name = $1",
+    let tracked_indices = VERIFIED_INDEXES
+        .iter()
+        .map(|index_name| (*index_name).to_string())
+        .collect::<Vec<_>>();
+    let state: Result<Option<(String, i64, i64, bool)>, sqlx::Error> = sqlx::query_as(
+        r#"
+        SELECT index_name, source_revision, indexed_revision, is_success
+        FROM meilisearch_sync_status
+        WHERE index_name = ANY($1)
+          AND is_success = TRUE
+          AND source_revision = indexed_revision
+        ORDER BY
+            CASE
+                WHEN verified_revision IS DISTINCT FROM source_revision
+                  OR verification_state <> 'verified'
+                THEN 0
+                ELSE 1
+            END,
+            last_verified_at ASC NULLS FIRST,
+            index_name
+        LIMIT 1
+        "#,
     )
-    .bind(index_name)
+    .bind(&tracked_indices)
     .fetch_optional(pool)
     .await;
-    let Ok(Some((source_revision, indexed_revision, is_success))) = state else {
+    let Ok(Some((index_name, source_revision, indexed_revision, is_success))) = state else {
         return;
     };
     if !is_success || source_revision != indexed_revision {
         return;
     }
 
-    let source_count = match source_document_count(pool, index_name).await {
+    let source_count = match source_document_count(pool, &index_name).await {
         Ok(count) => count,
         Err(error) => {
             record_verification_failure(
                 pool,
-                index_name,
+                &index_name,
                 source_revision,
                 "source_count_failed",
                 &error.to_string(),
@@ -1330,12 +1516,12 @@ pub async fn verify_next_index_authority(client: &Client, pool: &PgPool) {
             return;
         }
     };
-    let document_count = match client.index(index_name).get_stats().await {
+    let document_count = match client.index(&index_name).get_stats().await {
         Ok(stats) if !stats.is_indexing => stats.number_of_documents as i64,
         Ok(_) => {
             record_verification_failure(
                 pool,
-                index_name,
+                &index_name,
                 source_revision,
                 "indexing",
                 "Meilisearch is still processing tasks.",
@@ -1346,7 +1532,7 @@ pub async fn verify_next_index_authority(client: &Client, pool: &PgPool) {
         Err(error) => {
             record_verification_failure(
                 pool,
-                index_name,
+                &index_name,
                 source_revision,
                 "stats_unavailable",
                 &error.to_string(),
@@ -1381,7 +1567,7 @@ pub async fn verify_next_index_authority(client: &Client, pool: &PgPool) {
           AND is_success = TRUE
         "#,
     )
-    .bind(index_name)
+    .bind(&index_name)
     .bind(source_count)
     .bind(document_count)
     .bind(state)
@@ -1605,9 +1791,24 @@ async fn swap_temp_into_live(
 }
 
 pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::Result<()> {
+    let observed_generation = SUCCESSFUL_FULL_REINDEX_GENERATION.load(Ordering::Acquire);
+    let reindex_mutex = FULL_REINDEX_MUTEX
+        .get_or_init(|| Arc::new(Mutex::new(())))
+        .clone();
+    let _guard = reindex_mutex.lock().await;
+    if SUCCESSFUL_FULL_REINDEX_GENERATION.load(Ordering::Acquire) != observed_generation {
+        tracing::info!(
+            "Meilisearch full rebuild request joined an already successful in-process rebuild"
+        );
+        return Ok(());
+    }
+
     let result = reindex_all_meilisearch_inner(client, pool).await;
     match &result {
-        Ok(()) => record_sync_status(pool, "ros_reindex_run", true, 0, None).await,
+        Ok(()) => {
+            record_sync_status(pool, "ros_reindex_run", true, 0, None).await;
+            SUCCESSFUL_FULL_REINDEX_GENERATION.fetch_add(1, Ordering::Release);
+        }
         Err(e) => record_sync_status(pool, "ros_reindex_run", false, 0, Some(&e.to_string())).await,
     }
     result
@@ -2397,4 +2598,45 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
 
     tracing::info!(variants = n_variants, "Meilisearch reindex completed");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{automatic_reindex_reason, AutomaticReindexState};
+
+    fn healthy_state(now: chrono::DateTime<chrono::Utc>) -> AutomaticReindexState {
+        AutomaticReindexState {
+            missing_index_count: 0,
+            failed_index_count: 0,
+            divergent_index_count: 0,
+            mismatched_index_count: 0,
+            rebuild_is_success: Some(true),
+            rebuild_last_success_at: Some(now - chrono::Duration::hours(1)),
+            rebuild_last_attempt_at: Some(now - chrono::Duration::hours(1)),
+        }
+    }
+
+    #[test]
+    fn healthy_current_indexes_do_not_queue_a_full_rebuild() {
+        let now = chrono::Utc::now();
+        assert!(automatic_reindex_reason(&healthy_state(now), now).is_none());
+    }
+
+    #[test]
+    fn sticky_incremental_failure_queues_automatic_repair() {
+        let now = chrono::Utc::now();
+        let mut state = healthy_state(now);
+        state.failed_index_count = 1;
+        assert!(automatic_reindex_reason(&state, now)
+            .is_some_and(|reason| reason.contains("incremental update failure")));
+    }
+
+    #[test]
+    fn aging_rebuild_queues_repair_before_authority_expires() {
+        let now = chrono::Utc::now();
+        let mut state = healthy_state(now);
+        state.rebuild_last_success_at = Some(now - chrono::Duration::hours(31));
+        assert!(automatic_reindex_reason(&state, now)
+            .is_some_and(|reason| reason.contains("approaching")));
+    }
 }

@@ -146,10 +146,34 @@ pub async fn run_integration_heartbeat(
     let (ms_status, ms_detail) = if let Some(client) = meilisearch_client {
         let ms_h = crate::logic::meilisearch_client::health_check(client).await;
         if ms_h.reachable {
+            let unverified_index_count =
+                crate::logic::meilisearch_sync::unverified_index_count(pool).await;
             match crate::logic::meilisearch_search::full_reindex_proof(pool).await {
-                Ok(proof) if proof.is_fresh() => (
-                    "GOOD".to_string(),
-                    format!("Meilisearch is reachable. {}", proof.detail),
+                Ok(proof)
+                    if proof.is_fresh()
+                        && unverified_index_count
+                            .as_ref()
+                            .is_ok_and(|count| *count == 0) =>
+                {
+                    (
+                        "GOOD".to_string(),
+                        format!("Meilisearch is reachable. {}", proof.detail),
+                    )
+                }
+                Ok(proof) if unverified_index_count.as_ref().is_ok_and(|count| *count > 0) => (
+                    "CAUTION".to_string(),
+                    format!(
+                        "Meilisearch is reachable, but {} search index area(s) await current revision/count verification. {}",
+                        unverified_index_count.unwrap_or_default(),
+                        proof.detail
+                    ),
+                ),
+                Ok(proof) if unverified_index_count.is_err() => (
+                    "CAUTION".to_string(),
+                    format!(
+                        "Meilisearch is reachable, but current revision/count proof could not be read. {}",
+                        proof.detail
+                    ),
                 ),
                 Ok(proof) => (
                     "CAUTION".to_string(),

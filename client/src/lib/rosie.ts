@@ -1201,6 +1201,7 @@ export async function rosieChatCompletions(
         "Content-Type": "application/json",
         ...(options?.headers ?? {}),
       },
+      signal: options?.signal,
       body: JSON.stringify(rosiePayload),
     },
   );
@@ -2472,6 +2473,7 @@ export async function rosieProductCatalogAnalyze(
   productId: string,
   options?: {
     headers?: Record<string, string>;
+    signal?: AbortSignal;
   },
 ): Promise<RosieProductCatalogAnalysisResponse> {
   const response = await fetch(
@@ -2482,6 +2484,7 @@ export async function rosieProductCatalogAnalyze(
         "Content-Type": "application/json",
         ...(options?.headers ?? {}),
       },
+      signal: options?.signal,
       body: JSON.stringify({ product_id: productId }),
     },
   );
@@ -2505,6 +2508,7 @@ export async function rosieProductCatalogSuggest(
   productId: string,
   options?: {
     headers?: Record<string, string>;
+    signal?: AbortSignal;
   },
 ): Promise<RosieProductCatalogSuggestionResponse> {
   const response = await fetch(
@@ -2515,6 +2519,7 @@ export async function rosieProductCatalogSuggest(
         "Content-Type": "application/json",
         ...(options?.headers ?? {}),
       },
+      signal: options?.signal,
       body: JSON.stringify({ product_id: productId }),
     },
   );

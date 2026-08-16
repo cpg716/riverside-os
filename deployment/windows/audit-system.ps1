@@ -371,6 +371,29 @@ if ($llamaTask) {
   Write-AuditFailure "Scheduled task 'Riverside OS LLM Host' is missing. ROSIE will not restart reliably with the Main Hub."
 }
 
+# Meilisearch must be independently alive before the API can provide its primary fast search path.
+$meilisearchUrl = "http://127.0.0.1:7700"
+if ($config -and $config.server -and $config.server.environment -and $config.server.environment.RIVERSIDE_MEILISEARCH_URL) {
+  $meilisearchUrl = "$($config.server.environment.RIVERSIDE_MEILISEARCH_URL)".Trim().TrimEnd('/')
+}
+Write-Host "Testing Meilisearch at $meilisearchUrl ..."
+try {
+  $meilisearchHealth = Invoke-WebRequest -Uri "$meilisearchUrl/health" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+  if ($meilisearchHealth.StatusCode -eq 200) {
+    Write-Host "[OK] Meilisearch is responding at $meilisearchUrl." -ForegroundColor Green
+  } else {
+    Write-AuditFailure "Meilisearch returned HTTP $($meilisearchHealth.StatusCode) at $meilisearchUrl."
+  }
+} catch {
+  Write-AuditFailure "Meilisearch is not reachable at $meilisearchUrl. Fast product and customer search is unavailable until the 'Riverside OS Meilisearch' task is repaired."
+}
+$meilisearchTask = Get-ScheduledTask -TaskName "Riverside OS Meilisearch" -ErrorAction SilentlyContinue
+if ($meilisearchTask) {
+  Write-Host "[OK] Scheduled task 'Riverside OS Meilisearch' is registered. State: $($meilisearchTask.State)" -ForegroundColor Green
+} else {
+  Write-AuditFailure "Scheduled task 'Riverside OS Meilisearch' is missing. Search will not restart reliably with the Main Hub."
+}
+
 # 5. Core API Server Service Checks
 Write-Host ""
 Write-Host "--- Core API Server Checks ---" -ForegroundColor Blue
@@ -426,6 +449,15 @@ try {
         Write-AuditFailure "API readiness is '$($readyData.status)', not 'ready'. Review unavailable or degraded components before go-live."
     } else {
         Write-Host "[OK] API readiness reports ready." -ForegroundColor Green
+    }
+    if (-not $readyData.search -or -not [bool]$readyData.search.configured) {
+        Write-AuditFailure "API readiness does not report a configured Meilisearch runtime."
+    } elseif (-not [bool]$readyData.search.authoritative) {
+        Write-AuditFailure "Meilisearch is not authoritative. $($readyData.search.detail)"
+    } elseif (-not [bool]$readyData.search.worker_healthy -or -not [bool]$readyData.search.heartbeat_current) {
+        Write-AuditFailure "Meilisearch is current, but its automatic maintenance or connectivity heartbeat is stale."
+    } else {
+        Write-Host "[OK] Meilisearch is connected, current, count-verified, and maintained automatically." -ForegroundColor Green
     }
     if ($strictProduction) {
         $corsProbeOrigin = @($config.server.corsOrigins | ForEach-Object { "$($_)".Trim() } | Where-Object { $_ }) | Select-Object -First 1

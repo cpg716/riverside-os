@@ -18,6 +18,8 @@ type MeilisearchSyncRow = {
   error_message: string | null;
   document_count?: number | null;
   count_parity?: boolean | null;
+  verified_source_count?: number | null;
+  last_verified_at?: string | null;
   recent_enough?: boolean;
   search_ready?: boolean;
   health_message?: string;
@@ -45,6 +47,9 @@ type MeilisearchStatusResponse = {
   indices: MeilisearchSyncRow[];
   is_indexing: boolean;
   full_rebuild_current?: boolean;
+  automatic_repair_enabled?: boolean;
+  automatic_repair_needed?: boolean;
+  automatic_repair_message?: string | null;
 };
 
 function latestAttemptDateLabel(rows: MeilisearchSyncRow[]) {
@@ -77,6 +82,11 @@ export default function MeilisearchSettingsPanel() {
   >(null);
   const [meiliIndices, setMeiliIndices] = useState<MeilisearchSyncRow[]>([]);
   const [isIndexing, setIsIndexing] = useState(false);
+  const [automaticRepairEnabled, setAutomaticRepairEnabled] = useState(false);
+  const [automaticRepairNeeded, setAutomaticRepairNeeded] = useState(false);
+  const [automaticRepairMessage, setAutomaticRepairMessage] = useState<
+    string | null
+  >(null);
   const [meiliReindexBusy, setMeiliReindexBusy] = useState(false);
   const [meiliReindexConfirmOpen, setMeiliReindexConfirmOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -101,6 +111,9 @@ export default function MeilisearchSettingsPanel() {
         setMeiliVersionSupported(j.version_supported ?? null);
         setMeiliIndices(j.indices || []);
         setIsIndexing(j.is_indexing);
+        setAutomaticRepairEnabled(j.automatic_repair_enabled === true);
+        setAutomaticRepairNeeded(j.automatic_repair_needed === true);
+        setAutomaticRepairMessage(j.automatic_repair_message ?? null);
       } else {
         setMeiliConfigured(null);
         setMeiliConnectionOk(null);
@@ -108,6 +121,9 @@ export default function MeilisearchSettingsPanel() {
         setMeiliVersion(null);
         setMeiliExpectedVersion(null);
         setMeiliVersionSupported(null);
+        setAutomaticRepairEnabled(false);
+        setAutomaticRepairNeeded(false);
+        setAutomaticRepairMessage(null);
       }
     } catch {
       setMeiliConfigured(null);
@@ -117,6 +133,9 @@ export default function MeilisearchSettingsPanel() {
       setMeiliExpectedVersion(null);
       setMeiliVersionSupported(null);
       setMeiliIndices([]);
+      setAutomaticRepairEnabled(false);
+      setAutomaticRepairNeeded(false);
+      setAutomaticRepairMessage(null);
     } finally {
       setLoading(false);
     }
@@ -126,13 +145,15 @@ export default function MeilisearchSettingsPanel() {
     void fetchStatus();
   }, [fetchStatus]);
 
-  // Dynamic polling when indexing is active
+  // Keep the operations view live. Poll quickly during a rebuild and lightly while idle so an
+  // automatic repair that starts after this panel opens is represented without a manual refresh.
   useEffect(() => {
-    if (!isIndexing) return;
-
-    const interval = setInterval(() => {
-      void fetchStatus();
-    }, 3000); // Poll every 3 seconds while indexing
+    const interval = setInterval(
+      () => {
+        void fetchStatus();
+      },
+      isIndexing ? 3000 : 30000,
+    );
 
     return () => clearInterval(interval);
   }, [isIndexing, fetchStatus]);
@@ -288,6 +309,19 @@ export default function MeilisearchSettingsPanel() {
 
         {meiliConfigured === true &&
           meiliConnectionOk === true &&
+          automaticRepairEnabled &&
+          automaticRepairNeeded && (
+            <div className="ui-panel ui-tint-warning mb-8 px-4 py-3 text-xs text-app-text-muted leading-relaxed">
+              <p className="font-bold text-app-warning uppercase tracking-widest text-[10px] mb-1">
+                Automatic search repair queued
+              </p>
+              {automaticRepairMessage ||
+                "Riverside detected an incomplete search update and will rebuild the staged search copy automatically."}
+            </div>
+          )}
+
+        {meiliConfigured === true &&
+          meiliConnectionOk === true &&
           meiliVersionSupported === false && (
             <div className="ui-panel ui-tint-danger mb-8 px-4 py-3 text-xs text-app-text-muted leading-relaxed">
               <p className="font-bold text-app-danger uppercase tracking-widest text-[10px] mb-1">
@@ -337,7 +371,9 @@ export default function MeilisearchSettingsPanel() {
                       ? "Updating..."
                       : meiliConnectionReady && allIndicesReady
                         ? "All Healthy"
-                        : "Action Required"}
+                        : automaticRepairEnabled && automaticRepairNeeded
+                          ? "Self-Repair Queued"
+                          : "Action Required"}
                   </span>
                 </div>
               </div>
@@ -347,7 +383,15 @@ export default function MeilisearchSettingsPanel() {
                 </p>
                 <span className="text-sm font-black text-app-text flex items-center gap-2">
                   {meiliIndices
-                    .reduce((acc, i) => acc + i.row_count, 0)
+                    .filter((i) => i.index_name !== "ros_reindex_run")
+                    .reduce(
+                      (acc, i) =>
+                        acc +
+                        (i.document_count ??
+                          i.verified_source_count ??
+                          i.row_count),
+                      0,
+                    )
                     .toLocaleString()}{" "}
                   <span className="text-[10px] opacity-60">items</span>
                   {isIndexing && (
@@ -361,8 +405,9 @@ export default function MeilisearchSettingsPanel() {
                 </p>
                 <span className="text-sm font-black text-app-text">
                   {
-                    searchableIndices.filter((index) => index.search_ready !== true)
-                      .length
+                    searchableIndices.filter(
+                      (index) => index.search_ready !== true,
+                    ).length
                   }{" "}
                   <span className="text-[10px] opacity-60">areas</span>
                 </span>
@@ -473,11 +518,13 @@ export default function MeilisearchSettingsPanel() {
                     </div>
                     <div className="flex flex-col gap-1.5 mt-3">
                       <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-app-text-muted font-bold">
-                          SQL rows at rebuild
+                        <span className="text-app-text-muted font-bold">
+                          Verified SQL rows
                         </span>
                         <span className="text-app-text font-black">
-                          {idx.row_count.toLocaleString()}
+                          {(
+                            idx.verified_source_count ?? idx.row_count
+                          ).toLocaleString()}
                         </span>
                       </div>
                       {idx.document_count !== null &&
@@ -516,6 +563,19 @@ export default function MeilisearchSettingsPanel() {
                               : "Never"}
                         </span>
                       </div>
+                      {idx.last_verified_at && (
+                        <div className="flex justify-between items-center text-[9px]">
+                          <span className="text-app-text-muted font-bold">
+                            Last verified
+                          </span>
+                          <span className="text-app-text font-black opacity-80">
+                            {new Date(idx.last_verified_at).toLocaleTimeString(
+                              [],
+                              { hour: "2-digit", minute: "2-digit" },
+                            )}
+                          </span>
+                        </div>
+                      )}
                       {!isIndexing && !idx.is_success && idx.error_message && (
                         <div className="mt-2 text-[8px] font-bold text-app-danger bg-app-danger/10 p-2 rounded-lg border border-app-danger/10 break-words leading-tight">
                           {idx.error_message}

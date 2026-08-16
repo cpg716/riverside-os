@@ -292,7 +292,7 @@ export default function PosAlterationIntakeModal({
         fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`, {
           headers: apiAuth(),
         }),
-        fetch(`${baseUrl}/api/products/control-board?search=${encodeURIComponent(q)}&limit=50`, {
+        fetch(`${baseUrl}/api/products/control-board?search=${encodeURIComponent(q)}&limit=50&include_stats=false`, {
           headers: apiAuth(),
         }),
       ]);

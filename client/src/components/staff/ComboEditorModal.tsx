@@ -90,7 +90,7 @@ export default function ComboEditorModal({
     }
     const controller = new AbortController();
     setProductSearchLoading(true);
-    fetch(`${baseUrl}/api/products/control-board?search=${encodeURIComponent(query)}&limit=20`, {
+    fetch(`${baseUrl}/api/products/control-board?search=${encodeURIComponent(query)}&limit=20&include_stats=false`, {
       headers: backofficeHeaders(),
       signal: controller.signal,
     })
