@@ -1293,8 +1293,10 @@ export default function PodiumMessagingInboxSection({
   );
   const SelectedActivityIcon = selectedRow ? activityIcon(selectedRow) : MessageCircle;
   const callEventsMissing = health !== null && health.local_call_event_count === 0;
+  const historyNeedsAttention =
+    !syncBusy && Boolean(syncIssue || historyIncomplete);
   const hasSystemIssue = Boolean(
-    activeWebhookFailure || syncIssue || historyIncomplete || callEventsMissing,
+    activeWebhookFailure || historyNeedsAttention || callEventsMissing,
   );
 
   return (
@@ -1436,16 +1438,18 @@ export default function PodiumMessagingInboxSection({
               </span>
               <span
                 className={`ui-pill ${
-                  historyIncomplete || syncIssue
-                    ? "bg-app-warning/10 text-app-warning"
-                    : "bg-app-success/10 text-app-success"
+                  syncBusy
+                    ? "bg-app-info/10 text-app-info"
+                    : historyIncomplete || syncIssue
+                      ? "bg-app-warning/10 text-app-warning"
+                      : "bg-app-success/10 text-app-success"
                 }`}
               >
-                {historyIncomplete || syncIssue
-                  ? syncBusy
-                    ? "Pulling history"
-                    : "History incomplete"
-                  : "History current"}
+                {syncBusy
+                  ? "Pulling history"
+                  : historyIncomplete || syncIssue
+                    ? "History incomplete"
+                    : "History current"}
               </span>
             </div>
           </div>

@@ -222,6 +222,20 @@ test("Podium inbox keeps webhook and history status truthful", () => {
   );
 });
 
+test("Podium inbox treats an active history pull as progress, not an alert", () => {
+  expect(podiumInbox).toContain("const historyNeedsAttention =");
+  expect(podiumInbox).toContain(
+    "!syncBusy && Boolean(syncIssue || historyIncomplete)",
+  );
+  expect(podiumInbox).toContain(
+    "activeWebhookFailure || historyNeedsAttention || callEventsMissing",
+  );
+  expect(podiumInbox).toContain(
+    'syncBusy\n                    ? "bg-app-info/10 text-app-info"',
+  );
+  expect(podiumInbox).toContain('? "Pulling history"');
+});
+
 test("Podium inbox keeps unknown senders in the regular conversation flow", () => {
   expect(podiumMessaging).toContain("pub customer_id: Option<Uuid>");
   expect(podiumMessaging).toContain("LEFT JOIN customers c ON c.id = pc.customer_id");
