@@ -64,6 +64,7 @@ Use these governance rules:
 
 - A true no-result search is different from a lookup outage or stale index warning.
 - A failed final post, payment, pickup, refund, or QBO sync may already have partial evidence. Check the source record before retrying.
+- If recovery says its referenced Transaction is not present on the Main Hub, Riverside keeps the local payload as blocked evidence without inventing a Transaction link. Confirm whether the Main Hub was restored or reset, then have a manager review the recovery before dismissing it.
 - Back Office reports, QBO, and register close may use different date semantics. Use the manual for the workflow you are reconciling.
 - If a screenshot, manual, or ROSIE answer conflicts with the visible current workflow, follow the current workflow and log the documentation gap.
 

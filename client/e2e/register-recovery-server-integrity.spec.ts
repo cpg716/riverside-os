@@ -249,6 +249,67 @@ async function upsertRecovery(
 
 test.describe.configure({ mode: "serial" });
 
+test("missing Transaction recovery is preserved as blocked evidence instead of returning 500", async ({
+  request,
+}) => {
+  test.setTimeout(60_000);
+  const { sessionId, sessionToken } = await ensureOpenPrimarySession(request);
+  const missingTransactionId = crypto.randomUUID();
+  const recoveryKey = `print:missing-transaction-${crypto.randomUUID()}`;
+  const response = await request.post(`${apiBase()}/api/recovery`, {
+    headers: {
+      ...posHeaders(sessionId, sessionToken),
+      "Content-Type": "application/json",
+    },
+    data: {
+      client_job_key: recoveryKey,
+      kind: "receipt_print",
+      status: "pending",
+      register_session_id: sessionId,
+      transaction_id: missingTransactionId,
+      label: "Stale local receipt recovery",
+      payload: {
+        id: recoveryKey,
+        transactionId: missingTransactionId,
+        label: "Stale local receipt recovery",
+        printableBase64: "cHJlc2VydmVkLXJlY2Vp",
+        timestamp: Date.now(),
+        attempts: 1,
+      },
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await response.text();
+  expect(response.status(), bodyText.slice(0, 1000)).toBe(200);
+  expect(JSON.parse(bodyText)).toMatchObject({
+    client_job_key: recoveryKey,
+    kind: "receipt_print",
+    status: "blocked",
+    transaction_id: null,
+    last_error: expect.stringContaining(missingTransactionId),
+    payload: expect.objectContaining({
+      transactionId: missingTransactionId,
+    }),
+  });
+
+  const dismiss = await request.patch(
+    `${apiBase()}/api/recovery/${encodeURIComponent(recoveryKey)}`,
+    {
+      headers: {
+        ...posHeaders(sessionId, sessionToken),
+        "Content-Type": "application/json",
+      },
+      data: {
+        status: "dismissed",
+        resolution_note: "E2E stale local receipt recovery reviewed",
+      },
+      failOnStatusCode: false,
+    },
+  );
+  const dismissText = await dismiss.text();
+  expect(dismiss.status(), dismissText.slice(0, 1000)).toBe(204);
+});
+
 test("external checkout recovery requires exact final payment evidence and commits one audit", async ({
   request,
 }) => {

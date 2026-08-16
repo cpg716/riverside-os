@@ -2868,6 +2868,35 @@ async fn upsert_recovery_job(
             ));
         }
     }
+    let transaction_id = if let Some(transaction_id) = request.transaction_id {
+        let transaction_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM transactions WHERE id = $1)")
+                .bind(transaction_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        transaction_exists.then_some(transaction_id)
+    } else {
+        None
+    };
+    let missing_transaction_error = request.transaction_id.filter(|_| transaction_id.is_none()).map(
+        |transaction_id| {
+            format!(
+                "Referenced Transaction {transaction_id} is not present on the Main Hub. Recovery evidence is preserved for Manager review."
+            )
+        },
+    );
+    let persisted_status = if missing_transaction_error.is_some() {
+        "blocked"
+    } else {
+        status
+    };
+    let persisted_last_error = missing_transaction_error.as_deref().or_else(|| {
+        request
+            .last_error
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    });
     let row = sqlx::query_as(
         r#"
         INSERT INTO operational_recovery_job (
@@ -2937,20 +2966,14 @@ async fn upsert_recovery_job(
     )
     .bind(client_job_key)
     .bind(kind)
-    .bind(status)
+    .bind(persisted_status)
     .bind(register_session_id)
-    .bind(request.transaction_id)
+    .bind(transaction_id)
     .bind(request.checkout_client_id)
     .bind(station_key)
     .bind(request.label.as_deref().map(str::trim).filter(|v| !v.is_empty()))
     .bind(request.payload)
-    .bind(
-        request
-            .last_error
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty()),
-    )
+    .bind(persisted_last_error)
     .bind(attempt_count)
     .fetch_optional(&mut *tx)
     .await?;
