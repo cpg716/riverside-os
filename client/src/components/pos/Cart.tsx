@@ -12,6 +12,7 @@ import {
   Zap,
   Package,
   ScanSearch,
+  Camera,
   Scissors,
   CreditCard,
   Pencil,
@@ -49,6 +50,7 @@ import {
 } from "../../lib/posRegisterAuth";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import ProductIntelligenceDrawer from "./ProductIntelligenceDrawer";
+import CameraScanner from "../inventory/CameraScanner";
 import PosSaleCashierSignInOverlay from "./PosSaleCashierSignInOverlay";
 import { CustomerRelationshipHubDrawer } from "../customers/CustomerRelationshipHubDrawer";
 import PosExchangeWizard from "./PosExchangeWizard";
@@ -939,6 +941,7 @@ export default function Cart({
   >(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
+  const [cameraScannerOpen, setCameraScannerOpen] = useState(false);
   const requestProductSearchFocus = useCallback(() => {
     window.requestAnimationFrame(() => {
       searchInputRef.current?.focus();
@@ -4434,6 +4437,7 @@ export default function Cart({
       weddingDrawerOpen ||
       measDrawerOpen ||
       customerProfileHubOpen ||
+      cameraScannerOpen ||
       cashAdjustOpen ||
       giftCardLoadOpen ||
       feePromptKind !== null ||
@@ -4452,6 +4456,7 @@ export default function Cart({
       weddingDrawerOpen,
       measDrawerOpen,
       customerProfileHubOpen,
+      cameraScannerOpen,
       cashAdjustOpen,
       giftCardLoadOpen,
       feePromptKind,
@@ -5305,21 +5310,21 @@ export default function Cart({
               </div>
             ) : null}
 
-            {parkedRows.length > 0 ||
-            pendingAlterationIntakes.length > 0 ||
-            pickupReadyAlterations.length > 0 ||
-            failedPrintCount > 0 ? (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-bold text-app-text-muted">
-              {parkedRows.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setParkedListOpen(true)}
-                  className="inline-flex items-center gap-1 rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 font-black uppercase tracking-widest text-app-text-muted hover:text-app-text"
-                >
-                  <Clock size={12} aria-hidden />
-                  {parkedRows.length} parked
-                </button>
-              ) : null}
+              <button
+                type="button"
+                data-testid="pos-parked-sales-button"
+                onClick={() => setParkedListOpen(true)}
+                aria-label={`Open parked sales, ${parkedRows.length} available`}
+                className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-black uppercase tracking-widest transition-colors ${
+                  parkedRows.length > 0
+                    ? "border-app-accent/40 bg-app-accent/10 text-app-accent hover:bg-app-accent/20"
+                    : "border-app-border bg-app-surface-2 text-app-text-muted hover:text-app-text"
+                }`}
+              >
+                <Clock size={12} aria-hidden />
+                Parked Sales · {parkedRows.length}
+              </button>
               {pendingAlterationIntakes.length > 0 ? (
                 <span className="inline-flex items-center gap-1 rounded-lg border border-app-accent/20 bg-app-accent/10 px-2 py-1 font-black uppercase tracking-widest text-app-accent">
                   <Scissors size={12} aria-hidden />
@@ -5346,7 +5351,6 @@ export default function Cart({
                 </button>
               ) : null}
             </div>
-          ) : null}
 
           {/* Staff Access + default salesperson on one row after sign-in. */}
           {checkoutOperator ? (
@@ -5476,17 +5480,34 @@ export default function Cart({
                     })
                     .catch(() => {});
               }}
-              className="ui-input h-14 w-full rounded-xl border-2 border-app-border bg-app-surface-2 pl-12 pr-32 text-lg font-black shadow-inner focus:border-app-accent focus:bg-app-surface"
+              className="ui-input h-14 w-full rounded-xl border-2 border-app-border bg-app-surface-2 pl-12 pr-28 text-lg font-black shadow-inner focus:border-app-accent focus:bg-app-surface sm:pr-52"
             />
-            <button
-              type="button"
-              onClick={focusProductSearch}
-              title="Focus product search (/)"
-              className="ui-touch-target absolute right-3 top-1/2 z-10 flex min-h-11 -translate-y-1/2 items-center gap-1 rounded-lg border border-app-border bg-app-surface px-3 text-[9px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface-2 hover:text-app-text"
-            >
-              <ScanSearch size={13} aria-hidden />
-              Focus /
-            </button>
+            <div className="absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1.5">
+              <button
+                type="button"
+                data-testid="pos-camera-scan-button"
+                onClick={() => {
+                  setSearchFocused(false);
+                  setSearchResults([]);
+                  setCameraScannerOpen(true);
+                }}
+                title="Scan product with camera"
+                aria-label="Scan product with camera"
+                className="ui-touch-target flex min-h-11 items-center gap-1 rounded-lg border border-app-accent/40 bg-app-accent/10 px-3 text-[9px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-accent/20"
+              >
+                <Camera size={14} aria-hidden />
+                <span className="hidden sm:inline">Camera</span>
+              </button>
+              <button
+                type="button"
+                onClick={focusProductSearch}
+                title="Focus product search (/)"
+                className="ui-touch-target flex min-h-11 items-center gap-1 rounded-lg border border-app-border bg-app-surface px-3 text-[9px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface-2 hover:text-app-text"
+              >
+                <ScanSearch size={13} aria-hidden />
+                <span className="hidden sm:inline">Focus /</span>
+              </button>
+            </div>
             <PosSearchResultList
               search={search}
               isActive={searchFocused}
@@ -7763,6 +7784,19 @@ export default function Cart({
           openWeddingDepositTool();
         }}
       />
+
+      {cameraScannerOpen ? (
+        <CameraScanner
+          label="Register Product Scan"
+          onScan={(code) => {
+            handleLaserScan(code, runSearch);
+          }}
+          onClose={() => {
+            setCameraScannerOpen(false);
+            requestProductSearchFocus();
+          }}
+        />
+      ) : null}
 
       <ConfirmationModal
         isOpen={
