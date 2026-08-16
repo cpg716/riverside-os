@@ -10,6 +10,13 @@ if [[ -z "$RUSTC_191" ]]; then
 fi
 export PATH="$(dirname "$RUSTC_191"):$PATH"
 
+if [[ -z "${RIVERSIDE_DEV_BUILD_SHA:-}" ]]; then
+  CURRENT_DEV_BUILD_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+  if [[ -n "$CURRENT_DEV_BUILD_SHA" ]]; then
+    export RIVERSIDE_DEV_BUILD_SHA="$CURRENT_DEV_BUILD_SHA"
+  fi
+fi
+
 SERVER_ENV="$ROOT/server/.env"
 
 load_env_default() {

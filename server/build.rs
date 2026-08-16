@@ -5,15 +5,22 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=../migrations");
     println!("cargo:rerun-if-env-changed=RIVERSIDE_BUILD_SHA");
+    println!("cargo:rerun-if-env-changed=RIVERSIDE_DEV_BUILD_SHA");
     println!("cargo:rerun-if-env-changed=GITHUB_SHA");
 
     // Inject git SHA so update_check.rs can detect same-version rebuilds.
-    // CI sets RIVERSIDE_BUILD_SHA/GITHUB_SHA; local builds fall back to `git rev-parse HEAD`; then "dev".
+    // Packaged builds set RIVERSIDE_BUILD_SHA. The local launcher refreshes
+    // RIVERSIDE_DEV_BUILD_SHA so Cargo notices commits that do not touch Rust sources.
     let release_build_sha = std::env::var("RIVERSIDE_BUILD_SHA")
         .ok()
         .filter(|s| !s.is_empty());
     let is_release_build = release_build_sha.is_some();
     let sha = release_build_sha
+        .or_else(|| {
+            std::env::var("RIVERSIDE_DEV_BUILD_SHA")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
         .or_else(|| std::env::var("GITHUB_SHA").ok().filter(|s| !s.is_empty()))
         .or_else(|| {
             Command::new("git")
