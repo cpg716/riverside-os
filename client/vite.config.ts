@@ -15,7 +15,10 @@ const pkg = JSON.parse(
 };
 
 function gitFull(): string {
-  const injectedSha = process.env.RIVERSIDE_BUILD_SHA || process.env.GITHUB_SHA;
+  const injectedSha =
+    process.env.RIVERSIDE_BUILD_SHA ||
+    process.env.RIVERSIDE_DEV_BUILD_SHA ||
+    process.env.GITHUB_SHA;
   if (injectedSha?.trim()) {
     return injectedSha.trim();
   }
