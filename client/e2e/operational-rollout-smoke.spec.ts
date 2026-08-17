@@ -468,8 +468,13 @@ test.describe("operational rollout smoke", () => {
     });
     const refundBefore = await fetchRefundDue(request, seeded.checkout.transaction_id);
     const displayId = seeded.detail.transaction_display_id ?? seeded.checkout.transaction_id;
+    let matchingTransactionListRequests = 0;
 
     await page.route("**/api/transactions?*", async (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (requestUrl.searchParams.get("search") === displayId) {
+        matchingTransactionListRequests += 1;
+      }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -506,6 +511,9 @@ test.describe("operational rollout smoke", () => {
         name: /Search orders/i,
       })
       .fill(displayId);
+    await expect
+      .poll(() => matchingTransactionListRequests, { timeout: 10_000 })
+      .toBeGreaterThan(0);
     const orderRow = page.locator("tr", { hasText: displayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 30_000 });
     const desktopOrderId = page.locator("tbody").getByText(displayId, { exact: true }).first();
@@ -535,8 +543,13 @@ test.describe("operational rollout smoke", () => {
     test.setTimeout(120_000);
     const seeded = await checkoutSeededProduct(request, { quantity: 1 });
     const displayId = seeded.detail.transaction_display_id ?? seeded.checkout.transaction_id;
+    let matchingTransactionListRequests = 0;
 
     await page.route("**/api/transactions?*", async (route) => {
+      const requestUrl = new URL(route.request().url());
+      if (requestUrl.searchParams.get("search") === displayId) {
+        matchingTransactionListRequests += 1;
+      }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -573,6 +586,9 @@ test.describe("operational rollout smoke", () => {
         name: /Search orders/i,
       })
       .fill(displayId);
+    await expect
+      .poll(() => matchingTransactionListRequests, { timeout: 10_000 })
+      .toBeGreaterThan(0);
 
     const orderRow = page.locator("tr", { hasText: displayId }).first();
     await expect(orderRow).toBeVisible({ timeout: 30_000 });

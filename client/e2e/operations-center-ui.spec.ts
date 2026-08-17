@@ -549,7 +549,10 @@ test.describe("ROS Operations Center", () => {
 
     await signInToBackOffice(page);
     await openBackofficeSidebarTab(page, "settings");
-    await page.getByRole("button", { name: /^help & system\b/i }).click();
+    await page
+      .getByRole("navigation", { name: "Settings categories" })
+      .getByRole("button", { name: /^help & system\b/i })
+      .click();
     const operationsCenterNav = page.getByRole("button", {
       name: /^ros operations & support center/i,
     });
