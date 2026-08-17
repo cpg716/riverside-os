@@ -156,6 +156,23 @@ function Test-ServerHealth([string]$ConfigPath) {
   }
 }
 
+function Assert-ClientOnlyBuildMatchesServer([string]$ConfigPath, [string]$ExpectedBuildSha) {
+  $versionUrl = (Get-ServerHealthUrl $ConfigPath) -replace '/api/health$', '/api/version'
+  try {
+    $identity = Invoke-RestMethod -Uri $versionUrl -UseBasicParsing -TimeoutSec 10
+  } catch {
+    throw "Client-only update refused because the Main Hub build identity could not be verified at ${versionUrl}: $($_.Exception.Message)"
+  }
+
+  $installedBuildSha = [string]$identity.build_sha
+  if ([string]::IsNullOrWhiteSpace($installedBuildSha) -or $installedBuildSha -eq "unknown" -or $installedBuildSha -eq "dev") {
+    throw "Client-only update refused because the Main Hub did not report an immutable build SHA. Rerun with -Mode Full."
+  }
+  if ($installedBuildSha -ne $ExpectedBuildSha) {
+    throw "Client-only update refused because it would split Riverside builds (client $($ExpectedBuildSha.Substring(0, 8)), Main Hub $($installedBuildSha.Substring(0, [Math]::Min(8, $installedBuildSha.Length)))). Rerun with -Mode Full."
+  }
+}
+
 function Apply-ClientDistUpdate(
   [string]$RepoRoot,
   [string]$ConfigPath,
@@ -225,6 +242,28 @@ if (-not (Test-Path $ConfigPath)) {
   throw "Main Hub config was not found: $ConfigPath"
 }
 
+$gitFull = $SourceGitSha
+if ([string]::IsNullOrWhiteSpace($gitFull)) {
+  $gitFull = Get-GitFull $SourceRoot
+}
+if ($gitFull -notmatch '^[0-9a-fA-F]{40}$') {
+  throw "An exact 40-character SourceGitSha is required for a traceable Main Hub build."
+}
+
+$expectedGitShort = $gitFull.Substring(0, 8)
+$gitShort = $SourceGitShort
+if ([string]::IsNullOrWhiteSpace($gitShort)) {
+  $gitShort = $expectedGitShort
+} elseif ($gitShort -ne $expectedGitShort) {
+  throw "SourceGitShort $gitShort does not match SourceGitSha $gitFull."
+}
+
+$env:RIVERSIDE_BUILD_SHA = $gitFull
+
+if ($Mode -eq "ClientOnly") {
+  Assert-ClientOnlyBuildMatchesServer $ConfigPath $gitFull
+}
+
 Ensure-Command node.exe "OpenJS.NodeJS.LTS"
 Ensure-Command npm.cmd "OpenJS.NodeJS.LTS"
 if ($Mode -eq "Full") {
@@ -239,14 +278,6 @@ if (-not $SkipNpmInstall) {
 
 Invoke-Step "Build client web bundle" { Invoke-CmdNative "npm run build --prefix `"$SourceRoot`"" }
 
-$gitShort = $SourceGitShort
-if ([string]::IsNullOrWhiteSpace($gitShort)) {
-  $gitShort = Get-GitShort $SourceRoot
-}
-$gitFull = $SourceGitSha
-if ([string]::IsNullOrWhiteSpace($gitFull)) {
-  $gitFull = Get-GitFull $SourceRoot
-}
 $version = (Get-Content (Join-Path $SourceRoot "package.json") -Raw | ConvertFrom-Json).version
 
 if ($Mode -eq "ClientOnly") {

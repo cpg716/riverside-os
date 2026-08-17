@@ -7,7 +7,7 @@ param(
   [string]$UserName = $env:ROS_MAIN_HUB_USER,
   [string]$Password = $env:ROS_MAIN_HUB_PASSWORD,
   [ValidateSet("ClientOnly", "Full")]
-  [string]$Mode = "ClientOnly",
+  [string]$Mode = "Full",
   [ValidateSet("Default", "Negotiate", "Basic")]
   [string]$Authentication = "Default",
   [System.Management.Automation.PSCredential]$Credential,

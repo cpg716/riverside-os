@@ -1076,6 +1076,39 @@ for (const path of [
     "Scripted Main Hub updates may skip ROSIE only through an explicit operator switch",
   );
 }
+const fastMainHubUpdate = read(
+  "deployment/windows/Build-And-Apply-MainHubFastUpdate.ps1",
+);
+const fastUpdateIdentityIndex = fastMainHubUpdate.indexOf(
+  "$env:RIVERSIDE_BUILD_SHA = $gitFull",
+);
+const fastUpdateClientBuildIndex = fastMainHubUpdate.indexOf(
+  'Invoke-Step "Build client web bundle"',
+);
+if (
+  fastUpdateIdentityIndex < 0 ||
+  fastUpdateClientBuildIndex < 0 ||
+  fastUpdateIdentityIndex > fastUpdateClientBuildIndex
+) {
+  fail(
+    "deployment/windows/Build-And-Apply-MainHubFastUpdate.ps1: exact build identity must be exported before the client bundle is built",
+  );
+}
+for (const copy of [
+  "Assert-ClientOnlyBuildMatchesServer $ConfigPath $gitFull",
+  "Client-only update refused because it would split Riverside builds",
+]) {
+  assertIncludes(
+    "deployment/windows/Build-And-Apply-MainHubFastUpdate.ps1",
+    copy,
+    "Client-only Main Hub updates must fail closed when the server SHA differs",
+  );
+}
+assertIncludes(
+  "scripts/push-main-hub-fast.ps1",
+  '[string]$Mode = "Full"',
+  "Fast Main Hub pushes must align the server and browser client by default",
+);
 for (const passwordSafeScript of [
   "deployment/windows/repair-bootstrap-admin.ps1",
   "deployment/windows/Import-IntegrationCredentials.ps1",
