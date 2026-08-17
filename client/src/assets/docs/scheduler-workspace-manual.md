@@ -58,7 +58,7 @@ Use the **Scheduler** to:
 
 - **Conflicts**: Open **Appointments → Conflicts** to review staff overlaps, room/resource capacity conflicts, and configured resource capacities.
 - **Calendar authority**: ROS is the appointment calendar. Podium carries enabled messages; it is not a second booking calendar. Google/Outlook calendar synchronization is not part of this workflow.
-- **Customer Notifications**: For a linked Customer, confirmations, cancellations, and reminders follow the customer's communication preferences and the enabled Podium/Store Email settings. Confirmation calendar attachments use the saved duration. Reminders are attempted about 24 hours before the appointment time and failed channels retry with bounded backoff.
+- **Customer Interactions**: For a linked Customer, confirmations, cancellations, and reminders follow the customer's communication preferences and the enabled Podium/Store Email settings. Confirmation calendar attachments use the saved duration. Reminders are attempted about 24 hours before the appointment time and failed channels retry with bounded backoff.
 - **Pickup**: Marking a Pickup appointment Attended does not fulfill merchandise. Complete product pickup through Orders/Register.
 - Search distinguishes **no matching appointments** from **appointment search is unavailable**. Retry an unavailable search before concluding that a booking does not exist.
 

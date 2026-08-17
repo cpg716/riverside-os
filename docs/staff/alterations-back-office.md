@@ -42,9 +42,9 @@ Order or Transaction Record numbers appear only as source context when the garme
 2. **In progress** when work starts; **Ready** when pressed/hung. The Register completes **Picked up** when the customer receives the garment.
 3. **Save** after each transition; some transitions may **notify** the customer — follow messaging policy.
 
-**Customer Notifications:**
+**Customer Interactions:**
 - When status changes to **Ready**, customer SMS/email notification is queued for batch sending (9:30 AM or 3:00 PM, Mon-Sat)
-- Staff can review pending, sent, failed, and reviewed automated messages in Operations → Customer Notifications or POS → Customer Notifications
+- Staff can review pending, sent, failed, and reviewed automated messages in Operations → Customer Interactions or POS → Customer Interactions
 - "Send Now" override available for urgent pickups
 - All sent messages appear in Customer Messages section
 - See [notification-queue.md](notification-queue.md) for details
@@ -93,4 +93,4 @@ Floor staff use **POS → Alterations** for quick status. If POS shows **differe
 - [pos-alterations.md](pos-alterations.md)
 - [notification-queue.md](notification-queue.md)
 
-**Last reviewed:** 2026-06-06 (Customer Notifications naming and POS access updated)
+**Last reviewed:** 2026-08-16 (Customer Interactions naming and POS access updated)

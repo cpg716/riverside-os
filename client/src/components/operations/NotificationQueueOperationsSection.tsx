@@ -1,8 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { BellRing, CheckCircle2, Clock, Inbox, Mail, RefreshCw, Search, XCircle } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  BellRing,
+  CheckCircle2,
+  Clock,
+  Inbox,
+  Mail,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  UserRound,
+  XCircle,
+} from "lucide-react";
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
+import type { Customer } from "../pos/CustomerSelector";
 
 type QueueStatus = "pending" | "scheduled" | "sent" | "skipped" | "failed";
 
@@ -64,21 +76,43 @@ function deliveryErrorDetails(error?: string | null) {
 
 interface NotificationQueueOperationsSectionProps {
   surface?: "backoffice" | "pos";
+  embedded?: boolean;
+  initialFocusId?: string | null;
+  onOpenCustomerHub?: (customer: Customer) => void;
 }
 
 export default function NotificationQueueOperationsSection({
   surface = "backoffice",
+  embedded = false,
+  initialFocusId,
+  onOpenCustomerHub,
 }: NotificationQueueOperationsSectionProps) {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
   const [status, setStatus] = useState<QueueStatus | "all">("all");
   const [entityType, setEntityType] = useState("all");
-  const [includeReviewed, setIncludeReviewed] = useState(false);
+  const [includeReviewed, setIncludeReviewed] = useState(Boolean(initialFocusId));
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<NotificationQueueRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const focusedRowRef = useRef<HTMLTableRowElement | null>(null);
   const canReview = surface === "pos" || hasPermission("orders.lifecycle_manage");
+
+  const retryPermission = (row: NotificationQueueRow) => {
+    if (row.kind === "review_invite") return hasPermission("reviews.view");
+    if (row.kind === "receipt") return hasPermission("orders.view");
+    if (row.kind === "ready_for_pickup" || row.kind === "alteration_ready") {
+      return hasPermission("orders.lifecycle_manage");
+    }
+    return false;
+  };
+
+  const retrySupported = (row: NotificationQueueRow) =>
+    row.kind === "review_invite" ||
+    row.kind === "receipt" ||
+    row.kind === "ready_for_pickup" ||
+    row.kind === "alteration_ready";
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -120,7 +154,7 @@ export default function NotificationQueueOperationsSection({
           "Content-Type": "application/json",
           ...(backofficeHeaders() as Record<string, string>),
         },
-        body: JSON.stringify({ note: "Reviewed from Customer Notifications." }),
+        body: JSON.stringify({ note: "Reviewed from Customer Interactions." }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -130,6 +164,83 @@ export default function NotificationQueueOperationsSection({
       void load();
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not mark notification reviewed.", "error");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openCustomer = (row: NotificationQueueRow) => {
+    if (!onOpenCustomerHub) return;
+    const [firstName = "Customer", ...lastNameParts] = (row.customer_name ?? "Customer")
+      .trim()
+      .split(/\s+/);
+    onOpenCustomerHub({
+      id: row.customer_id,
+      customer_code: "",
+      first_name: firstName,
+      last_name: lastNameParts.join(" "),
+      company_name: null,
+      email: row.customer_email,
+      phone: row.customer_phone,
+    });
+  };
+
+  const retryDelivery = async (row: NotificationQueueRow) => {
+    if (!retryPermission(row)) {
+      toast("Your staff access does not allow this delivery retry.", "error");
+      return;
+    }
+    setBusyId(row.id);
+    try {
+      let endpoint = `${baseUrl}/api/notifications/queue/${row.id}/send-now`;
+      let body: Record<string, unknown> = {
+        reason: "Customer contact details reviewed; retry requested from Customer Interactions.",
+      };
+      if (row.kind === "review_invite") {
+        endpoint = `${baseUrl}/api/reviews/invite-rows/${row.entity_id}/retry`;
+        body = {};
+      } else if (row.kind === "receipt") {
+        const emailDelivery = row.delivery_method === "email";
+        endpoint = `${baseUrl}/api/transactions/${row.entity_id}/receipt/${
+          emailDelivery ? "send-email" : "send-sms"
+        }`;
+        body = emailDelivery
+          ? {
+              to_email: row.customer_email,
+              gift: row.metadata.gift === true,
+            }
+          : {
+              to_phone: row.customer_phone,
+              gift: row.metadata.gift === true,
+            };
+      }
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(backofficeHeaders() as Record<string, string>),
+        },
+        body: JSON.stringify(body),
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        success?: boolean;
+      };
+      if (!response.ok || payload.success === false) {
+        throw new Error(
+          payload.error ??
+            "Delivery still failed. Confirm the updated contact detail and try the alternate channel.",
+        );
+      }
+      toast(
+        row.kind === "review_invite"
+          ? "Review request scheduled for retry."
+          : "Customer message retry completed.",
+        "success",
+      );
+      void load();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not retry customer delivery.", "error");
     } finally {
       setBusyId(null);
     }
@@ -165,6 +276,12 @@ export default function NotificationQueueOperationsSection({
     });
   }, [rows, search, status]);
 
+  useEffect(() => {
+    if (!initialFocusId || !focusedRowRef.current) return;
+    focusedRowRef.current.scrollIntoView({ block: "center" });
+    focusedRowRef.current.focus({ preventScroll: true });
+  }, [filteredRows, initialFocusId]);
+
   const statCards = [
     { label: "Messages", value: stats.total, icon: Inbox, tint: "ui-tint-default", border: "border-app-border", bg: "bg-app-surface-2", color: "text-app-text-muted" },
     { label: "Sent", value: stats.sent, icon: CheckCircle2, tint: "ui-tint-success", border: "border-app-success/20", bg: "bg-app-success/10", color: "text-app-success" },
@@ -182,6 +299,7 @@ export default function NotificationQueueOperationsSection({
 
   return (
     <section className="ui-page flex flex-1 flex-col bg-transparent p-0">
+      {!embedded ? (
       <div className="border-b border-app-border bg-app-surface/80 px-4 py-4 sm:px-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-3">
@@ -193,10 +311,10 @@ export default function NotificationQueueOperationsSection({
                 Operations
               </p>
               <h2 className="text-xl font-black tracking-tight text-app-text">
-                Customer Notifications
+                Customer Interactions
               </h2>
               <p className="mt-1 max-w-3xl text-sm font-semibold leading-relaxed text-app-text-muted">
-                Track customer SMS/email delivery and review failures.
+                Review current automated SMS/email delivery and continue manual follow-up in Podium Inbox or Mailbox.
               </p>
               {surface === "pos" ? (
                 <p className="mt-1 text-xs font-black uppercase tracking-widest text-app-accent">
@@ -216,6 +334,7 @@ export default function NotificationQueueOperationsSection({
           </button>
         </div>
       </div>
+      ) : null}
 
       <div className="grid shrink-0 grid-cols-1 gap-4 p-4 sm:grid-cols-2 sm:p-6 sm:pb-2 xl:grid-cols-4">
         {statCards.map((stat) => (
@@ -297,14 +416,14 @@ export default function NotificationQueueOperationsSection({
             <div className="flex flex-1 flex-col items-center justify-center p-12">
               <Clock size={48} className="mx-auto mb-3 opacity-40" />
               <p className="text-sm font-black uppercase tracking-widest italic text-app-text-muted">
-                Loading customer notifications…
+                  Loading automated delivery activity…
               </p>
             </div>
           ) : filteredRows.length === 0 ? (
             <div className="flex flex-1 flex-col items-center justify-center p-12">
               <Mail size={48} className="mx-auto mb-3 opacity-20" />
               <p className="text-sm font-black uppercase tracking-widest italic text-app-text-muted">
-                No notification activity.
+                No automated delivery activity.
               </p>
               <p className="mt-2 max-w-md text-center text-xs font-semibold text-app-text-muted opacity-70">
                 Try another filter or refresh.
@@ -319,7 +438,7 @@ export default function NotificationQueueOperationsSection({
                     <th className="px-4 py-3">Automation</th>
                     <th className="px-4 py-3">Delivery</th>
                     <th className="px-4 py-3">When</th>
-                    <th className="px-4 py-3 text-right">Review</th>
+                    <th className="px-4 py-3 text-right">Resolution</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-app-border bg-app-surface">
@@ -327,7 +446,16 @@ export default function NotificationQueueOperationsSection({
                     const isFailure = row.effective_status === "failed";
                     const deliveryError = deliveryErrorDetails(row.delivery_error);
                     return (
-                      <tr key={row.id} className="transition-colors hover:bg-app-surface-2/50">
+                      <tr
+                        key={row.id}
+                        ref={row.id === initialFocusId ? focusedRowRef : undefined}
+                        tabIndex={row.id === initialFocusId ? -1 : undefined}
+                        className={`transition-colors hover:bg-app-surface-2/50 ${
+                          row.id === initialFocusId
+                            ? "bg-app-accent/10 outline outline-2 outline-app-accent/30"
+                            : ""
+                        }`}
+                      >
                         <td className="px-4 py-3">
                           <p className="font-black text-app-text">
                             {row.customer_name ?? row.customer_phone ?? row.customer_email ?? "Customer"}
@@ -385,7 +513,52 @@ export default function NotificationQueueOperationsSection({
                           <p className="mt-1">Created: {formatDate(row.created_at)}</p>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {row.reviewed_at ? (
+                          {isFailure ? (
+                            <div className="flex flex-col items-end gap-2">
+                              {onOpenCustomerHub ? (
+                                <button
+                                  type="button"
+                                  disabled={busyId === row.id}
+                                  onClick={() => openCustomer(row)}
+                                  className="ui-btn-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                >
+                                  <UserRound size={12} aria-hidden />
+                                  Update customer
+                                </button>
+                              ) : null}
+                              {retrySupported(row) ? (
+                                <button
+                                  type="button"
+                                  disabled={!retryPermission(row) || busyId === row.id}
+                                  onClick={() => void retryDelivery(row)}
+                                  title={
+                                    retryPermission(row)
+                                      ? "Retry using the customer's current saved contact details."
+                                      : "Required source access is needed to retry this delivery."
+                                  }
+                                  className="ui-btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                                >
+                                  <RotateCcw size={12} aria-hidden />
+                                  Retry delivery
+                                </button>
+                              ) : (
+                                <span className="max-w-52 text-right text-[10px] font-bold leading-relaxed text-app-text-muted">
+                                  Update the contact detail. Appointment messages retry automatically;
+                                  other messages continue in their source workspace.
+                                </span>
+                              )}
+                              {!row.reviewed_at ? (
+                                <button
+                                  type="button"
+                                  disabled={!canReview || busyId === row.id}
+                                  onClick={() => void markReviewed(row)}
+                                  className="px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted underline decoration-app-border underline-offset-4 disabled:opacity-50"
+                                >
+                                  Mark reviewed without retry
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : row.reviewed_at ? (
                             <span className="inline-flex items-center gap-1.5 rounded-full border border-app-success/20 bg-app-success/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-app-success">
                               <CheckCircle2 size={12} />
                               Reviewed

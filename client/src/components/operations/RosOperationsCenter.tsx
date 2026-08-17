@@ -1228,7 +1228,7 @@ export default function RosOperationsCenter({
         level: "follow_up",
         title: `${staleUnread} stale notification${staleUnread === 1 ? "" : "s"} need cleanup`,
         detail: "Old unread rows are separated from today's action count so the bell remains useful.",
-        nextAction: "Open Customer Notifications and complete or archive work that no longer needs attention.",
+        nextAction: "Open Customer Interactions and complete or archive work that no longer needs attention.",
         sourceLabel: "Notifications",
         navigateTarget: { tab: "customer-notifications" },
       });

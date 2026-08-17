@@ -19,6 +19,7 @@ pub mod custom_orders;
 pub mod customer_couple;
 pub mod customer_duplicate_candidates;
 pub mod customer_hub;
+pub mod customer_interactions;
 pub mod customer_measurements;
 pub mod customer_merge;
 pub mod customer_notifications;

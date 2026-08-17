@@ -3,6 +3,12 @@ use serde_json::{json, Value};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::auth::permissions::CUSTOMERS_HUB_EDIT;
+use crate::logic::notifications::{
+    delete_app_notification_by_dedupe, fan_out_notification_to_staff_ids,
+    insert_app_notification_deduped, staff_ids_with_permission,
+};
+
 #[derive(Debug, Clone, Copy)]
 pub enum CustomerNotificationKind {
     ReadyForPickup,
@@ -107,7 +113,8 @@ pub async fn record_customer_notification_with_status(
             })
         });
 
-    sqlx::query_scalar(
+    let mut tx = pool.begin().await?;
+    let notification_id = sqlx::query_scalar(
         r#"
         INSERT INTO customer_notification_queue (
             entity_type,
@@ -133,8 +140,269 @@ pub async fn record_customer_notification_with_status(
     .bind(delivery_status)
     .bind(delivery_error)
     .bind(metadata)
-    .fetch_one(pool)
-    .await
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let resolved_notification_ids = if delivery_status == "delivered" {
+        sqlx::query_scalar(
+            r#"
+            UPDATE customer_notification_queue
+            SET reviewed_at = COALESCE(reviewed_at, NOW()),
+                review_note = COALESCE(
+                    review_note,
+                    'Resolved automatically after a successful delivery.'
+                ),
+                updated_at = NOW()
+            WHERE id <> $1
+              AND customer_id = $2
+              AND entity_type = $3
+              AND entity_id = $4
+              AND kind = $5
+              AND delivery_method = $6
+              AND delivery_status = 'failed'
+              AND reviewed_at IS NULL
+            RETURNING id
+            "#,
+        )
+        .bind(notification_id)
+        .bind(customer_id)
+        .bind(entity_type)
+        .bind(entity_id)
+        .bind(kind.as_str())
+        .bind(channel.as_str())
+        .fetch_all(&mut *tx)
+        .await?
+    } else {
+        Vec::new()
+    };
+
+    tx.commit().await?;
+
+    if delivery_status == "failed" {
+        if let Err(error) = emit_customer_contact_failure_alert(
+            pool,
+            notification_id,
+            customer_id,
+            channel,
+            delivery_error.unwrap_or("Customer message delivery failed."),
+        )
+        .await
+        {
+            tracing::error!(
+                %error,
+                %notification_id,
+                %customer_id,
+                "Could not create customer contact failure alert"
+            );
+        }
+    } else if delivery_status == "delivered" {
+        clear_customer_contact_failure_alerts(pool, &resolved_notification_ids).await;
+    }
+
+    Ok(notification_id)
+}
+
+async fn clear_customer_contact_failure_alerts(pool: &PgPool, notification_ids: &[Uuid]) {
+    for notification_id in notification_ids {
+        let dedupe_key = format!("customer_contact_delivery_failed:{notification_id}");
+        if let Err(error) = delete_app_notification_by_dedupe(pool, &dedupe_key).await {
+            tracing::error!(
+                %error,
+                %notification_id,
+                "Could not clear resolved customer contact failure alert"
+            );
+        }
+    }
+}
+
+fn customer_notification_channel(method: &str) -> Option<CustomerNotificationChannel> {
+    match method {
+        "sms" => Some(CustomerNotificationChannel::Sms),
+        "email" => Some(CustomerNotificationChannel::Email),
+        "both" => Some(CustomerNotificationChannel::Both),
+        _ => None,
+    }
+}
+
+/// Persist a queued notification's provider result and keep its recovery alert in sync.
+pub async fn mark_customer_notification_delivery_result(
+    pool: &PgPool,
+    notification_id: Uuid,
+    delivery_method: &str,
+    delivery_status: &str,
+    delivery_error: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let prior: Option<(Uuid, String, Uuid, String, String, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT customer_id, entity_type, entity_id, kind, delivery_method, delivery_status
+        FROM customer_notification_queue
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(notification_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((customer_id, entity_type, entity_id, kind, prior_method, prior_status)) = prior
+    else {
+        tx.rollback().await?;
+        return Ok(false);
+    };
+    let effective_method = if customer_notification_channel(delivery_method).is_some() {
+        delivery_method
+    } else {
+        prior_method.as_str()
+    };
+    let marked: bool = sqlx::query_scalar("SELECT mark_notification_sent($1, $2, $3, $4)")
+        .bind(notification_id)
+        .bind(effective_method)
+        .bind(delivery_status)
+        .bind(delivery_error)
+        .fetch_one(&mut *tx)
+        .await?;
+    if !marked {
+        tx.rollback().await?;
+        return Ok(false);
+    }
+
+    let mut resolved_notification_ids = Vec::new();
+    if delivery_status == "delivered" {
+        if prior_status.as_deref() == Some("failed") {
+            sqlx::query(
+                r#"
+                UPDATE customer_notification_queue
+                SET reviewed_at = COALESCE(reviewed_at, NOW()),
+                    review_note = COALESCE(
+                        review_note,
+                        'Resolved automatically after a successful delivery.'
+                    ),
+                    updated_at = NOW()
+                WHERE id = $1
+                "#,
+            )
+            .bind(notification_id)
+            .execute(&mut *tx)
+            .await?;
+            resolved_notification_ids.push(notification_id);
+        }
+        let older_ids: Vec<Uuid> = sqlx::query_scalar(
+            r#"
+            UPDATE customer_notification_queue
+            SET reviewed_at = COALESCE(reviewed_at, NOW()),
+                review_note = COALESCE(
+                    review_note,
+                    'Resolved automatically after a successful delivery.'
+                ),
+                updated_at = NOW()
+            WHERE id <> $1
+              AND customer_id = $2
+              AND entity_type = $3
+              AND entity_id = $4
+              AND kind = $5
+              AND delivery_method = $6
+              AND delivery_status = 'failed'
+              AND reviewed_at IS NULL
+            RETURNING id
+            "#,
+        )
+        .bind(notification_id)
+        .bind(customer_id)
+        .bind(entity_type)
+        .bind(entity_id)
+        .bind(kind)
+        .bind(effective_method)
+        .fetch_all(&mut *tx)
+        .await?;
+        resolved_notification_ids.extend(older_ids);
+    }
+    tx.commit().await?;
+
+    if delivery_status == "failed" {
+        if let Some(channel) = customer_notification_channel(effective_method) {
+            if let Err(error) = emit_customer_contact_failure_alert(
+                pool,
+                notification_id,
+                customer_id,
+                channel,
+                delivery_error.unwrap_or("Customer message delivery failed."),
+            )
+            .await
+            {
+                tracing::error!(
+                    %error,
+                    %notification_id,
+                    %customer_id,
+                    "Could not create customer contact failure alert"
+                );
+            }
+        }
+    } else if delivery_status == "delivered" {
+        clear_customer_contact_failure_alerts(pool, &resolved_notification_ids).await;
+    }
+
+    Ok(true)
+}
+
+async fn emit_customer_contact_failure_alert(
+    pool: &PgPool,
+    notification_id: Uuid,
+    customer_id: Uuid,
+    channel: CustomerNotificationChannel,
+    reason: &str,
+) -> Result<(), sqlx::Error> {
+    let recipients = staff_ids_with_permission(pool, CUSTOMERS_HUB_EDIT).await?;
+    if recipients.is_empty() {
+        return Ok(());
+    }
+    let customer_name: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), '')
+        FROM customers
+        WHERE id = $1
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
+    let customer_name = customer_name.unwrap_or_else(|| "Customer".to_string());
+    let channel_label = match channel {
+        CustomerNotificationChannel::Sms => "phone",
+        CustomerNotificationChannel::Email => "email",
+        CustomerNotificationChannel::Both => "phone or email",
+    };
+    let body = format!(
+        "A customer message failed by {channel_label}. Verify {customer_name}'s contact details, update the customer profile, then retry the delivery. {}",
+        reason.trim()
+    );
+    let deep_link = json!({
+        "type": "customers",
+        "subsection": "all",
+        "customer_id": customer_id.to_string(),
+        "hub_tab": "profile",
+        "notification_queue_id": notification_id.to_string(),
+    });
+    let audience = json!({
+        "mode": "permission",
+        "key": CUSTOMERS_HUB_EDIT,
+    });
+    let dedupe_key = format!("customer_contact_delivery_failed:{notification_id}");
+    let Some(app_notification_id) = insert_app_notification_deduped(
+        pool,
+        "customer_contact_delivery_failed",
+        &format!("Update contact details for {customer_name}"),
+        &body,
+        deep_link,
+        "customer_interactions",
+        audience,
+        Some(&dedupe_key),
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    fan_out_notification_to_staff_ids(pool, app_notification_id, &recipients).await
 }
 
 pub async fn mark_latest_notification_failed_for_customer(
@@ -143,7 +411,7 @@ pub async fn mark_latest_notification_failed_for_customer(
     channel: CustomerNotificationChannel,
     reason: &str,
 ) -> Result<u64, sqlx::Error> {
-    let result = sqlx::query(
+    let notification_id: Option<Uuid> = sqlx::query_scalar(
         r#"
         UPDATE customer_notification_queue
         SET delivery_status = 'failed',
@@ -160,14 +428,30 @@ pub async fn mark_latest_notification_failed_for_customer(
             ORDER BY COALESCE(sent_at, created_at) DESC
             LIMIT 1
         )
+        RETURNING id
         "#,
     )
     .bind(customer_id)
     .bind(channel.as_str())
     .bind(reason)
-    .execute(pool)
+    .fetch_optional(pool)
     .await?;
-    Ok(result.rows_affected())
+    if let Some(notification_id) = notification_id {
+        if let Err(error) =
+            emit_customer_contact_failure_alert(pool, notification_id, customer_id, channel, reason)
+                .await
+        {
+            tracing::error!(
+                %error,
+                %notification_id,
+                %customer_id,
+                "Could not create customer contact failure alert"
+            );
+        }
+        Ok(1)
+    } else {
+        Ok(0)
+    }
 }
 
 pub async fn mark_latest_notification_failed_for_email(
@@ -175,7 +459,7 @@ pub async fn mark_latest_notification_failed_for_email(
     email: &str,
     reason: &str,
 ) -> Result<u64, sqlx::Error> {
-    let result = sqlx::query(
+    let updated: Option<(Uuid, Uuid)> = sqlx::query_as(
         r#"
         UPDATE customer_notification_queue
         SET delivery_status = 'failed',
@@ -193,13 +477,34 @@ pub async fn mark_latest_notification_failed_for_email(
             ORDER BY COALESCE(cnq.sent_at, cnq.created_at) DESC
             LIMIT 1
         )
+        RETURNING id, customer_id
         "#,
     )
     .bind(email.trim())
     .bind(reason)
-    .execute(pool)
+    .fetch_optional(pool)
     .await?;
-    Ok(result.rows_affected())
+    if let Some((notification_id, customer_id)) = updated {
+        if let Err(error) = emit_customer_contact_failure_alert(
+            pool,
+            notification_id,
+            customer_id,
+            CustomerNotificationChannel::Email,
+            reason,
+        )
+        .await
+        {
+            tracing::error!(
+                %error,
+                %notification_id,
+                %customer_id,
+                "Could not create customer contact failure alert"
+            );
+        }
+        Ok(1)
+    } else {
+        Ok(0)
+    }
 }
 
 fn text_at(value: &Value, paths: &[&str]) -> Option<String> {
@@ -367,6 +672,17 @@ pub async fn apply_podium_failure_webhook(
             UPDATE customer_notification_queue
             SET delivery_status = 'delivered',
                 delivery_error = NULL,
+                reviewed_at = CASE
+                    WHEN delivery_status = 'failed' THEN COALESCE(reviewed_at, NOW())
+                    ELSE reviewed_at
+                END,
+                review_note = CASE
+                    WHEN delivery_status = 'failed' THEN COALESCE(
+                        review_note,
+                        'Resolved automatically after provider confirmed delivery.'
+                    )
+                    ELSE review_note
+                END,
                 updated_at = NOW()
             WHERE metadata ->> 'provider_message_id' = $1
             "#,
@@ -401,7 +717,7 @@ pub async fn apply_podium_failure_webhook(
         .unwrap_or_else(|| "Provider reported the message failed.".to_string());
     let channel = webhook_channel(value);
     if let Some(message_id) = webhook_message_id(value) {
-        let notification_result = sqlx::query(
+        let failed_notifications: Vec<(Uuid, Uuid, String)> = sqlx::query_as(
             r#"
             UPDATE customer_notification_queue
             SET delivery_status = 'failed',
@@ -409,11 +725,12 @@ pub async fn apply_podium_failure_webhook(
                 updated_at = NOW()
             WHERE metadata ->> 'provider_message_id' = $1
               AND delivery_status IS DISTINCT FROM 'failed'
+            RETURNING id, customer_id, delivery_method
             "#,
         )
         .bind(&message_id)
         .bind(&reason)
-        .execute(pool)
+        .fetch_all(pool)
         .await?;
         let transaction_result = sqlx::query(
             r#"
@@ -430,7 +747,30 @@ pub async fn apply_podium_failure_webhook(
         .bind(&reason)
         .execute(pool)
         .await?;
-        if notification_result.rows_affected() > 0 || transaction_result.rows_affected() > 0 {
+        for (notification_id, customer_id, delivery_method) in &failed_notifications {
+            let failed_channel = match delivery_method.as_str() {
+                "email" => CustomerNotificationChannel::Email,
+                "both" => CustomerNotificationChannel::Both,
+                _ => CustomerNotificationChannel::Sms,
+            };
+            if let Err(error) = emit_customer_contact_failure_alert(
+                pool,
+                *notification_id,
+                *customer_id,
+                failed_channel,
+                &reason,
+            )
+            .await
+            {
+                tracing::error!(
+                    %error,
+                    %notification_id,
+                    %customer_id,
+                    "Could not create customer contact failure alert"
+                );
+            }
+        }
+        if !failed_notifications.is_empty() || transaction_result.rows_affected() > 0 {
             return Ok(true);
         }
     }

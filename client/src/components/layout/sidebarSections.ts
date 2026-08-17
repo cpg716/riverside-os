@@ -39,7 +39,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "timeline", label: "Timeline" },
     { id: "daily-sales", label: "Daily Sales" },
     { id: "fulfillment", label: "Pickup Queue" },
-    { id: "notification-queue", label: "Customer Notifications" },
+    { id: "notification-queue", label: "Customer Interactions" },
     { id: "inbox", label: "Podium Inbox" },
     { id: "mailbox", label: "Mailbox" },
     { id: "reviews", label: "Reviews" },

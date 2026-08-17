@@ -28,7 +28,7 @@ Use the direct POS destinations to move between register-side tools without open
 - **Register** for live cart work, checkout, and sale completion.
 - **Dashboard** for shift context, register status, and quick operational totals.
 - **Customers** for customer lookup, customer creation, and duplicate review.
-- **Weddings, Alterations, Orders, Tasks, Customer Notifications, Podium Inbox, and Mailbox** for daily customer and fulfillment work.
+- **Weddings, Alterations, Orders, Tasks, Customer Interactions, Podium Inbox, and Mailbox** for daily customer and fulfillment work.
 - **RMS Charge, Inventory, Payments, Reports, Gift Cards, Loyalty, Layaways, Shipping, and permitted POS Settings** for supporting register operations.
 
 ## How to use it
@@ -43,7 +43,7 @@ Use the direct POS destinations to move between register-side tools without open
 
 The POS rail is organized in daily workflow order and scrolls when the full permitted menu is taller than the screen. Its scrollbar stays visually hidden so the collapsed rail preserves the full icon and touch area; use a mouse wheel, trackpad, or touch gesture to reach additional destinations. It can still collapse to an icon rail, but every destination remains a direct selection without opening **Work** or **More** first. Use Register for the live sale, Dashboard for between-customer priorities, and supporting hubs only when they are part of the current transaction. If a tool is missing, it is usually controlled by Staff Access or POS mode restrictions, not a broken sidebar.
 
-The Podium Inbox and Mailbox badges come from their shared conversation/message read state. Opening or marking a message read updates the badge immediately; collapsing the rail keeps the count on the corresponding icon.
+**Customer Interactions** is the cross-channel control center: use **All activity** for recent SMS, email, automation, unread replies, and delivery failures, then continue in the authoritative Text, Email, or Automated Queue tab. The separate Podium Inbox and Mailbox destinations remain direct shortcuts. Their badges come from shared conversation/message read state and update immediately after read/unread actions.
 
 
 ## What to watch for

@@ -15,6 +15,13 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::api::AppState;
+use crate::auth::permissions::{
+    effective_permissions_for_staff, staff_has_permission, CUSTOMERS_HUB_VIEW,
+};
+use crate::logic::customer_interactions::{
+    self, CustomerInteractionFilter, CustomerInteractionPage,
+};
+use crate::logic::customer_notifications::mark_customer_notification_delivery_result;
 use crate::logic::messaging::{MessagingDeliverySummary, MessagingService};
 use crate::middleware;
 
@@ -123,6 +130,18 @@ pub struct ListNotificationsQuery {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ListCustomerInteractionsQuery {
+    pub source: Option<String>,
+    pub channel: Option<String>,
+    pub direction: Option<String>,
+    pub needs_attention: Option<bool>,
+    pub search: Option<String>,
+    pub before_at: Option<DateTime<Utc>>,
+    pub before_key: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SendNowRequest {
     pub reason: String,
 }
@@ -149,6 +168,7 @@ pub struct SendNowResponse {
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/customer-interactions", get(list_customer_interactions))
         .route("/notifications/queue", get(list_notifications))
         .route(
             "/notifications/queue/{id}/send-now",
@@ -160,6 +180,64 @@ pub fn router() -> Router<AppState> {
             "/notifications/queue/{id}/review",
             post(review_notification),
         )
+}
+
+fn validated_filter(
+    value: Option<String>,
+    allowed: &[&str],
+    label: &str,
+) -> Result<String, NotificationError> {
+    let value = value.unwrap_or_else(|| "all".to_string()).to_lowercase();
+    if allowed.contains(&value.as_str()) {
+        Ok(value)
+    } else {
+        Err(NotificationError::InvalidPayload(format!(
+            "Invalid customer interaction {label} filter."
+        )))
+    }
+}
+
+/// List recent communication activity from the stored notification, Podium, and Mailbox sources.
+async fn list_customer_interactions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<ListCustomerInteractionsQuery>,
+) -> Result<Json<CustomerInteractionPage>, NotificationError> {
+    let staff = middleware::require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(map_perm)?;
+    let effective = effective_permissions_for_staff(&state.db, staff.id, staff.role).await?;
+    let include_manual_channels = staff_has_permission(&effective, CUSTOMERS_HUB_VIEW);
+    let filter = CustomerInteractionFilter {
+        source: validated_filter(
+            q.source,
+            &["all", "notification", "podium", "mailbox"],
+            "source",
+        )?,
+        channel: validated_filter(
+            q.channel,
+            &["all", "sms", "email", "both", "automation"],
+            "channel",
+        )?,
+        direction: validated_filter(
+            q.direction,
+            &["all", "inbound", "outbound", "automated"],
+            "direction",
+        )?,
+        needs_attention: q.needs_attention,
+        search: q.search.unwrap_or_default(),
+        before_at: q.before_at,
+        before_key: q.before_key,
+        limit: q.limit.unwrap_or(100),
+    };
+    Ok(Json(
+        customer_interactions::list_customer_interactions(
+            &state.db,
+            filter,
+            include_manual_channels,
+        )
+        .await?,
+    ))
 }
 
 /// List customer notifications for staff review.
@@ -268,7 +346,7 @@ async fn send_notification_now(
                 )
                 .await
             }
-            ("alteration", "ready_for_pickup") => {
+            ("alteration", "ready_for_pickup" | "alteration_ready") => {
                 MessagingService::trigger_alteration_ready(
                     &state.db,
                     &state.http_client,
@@ -292,13 +370,14 @@ async fn send_notification_now(
             ),
             Err(error) => ("failed", "none", Some(error.to_string())),
         };
-        sqlx::query("SELECT mark_notification_sent($1, $2, $3, $4)")
-            .bind(id)
-            .bind(delivery_method)
-            .bind(delivery_status)
-            .bind(delivery_error.as_deref())
-            .execute(&state.db)
-            .await?;
+        mark_customer_notification_delivery_result(
+            &state.db,
+            id,
+            delivery_method,
+            delivery_status,
+            delivery_error.as_deref(),
+        )
+        .await?;
     }
 
     let delivered: bool = sqlx::query_scalar(

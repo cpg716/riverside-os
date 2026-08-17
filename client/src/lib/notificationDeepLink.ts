@@ -258,6 +258,7 @@ export function notificationSeverity(
     case "staff_bug_report":
       return "system";
     case "negative_available_stock":
+    case "customer_contact_delivery_failed":
     case "order_due_stale":
     case "pickup_stale":
     case "po_direct_invoice_overdue":

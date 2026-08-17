@@ -105,6 +105,7 @@ const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
     "backup_admin_past_due",
     "catalog_import_rows_skipped",
     "counterpoint_alerts",
+    "customer_contact_delivery_failed",
     "customer_merge_completed",
     "gift_card_direct_pos_load",
     "gift_card_expiring_soon",
@@ -204,7 +205,8 @@ fn reviewed_notification_preference_handling_for_semantic_kind(
         | "po_submitted_no_expected_date" => {
             Some(Handling::Configurable(Category::InventoryPurchasing))
         }
-        "customer_merge_completed"
+        "customer_contact_delivery_failed"
+        | "customer_merge_completed"
         | "gift_card_direct_pos_load"
         | "gift_card_expiring_soon"
         | "messaging_unread_nudge"

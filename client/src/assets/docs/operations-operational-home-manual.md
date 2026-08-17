@@ -17,7 +17,7 @@ status: approved
 
 ![Operational timeline](../images/help/operations-operational-home/timeline.png)
 
-![Customer Notifications center](../images/help/operations-operational-home/customer-notifications.png)
+![Customer Interactions center](../images/help/operations-operational-home/customer-notifications.png)
 
 ## What this is
 
@@ -41,13 +41,13 @@ Use **Agenda** for what is next, **Week** for staffing and workload planning, **
 
 Timeline rows are not editable. Open the row and make changes in the source workflow so the scheduler, Wedding Manager, Pickup Queue, Alterations, Tasks, QBO, Inventory, and Notifications remain the source of truth.
 
-## Customer Notifications
+## Customer Interactions
 
-Open **Operations → Customer Notifications** to review automated customer messages. This includes ready-for-pickup, alteration-ready, appointment confirmation, appointment reminder, receipt, unknown-sender welcome, and review-invite messages.
+Open **Operations → Customer Interactions** for one current view of customer communication. **All activity** combines recent Podium texts, store email, and automated delivery records. Use **Text messages**, **Email**, and **Automated queue** to continue work in the authoritative source without leaving the workspace.
 
-Use this center for automated-message delivery and staff review only. It does not show regular staff-written Podium texts or regular staff-written emails, and it does not mark an order picked up, mark an alteration picked up, collect payment, or change customer communication preferences.
+Use **Needs attention** for unread customer replies and failed automation. A failed phone or email delivery provides **Update customer** and, when the source supports a safe replay, **Retry delivery**. Update the saved contact first. Appointment messages retry automatically after correction; review requests, receipts, and ready messages use their existing source delivery workflow. A later successful delivery automatically archives the older failed attempt.
 
-Use the search field to find a customer, message type, status, or delivery error. The status chips use the final delivery outcome: a message Podium accepted but a carrier later rejected appears under **Failed**, while a message awaiting carrier confirmation appears under **Pending**. The summary cards remain totals for the current type/archive view when a status chip is selected. Use **Reviewed archive** to include handled history.
+Use search and the SMS, Email, Automated, or Needs attention filters to find the customer or message. A message Podium accepted but a carrier later rejected appears under **Failed**, while a message awaiting carrier confirmation appears under **Pending**. Staff with customer-edit access also receive a customer-linked Notification Center alert when phone or email delivery fails so the contact record is corrected before another attempt.
 
 ## Operations Mailbox
 

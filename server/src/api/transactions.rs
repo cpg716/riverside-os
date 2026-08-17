@@ -12095,12 +12095,40 @@ async fn post_transaction_receipt_send_email(
         });
 
     let Some(addr) = to_email else {
+        if let Some(customer) = detail.customer.as_ref() {
+            let _ = record_customer_notification(
+                &state.db,
+                customer.id,
+                "transaction",
+                transaction_id,
+                CustomerNotificationKind::Receipt,
+                CustomerNotificationChannel::Email,
+                Some("Receipt email could not be sent."),
+                Some("Customer has no email address."),
+                json!({ "receipt": true, "gift": body.gift }),
+            )
+            .await;
+        }
         return Err(TransactionError::InvalidPayload(
             "Add an email address for this customer (or pass to_email).".to_string(),
         ));
     };
 
     if !looks_like_email(&addr) {
+        if let Some(customer) = detail.customer.as_ref() {
+            let _ = record_customer_notification(
+                &state.db,
+                customer.id,
+                "transaction",
+                transaction_id,
+                CustomerNotificationKind::Receipt,
+                CustomerNotificationChannel::Email,
+                Some("Receipt email could not be sent."),
+                Some("Customer email address is invalid."),
+                json!({ "receipt": true, "gift": body.gift, "to_email": addr }),
+            )
+            .await;
+        }
         return Err(TransactionError::InvalidPayload(
             "Invalid email address.".to_string(),
         ));
@@ -12204,7 +12232,23 @@ async fn post_transaction_receipt_send_email(
             }
             Ok(Json(json!({ "status": "sent" })))
         }
-        Err(e) => Err(map_store_email_err(e)),
+        Err(e) => {
+            if let Some(customer) = detail.customer.as_ref() {
+                let _ = record_customer_notification(
+                    &state.db,
+                    customer.id,
+                    "transaction",
+                    transaction_id,
+                    CustomerNotificationKind::Receipt,
+                    CustomerNotificationChannel::Email,
+                    Some(&format!("{subject}\n{html}")),
+                    Some(&e.to_string()),
+                    json!({ "receipt": true, "gift": body.gift, "to_email": addr }),
+                )
+                .await;
+            }
+            Err(map_store_email_err(e))
+        }
     }
 }
 
@@ -12238,12 +12282,40 @@ async fn post_transaction_receipt_send_sms(
         });
 
     let Some(phone_raw) = to_phone else {
+        if let Some(customer) = detail.customer.as_ref() {
+            let _ = record_customer_notification(
+                &state.db,
+                customer.id,
+                "transaction",
+                transaction_id,
+                CustomerNotificationKind::Receipt,
+                CustomerNotificationChannel::Sms,
+                Some("Receipt text could not be sent."),
+                Some("Customer has no phone number."),
+                json!({ "receipt": true, "gift": body.gift }),
+            )
+            .await;
+        }
         return Err(TransactionError::InvalidPayload(
             "Add a phone number for this customer (or pass to_phone).".to_string(),
         ));
     };
 
     if podium::normalize_phone_e164(&phone_raw).is_none() {
+        if let Some(customer) = detail.customer.as_ref() {
+            let _ = record_customer_notification(
+                &state.db,
+                customer.id,
+                "transaction",
+                transaction_id,
+                CustomerNotificationKind::Receipt,
+                CustomerNotificationChannel::Sms,
+                Some("Receipt text could not be sent."),
+                Some("Customer phone number is invalid."),
+                json!({ "receipt": true, "gift": body.gift, "to_phone": phone_raw }),
+            )
+            .await;
+        }
         return Err(TransactionError::InvalidPayload(
             "Invalid phone number. Use a 10-digit US number or E.164.".to_string(),
         ));
@@ -12373,7 +12445,23 @@ async fn post_transaction_receipt_send_sms(
                     }
                     Ok(Json(json!({ "status": "sent", "mode": "mms_attachment" })))
                 }
-                Err(e) => Err(map_podium_order_err(e)),
+                Err(e) => {
+                    if let Some(customer) = detail.customer.as_ref() {
+                        let _ = record_customer_notification(
+                            &state.db,
+                            customer.id,
+                            "transaction",
+                            transaction_id,
+                            CustomerNotificationKind::Receipt,
+                            CustomerNotificationChannel::Sms,
+                            Some(&caption),
+                            Some(&e.to_string()),
+                            json!({ "receipt": true, "gift": body.gift, "mode": "mms_attachment", "to_phone": phone_raw }),
+                        )
+                        .await;
+                    }
+                    Err(map_podium_order_err(e))
+                }
             };
         }
     }
@@ -12425,7 +12513,23 @@ async fn post_transaction_receipt_send_sms(
             }
             Ok(Json(json!({ "status": "sent", "mode": "sms_text" })))
         }
-        Err(e) => Err(map_podium_order_err(e)),
+        Err(e) => {
+            if let Some(customer) = detail.customer.as_ref() {
+                let _ = record_customer_notification(
+                    &state.db,
+                    customer.id,
+                    "transaction",
+                    transaction_id,
+                    CustomerNotificationKind::Receipt,
+                    CustomerNotificationChannel::Sms,
+                    Some(&sms_body),
+                    Some(&e.to_string()),
+                    json!({ "receipt": true, "gift": body.gift, "mode": "sms_text", "to_phone": phone_raw }),
+                )
+                .await;
+            }
+            Err(map_podium_order_err(e))
+        }
     }
 }
 

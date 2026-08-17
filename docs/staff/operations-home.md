@@ -2,7 +2,7 @@
 
 **Audience:** Managers and staff with access to the Operations area.
 
-**Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Timeline**, **Daily Sales**, **Pickup Queue**, **Customer Notifications**, **Podium Inbox**, **Mailbox**, **Reviews**.
+**Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Timeline**, **Daily Sales**, **Pickup Queue**, **Customer Interactions**, **Podium Inbox**, **Mailbox**, **Reviews**.
 
 **Related permissions:** **weddings.view** for wedding/compass blocks, appointments, and the activity feed. **notifications.view** for bell and timeline alerts. **tasks.complete** for your task widgets, or **tasks.view_team** for team task visibility. **customers.hub_view** for Podium Inbox and Mailbox. **reviews.view** for Reviews. **register.reports** for Daily Sales. **register.session_attach** for register close status. **orders.view** for Pickup Queue and pickup timeline items. **alterations.manage** for the alterations snapshot and alteration due dates. **procurement.view** for receiving commitments. **physical_inventory.view** for count/reconcile sessions. **qbo.view** for accounting review items. Weather often needs no special permission.
 
@@ -59,15 +59,15 @@ If the Timeline says a source feed did not refresh, treat it as a partial view a
 2. Requires **orders.view**. Use this to prioritize customer-ready orders, rush orders, due-soon work, and blocked follow-up.
 3. This is a triage queue for pickup/order follow-up, not the full Orders workspace. Open the row to continue fulfillment work and review the linked Transaction Record context.
 
-## Customer Notifications
+## Customer Interactions
 
-1. **Operations** → **Customer Notifications**.
-2. Use this to review automated customer messages only: ready pickup, alteration ready, appointment confirmations, appointment reminders, receipts, unknown-sender welcomes, and review invites.
-3. Ready pickup and alteration rows can be pending, scheduled, sent, skipped, or failed. Appointment confirmations/reminders and receipts are recorded as sent or failed delivery records.
-4. Click **Send Now** to send a pending pickup/alteration notification immediately. Provide a reason for audit trail.
-5. Click **Skip** to mark a pending pickup/alteration notification as skipped. Use when customer already notified or pickup completed.
-6. Click **Reviewed** after staff has handled a sent/failed row. Reviewed rows are archived from the active list.
-7. Regular staff-written Podium texts and staff-written emails are not shown here; those stay in Customer Messages / Mailbox.
+1. **Operations** → **Customer Interactions**.
+2. Start with **All activity** for recent Podium SMS, store email, and automated delivery records. Use **Needs attention** for unread customer replies and failures.
+3. Open **Text messages**, **Email**, or **Automated queue** to continue in the authoritative source. The separate Podium Inbox and Mailbox menu items remain direct shortcuts.
+4. For a failed phone/email delivery, select **Update customer**, correct the contact detail, then select **Retry delivery** when offered. Review requests, receipts, and ready messages replay through their existing source workflows; appointment messages retry automatically after correction.
+5. Staff with **customers.hub_edit** and the Customers/Loyalty notification preference enabled receive a customer-linked Notification Center alert for each new delivery failure. Opening it takes staff to that customer profile; a later successful delivery clears the resolved alert.
+6. A later successful delivery automatically archives the older failed attempt. Use **Mark reviewed without retry** only when the customer was reached another way or no retry is appropriate; add the real resolution to the customer record when needed.
+7. Customer Interactions does not replace Podium or Mailbox and does not guess unmatched senders onto customer records.
 
 ## Podium Inbox
 
@@ -140,4 +140,4 @@ Routine inventory reconciliation does not use the bell. Review negative availabl
 - [../STAFF_SCHEDULE_AND_CALENDAR.md](../STAFF_SCHEDULE_AND_CALENDAR.md)
 - [../WEATHER_VISUAL_CROSSING.md](../WEATHER_VISUAL_CROSSING.md)
 
-**Last reviewed:** 2026-08-13 (full Mailbox composer, Podium webhook status, and review rate-limit handling updated)
+**Last reviewed:** 2026-08-16 (unified Customer Interactions and contact-failure recovery updated)

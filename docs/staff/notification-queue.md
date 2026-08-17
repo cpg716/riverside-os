@@ -1,16 +1,16 @@
-# Customer Notifications
+# Customer Interactions
 
 **Audience:** POS staff, Back Office staff, and managers reviewing automated customer messages.
 
-**Where in ROS:** Back Office → Operations → **Customer Notifications** or POS → **Customer Notifications**.
+**Where in ROS:** Back Office → Operations → **Customer Interactions** or POS → **Customer Interactions**.
 
-**Related permissions:** Authenticated staff can view and mark rows reviewed. **orders.lifecycle_manage** is required to send immediately, schedule batches, or skip pending pickup/alteration notifications.
+**Related permissions:** Authenticated staff can view automated activity and mark rows reviewed. **customers.hub_view** adds Podium and Mailbox activity. **customers.hub_edit** receives customer-contact failure alerts and can update the customer profile. Source permissions still govern retries: **reviews.view** for review requests and **orders.lifecycle_manage** for ready messages.
 
 ---
 
 ## Overview
 
-Customer Notifications tracks automated customer-facing messages only. It includes ready-for-pickup, alteration-ready, appointment confirmation, appointment reminder, receipt, unknown-sender welcome, and review-invite messages. Regular staff-written Podium texts and regular staff-written emails stay in Customer Messages / Mailbox, not this review center.
+Customer Interactions is a unified communication control center. **All activity** combines recent Podium SMS, store email, and automated delivery records. The Text, Email, and Automated Queue tabs keep the existing source workspaces intact for replies, delivery review, and recovery.
 
 ## When Notifications Are Queued Or Recorded
 
@@ -48,10 +48,20 @@ Customer Notifications tracks automated customer-facing messages only. It includ
 
 ### Review Pending Notifications
 
-1. Open **Customer Notifications** from Operations or POS.
-2. Filter by effective delivery status (pending, sent, failed, or skipped). The summary cards remain totals for the current type/archive view while the list narrows.
-3. Filter by entity type (order, alteration).
-4. Review customer details, entity information, and scheduled time.
+1. Open **Customer Interactions** from Operations or POS.
+2. Use **Needs attention** for unread replies and failed delivery, or filter by SMS, Email, or Automated.
+3. Select **Review queue** to focus the exact automated row, **Open thread** to continue a text/email conversation, or **Customer** to open the linked customer.
+4. Unmatched senders remain visible and are not linked automatically.
+
+### Resolve Failed Phone Or Email Delivery
+
+1. Open the failed row and read the provider error. Provider code `P0005` means Podium accepted the SMS but a downstream carrier rejected it without a more specific reason.
+2. Select **Update customer** and verify the saved phone or email with the customer.
+3. Return to the failure and select **Retry delivery** when available. Review requests, receipts, and ready messages retry through their existing source workflows. Appointment messages retry automatically after the correction and backoff window.
+4. A successful later delivery automatically archives the older failed attempt.
+5. Use **Mark reviewed without retry** only when the customer was contacted another way or the message should not be resent.
+
+Each new delivery failure also creates a durable Notification Center alert for staff with customer-edit access and the Customers/Loyalty notification preference enabled. The alert opens the affected customer profile so bad contact data is corrected before the next automation runs; a later successful delivery clears the resolved alert.
 
 ### Send Notification Immediately (Override)
 
@@ -91,7 +101,7 @@ Background job runs every minute to check schedule and send due notifications.
 All sent messages appear in:
 - **Customer Messages section** (Podium SMS/email conversation history)
 - **Customer History** (activity log)
-- **Customer Notifications** (automated-message delivery status and staff review)
+- **Customer Interactions** (automated-message delivery status and staff review)
 
 ## Troubleshooting
 
@@ -141,4 +151,4 @@ All sent messages appear in:
 - [../CUSTOMER_NOTIFICATION_QUEUE.md](../CUSTOMER_NOTIFICATION_QUEUE.md)
 - [podium-integration-staff-manual.md](podium-integration-staff-manual.md)
 
-**Last reviewed:** 2026-06-06 (Customer Notifications naming, appointment ICS, and loyalty-letter policy updated)
+**Last reviewed:** 2026-08-16 (unified activity and contact-failure recovery updated)

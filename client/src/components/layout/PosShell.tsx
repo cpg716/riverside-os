@@ -15,7 +15,7 @@ import LayawayWorkspace from "../pos/LayawayWorkspace";
 const CustomersWorkspace = lazy(() => import("../customers/CustomersWorkspace"));
 import PodiumMessagingInboxSection from "../customers/PodiumMessagingInboxSection";
 import MailboxOperationsSection from "../operations/MailboxOperationsSection";
-import NotificationQueueOperationsSection from "../operations/NotificationQueueOperationsSection";
+import CustomerInteractionsOperationsSection from "../operations/CustomerInteractionsOperationsSection";
 const LoyaltyWorkspace = lazy(() => import("../loyalty/LoyaltyWorkspace"));
 const ShipmentsHubSection = lazy(() => import("../customers/ShipmentsHubSection"));
 const SettingsWorkspace = lazy(() => import("../settings/SettingsWorkspace"));
@@ -535,7 +535,21 @@ export default function PosShell({
 
           {activePosTab === "customer-notifications" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-              <NotificationQueueOperationsSection surface="pos" />
+              <CustomerInteractionsOperationsSection
+                surface="pos"
+                onOpenCustomerHub={(customer) => {
+                  onSubSectionChange("all");
+                  setPosMessagingFocusCustomerId(customer.id);
+                  setPosMessagingFocusHubTab("messages");
+                  setActivePosTab("customers");
+                }}
+                onOpenCustomerProfile={(customer) => {
+                  onSubSectionChange("all");
+                  setPosMessagingFocusCustomerId(customer.id);
+                  setPosMessagingFocusHubTab("profile");
+                  setActivePosTab("customers");
+                }}
+              />
             </div>
           )}
 

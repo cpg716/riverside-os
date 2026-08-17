@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
+use crate::logic::customer_notifications::mark_customer_notification_delivery_result;
 use crate::logic::messaging::{MessagingDeliverySummary, MessagingService};
 use crate::logic::podium::PodiumTokenCache;
 
@@ -171,13 +172,14 @@ impl NotificationScheduler {
                 "Marking notification as sent"
             );
 
-            let _ = sqlx::query("SELECT mark_notification_sent($1, $2, $3, $4)")
-                .bind(id)
-                .bind(delivery_method)
-                .bind(delivery_status)
-                .bind(delivery_error.as_deref())
-                .execute(&self.pool)
-                .await;
+            let _ = mark_customer_notification_delivery_result(
+                &self.pool,
+                id,
+                delivery_method,
+                delivery_status,
+                delivery_error.as_deref(),
+            )
+            .await;
 
             if matches!(&result, Ok(summary) if summary.is_delivered()) {
                 sent_count += 1;
@@ -261,13 +263,14 @@ impl NotificationScheduler {
                 "Marking immediate notification as sent"
             );
 
-            let _ = sqlx::query("SELECT mark_notification_sent($1, $2, $3, $4)")
-                .bind(notification_id)
-                .bind(delivery_method)
-                .bind(delivery_status)
-                .bind(delivery_error.as_deref())
-                .execute(&self.pool)
-                .await;
+            let _ = mark_customer_notification_delivery_result(
+                &self.pool,
+                notification_id,
+                delivery_method,
+                delivery_status,
+                delivery_error.as_deref(),
+            )
+            .await;
 
             Ok(matches!(&result, Ok(summary) if summary.is_delivered()))
         } else {

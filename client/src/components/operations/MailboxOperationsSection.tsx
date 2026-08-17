@@ -317,8 +317,12 @@ function safeEmailDocument(row: MailboxRow): string {
 
 export default function MailboxOperationsSection({
   onOpenCustomerHub,
+  initialMessageId,
+  onInitialMessageConsumed,
 }: {
   onOpenCustomerHub: (customer: Customer) => void;
+  initialMessageId?: string | null;
+  onInitialMessageConsumed?: () => void;
 }) {
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
@@ -495,6 +499,15 @@ export default function MailboxOperationsSection({
 
   const allThreads = useMemo(() => groupThreads(rows), [rows]);
   const visibleThreads = useMemo(() => groupThreads(visibleRows), [visibleRows]);
+
+  useEffect(() => {
+    if (!initialMessageId || rows.length === 0) return;
+    const target = rows.find((row) => row.id === initialMessageId);
+    if (!target) return;
+    setFolderFilter("ALL");
+    setSelectedRowId(target.id);
+    onInitialMessageConsumed?.();
+  }, [initialMessageId, onInitialMessageConsumed, rows]);
 
   useEffect(() => {
     if (visibleThreads.length === 0) {

@@ -1,8 +1,10 @@
-# Customer Notifications System
+# Customer Interactions Notification Queue
 
 ## Overview
 
-The Customer Notifications system tracks automated customer-facing messages. It manages queued ready-for-pickup and alteration-ready SMS/email notifications, records appointment confirmations and reminders, tracks receipt sends, and exposes delivery failures for staff review. Regular staff-written Podium texts and regular staff-written emails are not part of this center.
+Customer Interactions is the staff control center for current customer communication. Its All Activity feed combines bounded, cursor-paged Podium SMS, store email, and automated delivery records without replacing those source systems. The notification queue remains the authority for ready messages, appointment messages, receipts, review requests, and delivery-failure review.
+
+When a phone or email delivery fails, ROS creates a customer-linked Notification Center alert for staff with `customers.hub_edit` whose Customers/Loyalty notification preference is enabled. Staff update the customer contact and retry through the authoritative source workflow. A later successful delivery automatically marks older matching failed attempts reviewed and clears the resolved alert.
 
 ## Architecture
 
@@ -43,6 +45,15 @@ The Customer Notifications system tracks automated customer-facing messages. It 
 - `override_send_immediately(notification_id, reason, staff_id)` - Override for immediate send
 
 ## API Endpoints
+
+### List Unified Customer Activity
+```
+GET /api/customer-interactions?channel=sms&needs_attention=true&limit=100
+```
+- Requires: authenticated staff
+- Includes manual Podium/Mailbox rows only with `customers.hub_view`
+- Supports source, channel, direction, attention, search, and cursor filters
+- Returns source identifiers so the client can focus the exact authoritative thread or queue row
 
 ### List Notifications
 ```
@@ -138,10 +149,16 @@ All sent messages appear in:
 ## Staff Workflow
 
 ### Review Pending Notifications
-1. Navigate to Notifications Queue (UI component - to be built)
-2. Filter by status (pending, scheduled, sent, failed)
-3. Filter by entity type (order, alteration)
-4. Review customer details and message content
+1. Navigate to Customer Interactions.
+2. Use All Activity for cross-channel triage or Automated Queue for delivery details.
+3. Filter by status, channel, attention, or source.
+4. Open the exact customer, thread, or queue row before acting.
+
+### Resolve A Failed Contact
+1. Update the linked customer phone or email.
+2. Retry review requests, receipts, or ready messages through their existing source workflow.
+3. Appointment failures remain eligible for the existing bounded automatic retry worker after correction.
+4. A successful matching delivery archives the older failed attempt automatically.
 
 ### Send Immediately
 1. Click "Send Now" on pending notification

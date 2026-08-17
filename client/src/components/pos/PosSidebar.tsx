@@ -53,7 +53,7 @@ export default function PosSidebar({
       { id: "alterations",  label: "Alterations", icon: getAppIcon(APP_NAV_ICON_NAMES.alterations),       permission: "alterations.manage" },
       { id: "orders",       label: "Orders",      icon: getAppIcon(APP_NAV_ICON_NAMES.orders),            permission: "orders.view" },
       { id: "tasks",        label: "Tasks",       icon: getAppIcon(APP_NAV_ICON_NAMES.tasks) },
-      { id: "customer-notifications", label: "Customer Notifications", icon: getAppIcon(APP_NAV_ICON_NAMES["customer-notifications"]) },
+      { id: "customer-notifications", label: "Customer Interactions", icon: getAppIcon(APP_NAV_ICON_NAMES["customer-notifications"]) },
       { id: "podium-inbox", label: "Podium Inbox", icon: getAppIcon(APP_NAV_ICON_NAMES["podium-inbox"]),  permission: "customers.hub_view" },
       { id: "mailbox", label: "Mailbox", icon: getAppIcon(APP_NAV_ICON_NAMES.mailbox), permission: "customers.hub_view" },
       { id: "rms-charge",   label: "RMS Charge",  icon: getAppIcon(APP_NAV_ICON_NAMES["rms-charge"]) },
@@ -142,8 +142,15 @@ export default function PosSidebar({
             </span>
             {!collapsed ? (
               <>
-                <span className={`min-w-0 flex-1 truncate text-sm ${isActive ? "font-black" : "font-semibold"}`}>
-                  {tab.label}
+                <span className={`min-w-0 flex-1 text-sm leading-tight ${isActive ? "font-black" : "font-semibold"}`}>
+                  {tab.id === "customer-notifications" ? (
+                    <>
+                      <span className="block">Customer</span>
+                      <span className="block">Interactions</span>
+                    </>
+                  ) : (
+                    <span className="block truncate">{tab.label}</span>
+                  )}
                 </span>
                 {unreadCount > 0 ? (
                   <span

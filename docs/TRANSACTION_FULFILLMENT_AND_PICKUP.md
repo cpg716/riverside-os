@@ -240,7 +240,7 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 
 ---
 
-## Customer Notifications
+## Customer Interactions
 
 ### Ready for Pickup Notifications
 
@@ -248,7 +248,7 @@ When order lines are marked **Ready for Pickup** (via Order Lifecycle), customer
 
 **Key Points:**
 - Notifications are queued when items become ready, not sent immediately
-- Staff can review pending, sent, failed, and reviewed automated messages in Operations → Customer Notifications or POS → Customer Notifications
+- Staff can review pending, sent, failed, and reviewed automated messages in Operations → Customer Interactions or POS → Customer Interactions
 - "Send Now" override available for urgent pickups
 - All sent messages appear in Customer Messages section and Customer History
 - Requires customer opt-in (operational SMS/email always enabled by default)

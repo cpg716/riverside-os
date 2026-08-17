@@ -119,7 +119,7 @@ Source of truth for labels: `client/src/components/layout/sidebarSections.ts` (`
 | Operations | Timeline | [operations-home.md](operations-home.md) |
 | Operations | Daily Sales | [operations-home.md](operations-home.md) |
 | Operations | Pickup Queue | [operations-home.md](operations-home.md) |
-| Operations | Customer Notifications | [operations-home.md](operations-home.md) |
+| Operations | Customer Interactions | [operations-home.md](operations-home.md) |
 | Operations | Podium Inbox | [operations-home.md](operations-home.md) |
 | Operations | Mailbox | [operations-home.md](operations-home.md) |
 | Operations | Reviews | [operations-home.md](operations-home.md) |
