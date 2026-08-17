@@ -376,7 +376,9 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await expect(garmentCard).toBeVisible();
 
         // Open Scheduler
-        await garmentCard.getByRole("button", { name: /plan (?:& schedule|\/ reassign)/i }).click();
+        const moreMenu = garmentCard.locator("details");
+        await moreMenu.locator("summary").click();
+        await moreMenu.getByRole("button", { name: /plan \/ reassign/i }).click();
         await expect(page.getByRole("heading", { name: "Plan & Schedule" })).toBeVisible();
 
         // Phase 1: Plan Work
@@ -484,6 +486,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         });
 
         await openBackofficeSidebarTab(page, "weddings");
+        await page.getByRole("button", { name: /^parties$/i }).click();
         
         // Navigate to party (mocked)
         await expect(page.getByText("CHARLIE-062026")).toBeVisible({ timeout: 15_000 });

@@ -101,7 +101,7 @@ const issueHubResponse = {
 async function openCustomersWorkspace(page: Page) {
   await openBackofficeSidebarTab(page, "customers");
   await expect(
-    page.getByText("Profile Completeness"),
+    page.getByRole("region", { name: "Customer CRM Grid" }),
   ).toBeVisible({ timeout: 45_000 });
 }
 

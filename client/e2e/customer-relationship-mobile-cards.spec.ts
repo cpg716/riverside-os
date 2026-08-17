@@ -375,7 +375,14 @@ for (const viewport of DRAWER_VIEWPORTS) {
     const dialog = page.getByRole("dialog", { name: /riley harper/i });
     await expect(dialog).toBeVisible({ timeout: 20_000 });
 
-    await dialog.getByRole("tab", { name: /^History$/i }).click();
+    const compactSectionPicker = dialog.getByRole("combobox", {
+      name: /^customer section$/i,
+    });
+    if (viewport.width <= 1279) {
+      await compactSectionPicker.selectOption("transactions");
+    } else {
+      await dialog.getByRole("tab", { name: /^History$/i }).click();
+    }
     await expect(dialog.getByRole("button", { name: /open transaction/i })).toBeVisible({
       timeout: 20_000,
     });
@@ -387,7 +394,11 @@ for (const viewport of DRAWER_VIEWPORTS) {
       await expect(dialog.getByRole("table")).toBeVisible({ timeout: 10_000 });
     }
 
-    await dialog.getByRole("tab", { name: /^measurements$/i }).click();
+    if (viewport.width <= 1279) {
+      await compactSectionPicker.selectOption("measurements");
+    } else {
+      await dialog.getByRole("tab", { name: /^measurements$/i }).click();
+    }
     await expect(dialog.getByRole("heading", { name: /^archive$/i })).toBeVisible({
       timeout: 20_000,
     });

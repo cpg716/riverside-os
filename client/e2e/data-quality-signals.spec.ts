@@ -24,6 +24,7 @@ async function openWorkspace(
 test("workspace quality summaries expose lightweight completeness signals", async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   const insightRequests: Record<string, unknown>[] = [];
   await page.route("**/api/categories", async (route) => {
     await route.fulfill({
@@ -193,6 +194,7 @@ test("workspace quality summaries expose lightweight completeness signals", asyn
   await expect(page.getByText("Optional brand blank")).toBeVisible();
   await expect(page.getByText("Vendor missing")).toBeVisible();
   await expect(page.getByText("Inventory Cleanup Review")).toBeVisible();
+  await page.getByRole("button", { name: "Show diagnostics" }).click();
   await expect(page.getByText("2 duplicate barcode groups need review.")).toBeVisible();
   await expect(page.getByText("3 duplicate vendor UPC groups need review.")).toBeVisible();
   await expect(page.getByText("4 active items are missing a category.")).toBeVisible();
@@ -224,9 +226,11 @@ test("workspace quality summaries expose lightweight completeness signals", asyn
   await openWorkspace(
     page,
     "customers",
-    page.getByText("Profile Completeness"),
+    page.getByRole("region", { name: "Customer CRM Grid" }),
   );
-  await expect(page.getByText("Profile Completeness")).toBeVisible();
+  const customerOverview = page.locator("details").filter({ hasText: "Customer overview" });
+  await customerOverview.locator("summary").click();
+  await expect(customerOverview.getByText("Profile quality")).toBeVisible();
   await expect(page.getByText("Profiles incomplete")).toBeVisible();
   await expect(page.getByRole("row", { name: /Casey Contactless.*Profile incomplete/ })).toBeVisible();
 
