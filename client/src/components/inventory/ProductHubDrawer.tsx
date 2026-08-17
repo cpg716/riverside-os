@@ -461,6 +461,8 @@ export default function ProductHubDrawer({
   const [vendorSaving, setVendorSaving] = useState(false);
   const vendorPickerRef = useRef<HTMLDivElement>(null);
   const secondaryVendorPickerRef = useRef<HTMLDivElement>(null);
+  const [baseRetailDraft, setBaseRetailDraft] = useState("");
+  const [baseRetailSaving, setBaseRetailSaving] = useState(false);
   const [employeeMarkupDraft, setEmployeeMarkupDraft] = useState("");
   const [employeeExtraDraft, setEmployeeExtraDraft] = useState("");
   const [employeeSaving, setEmployeeSaving] = useState(false);
@@ -943,6 +945,7 @@ export default function ProductHubDrawer({
 
   useEffect(() => {
     if (!hub) return;
+    setBaseRetailDraft(formatMoney(parseMoney(hub.product.base_retail_price)));
     setEmployeeMarkupDraft(
       hub.product.employee_markup_percent != null &&
         hub.product.employee_markup_percent !== ""
@@ -953,6 +956,35 @@ export default function ProductHubDrawer({
       formatMoney(parseMoney(hub.product.employee_extra_amount)),
     );
   }, [hub]);
+
+  const saveBaseRetail = async () => {
+    if (!hub) return;
+    const trimmed = baseRetailDraft.trim();
+    if (!/^(?:\d+|\d*\.\d{1,2})$/.test(trimmed)) {
+      toast(
+        "Base retail must be a non-negative amount with no more than two decimals.",
+        "error",
+      );
+      return;
+    }
+
+    const nextPriceCents = parseMoneyToCents(trimmed);
+    const currentPriceCents = parseMoneyToCents(hub.product.base_retail_price);
+    if (nextPriceCents === currentPriceCents) {
+      toast("Base retail is already set to that amount.", "info");
+      return;
+    }
+
+    setBaseRetailSaving(true);
+    try {
+      const ok = await patchProductModel({
+        base_retail_price: formatMoney(nextPriceCents / 100),
+      });
+      if (ok) toast("Parent retail price updated.", "success");
+    } finally {
+      setBaseRetailSaving(false);
+    }
+  };
 
   const saveEmployeePricing = async () => {
     if (!hub) return;
@@ -1376,8 +1408,46 @@ export default function ProductHubDrawer({
                   </div>
                   <div>
                     <dt className="text-app-text-muted">Base retail</dt>
-                    <dd className="font-bold text-app-text">
-                      {money(hub.product.base_retail_price)}
+                    <dd className="mt-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label
+                          className="relative"
+                          htmlFor="product-base-retail-price"
+                        >
+                          <span className="sr-only">Parent base retail price</span>
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted">
+                            $
+                          </span>
+                          <input
+                            id="product-base-retail-price"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            value={baseRetailDraft}
+                            disabled={baseRetailSaving}
+                            onChange={(event) =>
+                              setBaseRetailDraft(event.target.value)
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") void saveBaseRetail();
+                            }}
+                            className="ui-input h-10 w-32 pl-7 pr-3 font-bold tabular-nums"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          disabled={baseRetailSaving}
+                          onClick={() => void saveBaseRetail()}
+                          className="ui-btn-primary h-10 rounded-xl px-4 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                        >
+                          {baseRetailSaving ? "Saving…" : "Save price"}
+                        </button>
+                      </div>
+                      <p className="mt-1 text-[10px] leading-relaxed text-app-text-muted">
+                        Updates every SKU inheriting the parent price. Existing
+                        SKU price overrides stay unchanged.
+                      </p>
                     </dd>
                   </div>
                   {hub.product.description ? (
