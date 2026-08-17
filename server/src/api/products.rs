@@ -2380,7 +2380,7 @@ async fn bulk_update_product_model(
     headers: HeaderMap,
     Json(payload): Json<BulkUpdateRequest>,
 ) -> Result<Json<serde_json::Value>, ProductError> {
-    require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
+    let actor = require_catalog_staff(&state, &headers, CATALOG_EDIT).await?;
     if payload.retail_price_override.is_none()
         && payload.cost_override.is_none()
         && payload.category_id.is_none()
@@ -2391,6 +2391,9 @@ async fn bulk_update_product_model(
     }
 
     let mut tx = state.db.begin().await?;
+    if payload.retail_price_override.is_some() {
+        set_catalog_price_audit_context(&mut tx, actor.id, "manual", None).await?;
+    }
 
     if payload.category_id.is_some() {
         sqlx::query(
@@ -2412,7 +2415,11 @@ async fn bulk_update_product_model(
             UPDATE product_variants
             SET
                 retail_price_override = COALESCE($1, retail_price_override),
-                cost_override = COALESCE($2, cost_override)
+                cost_override = COALESCE($2, cost_override),
+                shelf_labeled_at = CASE
+                    WHEN $1::numeric IS NOT NULL THEN NULL
+                    ELSE shelf_labeled_at
+                END
             WHERE product_id = $3
             "#,
         )
@@ -2838,6 +2845,15 @@ async fn patch_product_model(
         .unwrap_or(false);
 
     let mut tx = state.db.begin().await?;
+    if set_base_retail || set_base_sale {
+        set_catalog_price_audit_context(
+            &mut tx,
+            actor.id,
+            &audit_source,
+            body.audit_note.as_deref(),
+        )
+        .await?;
+    }
     sqlx::query(
         r#"
         UPDATE products
@@ -3350,7 +3366,7 @@ async fn clear_product_retail_overrides(
     Path(product_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<Value>, ProductError> {
-    require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
+    let actor = require_catalog_staff(&state, &headers, CATALOG_EDIT).await?;
     let ok: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM products WHERE id = $1 AND is_active = TRUE)",
     )
@@ -3362,16 +3378,27 @@ async fn clear_product_retail_overrides(
         return Err(ProductError::ProductNotFound);
     }
 
+    let mut tx = state.db.begin().await?;
+    set_catalog_price_audit_context(
+        &mut tx,
+        actor.id,
+        "manual",
+        Some("Cleared SKU retail overrides to inherit the parent retail price"),
+    )
+    .await?;
     let res = sqlx::query(
         r#"
         UPDATE product_variants
-        SET retail_price_override = NULL
+        SET retail_price_override = NULL,
+            shelf_labeled_at = NULL
         WHERE product_id = $1
+          AND retail_price_override IS NOT NULL
         "#,
     )
     .bind(product_id)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     Ok(Json(json!({ "cleared": res.rows_affected() })))
 }
@@ -3408,6 +3435,28 @@ fn normalize_audit_source(value: Option<&str>) -> Result<String, ProductError> {
             "audit_source must be 'manual' or 'rosie'".to_string(),
         )),
     }
+}
+
+async fn set_catalog_price_audit_context(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    staff_id: Uuid,
+    source: &str,
+    note: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        SELECT
+            set_config('riverside.price_change_staff_id', $1, true),
+            set_config('riverside.price_change_source', $2, true),
+            set_config('riverside.price_change_note', $3, true)
+        "#,
+    )
+    .bind(staff_id.to_string())
+    .bind(source)
+    .bind(note.unwrap_or_default())
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 fn build_catalog_change_summary(before_values: &Value, after_values: &Value) -> String {
@@ -4168,6 +4217,22 @@ struct CatalogAuditTimelineRow {
     changed_by_name: Option<String>,
 }
 
+#[derive(Debug, FromRow)]
+struct PriceAuditTimelineRow {
+    id: Uuid,
+    changed_at: DateTime<Utc>,
+    price_scope: String,
+    price_kind: String,
+    sku: Option<String>,
+    old_override: Option<Decimal>,
+    new_override: Option<Decimal>,
+    old_effective_price: Option<Decimal>,
+    new_effective_price: Option<Decimal>,
+    change_source: String,
+    change_note: Option<String>,
+    changed_by_name: Option<String>,
+}
+
 fn product_inventory_timeline_label(tx_type: &str) -> &'static str {
     match tx_type {
         "adjustment" => "Inventory adjusted",
@@ -4188,6 +4253,12 @@ fn product_catalog_timeline_label(change_source: &str) -> String {
         }
         _ => "Catalog update".to_string(),
     }
+}
+
+fn format_catalog_price(value: Option<Decimal>) -> String {
+    value
+        .map(|price| format!("${price:.2}"))
+        .unwrap_or_else(|| "not set".to_string())
 }
 
 async fn get_product_timeline(
@@ -4266,6 +4337,31 @@ async fn get_product_timeline(
         WHERE a.product_id = $1
         ORDER BY a.created_at DESC
         LIMIT 20
+        "#,
+    )
+    .bind(product_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    let price_audit = sqlx::query_as::<_, PriceAuditTimelineRow>(
+        r#"
+        SELECT
+            h.id,
+            h.changed_at,
+            h.price_scope,
+            h.price_kind,
+            h.sku,
+            h.old_override,
+            h.new_override,
+            h.old_effective_price,
+            h.new_effective_price,
+            h.change_source,
+            h.change_note,
+            h.changed_by_name
+        FROM catalog_price_change_history h
+        WHERE h.product_id = $1
+        ORDER BY h.changed_at DESC
+        LIMIT 40
         "#,
     )
     .bind(product_id)
@@ -4351,6 +4447,50 @@ async fn get_product_timeline(
         });
     }
 
+    for audit in price_audit {
+        let actor = audit
+            .changed_by_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("System ({})", audit.change_source.replace('_', " ")));
+        let target = if audit.price_scope == "variant" {
+            format!("SKU {}", audit.sku.as_deref().unwrap_or("unknown"))
+        } else {
+            "Parent".to_string()
+        };
+        let price_action = if audit.old_effective_price == audit.new_effective_price
+            && audit.old_override != audit.new_override
+        {
+            "override configuration changed"
+        } else {
+            "price changed"
+        };
+        let note_suffix = audit
+            .change_note
+            .as_deref()
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+            .map(|note| format!(" — {note}"))
+            .unwrap_or_default();
+        events.push(ProductTimelineEvent {
+            at: audit.changed_at,
+            kind: format!("price_{}_{}", audit.price_scope, audit.price_kind),
+            summary: format!(
+                "{} {} {} by {}: {} → {}{}",
+                target,
+                audit.price_kind,
+                price_action,
+                actor,
+                format_catalog_price(audit.old_effective_price),
+                format_catalog_price(audit.new_effective_price),
+                note_suffix
+            ),
+            reference_id: Some(audit.id),
+        });
+    }
+
     events.sort_by(|a, b| b.at.cmp(&a.at));
     events.truncate(60);
 
@@ -4363,7 +4503,7 @@ async fn patch_variant_pricing(
     headers: HeaderMap,
     Json(body): Json<VariantPricingPatch>,
 ) -> Result<Json<Value>, ProductError> {
-    require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
+    let actor = require_catalog_staff(&state, &headers, CATALOG_EDIT).await?;
     #[derive(Debug, FromRow)]
     struct VariantPricingBefore {
         sku: String,
@@ -4452,6 +4592,7 @@ async fn patch_variant_pricing(
     };
     let next_effective_retail = next_retail_override.unwrap_or(current.base_retail_price);
     let next_effective_sale = effective_sale_usd(current.base_sale_price, next_sale_override);
+    let price_changed = old_effective_retail != next_effective_retail;
     if next_effective_sale.is_some_and(|sale| sale > next_effective_retail) {
         return Err(ProductError::InvalidPayload(
             "sale price cannot exceed effective retail price".to_string(),
@@ -4606,68 +4747,44 @@ async fn patch_variant_pricing(
         .await?;
     }
 
-    if body.clear_retail_override {
+    let retail_price_requested = body.clear_retail_override || body.retail_price_override.is_some();
+    let sale_price_requested = body.clear_sale_override || body.sale_price_override.is_some();
+    if retail_price_requested || sale_price_requested {
         did = true;
+        let mut tx = state.db.begin().await?;
+        set_catalog_price_audit_context(&mut tx, actor.id, "manual", None).await?;
         sqlx::query(
             r#"
             UPDATE product_variants
-            SET retail_price_override = NULL
-            WHERE id = $1
+            SET
+                retail_price_override = CASE
+                    WHEN $1 THEN NULL
+                    WHEN $2 THEN $3
+                    ELSE retail_price_override
+                END,
+                sale_price_override = CASE
+                    WHEN $4 THEN NULL
+                    WHEN $5 THEN $6
+                    ELSE sale_price_override
+                END,
+                shelf_labeled_at = CASE
+                    WHEN $7 THEN NULL
+                    ELSE shelf_labeled_at
+                END
+            WHERE id = $8
             "#,
         )
+        .bind(body.clear_retail_override)
+        .bind(body.retail_price_override.is_some())
+        .bind(body.retail_price_override)
+        .bind(body.clear_sale_override)
+        .bind(body.sale_price_override.is_some())
+        .bind(body.sale_price_override)
+        .bind(price_changed)
         .bind(variant_id)
-        .execute(&state.db)
+        .execute(&mut *tx)
         .await?;
-    } else if let Some(p) = body.retail_price_override {
-        did = true;
-        if p < Decimal::ZERO {
-            return Err(ProductError::InvalidPayload(
-                "retail_price_override must be non-negative".to_string(),
-            ));
-        }
-        sqlx::query(
-            r#"
-            UPDATE product_variants
-            SET retail_price_override = $1
-            WHERE id = $2
-            "#,
-        )
-        .bind(p)
-        .bind(variant_id)
-        .execute(&state.db)
-        .await?;
-    }
-
-    if body.clear_sale_override {
-        did = true;
-        sqlx::query(
-            r#"
-            UPDATE product_variants
-            SET sale_price_override = NULL
-            WHERE id = $1
-            "#,
-        )
-        .bind(variant_id)
-        .execute(&state.db)
-        .await?;
-    } else if let Some(p) = body.sale_price_override {
-        did = true;
-        if p < Decimal::ZERO {
-            return Err(ProductError::InvalidPayload(
-                "sale_price_override must be non-negative".to_string(),
-            ));
-        }
-        sqlx::query(
-            r#"
-            UPDATE product_variants
-            SET sale_price_override = $1
-            WHERE id = $2
-            "#,
-        )
-        .bind(p)
-        .bind(variant_id)
-        .execute(&state.db)
-        .await?;
+        tx.commit().await?;
     }
 
     if body.clear_cost_override {
@@ -4725,20 +4842,6 @@ async fn patch_variant_pricing(
 
     let new_retail_override = next_retail_override;
     let new_effective_retail = new_retail_override.unwrap_or(current.base_retail_price);
-    let price_changed = old_effective_retail != new_effective_retail;
-
-    if price_changed {
-        sqlx::query(
-            r#"
-            UPDATE product_variants
-            SET shelf_labeled_at = NULL
-            WHERE id = $1
-            "#,
-        )
-        .bind(variant_id)
-        .execute(&state.db)
-        .await?;
-    }
 
     spawn_meilisearch_variant_resync(&state, variant_id);
     Ok(Json(json!({
@@ -5776,6 +5879,16 @@ mod tests {
     }
 
     async fn insert_patchable_product(pool: &PgPool) -> Uuid {
+        sqlx::query("ALTER TABLE products ADD COLUMN IF NOT EXISTS base_sale_price numeric(12, 2)")
+            .execute(pool)
+            .await
+            .expect("ensure product base sale price column");
+        sqlx::query(
+            "ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS sale_price_override numeric(12, 2)",
+        )
+        .execute(pool)
+        .await
+        .expect("ensure variant sale price column");
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS product_catalog_audit_log (

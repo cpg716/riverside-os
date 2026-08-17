@@ -82,9 +82,10 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 9. To set an exact promotional price, enter it in **Base sale** and select **Save sale**. The sale price stays dormant until an eligible active discount event is applied; leave it blank to keep using the event's percentage discount.
 10. In **SKUs & Stock**, select a matrix retail or sale amount to edit that specific SKU. The editor starts with the current effective price. Clear a SKU override to inherit the parent value again.
 11. Review the shared retail price-tag dialog, adjust quantities, and confirm the final print batch.
-12. Use recent inventory events when you need to confirm why the number changed.
-13. Open **Stock Report** to review every variation's current quantity, last sold date, average monthly unit sales, and average yearly unit sales, then select **Print Report**.
-14. Select **Analyze product** only when you want the optional read-only ROSIE catalog review. Product Hub does not run that analysis automatically when the drawer opens.
+12. Open **Timeline** after a price edit to review the parent or SKU, Retail or Sale price, exact before/after amount, and the staff member or automated source that changed it. Price history is append-only and cannot be rewritten.
+13. Use recent inventory events when you need to confirm why an inventory number changed.
+14. Open **Stock Report** to review every variation's current quantity, last sold date, average monthly unit sales, and average yearly unit sales, then select **Print Report**.
+15. Select **Analyze product** only when you want the optional read-only ROSIE catalog review. Product Hub does not run that analysis automatically when the drawer opens.
 
 ## Parent stock and sales report
 
@@ -119,6 +120,7 @@ Variations stay grouped by their leading attributes, such as color or style, and
 - `Print all tags` includes every variation shown in the workspace. Use selection first if you only need a smaller subset.
 - **Base retail** changes only SKUs that inherit the parent price. Review SKU-specific overrides separately in **SKUs & Stock** when every SKU must use the same amount.
 - **Base sale** must not exceed retail. A SKU sale override inherits from the parent when cleared and is used only with an eligible active promotion.
+- Every parent and SKU Retail/Sale change is saved to immutable history. If a sync or import changes a price, Timeline identifies it as an automated source instead of assigning it to a staff member.
 - Sales averages describe recorded Riverside history. If older sales were never imported, the report cannot infer them.
 
 ## What happens next
