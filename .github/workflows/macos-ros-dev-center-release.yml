@@ -48,7 +48,7 @@ jobs:
       - name: Wait for same-commit Playwright E2E
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/require-playwright-success.mjs --sha "${{ github.sha }}"
+        run: node scripts/require-playwright-success.mjs --sha "${{ github.sha }}" --timeout-minutes 110
 
   pre-retag-gate:
     name: Pre-retag release gate

@@ -151,7 +151,7 @@ jobs:
       - name: Wait for same-commit Playwright E2E
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node scripts/require-playwright-success.mjs --sha "${{ github.sha }}"
+        run: node scripts/require-playwright-success.mjs --sha "${{ github.sha }}" --timeout-minutes 110
 
   build-register-updater:
     needs: [validate-scripts]
