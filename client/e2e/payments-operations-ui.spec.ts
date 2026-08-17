@@ -261,8 +261,14 @@ test.describe.serial("Payments Operations workspace smoke", () => {
     await page.keyboard.press("Escape");
 
     await paymentsHeader.getByRole("button", { name: /^reconciliation/i }).click();
-    await expect(page.getByText("E2E payment needs review").first()).toBeVisible();
-    await page.getByRole("button", { name: "Open Issue" }).first().click();
+    const issueRow = page
+      .getByRole("row")
+      .filter({ hasText: seed.providerTransactionId })
+      .first();
+    await expect(issueRow).toBeVisible();
+    await issueRow
+      .getByRole("button", { name: /^Open .* issue from/i })
+      .click();
     await expect(page.getByRole("dialog")).toContainText("Issue Summary");
     await expect(page.getByRole("dialog")).toContainText("Link Payment");
     await page.keyboard.press("Escape");

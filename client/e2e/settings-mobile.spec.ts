@@ -156,9 +156,10 @@ test("Settings sidebar groups stay compact, complete, and ordered", async ({ pag
   await expect(
     mainNav.getByRole("button", { name: "Settings Hub", exact: true }),
   ).toBeVisible();
+  const settingsNav = mainNav.getByTestId("sidebar-nav-group-settings");
 
   for (const group of SETTINGS_GROUPS) {
-    const groupButton = mainNav.getByRole("button", {
+    const groupButton = settingsNav.getByRole("button", {
       name: new RegExp(`^${group.label}`),
     });
     await expect(groupButton).toBeVisible();
@@ -168,12 +169,12 @@ test("Settings sidebar groups stay compact, complete, and ordered", async ({ pag
 
     for (const section of group.sections) {
       await expect(
-        mainNav.getByRole("button", { name: section, exact: true }),
+        settingsNav.getByRole("button", { name: section, exact: true }),
       ).toBeVisible();
     }
   }
 
-  const navText = (await mainNav.textContent()) ?? "";
+  const navText = `Settings Hub ${(await settingsNav.textContent()) ?? ""}`;
   expectTextOrder(navText.replace(/\s+/g, " "), SETTINGS_ORDER);
 });
 

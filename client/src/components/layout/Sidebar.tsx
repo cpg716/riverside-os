@@ -207,7 +207,7 @@ export default function Sidebar({
           const navIconProps = getNavIconProps(isActive);
 
           return (
-            <div key={item.id}>
+            <div key={item.id} data-testid={`sidebar-nav-group-${item.id}`}>
               <SidebarRailTooltip enabled={collapsed} label={tipLabel}>
                 <button
                   type="button"
@@ -357,6 +357,7 @@ export default function Sidebar({
         {secondaryWorkspaceCount > 0 ? (
           <button
             type="button"
+            data-testid="sidebar-more-workspaces"
             onClick={() => setShowMoreWorkspaces((current) => !current)}
             aria-expanded={showMoreWorkspaces}
             className={`mt-1 flex min-h-11 w-full items-center rounded-xl text-app-text-muted transition hover:bg-app-surface-2 hover:text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${

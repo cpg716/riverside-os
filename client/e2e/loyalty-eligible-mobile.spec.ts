@@ -78,7 +78,9 @@ for (const viewport of LOYALTY_VIEWPORTS) {
     });
     await expect(page.getByText("1 × $25.00 reward ready")).toBeVisible();
     await expect(page.getByText("5,000 points per reward")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Redeem Reward" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /^Redeem 1 reward for Alex Rivera$/i }),
+    ).toBeVisible();
   });
 }
 
@@ -223,7 +225,9 @@ test("Loyalty supports single and group fulfillment controls", async ({ page }) 
   await expect(page.getByText("Jordan Lee", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "Close loyalty reward batch" }).click();
 
-  await page.getByRole("button", { name: "Redeem Reward" }).first().click();
+  await page
+    .getByRole("button", { name: /^Redeem 3 rewards for Alex Rivera$/i })
+    .click();
   await expect(page.getByText("Customer 1 of 1")).toBeVisible();
   const rewardBlocks = page.getByLabel("Reward blocks on this card");
   await rewardBlocks.fill("2");

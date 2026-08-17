@@ -240,7 +240,10 @@ test.describe("UI Portaling and Stacking", () => {
     test.setTimeout(60_000);
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "inventory");
-    await page.getByRole("button", { name: /^find item$/i }).click();
+    await page
+      .getByTestId("backoffice-workspace-root")
+      .getByRole("button", { name: /^find item$/i })
+      .click();
 
     // 1. Open Product Hub Drawer
     const manageButton = page.getByRole("button", { name: /manage/i }).first();

@@ -966,7 +966,8 @@ function mapOrderActionButtons(
   const customerVisibleLineCount = detail.items.filter((item) => !item.is_internal).length;
   const hasFinancialValue =
     parseMoneyToCents(detail.total_price) !== 0 ||
-    parseMoneyToCents(detail.amount_paid) !== 0;
+    parseMoneyToCents(detail.amount_paid) !== 0 ||
+    parseMoneyToCents(detail.void_record?.refundable_amount ?? "0") !== 0;
   return (
     <>
       {orderActions.canModify &&

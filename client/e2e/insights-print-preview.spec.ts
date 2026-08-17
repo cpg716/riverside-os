@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { signInToBackOffice } from "./helpers/backofficeSignIn";
+import {
+  openBackofficeSidebarTab,
+  signInToBackOffice,
+} from "./helpers/backofficeSignIn";
 
 const reportTitle = "Booked Sales by Salesperson This Month";
 const salespersonMember = "booked_transactions.salesperson";
@@ -112,10 +115,7 @@ test("Insights print preview preserves the complete chart and table", async ({
     });
   });
 
-  await page
-    .getByRole("navigation", { name: "Main Navigation" })
-    .getByRole("button", { name: /^insights(\s+bo)?$/i })
-    .click();
+  await openBackofficeSidebarTab(page, "dashboard");
   await expect(page.getByRole("heading", { name: /^insights$/i })).toBeVisible({
     timeout: 25_000,
   });

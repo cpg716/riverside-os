@@ -136,33 +136,24 @@ export async function openBackofficeSidebarTab(
       }),
     ).first();
   };
-  const isInteractableInViewport = async (
-    locator: ReturnType<typeof resolveTabButton>,
-  ) =>
-    locator
-      .evaluate((el) => {
-        const rect = el.getBoundingClientRect();
-        return (
-          rect.width > 0 &&
-          rect.height > 0 &&
-          rect.right > 0 &&
-          rect.bottom > 0 &&
-          rect.left < window.innerWidth &&
-          rect.top < window.innerHeight
-        );
-      })
-      .catch(() => false);
   let tabButton = resolveTabButton();
   const viewportWidth = await page.evaluate(() => window.innerWidth).catch(() => 1024);
-  if (!(await isInteractableInViewport(tabButton))) {
-    const menuToggle = page.getByRole("button", { name: "Toggle menu" });
-    if (await menuToggle.isVisible().catch(() => false)) {
-      await menuToggle.click().catch(() => {});
+  if ((await tabButton.count()) === 0) {
+    const moreWorkspacesButton = mainNav.getByTestId("sidebar-more-workspaces");
+    if ((await moreWorkspacesButton.count()) > 0) {
+      await moreWorkspacesButton.scrollIntoViewIfNeeded().catch(() => {});
+      await moreWorkspacesButton.evaluate((element) => {
+        (element as HTMLButtonElement).click();
+      });
+      await expect(moreWorkspacesButton).toHaveAttribute("aria-expanded", "true", {
+        timeout: 10_000,
+      });
       tabButton = resolveTabButton();
     }
   }
-  await expect(tabButton).toBeVisible({ timeout: 15_000 });
+  await expect(tabButton).toBeAttached({ timeout: 15_000 });
   await tabButton.scrollIntoViewIfNeeded().catch(() => {});
+  await expect(tabButton).toBeVisible({ timeout: 15_000 });
   await expect(tabButton).toBeEnabled();
   if (viewportWidth <= 1024) {
     await resolveTabButton().evaluate((element) => {
@@ -206,9 +197,14 @@ export async function openBackofficeSidebarTab(
     return tabButton;
   }
   if (tabId === "settings") {
-    await expect(
-      mainNav.getByRole("button", { name: /^settings hub$/i }),
-    ).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("app-shell-state")).toHaveAttribute(
+      "data-active-tab",
+      "settings",
+      { timeout: 20_000 },
+    );
+    await expect(page.getByTestId("settings-workspace-content")).toBeVisible({
+      timeout: 20_000,
+    });
   } else {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       tabButton = resolveTabButton();
@@ -240,33 +236,38 @@ export async function clearBackofficeSession(page: Page): Promise<void> {
   await page.reload({ waitUntil: "domcontentloaded" });
 }
 
-async function waitForBackofficeShellReady(page: Page, message: string): Promise<void> {
+async function isBackofficeShellReady(page: Page): Promise<boolean> {
   const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
   const appShellState = page.getByTestId("app-shell-state");
+  const hasAppShellState =
+    (await appShellState.count()) > 0 &&
+    (await appShellState
+      .evaluate((el) => {
+        const activeTab = el.getAttribute("data-active-tab");
+        const rect = el.getBoundingClientRect();
+        return Boolean(activeTab) && rect.width > 0 && rect.height > 0;
+      })
+      .catch(() => false));
+  return (
+    hasAppShellState ||
+    (await page
+      .getByRole("heading", { name: /operations overview/i })
+      .isVisible()
+      .catch(() => false)) ||
+    (await page
+      .getByRole("navigation", { name: "POS Navigation" })
+      .isVisible()
+      .catch(() => false)) ||
+    (await mainNav.isVisible().catch(() => false))
+  );
+}
+
+async function waitForBackofficeShellReady(page: Page, message: string): Promise<void> {
   await expect(page.getByText(/loading riverside/i)).not.toBeVisible({
     timeout: 30_000,
   });
   await expect
-    .poll(
-      async () =>
-        (await appShellState
-          .evaluate((el) => {
-            const activeTab = el.getAttribute("data-active-tab");
-            const rect = el.getBoundingClientRect();
-            return Boolean(activeTab) && rect.width > 0 && rect.height > 0;
-          })
-          .catch(() => false)) ||
-        (await page
-          .getByRole("heading", { name: /operations overview/i })
-          .isVisible()
-          .catch(() => false)) ||
-        (await page
-          .getByRole("navigation", { name: "POS Navigation" })
-          .isVisible()
-          .catch(() => false)) ||
-        (await mainNav.isVisible().catch(() => false)),
-      { timeout: 20_000, message },
-    )
+    .poll(() => isBackofficeShellReady(page), { timeout: 20_000, message })
     .toBeTruthy();
 }
 
@@ -288,8 +289,7 @@ export async function signInToBackOffice(
   /** Unified staff gate (`BackofficeSignInGate`) h1 is "Sign in". */
   const signInHeading = page.getByRole("heading", {
     name: /^sign in$/i,
-  });
-  const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
+  }).first();
 
   const headerStaffAuth =
     Boolean(process.env.E2E_STAFF_CODE?.trim()) &&
@@ -310,6 +310,17 @@ export async function signInToBackOffice(
   await expect(page.getByText(/loading riverside/i)).not.toBeVisible({
     timeout: 30_000,
   });
+  await expect
+    .poll(
+      async () =>
+        (await signInHeading.isVisible().catch(() => false)) ||
+        (await isBackofficeShellReady(page)),
+      {
+        timeout: 30_000,
+        message: "Back Office did not reach the sign-in gate or a restored shell",
+      },
+    )
+    .toBeTruthy();
 
   if (!(await signInHeading.isVisible().catch(() => false))) {
     if (effectivePermAfterShellLoad) await effectivePermAfterShellLoad;

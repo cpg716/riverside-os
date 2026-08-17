@@ -159,7 +159,7 @@ test.describe("Staff Scheduler E2E", () => {
         
         // Switch to "Staff" sub-view
         await page
-            .getByTestId("app-shell-state")
+            .getByTestId("backoffice-workspace-root")
             .getByRole("button", { name: "Staff", exact: true })
             .click();
         await expect(page.getByText(/Time & Attendance|Team Attendance/)).toBeVisible();

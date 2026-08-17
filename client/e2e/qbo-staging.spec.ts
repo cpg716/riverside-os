@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { e2eBackofficeStaffCode, signInToBackOffice } from "./helpers/backofficeSignIn";
+import {
+  e2eBackofficeStaffCode,
+  openBackofficeSidebarTab,
+  signInToBackOffice,
+} from "./helpers/backofficeSignIn";
 
 function apiBase(): string {
   const raw =
@@ -40,15 +44,12 @@ test.beforeEach(() => {
 test("QBO staging shell: warning-aware staging and posting language", async ({ page }) => {
   test.setTimeout(90_000);
   await signInToBackOffice(page);
+  await openBackofficeSidebarTab(page, "qbo");
   const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
-  const qboNav = mainNav.getByRole("button", { name: /qbo bridge/i });
   const stagingNav = mainNav.getByRole("button", { name: /^staging$/i });
   await expect
     .poll(
       async () => {
-        if (!(await qboNav.isVisible().catch(() => false))) return false;
-        if (!(await qboNav.isEnabled().catch(() => false))) return false;
-        await qboNav.click();
         if (await stagingNav.isVisible().catch(() => false)) {
           await stagingNav.click();
         }

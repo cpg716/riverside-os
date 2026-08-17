@@ -48,10 +48,10 @@ for (const viewport of SCHEDULER_VIEWPORTS) {
       timeout: 20_000,
     });
     await expect(
-      page.getByText("No appointments scheduled for this day"),
+      page.getByText(/No appointments are scheduled/i),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "New Appointment" }),
+      page.getByRole("button", { name: /New Appt/i }),
     ).toBeVisible();
 
     await page.getByRole("button", { name: /^week$/i }).click();
@@ -67,6 +67,7 @@ for (const viewport of SCHEDULER_VIEWPORTS) {
       expect(timeCellWidth).toBeGreaterThan(90);
     }
 
+    await page.getByText("Find appointment", { exact: true }).click();
     await page.getByTestId("scheduler-search-input").fill("alex");
     await expect(page.getByTestId("scheduler-search-popover")).toBeVisible({ timeout: 15_000 });
     const popoverWidth = await page

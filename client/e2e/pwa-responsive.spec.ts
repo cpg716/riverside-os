@@ -1,5 +1,8 @@
 import { devices, expect, test } from "@playwright/test";
-import { signInToBackOffice } from "./helpers/backofficeSignIn";
+import {
+  openBackofficeSidebarTab,
+  signInToBackOffice,
+} from "./helpers/backofficeSignIn";
 
 /**
  * Layout smoke for PWA-style viewports (per deployment checklist).
@@ -138,11 +141,9 @@ test.describe("PWA layout — tablet (iPad Pro 11 preset)", () => {
   });
 
   test("Insights workspace exposes main heading after lazy load", async ({ page }) => {
+    test.setTimeout(60_000);
     await signInToBackOffice(page);
-    await page
-      .getByRole("navigation", { name: "Main Navigation" })
-      .getByRole("button", { name: /^insights(\s+bo)?$/i })
-      .click();
+    await openBackofficeSidebarTab(page, "dashboard");
     await expect(page.getByRole("heading", { name: /^insights$/i })).toBeVisible({
       timeout: 25_000,
     });

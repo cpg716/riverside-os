@@ -38,12 +38,11 @@ test("Insights stays in the standard Back Office workspace shell", async ({ page
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
   const navigation = page.getByRole("navigation", { name: "Main Navigation" });
+  await openBackofficeSidebarTab(page, "dashboard");
   const insightsNav = page.getByTestId("sidebar-nav-dashboard");
   await expect(insightsNav.locator("svg.lucide-sparkles")).toBeVisible({
     timeout: 20_000,
   });
-
-  await openBackofficeSidebarTab(page, "dashboard");
 
   await expect(navigation).toBeVisible();
   await expect(page.getByTestId("app-shell-state")).toHaveAttribute(
@@ -85,7 +84,14 @@ for (const viewport of WORKSPACE_VIEWPORTS) {
       await expect(workspaceRoot).toHaveAttribute("data-workspace-theme", "ros");
       await expect(workspaceRoot).toHaveAttribute("data-workspace-section", tab);
 
-      if (["customers", "orders", "loyalty"].includes(tab)) {
+      if (tab === "customers") {
+        await expect(workspaceRoot.getByText("Customer overview")).toBeVisible({
+          timeout: 20_000,
+        });
+        await expect(
+          workspaceRoot.locator("[data-workspace-metric]").first(),
+        ).toBeAttached();
+      } else if (["orders", "loyalty"].includes(tab)) {
         await expect(
           workspaceRoot.locator("[data-workspace-metric]").first(),
         ).toBeVisible({ timeout: 20_000 });
@@ -93,8 +99,8 @@ for (const viewport of WORKSPACE_VIEWPORTS) {
 
       if (tab === "inventory") {
         await page
-          .getByRole("button", { name: /^Find Item/ })
-          .first()
+          .getByTestId("backoffice-workspace-root")
+          .getByRole("button", { name: /^Find item$/i })
           .click();
         await expect(
           workspaceRoot.locator(".ui-workspace-page-header"),

@@ -145,15 +145,16 @@ test.describe("runtime console and API cleanliness", () => {
     guard.assertClean("Customers workspace emitted runtime console/API noise");
   });
 
-  test("Wedding dashboard month picker is stable on month-end dates", async ({ page }) => {
+  test("Wedding readiness date range is stable on month-end dates", async ({ page }) => {
     await setBrowserDate(page, "2026-04-30T16:00:00.000Z");
     const guard = installRuntimeIssueGuard(page);
 
     await signInToBackOffice(page);
     await openBackofficeSidebarTab(page, "weddings");
-    await expect(page.getByRole("button", { name: /next 90 days/i })).toBeVisible({
+    await expect(page.getByTestId("wedding-readiness-dashboard")).toBeVisible({
       timeout: 20_000,
     });
+    await expect(page.getByLabel("Search wedding readiness")).toBeVisible();
 
     guard.assertClean("Wedding dashboard emitted runtime console/API noise");
   });

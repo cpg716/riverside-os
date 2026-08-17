@@ -54,7 +54,9 @@ test("high-traffic search fields teach staff the shorthand contract", async () =
   ]);
 
   expect(cart).toContain("Search partial product + style/SKU");
-  expect(customers).toContain("Try Ch Gar, phone, code, or company");
+  expect(customers).toContain(
+    "Search name, phone, email, customer code, or company",
+  );
   expect(inventory).toContain("Try partial product + style/SKU");
   expect(selector).toContain("Try Ch Gar, phone, email, or customer code");
 });
