@@ -218,6 +218,7 @@ function isCreditCardTender(method: string): boolean {
 type ZReportTenderKey =
   | "cash"
   | "card_reader"
+  | "card_saved"
   | "card_manual"
   | "card_not_present"
   | "check"
@@ -225,7 +226,8 @@ type ZReportTenderKey =
   | "store_credit"
   | "deposit_applied"
   | "exchange_credit"
-  | "rms_charge"
+  | "rms_charge_standard"
+  | "rms_charge_90_day"
   | "rms_payment"
   | "staff_account"
   | "donation";
@@ -241,6 +243,7 @@ function normalizedTenderKey(method: string): ZReportTenderKey | "other" {
     return "card_manual";
   if (tender.includes("cardnotpresent") || tender === "cnp")
     return "card_not_present";
+  if (tender === "cardsaved") return "card_saved";
   if (tender === "check" || tender === "cheque") return "check";
   if (tender.includes("gift")) return "gift_card";
   if (tender.includes("storecredit") || tender === "sc") return "store_credit";
@@ -248,7 +251,20 @@ function normalizedTenderKey(method: string): ZReportTenderKey | "other" {
     return "deposit_applied";
   if (tender === "exchangecredit") return "exchange_credit";
   if (tender.includes("rmspayment")) return "rms_payment";
-  if (tender.includes("rms")) return "rms_charge";
+  if (
+    tender === "onaccountrms90" ||
+    tender === "rms90" ||
+    tender === "rms90day" ||
+    tender === "rms90days"
+  )
+    return "rms_charge_90_day";
+  if (
+    tender === "onaccountrms" ||
+    tender === "rms" ||
+    tender === "rmscharge" ||
+    tender === "standardrms"
+  )
+    return "rms_charge_standard";
   if (tender.includes("staffaccount")) return "staff_account";
   if (tender.includes("donation")) return "donation";
   if (isCreditCardTender(method)) return "card_reader";
@@ -261,6 +277,8 @@ function tenderKeyLabel(key: ZReportTenderKey | "other"): string {
       return "Cash";
     case "card_reader":
       return "CC";
+    case "card_saved":
+      return "Saved Card";
     case "card_manual":
       return "Card Manual";
     case "card_not_present":
@@ -275,8 +293,10 @@ function tenderKeyLabel(key: ZReportTenderKey | "other"): string {
       return "Deposit Applied";
     case "exchange_credit":
       return "Exchange Credit";
-    case "rms_charge":
-      return "RMS Charge";
+    case "rms_charge_standard":
+      return "RMS Charge · Standard";
+    case "rms_charge_90_day":
+      return "RMS Charge · 90 Day";
     case "rms_payment":
       return "RMS Payment";
     case "staff_account":
@@ -293,6 +313,7 @@ interface TenderFamilySummary {
   card: { amountCents: number; txCount: number };
   checks: { amountCents: number; txCount: number };
   cardTerminal: { amountCents: number; txCount: number };
+  cardSaved: { amountCents: number; txCount: number };
   cardNotPresent: { amountCents: number; txCount: number };
   cardManual: { amountCents: number; txCount: number };
   cardRefunds: { amountCents: number; txCount: number };
@@ -306,6 +327,7 @@ function emptyTenderFamilySummary(): TenderFamilySummary {
     card: zero(),
     checks: zero(),
     cardTerminal: zero(),
+    cardSaved: zero(),
     cardNotPresent: zero(),
     cardManual: zero(),
     cardRefunds: zero(),
@@ -333,6 +355,7 @@ function summarizeTenderFamilies(
       summary.checks.txCount += txCount;
     } else if (
       key === "card_reader" ||
+      key === "card_saved" ||
       key === "card_not_present" ||
       key === "card_manual"
     ) {
@@ -347,6 +370,9 @@ function summarizeTenderFamilies(
       } else if (key === "card_manual") {
         summary.cardManual.amountCents += amountCents;
         summary.cardManual.txCount += txCount;
+      } else if (key === "card_saved") {
+        summary.cardSaved.amountCents += amountCents;
+        summary.cardSaved.txCount += txCount;
       } else {
         summary.cardTerminal.amountCents += amountCents;
         summary.cardTerminal.txCount += txCount;
@@ -362,32 +388,76 @@ function summarizeTenderFamilies(
       informational.set(label, existing);
     }
   }
-  summary.informational = Array.from(informational.entries()).map(
-    ([label, value]) => ({ label, ...value }),
-  );
+  const informationalOrder: ZReportTenderKey[] = [
+    "gift_card",
+    "store_credit",
+    "deposit_applied",
+    "exchange_credit",
+    "rms_charge_standard",
+    "rms_charge_90_day",
+    "staff_account",
+    "donation",
+  ];
+  summary.informational = informationalOrder.map((key) => ({
+    label: tenderKeyLabel(key),
+    ...(informational.get(tenderKeyLabel(key)) ?? {
+      amountCents: 0,
+      txCount: 0,
+    }),
+  }));
+  const fixedLabels = new Set(summary.informational.map((row) => row.label));
+  for (const [label, value] of informational) {
+    if (!fixedLabels.has(label)) {
+      summary.informational.push({ label, ...value });
+    }
+  }
   return summary;
 }
 
-function tenderFamilyRows(summary: TenderFamilySummary): string[] {
-  const rows = [
-    `Cash Total | Transactions: ${summary.cash.txCount} | Total: ${formatReportMoney(summary.cash.amountCents)}`,
-    `CC Total (Net) | Transactions: ${summary.card.txCount} | Total: ${formatReportMoney(summary.card.amountCents)}`,
-    `  CC Terminal | Transactions: ${summary.cardTerminal.txCount} | Total: ${formatReportMoney(summary.cardTerminal.amountCents)}`,
-    `  CNP | Transactions: ${summary.cardNotPresent.txCount} | Total: ${formatReportMoney(summary.cardNotPresent.amountCents)}`,
-    `  CC Manual | Transactions: ${summary.cardManual.txCount} | Total: ${formatReportMoney(summary.cardManual.amountCents)}`,
-    `  CC Refunds (all kinds) | Transactions: ${summary.cardRefunds.txCount} | Total: ${formatReportMoney(summary.cardRefunds.amountCents)}`,
-    `Checks Total | Transactions: ${summary.checks.txCount} | Total: ${formatReportMoney(summary.checks.amountCents)}`,
+export interface RegisterReportTenderBreakdownRow {
+  label: string;
+  amountCents: number;
+  txCount: number;
+  kind: "primary" | "detail" | "informational";
+}
+
+export function registerReportTenderBreakdown(
+  tenders: ZReportTenderRow[],
+): RegisterReportTenderBreakdownRow[] {
+  const summary = summarizeTenderFamilies(tenders);
+  return [
+    { label: "Cash Total", ...summary.cash, kind: "primary" },
+    { label: "CC Total (Net)", ...summary.card, kind: "primary" },
+    { label: "CC Terminal", ...summary.cardTerminal, kind: "detail" },
+    { label: "Card Not Present", ...summary.cardNotPresent, kind: "detail" },
+    { label: "Saved Card", ...summary.cardSaved, kind: "detail" },
+    { label: "CC Manual", ...summary.cardManual, kind: "detail" },
+    {
+      label: "CC Refunds (all kinds)",
+      ...summary.cardRefunds,
+      kind: "detail",
+    },
+    { label: "Checks Total", ...summary.checks, kind: "primary" },
+    ...summary.informational.map((row) => ({
+      ...row,
+      kind: "informational" as const,
+    })),
   ];
-  if (summary.informational.length > 0) {
-    rows.push("INFORMATIONAL ACTIVITY (NOT ADDITIVE)");
-    rows.push(
-      ...summary.informational.map(
-        (row) =>
-          `  ${row.label} | Transactions: ${row.txCount} | Activity: ${formatReportMoney(row.amountCents)}`,
-      ),
-    );
-  }
-  return rows;
+}
+
+function tenderFamilyRows(
+  tenders: ZReportTenderRow[],
+): string[] {
+  const rows = registerReportTenderBreakdown(tenders);
+  const informationalAt = rows.findIndex(
+    (row) => row.kind === "informational",
+  );
+  return rows.flatMap((row, index) => [
+    ...(index === informationalAt
+      ? ["INFORMATIONAL ACTIVITY (NOT ADDITIVE)"]
+      : []),
+    `${row.kind === "primary" ? "" : "  "}${row.label} | Transactions: ${row.txCount} | ${row.kind === "informational" ? "Activity" : "Total"}: ${formatReportMoney(row.amountCents)}`,
+  ]);
 }
 
 function creditCardTenderTotalCents(tenders: ZReportTenderRow[]): number {
@@ -420,13 +490,17 @@ function moneyWithCount(cents: number, count: number): string {
 }
 
 function isRmsChargeTender(method: string): boolean {
-  const tender = method.toLowerCase().replace(/[\s_-]/g, "");
-  return (
-    tender === "rms" ||
-    tender === "rmscharge" ||
-    tender === "rms90" ||
-    tender.includes("rmscharge")
+  return ["rms_charge_standard", "rms_charge_90_day"].includes(
+    normalizedTenderKey(method),
   );
+}
+
+function isRmsStandardTender(method: string): boolean {
+  return normalizedTenderKey(method) === "rms_charge_standard";
+}
+
+function isRms90DayTender(method: string): boolean {
+  return normalizedTenderKey(method) === "rms_charge_90_day";
 }
 
 function textValue(value: string | number | null | undefined): string {
@@ -536,10 +610,12 @@ function reportLabel(value: string | null | undefined): string {
     case "rms90":
     case "rms90day":
     case "rms90days":
-      return "RMS90";
+    case "onaccountrms90":
+      return "RMS Charge · 90 Day";
     case "rms":
     case "rmscharge":
-      return "RMS Charge";
+    case "onaccountrms":
+      return "RMS Charge · Standard";
     case "rmspayment":
       return "RMS Payment";
     case "check":
@@ -1215,6 +1291,11 @@ export async function openProfessionalZReportPrint(opts: {
   const discountTotalCents = reportItemMetrics.discountTotalCents;
   const discountTransactionCount = reportItemMetrics.discountGroupCount;
   const rmsChargeTotalCents = tenderTotalCents(opts.tenders, isRmsChargeTender);
+  const rmsStandardTotalCents = tenderTotalCents(
+    opts.tenders,
+    isRmsStandardTender,
+  );
+  const rms90DayTotalCents = tenderTotalCents(opts.tenders, isRms90DayTender);
   const rmsPaymentTotalCents = reportItemMetrics.rmsPaymentTotalCents;
   const newLayawayCount = reportItemMetrics.newLayawayCount;
   const pickupTotalCents = (opts.pickupsToday ?? []).reduce(
@@ -1230,51 +1311,34 @@ export async function openProfessionalZReportPrint(opts: {
   const creditCardTotalCents = creditCardTenderTotalCents(opts.tenders);
   const creditCardTxCount = creditCardTenderCount(opts.tenders);
   const tenderFamilySummary = summarizeTenderFamilies(opts.tenders);
-  if (rmsPaymentTotalCents !== 0) {
-    tenderFamilySummary.informational.push({
-      label: "RMS Payment",
-      amountCents: rmsPaymentTotalCents,
-      txCount: 1,
-    });
-  }
-  const tenderSummaryRows = [
-    ["Cash Total", tenderFamilySummary.cash],
-    ["CC Total (Net)", tenderFamilySummary.card],
-    ["  CC Terminal", tenderFamilySummary.cardTerminal],
-    ["  CNP", tenderFamilySummary.cardNotPresent],
-    ["  CC Manual", tenderFamilySummary.cardManual],
-    ["  CC Refunds (all kinds)", tenderFamilySummary.cardRefunds],
-    ["Checks Total", tenderFamilySummary.checks],
-  ].map(([label, value]) => {
-    const row = value as { amountCents: number; txCount: number };
-    return `<tr><td>${escapeReportHtml(label as string)}</td><td class="center">${row.txCount}</td><td class="money">${formatReportMoney(row.amountCents)}</td></tr>`;
-  });
-  if (tenderFamilySummary.informational.length > 0) {
-    tenderSummaryRows.push(
-      `<tr><td colspan="3" class="muted"><strong>Informational Activity (not additive)</strong></td></tr>`,
-    );
-    tenderSummaryRows.push(
-      ...tenderFamilySummary.informational.map(
-        (row) =>
-          `<tr><td>&nbsp;&nbsp;${escapeReportHtml(row.label)}</td><td class="center">${row.txCount}</td><td class="money">${formatReportMoney(row.amountCents)}</td></tr>`,
-      ),
-    );
-  }
+  const tenderBreakdown = registerReportTenderBreakdown(
+    opts.tenders,
+  );
+  const tenderSummaryRows = tenderBreakdown.flatMap((row, index) => [
+    ...(row.kind === "informational" &&
+    tenderBreakdown[index - 1]?.kind !== "informational"
+      ? [
+          `<tr><td colspan="3" class="muted"><strong>Informational Activity (not additive)</strong></td></tr>`,
+        ]
+      : []),
+    `<tr><td>${row.kind === "primary" ? "" : "&nbsp;&nbsp;"}${escapeReportHtml(row.label)}</td><td class="center">${row.txCount}</td><td class="money">${formatReportMoney(row.amountCents)}</td></tr>`,
+  ]);
   const tendersRows = tenderSummaryRows.join("");
   const byLaneSections =
     opts.tendersByLane && opts.tendersByLane.length > 0
       ? opts.tendersByLane
           .map((lane) => {
-            const laneSummary = summarizeTenderFamilies(lane.tenders);
+            const laneRows = registerReportTenderBreakdown(lane.tenders);
             return `
               <div class="lane-block">
                 <p class="subhead">Register #${lane.register_lane}</p>
                 <table>
-                  <tbody>
-                    <tr><td>Cash Total</td><td class="center">${laneSummary.cash.txCount}</td><td class="money">${formatReportMoney(laneSummary.cash.amountCents)}</td></tr>
-                    <tr><td>CC Total</td><td class="center">${laneSummary.card.txCount}</td><td class="money">${formatReportMoney(laneSummary.card.amountCents)}</td></tr>
-                    <tr><td>Checks Total</td><td class="center">${laneSummary.checks.txCount}</td><td class="money">${formatReportMoney(laneSummary.checks.amountCents)}</td></tr>
-                  </tbody>
+                  <tbody>${laneRows
+                    .map(
+                      (row) =>
+                        `<tr><td>${row.kind === "primary" ? "" : "&nbsp;&nbsp;"}${escapeReportHtml(row.label)}</td><td class="center">${row.txCount}</td><td class="money">${formatReportMoney(row.amountCents)}</td></tr>`,
+                    )
+                    .join("")}</tbody>
                 </table>
               </div>
             `;
@@ -1394,7 +1458,9 @@ export async function openProfessionalZReportPrint(opts: {
     `Orders Picked Up: ${ordersPickedUpDisplayCount}`,
     `Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardTxCount)}`,
     `RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
-    `RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
+    `RMS Charge · Standard: ${formatReportMoney(rmsStandardTotalCents)}`,
+    `RMS Charge · 90 Day: ${formatReportMoney(rms90DayTotalCents)}`,
+    `RMS Charge Total: ${formatReportMoney(rmsChargeTotalCents)}`,
     `Today's Appointments: ${opts.todayAppointmentsCount ?? 0}`,
     `New Appointments: ${opts.newAppointmentsCount ?? 0}`,
     `New Layaways: ${newLayawayCount}`,
@@ -1409,18 +1475,15 @@ export async function openProfessionalZReportPrint(opts: {
     `Merchandise Subtotal: ${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}`,
     "",
     "COMBINED TENDERS",
-    ...tenderFamilyRows(tenderFamilySummary),
+    ...tenderFamilyRows(opts.tenders),
     "",
     ...(opts.tendersByLane?.length
       ? [
           "BREAKDOWN BY REGISTER",
           ...opts.tendersByLane.flatMap((lane) => {
-            const laneSummary = summarizeTenderFamilies(lane.tenders);
             return [
               `Register #${lane.register_lane}`,
-              `  Cash Total | Transactions: ${laneSummary.cash.txCount} | Total: ${formatReportMoney(laneSummary.cash.amountCents)}`,
-              `  CC Total | Transactions: ${laneSummary.card.txCount} | Total: ${formatReportMoney(laneSummary.card.amountCents)}`,
-              `  Checks Total | Transactions: ${laneSummary.checks.txCount} | Total: ${formatReportMoney(laneSummary.checks.amountCents)}`,
+              ...tenderFamilyRows(lane.tenders),
             ];
           }),
           "",
@@ -1748,7 +1811,8 @@ export async function openProfessionalZReportPrint(opts: {
 	      <div class="summary-card"><p class="stat-label">New Orders</p><p class="stat-value">${newOrdersDisplayCount}</p></div>
 	      <div class="summary-card"><p class="stat-label">Orders Picked Up</p><p class="stat-value">${ordersPickedUpDisplayCount}</p></div>
 	      <div class="summary-card"><p class="stat-label">RMS Payments</p><p class="stat-value">${formatReportMoney(rmsPaymentTotalCents)}</p></div>
-	      <div class="summary-card"><p class="stat-label">RMS Charge</p><p class="stat-value">${formatReportMoney(rmsChargeTotalCents)}</p></div>
+	      <div class="summary-card"><p class="stat-label">RMS Charge · Standard</p><p class="stat-value">${formatReportMoney(rmsStandardTotalCents)}</p></div>
+	      <div class="summary-card"><p class="stat-label">RMS Charge · 90 Day</p><p class="stat-value">${formatReportMoney(rms90DayTotalCents)}</p></div>
 	      <div class="summary-card"><p class="stat-label">Merchandise Subtotal</p><p class="stat-value">${formatReportMoney(opts.netSales ?? subtotalBeforeTaxCents)}</p></div>
 	      <div class="summary-card"><p class="stat-label">New Appointments</p><p class="stat-value">${opts.newAppointmentsCount ?? 0}</p></div>
 	      <div class="summary-card"><p class="stat-label">New Layaways</p><p class="stat-value">${newLayawayCount}</p></div>
@@ -1975,6 +2039,14 @@ export async function openProfessionalDailySalesPrint(opts: {
     summary.tenders,
     isRmsChargeTender,
   );
+  const rmsStandardTotalCents = tenderTotalCents(
+    summary.tenders,
+    isRmsStandardTender,
+  );
+  const rms90DayTotalCents = tenderTotalCents(
+    summary.tenders,
+    isRms90DayTender,
+  );
   const reportItemMetrics = summarizeReportItemMetrics(
     activities.map((row) =>
       (row.items ?? []).map((item) => ({
@@ -1987,6 +2059,15 @@ export async function openProfessionalDailySalesPrint(opts: {
     ),
   );
   const rmsPaymentTotalCents = reportItemMetrics.rmsPaymentTotalCents;
+  const tenderBreakdown = registerReportTenderBreakdown(
+    summary.tenders,
+  );
+  const tenderBreakdownRows = tenderBreakdown
+    .map(
+      (row) =>
+        `<tr><td>${row.kind === "primary" ? "" : "&nbsp;&nbsp;"}${escapeReportHtml(row.label)}</td><td style="text-align:center">${row.txCount}</td><td style="text-align:right;font-weight:800">${formatReportMoney(row.amountCents)}</td></tr>`,
+    )
+    .join("");
   const creditCardPaymentCount = creditCardTenderCount(summary.tenders);
   const newLayawayCount =
     summary.new_layaway_count ?? reportItemMetrics.newLayawayCount;
@@ -2034,10 +2115,15 @@ export async function openProfessionalDailySalesPrint(opts: {
     detailFilter ? "FILTERED DETAIL METRICS" : "DETAIL METRICS",
     `${detailMetricPrefix}Credit Card Total: ${moneyWithCount(creditCardTotalCents, creditCardPaymentCount)}`,
     `${detailMetricPrefix}RMS Payments: ${formatReportMoney(rmsPaymentTotalCents)}`,
-    `${detailMetricPrefix}RMS Charge: ${formatReportMoney(rmsChargeTotalCents)}`,
+    `${detailMetricPrefix}RMS Charge · Standard: ${formatReportMoney(rmsStandardTotalCents)}`,
+    `${detailMetricPrefix}RMS Charge · 90 Day: ${formatReportMoney(rms90DayTotalCents)}`,
+    `${detailMetricPrefix}RMS Charge Total: ${formatReportMoney(rmsChargeTotalCents)}`,
     `${detailMetricPrefix}New Layaways: ${newLayawayCount}`,
     `${detailMetricPrefix}Picked Up: ${moneyWithCount(pickupTotalCents, pickupTotalCount)}`,
     `${detailMetricPrefix}Discounts: ${moneyWithCount(discountTotalCents, discountCount)}`,
+    "",
+    "TENDER BREAKDOWN",
+    ...tenderFamilyRows(summary.tenders),
     "",
     detailFilter
       ? `FILTERED TRANSACTION LIST (${detailFilter})`
@@ -2196,8 +2282,12 @@ export async function openProfessionalDailySalesPrint(opts: {
       <p class="stat-value">${formatReportMoney(rmsPaymentTotalCents)}</p>
     </div>
     <div class="stat-card">
-      <p class="stat-label">${detailMetricPrefix}RMS Charge</p>
-      <p class="stat-value">${formatReportMoney(rmsChargeTotalCents)}</p>
+      <p class="stat-label">${detailMetricPrefix}RMS Charge · Standard</p>
+      <p class="stat-value">${formatReportMoney(rmsStandardTotalCents)}</p>
+    </div>
+    <div class="stat-card">
+      <p class="stat-label">${detailMetricPrefix}RMS Charge · 90 Day</p>
+      <p class="stat-value">${formatReportMoney(rms90DayTotalCents)}</p>
     </div>
     <div class="stat-card" style="border-color:#0f172a; background: #f8fafc;">
       <p class="stat-label" style="color:#0f172a">Merchandise Subtotal</p>
@@ -2220,6 +2310,13 @@ export async function openProfessionalDailySalesPrint(opts: {
       <p class="stat-value">${moneyWithCount(discountTotalCents, discountCount)}</p>
     </div>
   </div>
+
+  <h2>Tender Breakdown</h2>
+  <p class="muted" style="margin:0 0 8px;">All supported tender rows are shown. Card detail and informational activity are not additive to the primary totals.</p>
+  <table style="width:100%;border-collapse:collapse;font-size:10px;">
+    <thead><tr><th style="text-align:left">Tender</th><th style="text-align:center">Transactions</th><th style="text-align:right">Amount</th></tr></thead>
+    <tbody>${tenderBreakdownRows}</tbody>
+  </table>
 
   <h2>${detailFilter ? `Filtered Transaction List (${escapeReportHtml(detailFilter)})` : "Transaction List"}</h2>
   ${activityRows || "<div class='muted' style='padding:40px; text-align:center;'>No activity recorded for this period.</div>"}

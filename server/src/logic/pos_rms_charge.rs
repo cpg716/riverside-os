@@ -460,8 +460,13 @@ pub async fn insert_rms_record<'e, E>(
 where
     E: Executor<'e, Database = Postgres>,
 {
-    let metadata_json =
-        with_r2s_reporting_metadata(record_kind, metadata.cloned().unwrap_or_else(|| json!({})));
+    let incoming_metadata = metadata.cloned().unwrap_or_else(|| json!({}));
+    let normalized_metadata = if record_kind == "charge" && is_rms_method(payment_method) {
+        normalized_rms_metadata(payment_method, &incoming_metadata)
+    } else {
+        incoming_metadata
+    };
+    let metadata_json = with_r2s_reporting_metadata(record_kind, normalized_metadata);
     let selection = extract_selection_from_metadata(&metadata_json);
     let tender_family = selection.as_ref().map(|value| value.tender_family.clone());
     let program_code = selection
@@ -806,6 +811,15 @@ mod tests {
                 .and_then(Value::as_str),
             Some("rms90")
         );
+    }
+
+    #[test]
+    fn rms90_metadata_uses_the_selected_program_when_optional_fields_are_missing() {
+        let metadata = normalized_rms_metadata("on_account_rms90", &json!({}));
+
+        assert_eq!(metadata["tender_family"], json!("rms_charge"));
+        assert_eq!(metadata["program_code"], json!("rms90"));
+        assert_eq!(metadata["program_label"], json!("RMS 90"));
     }
 
     #[test]

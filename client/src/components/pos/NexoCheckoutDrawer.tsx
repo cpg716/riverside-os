@@ -1593,7 +1593,6 @@ export default function NexoCheckoutDrawer({
     }
     if (latestSaleIdentityRef.current.customerId !== requestedCustomerIdentity) return;
     const programs = Array.isArray(data.programs) ? data.programs : [];
-    const eligiblePrograms = programs.filter((program) => program.eligible);
     setRmsPrograms(programs);
     setRmsSummary(data.summary ?? {
       masked_account: account.masked_account,
@@ -1603,7 +1602,7 @@ export default function NexoCheckoutDrawer({
       resolution_status: "selected",
       source: account.source ?? "manual",
     });
-    setRmsSelectedProgramCode(eligiblePrograms.length === 1 ? eligiblePrograms[0].program_code : null);
+    setRmsSelectedProgramCode(null);
     setRmsProgramPickerOpen(false);
   }, [backofficeHeaders, baseUrl, customerId, customerIdentity]);
 

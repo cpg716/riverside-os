@@ -432,7 +432,7 @@ AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
         count: i64,
     }
 
-    let tender_rows: Vec<TenderRow> = sqlx::query_as(
+    let mut tender_rows: Vec<TenderRow> = sqlx::query_as(
         r#"
         SELECT
             CASE
@@ -446,7 +446,16 @@ AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
                 WHEN LOWER(TRIM(payment_method)) = 'gift_card' THEN 'Gift Card'
                 WHEN LOWER(TRIM(payment_method)) = 'store_credit' THEN 'Store Credit'
                 WHEN LOWER(TRIM(payment_method)) = 'open_deposit' THEN 'Deposit Applied'
-                WHEN LOWER(TRIM(payment_method)) LIKE '%rms%' OR LOWER(COALESCE(metadata->>'tender_family', '')) = 'rms_charge' THEN 'RMS Charge'
+                WHEN LOWER(TRIM(payment_method)) IN ('check', 'cheque') THEN 'Check'
+                WHEN LOWER(TRIM(payment_method)) = 'exchange_credit' THEN 'Exchange Credit'
+                WHEN LOWER(TRIM(payment_method)) = 'staff_account_charge' THEN 'Staff Account'
+                WHEN LOWER(TRIM(payment_method)) = 'donation' THEN 'Donation'
+                WHEN LOWER(TRIM(payment_method)) IN ('on_account_rms90', 'rms90')
+                     OR LOWER(COALESCE(metadata->>'program_code', '')) = 'rms90'
+                THEN 'RMS Charge · 90 Day'
+                WHEN LOWER(TRIM(payment_method)) IN ('on_account_rms', 'rms')
+                     OR LOWER(COALESCE(metadata->>'tender_family', '')) = 'rms_charge'
+                THEN 'RMS Charge · Standard'
                 ELSE INITCAP(REPLACE(TRIM(payment_method), '_', ' '))
             END AS method,
             SUM(amount)::numeric(14,2) AS total,
@@ -460,6 +469,35 @@ AND (p.pos_line_kind IS DISTINCT FROM 'staff_account_payment')
     .bind(activity_date)
     .fetch_all(pool)
     .await?;
+
+    const SUPPORTED_TENDERS: &[&str] = &[
+        "Credit/Debit Card",
+        "Cash",
+        "Check",
+        "Gift Card",
+        "Store Credit",
+        "Deposit Applied",
+        "Exchange Credit",
+        "RMS Charge · Standard",
+        "RMS Charge · 90 Day",
+        "Staff Account",
+        "Donation",
+    ];
+    for method in SUPPORTED_TENDERS {
+        if !tender_rows.iter().any(|row| row.method.as_str() == *method) {
+            tender_rows.push(TenderRow {
+                method: (*method).to_string(),
+                total: Some(Decimal::ZERO),
+                count: 0,
+            });
+        }
+    }
+    tender_rows.sort_by_key(|row| {
+        SUPPORTED_TENDERS
+            .iter()
+            .position(|method| *method == row.method.as_str())
+            .unwrap_or(usize::MAX)
+    });
 
     let total_tendered: Decimal = tender_rows
         .iter()

@@ -52,11 +52,11 @@ test.describe("Back Office RMS Charge workspace", () => {
     request,
     page,
   }) => {
-    const fixture = await seedRmsFixture(request, "single_valid", "Workspace");
+    const fixture = await seedRmsFixture(request, "rms90_eligible", "Workspace");
     const checkout = await checkoutFinancedSale(request, {
       fixture,
-      programCode: "standard",
-      referenceNumber: "REF-RMS-WORKSPACE-001",
+      programCode: "rms90",
+      referenceNumber: "REF-RMS90-WORKSPACE-001",
     });
     expect(checkout.response.status(), "Financed RMS checkout failed during spec setup.").toBe(200);
 
@@ -72,10 +72,11 @@ test.describe("Back Office RMS Charge workspace", () => {
     await expect(tabs.getByRole("tab", { name: /^Customers$/i })).toBeVisible();
     await expect(tabs.getByRole("tab", { name: /Weekly Account Import/i })).toBeVisible();
 
-    await page.getByPlaceholder("Customer, ref, account…").fill("REF-RMS-WORKSPACE-001");
-    await expect(page.getByText("REF-RMS-WORKSPACE-001").first()).toBeVisible({ timeout: 15_000 });
+    await page.getByPlaceholder("Customer, ref, account…").fill("REF-RMS90-WORKSPACE-001");
+    await expect(page.getByText("REF-RMS90-WORKSPACE-001").first()).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/recorded_manually/i).first()).toBeVisible();
     await expect(page.getByText(/RMS Charge/i).first()).toBeVisible();
+    await expect(page.getByText("90 Day", { exact: true }).first()).toBeVisible();
   });
 
   test("customer section lists linked RMS Charge customers and opens their profile", async ({

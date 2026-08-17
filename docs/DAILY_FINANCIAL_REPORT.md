@@ -64,7 +64,7 @@ Headline cards, the Booked Sales Summary, and MTD comparisons use the booking-ev
 - Return line count, return value (shown only when > 0)
 
 ### Payment Methods
-- Breakdown by tender type (Credit/Debit Card, Cash, Gift Card, Store Credit, Deposit Applied, RMS Charge, etc.)
+- Complete supported tender list, including zero-activity rows, for Credit/Debit Card, Cash, Check, Gift Card, Store Credit, Deposit Applied, Exchange Credit, **RMS Charge · Standard**, **RMS Charge · 90 Day**, Staff Account, and Donation
 - Amount and transaction count per method
 - Total tendered
 

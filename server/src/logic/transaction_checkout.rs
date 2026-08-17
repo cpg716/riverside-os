@@ -999,6 +999,33 @@ fn metadata_optional_text(metadata: &Value, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+fn validate_rms_program_selection(
+    payment_method: &str,
+    metadata: &Value,
+) -> Result<(), CheckoutError> {
+    if !pos_rms_charge::is_rms_method(payment_method) {
+        return Ok(());
+    }
+    let selected = metadata_optional_text(metadata, "program_code")
+        .map(|value| value.to_ascii_lowercase())
+        .ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "RMS Charge requires an explicit Standard or 90 Day program selection".to_string(),
+            )
+        })?;
+    let expected = if payment_method.eq_ignore_ascii_case("on_account_rms90") {
+        "rms90"
+    } else {
+        "standard"
+    };
+    if selected != expected {
+        return Err(CheckoutError::InvalidPayload(format!(
+            "RMS Charge program selection does not match the {payment_method} tender"
+        )));
+    }
+    Ok(())
+}
+
 fn is_fee_only_shipping_quote(metadata: &Value) -> bool {
     metadata
         .get("fee_only")
@@ -2267,6 +2294,7 @@ fn resolve_payment_splits(
                 }
 
                 let incoming_meta = line.metadata.clone().unwrap_or_else(|| json!({}));
+                validate_rms_program_selection(m, &incoming_meta)?;
                 let mut normalized_meta = if pos_rms_charge::is_rms_method(m) {
                     pos_rms_charge::normalized_rms_metadata(m, &incoming_meta)
                 } else {
@@ -3856,12 +3884,20 @@ async fn execute_checkout_internal(
             ));
         }
         let retail = resolved.standard_retail_price;
-        let expected_unit =
-            (retail * (Decimal::from(100) - pct_off) / Decimal::from(100)).round_dp(2);
+        if resolved.sale_price.is_some_and(|sale| sale > retail) {
+            return Err(CheckoutError::InvalidPayload(format!(
+                "configured sale price for variant {} exceeds retail",
+                item.variant_id
+            )));
+        }
+        let expected_unit = resolved.sale_price.unwrap_or_else(|| {
+            (retail * (Decimal::from(100) - pct_off) / Decimal::from(100)).round_dp(2)
+        });
         if !checkout_validate::money_close_decimal(item.unit_price, expected_unit) {
             return Err(CheckoutError::InvalidPayload(format!(
-                "unit price for variant {} does not match discount event {:.2}% off retail",
-                item.variant_id, pct_off
+                "unit price for variant {} does not match the configured sale price or discount event {:.2}% off retail",
+                item.variant_id,
+                pct_off
             )));
         }
         discount_event_labels.insert(idx, receipt_label);
@@ -7666,6 +7702,75 @@ mod tests {
             check_number: None,
             metadata: None,
         }
+    }
+
+    fn rms_charge_split(
+        amount: Decimal,
+        payment_method: &str,
+        program_code: Option<&str>,
+    ) -> CheckoutPaymentSplit {
+        CheckoutPaymentSplit {
+            payment_method: payment_method.to_string(),
+            amount,
+            sub_type: None,
+            applied_deposit_amount: None,
+            gift_card_code: None,
+            check_number: None,
+            metadata: program_code.map(|code| json!({ "program_code": code })),
+        }
+    }
+
+    #[test]
+    fn checkout_splits_require_explicit_rms_program_selection() {
+        let payload = checkout_request_for_split_validation(
+            dec!(100.00),
+            dec!(100.00),
+            vec![rms_charge_split(dec!(100.00), "on_account_rms", None)],
+        );
+
+        let error = resolve_payment_splits(&payload).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("requires an explicit Standard or 90 Day program selection"));
+    }
+
+    #[test]
+    fn checkout_splits_reject_mismatched_rms_program_selection() {
+        let payload = checkout_request_for_split_validation(
+            dec!(100.00),
+            dec!(100.00),
+            vec![rms_charge_split(
+                dec!(100.00),
+                "on_account_rms90",
+                Some("standard"),
+            )],
+        );
+
+        let error = resolve_payment_splits(&payload).unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("program selection does not match"));
+    }
+
+    #[test]
+    fn checkout_splits_preserve_explicit_rms_program_selection() {
+        let payload = checkout_request_for_split_validation(
+            dec!(100.00),
+            dec!(100.00),
+            vec![rms_charge_split(
+                dec!(100.00),
+                "on_account_rms90",
+                Some("rms90"),
+            )],
+        );
+
+        let (splits, _) = resolve_payment_splits(&payload).unwrap();
+
+        assert_eq!(splits[0].method, "on_account_rms90");
+        assert_eq!(splits[0].metadata["program_code"], json!("rms90"));
+        assert_eq!(splits[0].metadata["program_label"], json!("RMS 90"));
     }
 
     #[test]

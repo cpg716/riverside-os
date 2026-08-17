@@ -61,10 +61,10 @@ Detailed transaction listing grouped by date.
 **Z-Report Print Layout (Updated):**
 - **Activity Cards**: Card-based layout showing payment method pill, timestamp, customer name, transaction ID chip, and lane chip
 - **Business-only close packet**: The Z-Report no longer appends non-sale inventory activity; it focuses on tenders, cash reconciliation, sales/orders/refunds/exchanges, pickups, and vendor invoice counts.
-- **Tender completeness**: The tender table always lists the supported tender methods, even when they have 0 transactions and $0.00 for the day.
+- **Tender completeness**: The Daily Sales, emailed Daily Financial, and Z-Report tender tables always list the supported tender methods, even when they have 0 transactions and $0.00 for the day. RMS Charge Standard and 90 Day remain separate.
 - **Credit Card Total**: CC totals combine every real card subtype—CC/Card Reader, Card Manual, Card Not Present, saved card, and card refund/credit activity—while excluding non-card tenders such as Staff Account and exchange credit.
 - **Card entry labels**: Hosted HelcimPay.js activity is labeled **Card Not Present**, including historical approvals whose audit reference carries the Helcim transaction suffix. **Card Manual** is reserved for externally recorded/manual card activity.
-- **Register breakdown**: Each register lane shows Cash Total and CC Total only, with Card Manual and Card Not Present included in the CC lane total.
+- **Register breakdown**: Each register lane shows the same complete tender list as the combined drawer. Card Manual, Card Not Present, saved-card, and refunds remain detail under the net CC total.
 - **Quick Look page**: The second page presents the day’s quick-look business boxes before the transaction and pickup detail sections.
 - **Item Display**: Enhanced item rows with bold product names, muted SKU/fulfillment details, final line price, regular price, and discount percent applied
 - **Money Section**: Reorganized transaction totals with clear labels for Transaction Amount, Sale Total, Paid, and Balance Due

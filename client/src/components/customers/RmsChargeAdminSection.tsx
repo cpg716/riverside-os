@@ -33,6 +33,35 @@ function fmtDateOnly(value?: string | null) {
   return new Date(value).toLocaleDateString();
 }
 
+function rmsProgramLabel(
+  row?: Pick<
+    RmsRecordRow,
+    "record_kind" | "payment_method" | "program_code" | "program_label"
+  > | null,
+) {
+  if (!row || row.record_kind !== "charge") return "—";
+  const method = row.payment_method.trim().toLowerCase();
+  const code = row.program_code?.trim().toLowerCase();
+  const label = row.program_label?.trim() ?? "";
+  const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (
+    method === "on_account_rms90" ||
+    code === "rms90" ||
+    ["rms90", "rms90day", "90day"].includes(normalizedLabel)
+  ) {
+    return "90 Day";
+  }
+  if (
+    method === "on_account_rms" ||
+    code === "standard" ||
+    normalizedLabel === "standard" ||
+    normalizedLabel === "standardrms"
+  ) {
+    return "Standard";
+  }
+  return label || "—";
+}
+
 function reportStatusLabel(
   row?: Pick<RmsRecordRow, "r2s_reporting_required" | "r2s_report_status" | "r2s_report_due_at"> | null,
 ) {
@@ -1138,7 +1167,7 @@ export default function RmsChargeAdminSection({
                     {row.tender_family === "rms_charge" ? "RMS Charge" : row.payment_method}
                   </td>
                   <td className="px-4 py-3 text-xs text-app-text">
-                    {row.program_label || "—"}
+                    {rmsProgramLabel(row)}
                   </td>
                   <td className="px-4 py-3 text-xs text-app-text">
                     {row.masked_account || "—"}
@@ -1251,7 +1280,7 @@ export default function RmsChargeAdminSection({
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-app-text-muted">Program</span>
-                    <span className="font-black text-app-text">{recordDetail.program_label || "—"}</span>
+                    <span className="font-black text-app-text">{rmsProgramLabel(recordDetail)}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-app-text-muted">Masked account</span>

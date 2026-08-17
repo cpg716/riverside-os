@@ -4,6 +4,7 @@ import {
   parseRegisterReportMoneyToCents,
   REGISTER_REPORT_OUTPUT_ROW_LIMIT,
   registerReportCombinedRowCount,
+  registerReportTenderBreakdown,
   registerReportTenderCollectedCents,
   renderRegisterActivityRows,
 } from "../src/components/pos/zReportPrint";
@@ -180,6 +181,44 @@ test.describe("Register report output integrity contracts", () => {
         wedding_deposit_contributions: "168.00",
       }),
     ).toBe(42_800);
+  });
+
+  test("Daily and Z reports expose every tender and separate RMS programs", () => {
+    const rows = registerReportTenderBreakdown([
+      {
+        payment_method: "on_account_rms",
+        total_amount: "92.18",
+        tx_count: 1,
+      },
+      {
+        payment_method: "on_account_rms90",
+        total_amount: "82.12",
+        tx_count: 1,
+      },
+      {
+        payment_method: "card_saved",
+        total_amount: "50.00",
+        tx_count: 1,
+      },
+    ]);
+    const byLabel = new Map(rows.map((row) => [row.label, row]));
+
+    expect(byLabel.get("RMS Charge · Standard")?.amountCents).toBe(9_218);
+    expect(byLabel.get("RMS Charge · 90 Day")?.amountCents).toBe(8_212);
+    expect(byLabel.get("Saved Card")?.amountCents).toBe(5_000);
+    expect(byLabel.get("Gift Card")?.amountCents).toBe(0);
+    expect(byLabel.get("Store Credit")?.amountCents).toBe(0);
+    expect(byLabel.get("Deposit Applied")?.amountCents).toBe(0);
+    expect(byLabel.get("Exchange Credit")?.amountCents).toBe(0);
+    expect(byLabel.get("Staff Account")?.amountCents).toBe(0);
+    expect(byLabel.get("Donation")?.amountCents).toBe(0);
+    expect(registerReportsSource).toContain("Payment-day Tender Breakdown");
+    expect(reportPrintSource).toContain("<h2>Tender Breakdown</h2>");
+    expect(reportPrintSource).toContain('"COMBINED TENDERS"');
+    expect(dailyFinancialReportSource).toContain("RMS Charge · Standard");
+    expect(dailyFinancialReportSource).toContain("RMS Charge · 90 Day");
+    expect(dailyFinancialReportSource).toContain("SUPPORTED_TENDERS");
+    expect(dailyFinancialReportSource).toContain("total: Some(Decimal::ZERO)");
   });
 
   test("wedding deposit activity stays separate from merchandise sales", () => {
@@ -841,7 +880,7 @@ test.describe("Register report output integrity contracts", () => {
     expect(reportPrintSource).toContain("Checks for Deposit");
     expect(reportPrintSource).toContain("Total Deposit");
     expect(reportPrintSource).toContain(
-      '<tr><td>Checks Total</td><td class="center">',
+      '{ label: "Checks Total", ...summary.checks, kind: "primary" }',
     );
     expect(closeRegisterSource).toContain("recon?.check_payments");
     expect(closeRegisterSource).toContain("cashDepositCents + checkTotalCents");
@@ -920,9 +959,9 @@ test.describe("Register report output integrity contracts", () => {
     expect(registerReportsSource).not.toContain(
       "activityCreditCardTotalCents(summaryBooked.activities)",
     );
-    expect(registerReportsSource).toContain(
-      "tenderTotalCents(summaryBooked.tenders, isRmsChargeTender)",
-    );
+    expect(registerReportsSource).toContain("registerReportTenderBreakdown(");
+    expect(registerReportsSource).toContain('"RMS Charge · Standard"');
+    expect(registerReportsSource).toContain('"RMS Charge · 90 Day"');
     expect(registerDayServerSource).toContain(
       "NULLIF(oix.size_specs->>'original_unit_price', '')::numeric",
     );
@@ -936,6 +975,12 @@ test.describe("Register report output integrity contracts", () => {
     expect(dailyPrint).toContain("creditCardTenderCount(summary.tenders)");
     expect(dailyPrint).toContain(
       "tenderTotalCents(\n    summary.tenders,\n    isRmsChargeTender",
+    );
+    expect(dailyPrint).toContain(
+      "tenderTotalCents(\n    summary.tenders,\n    isRmsStandardTender",
+    );
+    expect(dailyPrint).toContain(
+      "tenderTotalCents(\n    summary.tenders,\n    isRms90DayTender",
     );
     expect(dailyPrint).not.toMatch(
       /const creditCardTotalCents = activities\.reduce/,

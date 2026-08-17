@@ -35,7 +35,7 @@ Back Office staff use the full workspace. POS staff only see the limited RMS-saf
 - `Customers`
   Search and browse every Riverside customer with a linked RMS Charge account. Each customer appears once, even when more than one RMS account is linked. The row summarizes the primary masked account, combined latest-import balances, open-to-buy amount, minimum due, past due, and Riverside RMS activity count. Select the customer name to open the full Customer Relationship Hub; closing the Hub returns to the RMS Charge customer list and its current search context.
 - `Transactions Log`
-  Review Riverside-recorded RMS Charge and RMS Payment activity, posting references, and manual R2S reporting status.
+  Review Riverside-recorded RMS Charge and RMS Payment activity, posting references, and manual R2S reporting status. Each charge shows its required **Standard** or **90 Day** program; RMS Payment collection rows show no charge program.
 - `Weekly Account Import`
   Preview and import the weekly RMS/R2S Account List report, then resolve any accounts that remain unmatched.
 
@@ -159,7 +159,7 @@ Staff may be able to:
 - review recent RMS activity
 - check available programs
 
-The weekly account list is a status aid, not the approval authority for a new charge. If it shows **No Open to Buy**, Register still presents the **Standard** and **90 Day** plans so staff can record a charge that RMS has explicitly approved. Register displays a no-credit warning and requires **Manager Access** before the payment status changes to **Ready to Save**. Do not add the payment until RMS confirms the charge and provides the approval number recorded at checkout.
+The weekly account list is a status aid, not the approval authority for a new charge. If it shows **No Open to Buy**, Register still presents the **Standard** and **90 Day** plans so staff can record a charge that RMS has explicitly approved. Staff must choose one plan for every RMS Charge; Riverside does not preselect one and rejects an unclassified charge. Register displays a no-credit warning and requires **Manager Access** before the payment status changes to **Ready to Save**. Do not add the payment until RMS confirms the charge and provides the approval number recorded at checkout.
 
 POS does not expose the full Back Office exception and reconciliation workflow.
 

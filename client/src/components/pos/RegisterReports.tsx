@@ -36,6 +36,7 @@ import {
   parseRegisterReportMoneyToCents,
   REGISTER_REPORT_OUTPUT_ROW_LIMIT,
   registerReportCombinedRowCount,
+  registerReportTenderBreakdown,
   registerReportTenderCollectedCents,
 } from "./zReportPrint";
 import type { ReportPrintAction } from "../../lib/reportPrint";
@@ -697,16 +698,6 @@ function tenderTotalCents(
         ? sum + parseRegisterReportMoneyToCents(tender.total_amount)
         : sum,
     0,
-  );
-}
-
-function isRmsChargeTender(method: string): boolean {
-  const tender = method.toLowerCase().replace(/[\s_-]/g, "");
-  return (
-    tender === "rms" ||
-    tender === "rmscharge" ||
-    tender === "rms90" ||
-    tender.includes("rmscharge")
   );
 }
 
@@ -1626,6 +1617,18 @@ export default function RegisterReports({
     : (summary?.weather_days ?? []);
   const weatherSummaryLabel =
     summaryBooked?.weather_summary ?? summary?.weather_summary ?? null;
+  const bookedTenderBreakdown = useMemo(
+    () => registerReportTenderBreakdown(summaryBooked?.tenders ?? []),
+    [summaryBooked],
+  );
+  const bookedRmsStandardCents =
+    bookedTenderBreakdown.find(
+      (row) => row.label === "RMS Charge · Standard",
+    )?.amountCents ?? 0;
+  const bookedRms90DayCents =
+    bookedTenderBreakdown.find(
+      (row) => row.label === "RMS Charge · 90 Day",
+    )?.amountCents ?? 0;
 
   const formatWeatherNumber = (value: string, digits: number) => {
     const parsed = Number(value);
@@ -2469,6 +2472,54 @@ export default function RegisterReports({
                 </div>
               )}
 
+              {summaryBooked && (
+                <div className="ui-panel p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <Banknote className="h-3.5 w-3.5 text-app-accent" />
+                        <span className="text-xs font-black text-app-text">
+                          Payment-day Tender Breakdown
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
+                        Every supported tender stays visible, including zero
+                        activity. Card detail and informational rows are not
+                        additive to primary totals.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {bookedTenderBreakdown.map((row) => (
+                      <div
+                        key={row.label}
+                        className={`ui-metric-cell flex items-center justify-between gap-3 p-2 ${
+                          row.kind === "primary"
+                            ? "ui-tint-success"
+                            : row.kind === "detail"
+                              ? "ui-tint-info"
+                              : "ui-tint-neutral"
+                        }`}
+                      >
+                        <div>
+                          <p className="text-xs font-black text-app-text">
+                            {row.label}
+                          </p>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
+                            {row.kind === "informational"
+                              ? "Informational"
+                              : `${row.txCount} ${row.txCount === 1 ? "transaction" : "transactions"}`}
+                          </p>
+                        </div>
+                        <p className="font-mono text-sm font-black tabular-nums text-app-text">
+                          {moneyFromCents(row.amountCents)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Fulfilled Summary */}
               {summary && (
                 <div className="ui-panel ui-tint-info p-3">
@@ -2582,12 +2633,21 @@ export default function RegisterReports({
                 <div className="ui-metric-cell ui-tint-warning p-2">
                   <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted">
                     <DollarSign className="h-3 w-3" />
-                    RMS Charge
+                    RMS Charge · Standard
                   </div>
                   <p className="text-base font-black">
                     {!summaryBooked
                       ? "—"
-                      : `$${centsToFixed2(tenderTotalCents(summaryBooked.tenders, isRmsChargeTender))}`}
+                      : moneyFromCents(bookedRmsStandardCents)}
+                  </p>
+                </div>
+                <div className="ui-metric-cell ui-tint-warning p-2">
+                  <div className="flex items-center gap-1 text-xs font-bold text-app-text-muted">
+                    <DollarSign className="h-3 w-3" />
+                    RMS Charge · 90 Day
+                  </div>
+                  <p className="text-base font-black">
+                    {!summaryBooked ? "—" : moneyFromCents(bookedRms90DayCents)}
                   </p>
                 </div>
                 <div className="ui-metric-cell ui-tint-neutral p-2">
