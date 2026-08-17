@@ -35,10 +35,12 @@ export interface HubVariant {
   reorder_point: number;
   track_low_stock: boolean;
   retail_price_override: string | null;
+  sale_price_override: string | null;
   cost_override: string | null;
   barcode: string | null;
   vendor_upc: string | null;
   effective_retail: string;
+  effective_sale: string | null;
   web_published: boolean;
   web_price_override: string | null;
   web_gallery_order: number;
@@ -48,6 +50,7 @@ interface VariationsWorkspaceProps {
   productId: string;
   productTrackLowStock: boolean;
   templateBaseRetail?: string;
+  templateBaseSale?: string | null;
   productName: string;
   categoryName: string | null;
   variationAxes: string[];
@@ -65,6 +68,7 @@ interface VariantPricingPatchResponse {
   sku?: string;
   variation_label?: string | null;
   effective_retail?: string;
+  effective_sale?: string | null;
 }
 
 interface VariantReprintPrompt {
@@ -81,7 +85,10 @@ type VariantPatch =
       notes: string;
       tx_type?: "damaged" | "return_to_vendor";
     }
-  | { retail_price_override: string | null }
+  | { retail_price_override: string }
+  | { clear_retail_override: boolean }
+  | { sale_price_override: string }
+  | { clear_sale_override: boolean }
   | { cost_override: string | null }
   | { web_published: boolean }
   | { track_low_stock: boolean }
@@ -677,6 +684,9 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 text-app-text-muted">
                   Retail ${centsToFixed2(parseMoneyToCents(v.effective_retail))}
                 </span>
+                <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 text-app-text-muted">
+                  Sale {v.effective_sale ? `$${centsToFixed2(parseMoneyToCents(v.effective_sale))}` : "not set"}
+                </span>
                 <span
                   className={`rounded-lg border px-2 py-1 ${
                     v.cost_override
@@ -709,10 +719,17 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => void patchVariant(v.id, { retail_price_override: null })}
+                  onClick={() => void patchVariant(v.id, { clear_retail_override: true })}
                   className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:text-app-accent`}
                 >
                   Clear Price
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void patchVariant(v.id, { clear_sale_override: true })}
+                  className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:text-app-accent`}
+                >
+                  Clear Sale
                 </button>
                 <button
                   type="button"
@@ -805,17 +822,27 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                             v.stock_on_hand <= v.reorder_point
                           }
                           hasPriceOverride={!!v.retail_price_override}
+                          hasSaleOverride={!!v.sale_price_override}
                           onUpdateStock={(delta) =>
                             Promise.resolve(
                               openStockCorrection([v.id], v.sku, String(delta)),
                             )
                           }
                           onUpdatePrice={(cents) =>
-                            patchVariant(v.id, {
-                              retail_price_override: cents
-                                ? centsToFixed2(cents)
-                                : null,
-                            })
+                            patchVariant(
+                              v.id,
+                              cents == null
+                                ? { clear_retail_override: true }
+                                : { retail_price_override: centsToFixed2(cents) },
+                            )
+                          }
+                          onUpdateSale={(cents) =>
+                            patchVariant(
+                              v.id,
+                              cents == null
+                                ? { clear_sale_override: true }
+                                : { sale_price_override: centsToFixed2(cents) },
+                            )
                           }
                           onUpdateTrackLow={(next) =>
                             patchVariant(v.id, { track_low_stock: next })

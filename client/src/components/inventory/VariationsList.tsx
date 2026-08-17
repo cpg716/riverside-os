@@ -19,7 +19,10 @@ type VariantPatch =
   | { quantity_delta: number; notes: string }
   | { web_published: boolean }
   | { track_low_stock: boolean }
-  | { retail_price_override: string | null }
+  | { retail_price_override: string }
+  | { clear_retail_override: boolean }
+  | { sale_price_override: string }
+  | { clear_sale_override: boolean }
   | { cost_override: string | null };
 
 export interface VariationsListProps {
@@ -132,8 +135,8 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
         </div>
       </div>
 
-      <div className="w-32 shrink-0 pr-4">
-        <div className="flex flex-col text-right">
+      <div className="w-40 shrink-0 pr-4">
+        <div className="flex flex-col gap-1 text-right">
           <div className="flex items-center justify-end gap-1">
             <span className="text-sm font-black tabular-nums tracking-tight text-app-text">
               ${centsToFixed2(parseMoneyToCents(v.effective_retail))}
@@ -149,6 +152,14 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
           </div>
           <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-50">
             Retail
+          </span>
+          <span className="text-xs font-black tabular-nums tracking-tight text-app-accent">
+            {v.effective_sale
+              ? `$${centsToFixed2(parseMoneyToCents(v.effective_sale))}`
+              : "—"}
+          </span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-50">
+            Sale
           </span>
         </div>
       </div>
@@ -331,10 +342,10 @@ export const VariationsList: React.FC<VariationsListProps> = ({
           </button>
           <button
             type="button"
-            className="ui-touch-target w-32 cursor-pointer pr-4 text-right font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted"
+            className="ui-touch-target w-40 cursor-pointer pr-4 text-right font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted"
             onClick={() => toggleSort("effective_retail")}
           >
-            Retail
+            Retail / Sale
           </button>
           <div className="w-28 text-center font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted">
             Web

@@ -23,7 +23,7 @@ use crate::logic::importer::{execute_import, ImportPayload, ImportSummary, Impor
 use crate::logic::product_catalog_analysis::{
     analyze_product_catalog, suggest_product_catalog_normalization, ProductCatalogAnalysisInput,
 };
-use crate::logic::template_variant_pricing::effective_retail_usd;
+use crate::logic::template_variant_pricing::{effective_retail_usd, effective_sale_usd};
 use crate::middleware;
 use crate::models::DbStaffRole;
 
@@ -943,6 +943,9 @@ pub struct BulkUpdateRequest {
 pub struct PatchProductModelRequest {
     pub name: Option<String>,
     pub base_retail_price: Option<Decimal>,
+    pub base_sale_price: Option<Decimal>,
+    #[serde(default)]
+    pub clear_base_sale_price: bool,
     pub base_cost: Option<Decimal>,
     pub category_id: Option<Uuid>,
     #[serde(default)]
@@ -1017,6 +1020,12 @@ pub struct VariantPricingPatch {
     /// New per-variant retail override (ignored if `clear_retail_override`).
     #[serde(default)]
     pub retail_price_override: Option<Decimal>,
+    /// When true, clears `sale_price_override` (revert to the parent sale price).
+    #[serde(default)]
+    pub clear_sale_override: bool,
+    /// Optional per-variant sale price used while an eligible promotion is active.
+    #[serde(default)]
+    pub sale_price_override: Option<Decimal>,
     #[serde(default)]
     pub clear_cost_override: bool,
     #[serde(default)]
@@ -1070,8 +1079,10 @@ pub struct HubVariantRow {
     pub reorder_point: i32,
     pub track_low_stock: bool,
     pub retail_price_override: Option<Decimal>,
+    pub sale_price_override: Option<Decimal>,
     pub cost_override: Option<Decimal>,
     pub effective_retail: Decimal,
+    pub effective_sale: Option<Decimal>,
     pub web_published: bool,
     pub web_price_override: Option<Decimal>,
     pub web_gallery_order: i32,
@@ -1097,8 +1108,10 @@ struct HubVariantJoinRow {
     reorder_point: i32,
     track_low_stock: bool,
     retail_price_override: Option<Decimal>,
+    sale_price_override: Option<Decimal>,
     cost_override: Option<Decimal>,
     base_retail_price: Decimal,
+    base_sale_price: Option<Decimal>,
     web_published: bool,
     web_price_override: Option<Decimal>,
     web_gallery_order: i32,
@@ -1112,6 +1125,7 @@ pub struct ProductHubProductRow {
     brand: Option<String>,
     description: Option<String>,
     base_retail_price: Decimal,
+    base_sale_price: Option<Decimal>,
     base_cost: Decimal,
     variation_axes: Vec<String>,
     category_id: Option<Uuid>,
@@ -2423,7 +2437,7 @@ async fn patch_product_model(
 ) -> Result<Json<Value>, ProductError> {
     let actor = require_catalog_staff(&state, &headers, CATALOG_EDIT).await?;
     let current = sqlx::query_as::<_, ProductModelAuditSnapshot>(
-        "SELECT name, brand, catalog_handle, base_retail_price, base_cost, tax_category_override::text FROM products WHERE id = $1 AND is_active = TRUE",
+        "SELECT name, brand, catalog_handle, base_retail_price, base_sale_price, base_cost, tax_category_override::text FROM products WHERE id = $1 AND is_active = TRUE",
     )
     .bind(product_id)
     .fetch_optional(&state.db)
@@ -2438,6 +2452,11 @@ async fn patch_product_model(
             "cannot set catalog_handle and clear_catalog_handle together".to_string(),
         ));
     }
+    if body.clear_base_sale_price && body.base_sale_price.is_some() {
+        return Err(ProductError::InvalidPayload(
+            "cannot set base_sale_price and clear_base_sale_price together".to_string(),
+        ));
+    }
 
     let audit_source = normalize_audit_source(body.audit_source.as_deref())?;
 
@@ -2447,6 +2466,7 @@ async fn patch_product_model(
     let mut name_value: Option<String> = None;
     let mut set_name = false;
     let mut set_base_retail = false;
+    let mut set_base_sale = false;
     let mut set_base_cost = false;
     let mut set_category = false;
     let mut category_value: Option<Uuid> = None;
@@ -2499,6 +2519,74 @@ async fn patch_product_model(
                 "base_retail_price".to_string(),
                 Value::String(p.to_string()),
             );
+        }
+    }
+    if body.clear_base_sale_price {
+        set_base_sale = true;
+        n += 1;
+        if current.base_sale_price.is_some() {
+            before_values.insert(
+                "base_sale_price".to_string(),
+                current
+                    .base_sale_price
+                    .map(|price| Value::String(price.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+            after_values.insert("base_sale_price".to_string(), Value::Null);
+        }
+    } else if let Some(p) = body.base_sale_price {
+        if p < Decimal::ZERO {
+            return Err(ProductError::InvalidPayload(
+                "base_sale_price must be non-negative".to_string(),
+            ));
+        }
+        set_base_sale = true;
+        n += 1;
+        if current.base_sale_price != Some(p) {
+            before_values.insert(
+                "base_sale_price".to_string(),
+                current
+                    .base_sale_price
+                    .map(|price| Value::String(price.to_string()))
+                    .unwrap_or(Value::Null),
+            );
+            after_values.insert("base_sale_price".to_string(), Value::String(p.to_string()));
+        }
+    }
+
+    let next_base_retail = body.base_retail_price.unwrap_or(current.base_retail_price);
+    let next_base_sale = if body.clear_base_sale_price {
+        None
+    } else {
+        body.base_sale_price.or(current.base_sale_price)
+    };
+    if next_base_sale.is_some_and(|sale| sale > next_base_retail) {
+        return Err(ProductError::InvalidPayload(
+            "base_sale_price cannot exceed base_retail_price".to_string(),
+        ));
+    }
+    if set_base_retail || set_base_sale {
+        let has_invalid_variant_price: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM product_variants
+                WHERE product_id = $1
+                  AND COALESCE(sale_price_override, $2::numeric) IS NOT NULL
+                  AND COALESCE(sale_price_override, $2::numeric)
+                      > COALESCE(retail_price_override, $3::numeric)
+            )
+            "#,
+        )
+        .bind(product_id)
+        .bind(next_base_sale)
+        .bind(next_base_retail)
+        .fetch_one(&state.db)
+        .await?;
+        if has_invalid_variant_price {
+            return Err(ProductError::InvalidPayload(
+                "sale price cannot exceed the effective retail price for any SKU".to_string(),
+            ));
         }
     }
     if let Some(c) = body.base_cost {
@@ -2756,6 +2844,11 @@ async fn patch_product_model(
         SET
             name = CASE WHEN $1 THEN $2 ELSE name END,
             base_retail_price = CASE WHEN $3 THEN $4 ELSE base_retail_price END,
+            base_sale_price = CASE
+                WHEN $31 THEN NULL
+                WHEN $32 THEN $33
+                ELSE base_sale_price
+            END,
             base_cost = CASE WHEN $5 THEN $6 ELSE base_cost END,
             category_id = CASE
                 WHEN $7 THEN NULL
@@ -2819,6 +2912,9 @@ async fn patch_product_model(
     .bind(set_tax_category_override && !body.clear_tax_category_override)
     .bind(tax_category_override_value)
     .bind(product_id)
+    .bind(body.clear_base_sale_price)
+    .bind(set_base_sale && !body.clear_base_sale_price)
+    .bind(body.base_sale_price)
     .execute(&mut *tx)
     .await?;
 
@@ -3286,6 +3382,7 @@ struct ProductModelAuditSnapshot {
     brand: Option<String>,
     catalog_handle: Option<String>,
     base_retail_price: Decimal,
+    base_sale_price: Option<Decimal>,
     base_cost: Decimal,
     tax_category_override: Option<String>,
 }
@@ -3568,6 +3665,7 @@ async fn fetch_product_hub(
             p.brand,
             p.description,
             p.base_retail_price,
+            p.base_sale_price,
             p.base_cost,
             p.variation_axes,
             c.id AS category_id,
@@ -3820,8 +3918,10 @@ async fn fetch_product_hub(
             pv.reorder_point,
             pv.track_low_stock,
             pv.retail_price_override,
+            pv.sale_price_override,
             pv.cost_override,
             p.base_retail_price,
+            p.base_sale_price,
             COALESCE(pv.web_published, false) AS web_published,
             pv.web_price_override,
             pv.web_gallery_order,
@@ -3881,8 +3981,10 @@ async fn fetch_product_hub(
             reorder_point: r.reorder_point,
             track_low_stock: r.track_low_stock,
             retail_price_override: r.retail_price_override,
+            sale_price_override: r.sale_price_override,
             cost_override: r.cost_override,
             effective_retail: effective_retail_usd(r.base_retail_price, r.retail_price_override),
+            effective_sale: effective_sale_usd(r.base_sale_price, r.sale_price_override),
             web_published: r.web_published,
             web_price_override: r.web_price_override,
             web_gallery_order: r.web_gallery_order,
@@ -4268,7 +4370,9 @@ async fn patch_variant_pricing(
         variation_label: Option<String>,
         stock_on_hand: i32,
         retail_price_override: Option<Decimal>,
+        sale_price_override: Option<Decimal>,
         base_retail_price: Decimal,
+        base_sale_price: Option<Decimal>,
     }
 
     let current = sqlx::query_as::<_, VariantPricingBefore>(
@@ -4278,7 +4382,9 @@ async fn patch_variant_pricing(
             pv.variation_label,
             pv.stock_on_hand,
             pv.retail_price_override,
-            p.base_retail_price
+            pv.sale_price_override,
+            p.base_retail_price,
+            p.base_sale_price
         FROM product_variants pv
         JOIN products p ON p.id = pv.product_id
         WHERE pv.id = $1
@@ -4305,6 +4411,50 @@ async fn patch_variant_pricing(
     if body.clear_vendor_upc && body.vendor_upc.is_some() {
         return Err(ProductError::InvalidPayload(
             "cannot set vendor_upc and clear_vendor_upc together".to_string(),
+        ));
+    }
+    if body.clear_retail_override && body.retail_price_override.is_some() {
+        return Err(ProductError::InvalidPayload(
+            "cannot set retail_price_override and clear_retail_override together".to_string(),
+        ));
+    }
+    if body.clear_sale_override && body.sale_price_override.is_some() {
+        return Err(ProductError::InvalidPayload(
+            "cannot set sale_price_override and clear_sale_override together".to_string(),
+        ));
+    }
+    if body
+        .retail_price_override
+        .is_some_and(|price| price < Decimal::ZERO)
+    {
+        return Err(ProductError::InvalidPayload(
+            "retail_price_override must be non-negative".to_string(),
+        ));
+    }
+    if body
+        .sale_price_override
+        .is_some_and(|price| price < Decimal::ZERO)
+    {
+        return Err(ProductError::InvalidPayload(
+            "sale_price_override must be non-negative".to_string(),
+        ));
+    }
+
+    let next_retail_override = if body.clear_retail_override {
+        None
+    } else {
+        body.retail_price_override.or(current.retail_price_override)
+    };
+    let next_sale_override = if body.clear_sale_override {
+        None
+    } else {
+        body.sale_price_override.or(current.sale_price_override)
+    };
+    let next_effective_retail = next_retail_override.unwrap_or(current.base_retail_price);
+    let next_effective_sale = effective_sale_usd(current.base_sale_price, next_sale_override);
+    if next_effective_sale.is_some_and(|sale| sale > next_effective_retail) {
+        return Err(ProductError::InvalidPayload(
+            "sale price cannot exceed effective retail price".to_string(),
         ));
     }
 
@@ -4488,6 +4638,38 @@ async fn patch_variant_pricing(
         .await?;
     }
 
+    if body.clear_sale_override {
+        did = true;
+        sqlx::query(
+            r#"
+            UPDATE product_variants
+            SET sale_price_override = NULL
+            WHERE id = $1
+            "#,
+        )
+        .bind(variant_id)
+        .execute(&state.db)
+        .await?;
+    } else if let Some(p) = body.sale_price_override {
+        did = true;
+        if p < Decimal::ZERO {
+            return Err(ProductError::InvalidPayload(
+                "sale_price_override must be non-negative".to_string(),
+            ));
+        }
+        sqlx::query(
+            r#"
+            UPDATE product_variants
+            SET sale_price_override = $1
+            WHERE id = $2
+            "#,
+        )
+        .bind(p)
+        .bind(variant_id)
+        .execute(&state.db)
+        .await?;
+    }
+
     if body.clear_cost_override {
         did = true;
         sqlx::query(
@@ -4541,13 +4723,7 @@ async fn patch_variant_pricing(
         ));
     }
 
-    let new_retail_override = if body.clear_retail_override {
-        None
-    } else if let Some(next_override) = body.retail_price_override {
-        Some(next_override)
-    } else {
-        current.retail_price_override
-    };
+    let new_retail_override = next_retail_override;
     let new_effective_retail = new_retail_override.unwrap_or(current.base_retail_price);
     let price_changed = old_effective_retail != new_effective_retail;
 
@@ -4572,7 +4748,9 @@ async fn patch_variant_pricing(
         "sku": current.sku,
         "variation_label": current.variation_label,
         "retail_price_override": new_retail_override,
-        "effective_retail": new_effective_retail
+        "sale_price_override": next_sale_override,
+        "effective_retail": new_effective_retail,
+        "effective_sale": next_effective_sale
     })))
 }
 
@@ -5967,6 +6145,8 @@ mod tests {
             Json(PatchProductModelRequest {
                 name: Some(format!("Michael Kors Suit {suggested_code}")),
                 base_retail_price: None,
+                base_sale_price: None,
+                clear_base_sale_price: false,
                 base_cost: None,
                 category_id: None,
                 clear_category_id: false,
@@ -6073,6 +6253,8 @@ mod tests {
             Json(PatchProductModelRequest {
                 name: None,
                 base_retail_price: Some(Decimal::new(12000, 2)),
+                base_sale_price: None,
+                clear_base_sale_price: false,
                 base_cost: None,
                 category_id: None,
                 clear_category_id: false,
@@ -6159,6 +6341,8 @@ mod tests {
             Json(PatchProductModelRequest {
                 name: None,
                 base_retail_price: Some(Decimal::new(9999, 2)),
+                base_sale_price: None,
+                clear_base_sale_price: false,
                 base_cost: None,
                 category_id: None,
                 clear_category_id: false,
@@ -6226,6 +6410,8 @@ mod tests {
                 web_gallery_order: None,
                 clear_retail_override: false,
                 retail_price_override: Some(Decimal::new(8999, 2)),
+                clear_sale_override: false,
+                sale_price_override: None,
                 clear_cost_override: false,
                 cost_override: None,
                 track_low_stock: None,
@@ -6290,6 +6476,8 @@ mod tests {
                 web_gallery_order: None,
                 clear_retail_override: false,
                 retail_price_override: Some(Decimal::new(10000, 2)),
+                clear_sale_override: false,
+                sale_price_override: None,
                 clear_cost_override: false,
                 cost_override: None,
                 track_low_stock: None,
@@ -6352,6 +6540,8 @@ mod tests {
                 web_gallery_order: None,
                 clear_retail_override: true,
                 retail_price_override: None,
+                clear_sale_override: false,
+                sale_price_override: None,
                 clear_cost_override: false,
                 cost_override: None,
                 track_low_stock: None,

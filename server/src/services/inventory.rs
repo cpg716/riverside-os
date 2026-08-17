@@ -43,6 +43,9 @@ pub struct ResolvedSkuItem {
     pub available_stock: i32,
 
     pub standard_retail_price: Decimal,
+    /// Optional configured sale price used only with an eligible active promotion.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sale_price: Option<Decimal>,
     pub employee_price: Decimal,
     pub unit_cost: Decimal,
     /// Product `category_id` (for promotion scope checks on the client).
@@ -85,12 +88,14 @@ struct SkuJoinRow {
     reserved_stock: i32,
     on_layaway: i32,
     retail_price_override: Option<Decimal>,
+    sale_price_override: Option<Decimal>,
     cost_override: Option<Decimal>,
 
     product_name: String,
     resolved_category_name: Option<String>,
     resolved_is_clothing_footwear: bool,
     base_retail_price: Decimal,
+    base_sale_price: Option<Decimal>,
     base_cost: Decimal,
     spiff_amount: Decimal,
     pos_line_kind: Option<String>,
@@ -111,11 +116,13 @@ const SKU_JOIN_FROM: &str = r#"
             v.reserved_stock,
             v.on_layaway,
             v.retail_price_override,
+            v.sale_price_override,
             v.cost_override,
             p.name AS product_name,
             rc.resolved_category_name,
             COALESCE(rc.resolved_is_clothing_footwear, false) AS resolved_is_clothing_footwear,
             p.base_retail_price,
+            p.base_sale_price,
             p.base_cost,
             p.spiff_amount,
             p.pos_line_kind,
@@ -243,6 +250,10 @@ fn join_row_to_resolved(
             row.on_layaway,
         ),
         standard_retail_price: effective_retail,
+        sale_price: crate::logic::template_variant_pricing::effective_sale_usd(
+            row.base_sale_price,
+            row.sale_price_override,
+        ),
         employee_price,
         unit_cost: effective_cost,
         category_id: row.category_id,

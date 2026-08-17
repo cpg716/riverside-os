@@ -52,6 +52,7 @@ interface ProductHubProduct {
   brand: string | null;
   description: string | null;
   base_retail_price: string;
+  base_sale_price: string | null;
   base_cost: string;
   variation_axes: string[];
   category_id: string | null;
@@ -112,10 +113,12 @@ interface HubApiVariant {
   reorder_point: number;
   track_low_stock: boolean;
   retail_price_override: string | null;
+  sale_price_override: string | null;
   cost_override: string | null;
   barcode?: string | null;
   vendor_upc?: string | null;
   effective_retail: string;
+  effective_sale: string | null;
   web_published?: boolean;
   web_price_override?: string | null;
   web_gallery_order?: number;
@@ -463,6 +466,8 @@ export default function ProductHubDrawer({
   const secondaryVendorPickerRef = useRef<HTMLDivElement>(null);
   const [baseRetailDraft, setBaseRetailDraft] = useState("");
   const [baseRetailSaving, setBaseRetailSaving] = useState(false);
+  const [baseSaleDraft, setBaseSaleDraft] = useState("");
+  const [baseSaleSaving, setBaseSaleSaving] = useState(false);
   const [employeeMarkupDraft, setEmployeeMarkupDraft] = useState("");
   const [employeeExtraDraft, setEmployeeExtraDraft] = useState("");
   const [employeeSaving, setEmployeeSaving] = useState(false);
@@ -946,6 +951,11 @@ export default function ProductHubDrawer({
   useEffect(() => {
     if (!hub) return;
     setBaseRetailDraft(formatMoney(parseMoney(hub.product.base_retail_price)));
+    setBaseSaleDraft(
+      hub.product.base_sale_price == null
+        ? ""
+        : formatMoney(parseMoney(hub.product.base_sale_price)),
+    );
     setEmployeeMarkupDraft(
       hub.product.employee_markup_percent != null &&
         hub.product.employee_markup_percent !== ""
@@ -983,6 +993,54 @@ export default function ProductHubDrawer({
       if (ok) toast("Parent retail price updated.", "success");
     } finally {
       setBaseRetailSaving(false);
+    }
+  };
+
+  const saveBaseSale = async () => {
+    if (!hub) return;
+    const trimmed = baseSaleDraft.trim();
+    if (trimmed && !/^(?:\d+|\d*\.\d{1,2})$/.test(trimmed)) {
+      toast(
+        "Base sale must be blank or a non-negative amount with no more than two decimals.",
+        "error",
+      );
+      return;
+    }
+
+    const current = hub.product.base_sale_price;
+    const nextPriceCents = trimmed ? parseMoneyToCents(trimmed) : null;
+    const currentPriceCents =
+      current == null ? null : parseMoneyToCents(current);
+    if (nextPriceCents === currentPriceCents) {
+      toast("Base sale is already set to that amount.", "info");
+      return;
+    }
+
+    if (
+      nextPriceCents != null &&
+      nextPriceCents > parseMoneyToCents(hub.product.base_retail_price)
+    ) {
+      toast("Base sale cannot exceed base retail.", "error");
+      return;
+    }
+
+    setBaseSaleSaving(true);
+    try {
+      const ok = await patchProductModel(
+        nextPriceCents == null
+          ? { clear_base_sale_price: true }
+          : { base_sale_price: formatMoney(nextPriceCents / 100) },
+      );
+      if (ok) {
+        toast(
+          nextPriceCents == null
+            ? "Parent sale price cleared."
+            : "Parent sale price updated.",
+          "success",
+        );
+      }
+    } finally {
+      setBaseSaleSaving(false);
     }
   };
 
@@ -1285,10 +1343,12 @@ export default function ProductHubDrawer({
       reorder_point: v.reorder_point,
       track_low_stock: v.track_low_stock,
       retail_price_override: v.retail_price_override,
+      sale_price_override: v.sale_price_override,
       cost_override: v.cost_override,
       barcode: v.barcode ?? null,
       vendor_upc: v.vendor_upc ?? null,
       effective_retail: v.effective_retail,
+      effective_sale: v.effective_sale,
       web_published: Boolean(v.web_published),
       web_price_override: v.web_price_override ?? null,
       web_gallery_order: v.web_gallery_order ?? 0,
@@ -1447,6 +1507,51 @@ export default function ProductHubDrawer({
                       <p className="mt-1 text-[10px] leading-relaxed text-app-text-muted">
                         Updates every SKU inheriting the parent price. Existing
                         SKU price overrides stay unchanged.
+                      </p>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-app-text-muted">Base sale</dt>
+                    <dd className="mt-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label
+                          className="relative"
+                          htmlFor="product-base-sale-price"
+                        >
+                          <span className="sr-only">Parent base sale price</span>
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted">
+                            $
+                          </span>
+                          <input
+                            id="product-base-sale-price"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            inputMode="decimal"
+                            placeholder="No sale"
+                            value={baseSaleDraft}
+                            disabled={baseSaleSaving}
+                            onChange={(event) =>
+                              setBaseSaleDraft(event.target.value)
+                            }
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") void saveBaseSale();
+                            }}
+                            className="ui-input h-10 w-32 pl-7 pr-3 font-bold tabular-nums"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          disabled={baseSaleSaving}
+                          onClick={() => void saveBaseSale()}
+                          className="ui-btn-primary h-10 rounded-xl px-4 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                        >
+                          {baseSaleSaving ? "Saving…" : "Save sale"}
+                        </button>
+                      </div>
+                      <p className="mt-1 text-[10px] leading-relaxed text-app-text-muted">
+                        Optional price used during eligible active promotions.
+                        Leave blank to calculate the discount from the event.
                       </p>
                     </dd>
                   </div>
@@ -2617,6 +2722,7 @@ export default function ProductHubDrawer({
               productId={hub.product.id}
               productTrackLowStock={hub.product.track_low_stock}
               templateBaseRetail={hub.product.base_retail_price}
+              templateBaseSale={hub.product.base_sale_price}
               productName={hub.product.name}
               categoryName={hub.product.category_name}
               variationAxes={hub.product.variation_axes ?? []}

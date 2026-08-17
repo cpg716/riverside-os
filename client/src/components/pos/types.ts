@@ -19,6 +19,8 @@ export interface ResolvedSkuItem {
   name: string;
   variation_label?: string | null;
   standard_retail_price: string | number;
+  /** Optional catalog sale price used only when an eligible promotion is applied. */
+  sale_price?: string | number | null;
   /** Lowest effective price across the searchable variants of a parent product. */
   retail_price_min?: string | number;
   /** Highest effective price across the searchable variants of a parent product. */
@@ -84,7 +86,7 @@ export interface CartLineItem extends ResolvedSkuItem {
   price_override_reason?: string;
   original_unit_price?: string;
   salesperson_id?: string | null;
-  /** When set, checkout sends `discount_event_id` and price must match event % off retail. */
+  /** When set, checkout sends `discount_event_id` and price must match the configured sale price or event discount. */
   discount_event_id?: string | null;
   /** Preserved tax rates from catalog to prevent compounding rounding errors during recalculation. */
   nominal_state_tax_rate?: number;

@@ -900,7 +900,20 @@ export function useCartActions({
     if (isNaN(pct) || pct <= 0) return;
 
     const baseCents = parseMoneyToCents(line.original_unit_price || line.standard_retail_price);
-    const nextCents = Math.round(baseCents * (1 - pct / 100));
+    const hasConfiguredSale =
+      line.sale_price != null && String(line.sale_price).trim() !== "";
+    const configuredSaleCents = hasConfiguredSale
+      ? parseMoneyToCents(line.sale_price as string | number)
+      : null;
+    if (
+      configuredSaleCents != null &&
+      (configuredSaleCents < 0 || configuredSaleCents > baseCents)
+    ) {
+      toast("This SKU has an invalid configured sale price. Update it in Product Hub.", "error");
+      return;
+    }
+    const nextCents =
+      configuredSaleCents ?? Math.round(baseCents * (1 - pct / 100));
 
     const { stateTax, localTax } = calculateCartLineTaxStrings(line, nextCents);
 

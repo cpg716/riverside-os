@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Globe, AlertTriangle } from "lucide-react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import type { HubVariant } from "./VariationsWorkspace";
@@ -8,8 +8,10 @@ export interface VariationCellProps {
   isLowStock: boolean;
   isOutOfStock: boolean;
   hasPriceOverride: boolean;
+  hasSaleOverride: boolean;
   onUpdateStock: (delta: number) => Promise<unknown>;
   onUpdatePrice: (cents: number | null) => Promise<unknown>;
+  onUpdateSale: (cents: number | null) => Promise<unknown>;
   onUpdateTrackLow: (next: boolean) => Promise<unknown>;
   onUpdateWeb: (next: boolean) => Promise<unknown>;
   onShowMaintenance: (type: "damaged" | "return_to_vendor") => void;
@@ -20,15 +22,27 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
   isLowStock,
   isOutOfStock,
   hasPriceOverride,
+  hasSaleOverride,
   onUpdateStock,
   onUpdatePrice,
+  onUpdateSale,
   onUpdateTrackLow,
   onUpdateWeb,
   onShowMaintenance,
 }) => {
+  const currentRetail = centsToFixed2(
+    parseMoneyToCents(variant.effective_retail),
+  );
+  const currentSale = variant.effective_sale
+    ? centsToFixed2(parseMoneyToCents(variant.effective_sale))
+    : "";
   const [stockDraft, setStockDraft] = useState("");
-  const [priceDraft, setPriceDraft] = useState("");
+  const [priceDraft, setPriceDraft] = useState(currentRetail);
   const [editingPrice, setEditingPrice] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
+  const [saleDraft, setSaleDraft] = useState(currentSale);
+  const [editingSale, setEditingSale] = useState(false);
+  const [saleError, setSaleError] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [flash, setFlash] = useState<"success" | "error" | null>(null);
 
@@ -46,6 +60,62 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
     } catch {
       setFlash("error");
       setTimeout(() => setFlash(null), 1000);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!editingPrice) setPriceDraft(currentRetail);
+  }, [currentRetail, editingPrice]);
+
+  useEffect(() => {
+    if (!editingSale) setSaleDraft(currentSale);
+  }, [currentSale, editingSale]);
+
+  const handlePriceSubmit = async () => {
+    const trimmed = priceDraft.trim();
+    if (trimmed && !/^(?:\d+|\d*\.\d{1,2})$/.test(trimmed)) {
+      setPriceError("Enter a valid price with no more than two decimals.");
+      return;
+    }
+
+    setIsUpdating(true);
+    setPriceError(null);
+    try {
+      await onUpdatePrice(trimmed ? parseMoneyToCents(trimmed) : null);
+      setEditingPrice(false);
+    } catch {
+      setPriceError("Price could not be updated.");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleSaleSubmit = async () => {
+    const trimmed = saleDraft.trim();
+    if (trimmed && !/^(?:\d+|\d*\.\d{1,2})$/.test(trimmed)) {
+      setSaleError("Enter a valid sale price with no more than two decimals.");
+      return;
+    }
+    const nextSaleCents = trimmed ? parseMoneyToCents(trimmed) : null;
+    if (
+      nextSaleCents != null &&
+      nextSaleCents > parseMoneyToCents(currentRetail)
+    ) {
+      setSaleError("Sale price cannot exceed retail.");
+      return;
+    }
+
+    setIsUpdating(true);
+    setSaleError(null);
+    try {
+      await onUpdateSale(nextSaleCents);
+      setEditingSale(false);
+    } catch (error) {
+      setSaleError(
+        error instanceof Error ? error.message : "Sale price could not be updated.",
+      );
     } finally {
       setIsUpdating(false);
     }
@@ -74,46 +144,111 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
         {editingPrice ? (
           <div className="flex items-center gap-1">
             <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              autoFocus
               value={priceDraft}
-              onChange={(e) => setPriceDraft(e.target.value)}
-              placeholder={centsToFixed2(parseMoneyToCents(variant.effective_retail))}
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => {
+                setPriceDraft(event.target.value);
+                setPriceError(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void handlePriceSubmit();
+                if (event.key === "Escape") setEditingPrice(false);
+              }}
+              aria-label={`Retail price for ${variant.sku}`}
+              disabled={isUpdating}
               className="h-7 w-20 rounded-lg border border-app-border bg-app-surface px-2 text-[11px] font-black"
             />
             <button
               type="button"
+              disabled={isUpdating}
               className="rounded-md bg-app-accent px-2 py-1 text-[9px] font-black uppercase text-white"
-              onClick={() => {
-                const trimmed = priceDraft.trim();
-                if (!trimmed) {
-                  void onUpdatePrice(null);
-                } else {
-                  const cents = parseMoneyToCents(trimmed);
-                  if (!Number.isNaN(cents)) void onUpdatePrice(cents);
-                }
-                setEditingPrice(false);
-                setPriceDraft("");
-              }}
+              onClick={() => void handlePriceSubmit()}
             >
-              Save
+              {isUpdating ? "…" : "Save"}
             </button>
           </div>
         ) : (
           <button
             onClick={() => {
-              setPriceDraft(centsToFixed2(parseMoneyToCents(variant.effective_retail)));
+              setPriceDraft(currentRetail);
+              setPriceError(null);
               setEditingPrice(true);
             }}
             className={`text-[11px] font-black tracking-tight tabular-nums transition-colors hover:opacity-80 ${
               hasPriceOverride ? "text-app-accent" : "text-app-text-muted"
             }`}
           >
-            ${centsToFixed2(parseMoneyToCents(variant.effective_retail))}
+            Retail ${currentRetail}
           </button>
         )}
         {variant.web_published && (
           <Globe size={10} className="text-app-success" />
         )}
       </div>
+      {priceError ? (
+        <p className="text-[9px] font-bold text-app-danger" role="alert">
+          {priceError}
+        </p>
+      ) : null}
+      <div className="flex items-center justify-between">
+        {editingSale ? (
+          <div className="flex items-center gap-1">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              autoFocus
+              value={saleDraft}
+              placeholder="No sale"
+              onFocus={(event) => event.currentTarget.select()}
+              onChange={(event) => {
+                setSaleDraft(event.target.value);
+                setSaleError(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void handleSaleSubmit();
+                if (event.key === "Escape") setEditingSale(false);
+              }}
+              aria-label={`Sale price for ${variant.sku}`}
+              disabled={isUpdating}
+              className="h-7 w-20 rounded-lg border border-app-border bg-app-surface px-2 text-[11px] font-black"
+            />
+            <button
+              type="button"
+              disabled={isUpdating}
+              className="rounded-md bg-app-accent px-2 py-1 text-[9px] font-black uppercase text-white"
+              onClick={() => void handleSaleSubmit()}
+            >
+              {isUpdating ? "…" : "Save"}
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setSaleDraft(currentSale);
+              setSaleError(null);
+              setEditingSale(true);
+            }}
+            className={`text-[11px] font-black tracking-tight tabular-nums transition-colors hover:opacity-80 ${
+              hasSaleOverride ? "text-app-accent" : "text-app-text-muted"
+            }`}
+          >
+            Sale {currentSale ? `$${currentSale}` : "—"}
+          </button>
+        )}
+      </div>
+      {saleError ? (
+        <p className="text-[9px] font-bold text-app-danger" role="alert">
+          {saleError}
+        </p>
+      ) : null}
 
       {/* Stock Display */}
       <div className="flex items-center gap-2">
