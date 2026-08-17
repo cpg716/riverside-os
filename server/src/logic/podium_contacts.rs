@@ -174,6 +174,7 @@ struct ProviderContact {
     uid: String,
     first_name: Option<String>,
     last_name: Option<String>,
+    name_source: ProviderNameSource,
     display_name: Option<String>,
     phone_e164: Option<String>,
     phone_present: bool,
@@ -189,6 +190,20 @@ struct ProviderContact {
     transactional_sms_opted_out: bool,
     locations: Vec<String>,
     raw: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProviderNameSource {
+    ExplicitFields,
+    DisplayName,
+    Missing,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct ExistingCustomerNameUpdate {
+    first_name: Option<String>,
+    last_name: Option<String>,
+    preserved_provider_name: bool,
 }
 
 fn contact_channel_identifier(value: &Value, want_email: bool) -> Option<String> {
@@ -247,19 +262,24 @@ fn parse_provider_contact(value: &Value) -> Option<ProviderContact> {
     let display_name = text_at(&raw, &["/name", "/displayName"]);
     let explicit_first = text_at(&raw, &["/firstName"]);
     let explicit_last = text_at(&raw, &["/lastName"]);
-    let (first_name, last_name) = if explicit_first.is_some() || explicit_last.is_some() {
-        (explicit_first, explicit_last)
-    } else if let Some(name) = display_name.as_deref() {
-        let mut parts = name.split_whitespace();
-        let first = parts.next().map(ToOwned::to_owned);
-        let last = {
-            let value = parts.collect::<Vec<_>>().join(" ");
-            (!value.is_empty()).then_some(value)
+    let (first_name, last_name, name_source) =
+        if explicit_first.is_some() || explicit_last.is_some() {
+            (
+                explicit_first,
+                explicit_last,
+                ProviderNameSource::ExplicitFields,
+            )
+        } else if let Some(name) = display_name.as_deref() {
+            let mut parts = name.split_whitespace();
+            let first = parts.next().map(ToOwned::to_owned);
+            let last = {
+                let value = parts.collect::<Vec<_>>().join(" ");
+                (!value.is_empty()).then_some(value)
+            };
+            (first, last, ProviderNameSource::DisplayName)
+        } else {
+            (None, None, ProviderNameSource::Missing)
         };
-        (first, last)
-    } else {
-        (None, None)
-    };
     let channels_present = raw.get("channels").is_some();
     let phone_present =
         raw.get("phoneNumber").is_some() || raw.get("phoneNumbers").is_some() || channels_present;
@@ -301,6 +321,7 @@ fn parse_provider_contact(value: &Value) -> Option<ProviderContact> {
         uid,
         first_name,
         last_name,
+        name_source,
         display_name,
         phone_e164,
         phone_present,
@@ -331,6 +352,85 @@ fn parse_provider_contact(value: &Value) -> Option<ProviderContact> {
         locations,
         raw,
     })
+}
+
+fn has_substantial_name_piece(value: &str) -> bool {
+    value.chars().filter(|ch| ch.is_alphabetic()).count() >= 2
+}
+
+fn plan_existing_customer_name_update(
+    contact: &ProviderContact,
+    current_first_name: &str,
+    current_last_name: &str,
+) -> ExistingCustomerNameUpdate {
+    let current_first = current_first_name.trim();
+    let current_last = current_last_name.trim();
+    let placeholder_pair = current_first.eq_ignore_ascii_case("Podium")
+        && current_last.eq_ignore_ascii_case("Contact");
+
+    match contact.name_source {
+        ProviderNameSource::ExplicitFields => {
+            let first_name = contact.first_name.as_ref().and_then(|candidate| {
+                if !current_first.is_empty()
+                    && has_substantial_name_piece(current_first)
+                    && !has_substantial_name_piece(candidate)
+                {
+                    None
+                } else {
+                    Some(candidate.clone())
+                }
+            });
+            let last_name = contact.last_name.as_ref().and_then(|candidate| {
+                if !current_last.is_empty()
+                    && has_substantial_name_piece(current_last)
+                    && !has_substantial_name_piece(candidate)
+                {
+                    None
+                } else {
+                    Some(candidate.clone())
+                }
+            });
+            let preserved_provider_name = (contact.first_name.is_some() && first_name.is_none())
+                || (contact.last_name.is_some() && last_name.is_none());
+            ExistingCustomerNameUpdate {
+                first_name,
+                last_name,
+                preserved_provider_name,
+            }
+        }
+        ProviderNameSource::DisplayName => {
+            let derived_last_is_substantial = contact
+                .last_name
+                .as_deref()
+                .is_some_and(has_substantial_name_piece);
+            if placeholder_pair && derived_last_is_substantial {
+                return ExistingCustomerNameUpdate {
+                    first_name: contact.first_name.clone(),
+                    last_name: contact.last_name.clone(),
+                    preserved_provider_name: false,
+                };
+            }
+
+            let first_name = current_first
+                .is_empty()
+                .then(|| contact.first_name.clone())
+                .flatten();
+            let last_name = (current_last.is_empty() && derived_last_is_substantial)
+                .then(|| contact.last_name.clone())
+                .flatten();
+            let preserved_provider_name = contact.first_name.as_deref().is_some_and(|name| {
+                !current_first.is_empty() && !name.trim().eq_ignore_ascii_case(current_first)
+            }) || contact.last_name.as_deref().is_some_and(|name| {
+                !current_last.is_empty() && !name.trim().eq_ignore_ascii_case(current_last)
+            });
+            ExistingCustomerNameUpdate {
+                first_name,
+                last_name,
+                preserved_provider_name,
+            }
+        }
+        ProviderNameSource::Missing => ExistingCustomerNameUpdate::default(),
+    }
 }
 
 async fn record_event_conn(
@@ -630,13 +730,24 @@ async fn apply_provider_contact(
         }
     }
 
+    let mut existing_names = None;
     if let Some((existing_customer_id, _)) = customer_id {
-        let existing_status: Option<String> = sqlx::query_scalar(
-            "SELECT status FROM podium_contact_sync_state WHERE customer_id = $1",
+        let (existing_first_name, existing_last_name, existing_status): (
+            String,
+            String,
+            Option<String>,
+        ) = sqlx::query_as(
+            r#"
+            SELECT COALESCE(c.first_name, ''), COALESCE(c.last_name, ''), sync.status
+            FROM customers c
+            LEFT JOIN podium_contact_sync_state sync ON sync.customer_id = c.id
+            WHERE c.id = $1
+            "#,
         )
         .bind(existing_customer_id)
-        .fetch_optional(pool)
+        .fetch_one(pool)
         .await?;
+        existing_names = Some((existing_first_name, existing_last_name));
         let preserve_local_fields = matches!(
             existing_status.as_deref(),
             Some("pending" | "processing" | "failed" | "conflict")
@@ -774,6 +885,14 @@ async fn apply_provider_contact(
         (customer_id, true)
     };
 
+    let name_update = if created {
+        ExistingCustomerNameUpdate::default()
+    } else if let Some((current_first_name, current_last_name)) = existing_names.as_ref() {
+        plan_existing_customer_name_update(contact, current_first_name, current_last_name)
+    } else {
+        ExistingCustomerNameUpdate::default()
+    };
+
     let updated = sqlx::query(
         r#"
         UPDATE customers
@@ -804,8 +923,8 @@ async fn apply_provider_contact(
         "#,
     )
     .bind(customer_id)
-    .bind(contact.first_name.as_deref())
-    .bind(contact.last_name.as_deref())
+    .bind(name_update.first_name.as_deref())
+    .bind(name_update.last_name.as_deref())
     .bind(contact.phone_e164.as_deref())
     .bind(contact.email.as_deref())
     .bind(contact.address_line1.as_deref())
@@ -886,7 +1005,9 @@ async fn apply_provider_contact(
         "podium_to_ros",
         action,
         "succeeded",
-        None,
+        name_update.preserved_provider_name.then_some(
+            "Established Riverside name preserved because the provider name was display-derived or less complete.",
+        ),
         &[],
         Some(&contact.raw),
         None,
@@ -1919,6 +2040,70 @@ mod tests {
         assert_eq!(parsed.phone_e164.as_deref(), Some("+17165551212"));
         assert_eq!(parsed.email.as_deref(), Some("alex@example.com"));
         assert!(parsed.transactional_sms_opted_out);
+    }
+
+    #[test]
+    fn display_name_does_not_replace_an_established_customer_name() {
+        let parsed = parse_provider_contact(&json!({
+            "uid": "contact-display-name",
+            "name": "Alex R",
+            "phoneNumber": "+17165551212"
+        }))
+        .expect("contact");
+        assert_eq!(parsed.name_source, ProviderNameSource::DisplayName);
+
+        let update = plan_existing_customer_name_update(&parsed, "Alex", "Rivera");
+        assert_eq!(update.first_name, None);
+        assert_eq!(update.last_name, None);
+        assert!(update.preserved_provider_name);
+    }
+
+    #[test]
+    fn explicit_provider_name_can_replace_an_established_name() {
+        let parsed = parse_provider_contact(&json!({
+            "uid": "contact-explicit-name",
+            "firstName": "Alexandra",
+            "lastName": "Santos",
+            "phoneNumber": "+17165551212"
+        }))
+        .expect("contact");
+        assert_eq!(parsed.name_source, ProviderNameSource::ExplicitFields);
+
+        let update = plan_existing_customer_name_update(&parsed, "Alex", "Rivera");
+        assert_eq!(update.first_name.as_deref(), Some("Alexandra"));
+        assert_eq!(update.last_name.as_deref(), Some("Santos"));
+        assert!(!update.preserved_provider_name);
+    }
+
+    #[test]
+    fn provider_initial_does_not_replace_a_full_customer_name() {
+        let parsed = parse_provider_contact(&json!({
+            "uid": "contact-explicit-initial",
+            "firstName": "A",
+            "lastName": "R",
+            "phoneNumber": "+17165551212"
+        }))
+        .expect("contact");
+
+        let update = plan_existing_customer_name_update(&parsed, "Alex", "Rivera");
+        assert_eq!(update.first_name, None);
+        assert_eq!(update.last_name, None);
+        assert!(update.preserved_provider_name);
+    }
+
+    #[test]
+    fn derived_display_name_can_replace_a_podium_placeholder() {
+        let parsed = parse_provider_contact(&json!({
+            "uid": "contact-placeholder-name",
+            "name": "Alex Rivera",
+            "phoneNumber": "+17165551212"
+        }))
+        .expect("contact");
+
+        let update = plan_existing_customer_name_update(&parsed, "Podium", "Contact");
+        assert_eq!(update.first_name.as_deref(), Some("Alex"));
+        assert_eq!(update.last_name.as_deref(), Some("Rivera"));
+        assert!(!update.preserved_provider_name);
     }
 
     #[test]

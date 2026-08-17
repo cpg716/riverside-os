@@ -78,6 +78,9 @@ const podiumReviewActivityMigration = repoFile(
 const podiumRecoveryMigration = repoFile(
   "migrations/198_recover_podium_delivery_backpressure.sql",
 );
+const podiumCustomerNameRepairMigration = repoFile(
+  "migrations/205_preserve_customer_names_from_podium_display.sql",
+);
 const receiptSummary = repoFile(
   "client/src/components/pos/ReceiptSummaryModal.tsx",
 );
@@ -401,6 +404,14 @@ test("Podium contact reconciliation is backgrounded, observable, and avoids redu
   expect(customersApi).toContain("begin_contact_reconciliation");
   expect(customersApi).toContain("StatusCode::ACCEPTED");
   expect(podiumContacts).toContain("pub async fn contact_sync_overview");
+  expect(podiumContacts).toContain("ProviderNameSource::DisplayName");
+  expect(podiumContacts).toContain("Established Riverside name preserved");
+  expect(podiumCustomerNameRepairMigration).toContain(
+    "repair_truncated_rms_customer_name",
+  );
+  expect(podiumCustomerNameRepairMigration).toContain(
+    "COUNT(DISTINCT UPPER(rms_last_name)) = 1",
+  );
   expect(podiumContacts).toContain(
     "state.customer_id IS NULL OR state.status = 'failed'",
   );

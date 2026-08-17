@@ -205,4 +205,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("202_repair_verified_rms90_programs.sql", include_str!("../../migrations/202_repair_verified_rms90_programs.sql")),
     ("203_catalog_sale_prices.sql", include_str!("../../migrations/203_catalog_sale_prices.sql")),
     ("204_catalog_price_change_history.sql", include_str!("../../migrations/204_catalog_price_change_history.sql")),
+    ("205_preserve_customer_names_from_podium_display.sql", include_str!("../../migrations/205_preserve_customer_names_from_podium_display.sql")),
 ];
