@@ -137,7 +137,7 @@ If Riverside Settings cannot open because the API is down, manage the server fro
 5. If the package version is newer than the installed server version, run **Update This Main Hub**.
 6. If the server task is missing or the API is unreachable, run **Repair Server** or use **Start Server** / **Restart Server**.
 
-For immediate recovery after a failed update, open Administrator PowerShell on the Main Hub and run `Start-ScheduledTask -TaskName "Riverside OS Server"`, then confirm `http://127.0.0.1:3000/api/ready` responds so PostgreSQL connectivity is included. Do not reset or restore the database solely because the installer backup step failed.
+For immediate recovery after a failed update, open Administrator PowerShell on the Main Hub and run `Start-ScheduledTask -TaskName "Riverside OS Server"`, then confirm `http://127.0.0.1:3000/api/ready` returns Riverside JSON with `database.connected: true`; an HTTP 200 HTML page is not Riverside readiness. The guarded updater performs this content check automatically, reclaims port 3000 before restarting the preserved server, and rejects a false-positive response from an unrelated listener. Do not reset or restore the database solely because the installer backup step failed.
 
 Hotfix/support actions included in v0.96.0 packages:
 

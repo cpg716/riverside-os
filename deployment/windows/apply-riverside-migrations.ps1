@@ -156,6 +156,19 @@ function Test-MigrationChecksumMatch([string]$StoredSha, [string[]]$AllowedShas)
   return ($AllowedShas -contains $normalizedStoredSha)
 }
 
+function Test-SupersededBrokenMigration([string]$FileName, [string]$FileSha256, [string]$MigrationsDir) {
+  if ($FileName -ne "202_repair_verified_rms90_programs.sql") {
+    return $false
+  }
+
+  $knownBrokenShas = @(
+    "34dd6bacf8f6da4aac19e039b7318a39a5beada46d7b1e709ac5ffcb7fb2c1a9",
+    "855ee71f347c84be89d897881ac84124bcf82f6a8113565c90f16ad169603b9b"
+  )
+  $replacementPath = Join-Path $MigrationsDir "206_repair_verified_rms90_programs_v2.sql"
+  return ($knownBrokenShas -contains $FileSha256) -and (Test-Path $replacementPath)
+}
+
 function Get-StoredChecksum([string]$PsqlPath, [string]$DatabaseUrl, [string]$Version) {
   $migrationVersion = Escape-SqlLiteral $Version
   return Invoke-PsqlText $PsqlPath $DatabaseUrl "SELECT COALESCE(file_sha256, '') FROM ros_schema_migrations WHERE version = '$migrationVersion';"
@@ -246,6 +259,12 @@ function Apply-Migrations([string]$PsqlPath, [string]$DatabaseUrl, [string]$Dir)
     if ((Test-SourceLockedRepair $file.Name $currentSha) -and
         -not (Test-SourceLockedRepairApplicable $PsqlPath $DatabaseUrl)) {
       Write-Host "Skip migration $($file.Name) (source-locked repair not applicable)"
+      Add-MigrationLedgerEntry $PsqlPath $DatabaseUrl $file.Name $currentSha
+      continue
+    }
+
+    if (Test-SupersededBrokenMigration $file.Name $currentSha $Dir) {
+      Write-Host "Skip migration $($file.Name) (superseded by migration 206)"
       Add-MigrationLedgerEntry $PsqlPath $DatabaseUrl $file.Name $currentSha
       continue
     }

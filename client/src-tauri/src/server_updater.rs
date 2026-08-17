@@ -776,6 +776,32 @@ function Write-MainHubUpdateStatus([string]$Status, [string]$Message) {{
     }}
 }}
 
+function Test-RiversideReady {{
+    try {{
+        $response = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{ready_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        if ($response.StatusCode -ne 200) {{ return $false }}
+        $payload = $response.Content | ConvertFrom-Json -ErrorAction Stop
+        return $payload.database.connected -eq $true -and
+            -not [string]::IsNullOrWhiteSpace("$($payload.build_sha)")
+    }} catch {{
+        return $false
+    }}
+}}
+
+function Stop-MainHubPortListeners {{
+    $ownerProcessIds = @(
+        Get-NetTCPConnection -LocalPort $serverPort -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty OwningProcess -Unique
+    )
+    foreach ($ownerProcessId in $ownerProcessIds) {{
+        if (-not $ownerProcessId -or $ownerProcessId -eq $PID) {{ continue }}
+        $owner = Get-CimInstance Win32_Process -Filter "ProcessId=$ownerProcessId" -ErrorAction SilentlyContinue
+        $ownerDescription = if ($owner) {{ "$($owner.Name) ($ownerProcessId)" }} else {{ "PID $ownerProcessId" }}
+        Write-Host ("Reclaiming Riverside port $serverPort from " + $ownerDescription)
+        Stop-Process -Id $ownerProcessId -Force -ErrorAction Stop
+    }}
+}}
+
 Write-MainHubUpdateStatus 'UPDATING' 'Main Hub update started.'
 
 # Keep the current server running until install-server.ps1 verifies the
@@ -813,10 +839,7 @@ try {{
     $ready = $false
     for ($i = 0; $i -lt 30; $i++) {{
         Start-Sleep -Seconds 2
-        try {{
-            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{ready_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-            if ($resp.StatusCode -eq 200) {{ $ready = $true; break }}
-        }} catch {{ }}
+        if (Test-RiversideReady) {{ $ready = $true; break }}
         Write-Host ('  Waiting... (' + ($i * 2).ToString() + 's)')
     }}
     if ($ready) {{
@@ -837,11 +860,7 @@ try {{
 }} catch {{
     Write-Host ('Update failed: ' + $_.Exception.Message) -ForegroundColor Red
     Write-MainHubUpdateStatus 'FAILED' ('Main Hub update failed: ' + $_.Exception.Message)
-    $serverStillHealthy = $false
-    try {{
-        $existingResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{ready_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-        $serverStillHealthy = $existingResponse.StatusCode -eq 200
-    }} catch {{ }}
+    $serverStillHealthy = Test-RiversideReady
     if ($serverStillHealthy) {{
         Write-Host 'The existing Riverside server is still healthy; no restart or rollback was needed.'
     }} else {{
@@ -851,6 +870,7 @@ try {{
             Get-Process -Name 'riverside-server' -ErrorAction SilentlyContinue |
                 ForEach-Object {{ Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }}
             Start-Sleep -Seconds 2
+            Stop-MainHubPortListeners
             if (Test-Path -Path $backupBin) {{
                 Write-Host 'Rolling back to previous server binary...'
                 Copy-Item -Path $backupBin -Destination $serverBin -Force -ErrorAction Stop
@@ -862,13 +882,10 @@ try {{
                 $recoveryReady = $false
                 for ($i = 0; $i -lt 15; $i++) {{
                     Start-Sleep -Seconds 2
-                    try {{
-                        $recoveryResponse = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{ready_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-                        if ($recoveryResponse.StatusCode -eq 200) {{
-                            $recoveryReady = $true
-                            break
-                        }}
-                    }} catch {{ }}
+                    if (Test-RiversideReady) {{
+                        $recoveryReady = $true
+                        break
+                    }}
                 }}
                 if ($recoveryReady) {{
                     Write-Host '  Previous Riverside server is healthy after emergency restart.' -ForegroundColor Green

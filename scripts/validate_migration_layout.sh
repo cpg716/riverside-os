@@ -26,6 +26,24 @@ if [ -n "$legacy_root_files" ]; then
   exit 1
 fi
 
+invalid_uuid_casts=""
+canonical_uuid_cast_regex="'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'::uuid$"
+superseded_202_uuid_cast_regex="/202_repair_verified_rms90_programs[.]sql:[0-9]+:'ff05f632-f43c-4856-813c-c0d41cd1eb4'::uuid$"
+while IFS= read -r uuid_cast; do
+  if [[ "$uuid_cast" =~ $superseded_202_uuid_cast_regex ]]; then
+    continue
+  fi
+  if [[ ! "$uuid_cast" =~ $canonical_uuid_cast_regex ]]; then
+    invalid_uuid_casts+="${uuid_cast}"$'\n'
+  fi
+done < <(rg -n -o "'[0-9A-Fa-f-]+'::uuid" "$ROOT/migrations" --max-depth 1 --glob '*.sql' || true)
+
+if [ -n "$invalid_uuid_casts" ]; then
+  echo "Malformed UUID literals cast to uuid were found in active migrations:" >&2
+  printf '%s' "$invalid_uuid_casts" >&2
+  exit 1
+fi
+
 previous_number=0
 for file in "${active[@]}"; do
   if [[ ! "$file" =~ ^[0-9]{3}_[a-z0-9_]+\.sql$ ]]; then

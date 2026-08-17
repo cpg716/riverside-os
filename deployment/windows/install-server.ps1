@@ -1974,6 +1974,19 @@ function Test-MigrationChecksumMatch([string]$StoredSha, [string[]]$AllowedShas)
   return ($AllowedShas -contains $normalizedStoredSha)
 }
 
+function Test-SupersededBrokenMigration([string]$FileName, [string]$FileSha256, [string]$MigrationsDir) {
+  if ($FileName -ne "202_repair_verified_rms90_programs.sql") {
+    return $false
+  }
+
+  $knownBrokenShas = @(
+    "34dd6bacf8f6da4aac19e039b7318a39a5beada46d7b1e709ac5ffcb7fb2c1a9",
+    "855ee71f347c84be89d897881ac84124bcf82f6a8113565c90f16ad169603b9b"
+  )
+  $replacementPath = Join-Path $MigrationsDir "206_repair_verified_rms90_programs_v2.sql"
+  return ($knownBrokenShas -contains $FileSha256) -and (Test-Path $replacementPath)
+}
+
 function Get-MigrationLedgerExists($PsqlPath, $DatabaseUrl) {
   $ledgerCheck = & $PsqlPath $DatabaseUrl -w -tAc "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ros_schema_migrations');"
   if ($LASTEXITCODE -ne 0) {
@@ -2100,6 +2113,12 @@ function Apply-Migrations($PsqlPath, $DatabaseUrl, $MigrationsDir, $DbConfig) {
         Add-MigrationLedgerEntry $PsqlPath $DatabaseUrl $file.Name $currentSha
         continue
       }
+    }
+
+    if (Test-SupersededBrokenMigration $file.Name $currentSha $MigrationsDir) {
+      Write-Host "Skip migration $($file.Name) (superseded by migration 206)"
+      Add-MigrationLedgerEntry $PsqlPath $DatabaseUrl $file.Name $currentSha
+      continue
     }
 
     Write-Host "Apply migration $($file.Name)"
@@ -3000,6 +3019,8 @@ Remove-Item $rollbackDir -Recurse -Force -ErrorAction SilentlyContinue
 
   if ($hadExistingTask) {
     try {
+      Write-Host "Reclaiming Riverside port $serverPort before the rollback restart." -ForegroundColor Yellow
+      Stop-PortListeners $serverPort
       Start-ScheduledTask -TaskName $taskName -ErrorAction Stop
       Write-Host "Previous Riverside OS Server task restarted after the failed update." -ForegroundColor Yellow
     } catch {

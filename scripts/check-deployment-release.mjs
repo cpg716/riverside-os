@@ -471,6 +471,18 @@ for (const migrationScript of [
     "line-ending checksum compatible",
     `${migrationScript} must accept CRLF/LF-only checksum drift`,
   );
+  for (const copy of [
+    "function Test-SupersededBrokenMigration",
+    "202_repair_verified_rms90_programs.sql",
+    "206_repair_verified_rms90_programs_v2.sql",
+    "superseded by migration 206",
+  ]) {
+    assertIncludes(
+      migrationScript,
+      copy,
+      `${migrationScript} must ledger the immutable broken RMS repair only when its replacement is present`,
+    );
+  }
 }
 if (sha256(counterpointTender092) !== expectedCounterpointTender092Sha) {
   fail(
@@ -773,6 +785,8 @@ for (const guard of [
   "[System.IO.FileShare]::None",
   "Stop-RiversideServer $installedServerExe",
   "Riverside server stopped and executable handle released.",
+  "Reclaiming Riverside port $serverPort before the rollback restart.",
+  "Stop-PortListeners $serverPort",
 ]) {
   assertIncludes(
     mainHubInstaller,
@@ -1270,6 +1284,11 @@ if (renderedMainHubUpdateRunner.includes("repair-bootstrap-admin.ps1")) {
 }
 for (const copy of [
   "Keep the current server running until install-server.ps1 verifies",
+  "function Test-RiversideReady",
+  "ConvertFrom-Json -ErrorAction Stop",
+  "$payload.database.connected -eq $true",
+  "function Stop-MainHubPortListeners",
+  "Stop-MainHubPortListeners",
   "Attempting emergency restart of the previous Riverside server",
   "Start-ScheduledTask -TaskName $taskName -ErrorAction Stop",
   "Previous Riverside server is healthy after emergency restart.",
