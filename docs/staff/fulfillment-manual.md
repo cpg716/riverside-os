@@ -39,20 +39,21 @@ Custom orders stay separate from Special Orders.
 ## Understanding the Dashboard
 
 ### Status Metrics (Top Strip)
-*   **Ready**: Orders where all special items are here. These should be moved to the pickup shelf and the customer notified immediately.
-*   **Rush**: High-priority orders with a fast-approaching deadline. Work on these first!
-*   **Due Soon**: Orders with a "Need By" date within the next 4 days.
-*   **Blocked**: Orders that have been sitting with no progress for over 14 days. Check these for stock issues or missing information.
+*   **Ready**: At least one ordered item is marked **Ready for Pickup** and recorded payment covers a ready item.
+*   **Rush**: Release-ready work carrying the Rush flag.
+*   **Due Soon**: Release-ready work with a "Need By" date within the next 4 days.
+*   **Blocked**: Current pickup evidence requires readiness verification or more recorded payment before any ready item can be released. This is not an age-only label.
 
 ### The Pickup Queue
 The list shows individual orders ranked by their urgency level.
-*   **Urgency Badges**: 
+*   **Urgency Badges**:
     *   🔴 **RUSH**: Immediate action required.
     *   🟡 **DUE SOON**: Priority for today's shift.
-    *   🟢 **READY**: All items arrived/fulfilled.
-    *   ⚪ **BLOCKED**: Requires manager review.
+    *   🟢 **READY**: At least one item can follow the normal Register release path.
+    *   ⚪ **BLOCKED**: Follow the displayed readiness or payment instruction before release.
 *   **Quick Actions**: Click on the **Order #** or the **Open Order** button to jump directly into the fulfillment work, mark items as fulfilled, add notes, or review payment context from the linked Transaction Record.
 *   **Lifecycle panel**: Use the order detail lifecycle note to confirm whether each ordered item is **NTBO**, **Ordered**, **Received**, **Ready for Pickup**, or **Picked Up**. Do not assume the entire order is ready because one item is ready.
+*   **Decision strip**: **Payment needed** means recorded payments do not cover even one ready item after previously released merchandise. A visible remaining balance by itself is not always a block. **Partial** means release only the ready items shown after reviewing the Transaction Record.
 *   **Printed Open Orders list**: In **Orders**, use the filtered **Print** action when staff need a paper follow-up list. The printout lists each ordered item on its own line with its lifecycle status, plus customer contact details, salesperson, cashier, deposits, and balance.
 
 ## Best Practices for High Throughput

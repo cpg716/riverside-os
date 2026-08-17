@@ -1005,10 +1005,11 @@ export default function HelpCenterDrawer({
     setDebouncedQ(initialTarget.query);
     setActiveManualId(initialTarget.manualId);
     setResultRows(null);
-    setScrollTarget({
-      manualId: initialTarget.manualId,
-      slug: initialTarget.sectionSlug,
-    });
+    setScrollTarget(
+      initialTarget.sectionSlug
+        ? { manualId: initialTarget.manualId, slug: initialTarget.sectionSlug }
+        : null,
+    );
   }, [initialTarget, isOpen]);
 
   useEffect(() => {

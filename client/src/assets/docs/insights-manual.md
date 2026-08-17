@@ -71,6 +71,8 @@ Deleting a favorite does not delete its prior history entries.
 
 Every successfully generated or rerun report is saved automatically under **Recent**. History stores the question, validated definition, generated time, row count, and last-used time. It does not preserve a stale copy of financial rows; reopening an entry reruns its definition against authoritative current data.
 
+History cards show the run date and time plus the selected date range, filter count, or dataset. Repeated titles are separate report runs; use that scope and timestamp to choose the intended version before rerunning it.
+
 Reports that have not been used within the configured retention period are moved to **Archive** automatically. The default is **180 days**. Open **Archive** to restore or rerun an older report. An Admin can change the retention period in **Settings → Integrations → Insights**.
 
 ## Permissions and safety

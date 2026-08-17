@@ -45,6 +45,8 @@ The Wedding Hub is a tracker: it reads linked Transactions, Fulfillment Orders, 
 
 Wedding Manager is the shared workspace for wedding parties, members, event dates, appointments, outfit readiness, linked Transaction Records, deposits, balances, ordering, receiving, and pickup status.
 
+Wedding Manager opens to **Readiness** so event risk and blockers lead the workspace. Use **Parties** and **Appointments** for everyday work. Less-frequent Cutover, Reports, and Settings destinations are grouped under **More wedding tools**.
+
 Use the normal Riverside workflows for money, inventory, vendor orders, and fulfillment. Wedding Manager brings those facts together; it does not replace the financial Transaction Record or the guarded pickup workflow.
 
 The Order Review is also a tracker. **Ordered**, **In Stock**, and **Picked Up** are read-only ROS-derived stages; selecting them opens the member workflow instead of changing the status locally. Measurement and fitting remain wedding operational milestones and may be completed through their attended appointments.

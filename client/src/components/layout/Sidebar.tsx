@@ -30,6 +30,20 @@ interface SidebarProps {
 
 type WorkspaceSurface = "POS-Core" | "BackOffice";
 
+const PRIMARY_STAFF_TABS = new Set<SidebarTabId>([
+  "home",
+  "register",
+  "appointments",
+  "customers",
+  "weddings",
+  "alterations",
+  "orders",
+  "inventory",
+  "staff",
+  "payments",
+  "reports",
+]);
+
 function visibleSubGroupItems(
   subItems: SubItem[],
   groupIndex: number,
@@ -58,6 +72,7 @@ export default function Sidebar({
   const [expandedSubGroups, setExpandedSubGroups] = useState<Set<string>>(
     () => new Set(),
   );
+  const [showMoreWorkspaces, setShowMoreWorkspaces] = useState(false);
   const podiumInboxUnread = notifCtx?.podiumInboxUnread ?? 0;
   const mailboxUnread = notifCtx?.mailboxUnread ?? 0;
   const canPollNotifications = notifCtx?.canView ?? false;
@@ -139,6 +154,12 @@ export default function Sidebar({
       }),
     [menuItems, hasPermission, permissionsLoaded],
   );
+  const secondaryWorkspaceCount = visibleMenuItems.filter(
+    (item) => !PRIMARY_STAFF_TABS.has(item.id),
+  ).length;
+  const displayedMenuItems = visibleMenuItems.filter(
+    (item) => showMoreWorkspaces || PRIMARY_STAFF_TABS.has(item.id) || item.id === activeTab,
+  );
 
   return (
     <aside
@@ -165,7 +186,7 @@ export default function Sidebar({
 
       {/* Nav */}
       <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain no-scrollbar" aria-label="Main Navigation">
-        {visibleMenuItems.map((item) => {
+        {displayedMenuItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           const subItems = SIDEBAR_SUB_SECTIONS[item.id];
@@ -232,14 +253,7 @@ export default function Sidebar({
                     ) : null}
                   </span>
                   {!collapsed && (
-                    <>
-                      <span className={`truncate text-sm ${isActive ? 'font-black' : 'font-semibold'}`}>{item.label}</span>
-                      {item.id !== "register" ? (
-                        <span className="ml-auto shrink-0 rounded border border-app-border bg-app-bg px-1.5 py-0.5 text-[9px] font-black uppercase text-app-text-muted">
-                          {item.surface === "POS-Core" ? "POS" : "BO"}
-                        </span>
-                      ) : null}
-                    </>
+                    <span className={`truncate text-sm ${isActive ? 'font-black' : 'font-semibold'}`}>{item.label}</span>
                   )}
                 </button>
               </SidebarRailTooltip>
@@ -340,6 +354,25 @@ export default function Sidebar({
             </div>
           );
         })}
+        {secondaryWorkspaceCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowMoreWorkspaces((current) => !current)}
+            aria-expanded={showMoreWorkspaces}
+            className={`mt-1 flex min-h-11 w-full items-center rounded-xl text-app-text-muted transition hover:bg-app-surface-2 hover:text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${
+              collapsed ? "justify-center px-2" : "gap-2.5 px-3 text-sm font-semibold"
+            }`}
+          >
+            <ChevronDown
+              size={18}
+              aria-hidden
+              className={`shrink-0 transition-transform ${showMoreWorkspaces ? "rotate-180" : ""}`}
+            />
+            {!collapsed ? (
+              <span>{showMoreWorkspaces ? "Fewer workspaces" : `More workspaces (${secondaryWorkspaceCount})`}</span>
+            ) : null}
+          </button>
+        ) : null}
       </nav>
 
       {/* Bottom Toggle */}

@@ -112,6 +112,12 @@ async fn unread_count(
             tracing::error!(error = %e, "unread_count_for_staff");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
+    let action_required = notifications::actionable_unread_count_for_staff(&state.db, staff.id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "actionable_unread_count_for_staff");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
     let podium_inbox = podium_messaging::unread_messaging_inbox_count(&state.db)
         .await
         .map_err(|e| {
@@ -124,6 +130,7 @@ async fn unread_count(
     })?;
     Ok(Json(json!({
         "unread": n,
+        "action_required": action_required,
         "podium_inbox_unread": podium_inbox,
         "mailbox_unread": mailbox
     })))

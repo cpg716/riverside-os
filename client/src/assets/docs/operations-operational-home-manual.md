@@ -26,8 +26,8 @@ Operations Home is the staff command center for the day. It keeps deterministic 
 ## How to use it
 
 1. Review the top KPI strip for sales, register status, pickup, alterations, inventory, and attention pressure.
-2. Review **What Changed Today** for movement since the last shift.
-3. Review **What Needs Attention** for blockers and warnings.
+2. Review the **Action Board** for source records needing work.
+3. Open **What Changed Today**, then **View detailed daily totals**, when shift handoff or movement detail is needed. The second total grid stays collapsed so it does not compete with the priority view.
 4. Follow the card or row into the owning workflow before taking action.
 5. Use Daily Operational Briefing only after the deterministic cards are understood.
 
@@ -51,7 +51,7 @@ Use search and the SMS, Email, Automated, or Needs attention filters to find the
 
 ## Operations Mailbox
 
-Open **Operations → Mailbox** or **POS → Mailbox** for store email at `info@riversidemens.com`. Use the folder list for **Inbox**, **Important**, **Follow-up**, **Sent**, **Archived**, **Trash**, and **All mail**. The compact **Unmatched** toggle beside search instantly limits the current folder to email that is not linked to a Customer; select it again to return to all conversations.
+Open **Operations → Mailbox** or **POS → Mailbox** for store email at `info@riversidemens.com`. Use the folder list for **Inbox**, **Important**, **Follow-up**, **Sent**, **Archived**, **Trash**, and **All mail**. Above the list, use the graphical work buckets: **All mail**, **Needs reply**, **Needs match**, and **Delivery problem**. Delivery failures stay visible as provider-health work instead of competing invisibly with customer correspondence.
 
 Opening inbound mail marks its conversation read. Use **Mark unread** when follow-up still belongs to another staff member. Select multiple conversation checkboxes for group **Read**, **Unread**, **Archive**, or **Delete**. Archive keeps handled mail under Archived. Delete moves email to recoverable Trash; **Restore** returns Archived or Trash conversations to Inbox.
 
@@ -69,9 +69,11 @@ Cancellation is available only while the status is **Waiting to send**. Once the
 
 Managers with **reviews.manage** can use **Send Test** to send one immediate real SMS to an authorized test number. Riverside uses the saved Customer Reviews wording and the configured Podium delivery path, records the acting staff member and masked destination, and does not create a fake customer or Transaction.
 
+When multiple review requests fail for the same provider cause, Reviews leads with one **Review delivery incident** showing the affected count and safe next step. Open **Technical details** only for support evidence; customer-facing work does not expose raw provider transport text as the primary message.
+
 ## What to check first
 
-Start with the KPI strip, then **What Changed Today** and **What Needs Attention**. These cards show current operational signals such as movement, register status, till control, blockers, warnings, weddings, alterations, pickups, and inventory work.
+Start with the KPI strip and **Action Board**. Open the detailed daily totals only when you need the source-linked breakdown. These views show current operational signals such as movement, register status, till control, blockers, warnings, weddings, alterations, pickups, and inventory work.
 
 Successful **no issues** states are different from failed feeds. If a feed cannot load, Operations Home shows a quiet degraded indicator instead of looking calm or empty.
 

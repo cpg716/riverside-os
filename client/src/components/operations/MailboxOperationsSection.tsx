@@ -74,6 +74,7 @@ type MailboxThread = {
 };
 
 type ComposerMode = "new" | "reply" | "forward";
+type WorkFilter = "all" | "reply" | "match" | "delivery";
 
 type MailboxAttachment = {
   id: string;
@@ -337,6 +338,7 @@ export default function MailboxOperationsSection({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [unmatchedOnly, setUnmatchedOnly] = useState(false);
+  const [workFilter, setWorkFilter] = useState<WorkFilter>("all");
   const [syncBusy, setSyncBusy] = useState(false);
   const [sendBusy, setSendBusy] = useState(false);
   const [stateBusy, setStateBusy] = useState(false);
@@ -498,7 +500,28 @@ export default function MailboxOperationsSection({
   }, [folderFilter, rows, search, unmatchedOnly]);
 
   const allThreads = useMemo(() => groupThreads(rows), [rows]);
-  const visibleThreads = useMemo(() => groupThreads(visibleRows), [visibleRows]);
+  const isDeliveryProblem = useCallback((row: MailboxRow) => {
+    const evidence = `${row.status} ${row.subject ?? ""} ${row.from_name ?? ""}`.toLowerCase();
+    return /failed|failure|bounced|rejected|undeliver|returned mail|mail delivery subsystem/.test(evidence);
+  }, []);
+  const threadMatchesWork = useCallback((thread: MailboxThread, filter: WorkFilter) => {
+    if (filter === "all") return true;
+    if (filter === "reply") return thread.latest.direction === "inbound" && !isDeliveryProblem(thread.latest);
+    if (filter === "match") return thread.rows.some((row) => row.direction === "inbound" && !row.customer_id);
+    return thread.rows.some(isDeliveryProblem);
+  }, [isDeliveryProblem]);
+  const visibleThreads = useMemo(
+    () => groupThreads(visibleRows).filter((thread) => threadMatchesWork(thread, workFilter)),
+    [threadMatchesWork, visibleRows, workFilter],
+  );
+  const workCounts = useMemo(
+    () => ({
+      reply: allThreads.filter((thread) => threadMatchesWork(thread, "reply")).length,
+      match: allThreads.filter((thread) => threadMatchesWork(thread, "match")).length,
+      delivery: allThreads.filter((thread) => threadMatchesWork(thread, "delivery")).length,
+    }),
+    [allThreads, threadMatchesWork],
+  );
 
   useEffect(() => {
     if (!initialMessageId || rows.length === 0) return;
@@ -1358,6 +1381,32 @@ export default function MailboxOperationsSection({
                     Clear selection
                   </button>
                 ) : null}
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4" aria-label="Mailbox work buckets">
+                {([
+                  { id: "all", label: "All", count: allThreads.length },
+                  { id: "reply", label: "Needs reply", count: workCounts.reply },
+                  { id: "match", label: "Needs match", count: workCounts.match },
+                  { id: "delivery", label: "Delivery problem", count: workCounts.delivery },
+                ] satisfies Array<{ id: WorkFilter; label: string; count: number }>).map((bucket) => (
+                  <button
+                    key={bucket.id}
+                    type="button"
+                    onClick={() => {
+                      setWorkFilter(bucket.id);
+                      setSelectedThreadKeys(new Set());
+                    }}
+                    aria-pressed={workFilter === bucket.id}
+                    className={`rounded-lg border px-2 py-2 text-left text-[10px] font-black ${
+                      workFilter === bucket.id
+                        ? "border-app-accent/30 bg-app-accent/10 text-app-accent"
+                        : "border-app-border bg-app-surface-2 text-app-text-muted hover:text-app-text"
+                    }`}
+                  >
+                    <span className="block truncate">{bucket.label}</span>
+                    <span className="mt-0.5 block text-sm tabular-nums">{bucket.count}</span>
+                  </button>
+                ))}
               </div>
             </div>
 

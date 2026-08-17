@@ -37,6 +37,8 @@ The Orders workspace is the main place to review Special, Custom, and Wedding or
 - For a card refund already completed in a prior processor or another external card system, choose **External card refund already completed (record only)**. Enter the external refund reference, card last four, and reason, then complete Manager Access. Riverside records the server-issued approval reference with the negative external-card tender and never stores the Access PIN in the refund ledger.
 - Use the **Order Integrity** summary at the top of the workspace to quickly see which shown orders are still waiting on booking details, how many **Orders with Balance Due** remain, or which orders already show action-needed / overdue follow-up.
 - Use the search bar and filter chips above the list to narrow the table before opening a row. The desktop table separates the secondary header labels, such as date, lifecycle, cashier, and deposit, so staff can scan the main work first.
+- Use the **Orders / Transaction Records** switch above the list—or the matching Orders submenu—to change record scope. Orders shows fulfillment work; Transaction Records includes ordinary takeaway sales as well as Order-linked sales.
+- While a new search, page, or filter is loading, previously shown rows remain visible but read-only. Wait for **Updating orders** to clear before opening a row. Follow-up totals show a dash and an unavailable notice when their summary request fails; a dash is not zero.
 - Results load in numbered pages. Use **Previous** and **Next** to review every match; the range below the list shows exactly which matching orders are currently loaded.
 
 ## Order Progress

@@ -1263,6 +1263,37 @@ pub async fn unread_count_for_staff(pool: &PgPool, staff_id: Uuid) -> Result<i64
     .await
 }
 
+pub async fn actionable_unread_count_for_staff(
+    pool: &PgPool,
+    staff_id: Uuid,
+) -> Result<i64, sqlx::Error> {
+    let rows: Vec<(String, Value)> = sqlx::query_as(
+        r#"
+        SELECT an.kind, an.deep_link
+        FROM staff_notification sn
+        JOIN app_notification an ON an.id = sn.notification_id
+        WHERE sn.staff_id = $1
+          AND an.kind <> 'morning_refund_queue'
+          AND sn.read_at IS NULL
+          AND sn.archived_at IS NULL
+          AND sn.completed_at IS NULL
+        "#,
+    )
+    .bind(staff_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .iter()
+        .filter(|(kind, deep_link)| {
+            matches!(
+                notification_severity_filter_key(kind, deep_link),
+                "system" | "urgent" | "action"
+            )
+        })
+        .count() as i64)
+}
+
 pub async fn notification_health(pool: &PgPool) -> Result<NotificationHealthResponse, sqlx::Error> {
     let (
         active_inbox_rows,

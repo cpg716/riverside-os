@@ -864,7 +864,7 @@ function ReportTile({ report, onSelect }: { report: ReportDef; onSelect: () => v
             {report.category}
           </span>
           <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
-            {report.audience} report
+            Audience: {report.audience}
           </span>
           <span className="ui-chip bg-app-surface-2 text-xs font-bold text-app-text-muted">
             {report.sensitivity === "Staff-safe"

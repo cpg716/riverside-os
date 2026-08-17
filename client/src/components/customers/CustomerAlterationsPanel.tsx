@@ -13,6 +13,7 @@ import {
   Search,
   Printer,
   Plus,
+  MoreHorizontal,
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import AlterationSchedulingDrawer from "../alterations/scheduler/AlterationSchedulingDrawer";
@@ -182,6 +183,13 @@ const nextAlterationStatus = (status: string): string | null => {
   if (status === "verify_completed") return "ready";
   if (status === "ready") return "picked_up";
   return null;
+};
+
+const alterationStatusActionLabel = (status: string) => {
+  if (status === "ready") return "Mark ready & queue notice";
+  if (status === "verify_completed") return "Mark tailoring complete";
+  if (status === "in_work") return "Start tailoring";
+  return status.replaceAll("_", " ");
 };
 
 const alterationPressureState = (row: AlterationRow) => {
@@ -886,44 +894,58 @@ export default function CustomerAlterationsPanel({
                 onClick={() => void setStatus(r.id, nextAlterationStatus(r.status) as string)}
                 className="rounded-xl border border-app-accent/30 bg-app-accent/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-50"
               >
-                Advance to {nextAlterationStatus(r.status)?.replace("_", " ")}
+                {alterationStatusActionLabel(nextAlterationStatus(r.status) as string)}
               </button>
             ) : null}
-            {["intake", "in_work", "ready"].map((s) => (
-              <button
-                key={s}
-                type="button"
-                disabled={busy || r.status === s}
-                onClick={() => void setStatus(r.id, s)}
-                className={`rounded-xl border px-3 py-1.5 text-[9px] font-black uppercase tracking-tight transition-all ${
-                  r.status === s
-                    ? "bg-app-accent text-white border-transparent"
-                    : "bg-app-surface-2 border-app-border text-app-text hover:bg-app-accent hover:text-white"
-                }`}
-              >
-                {s.replace("_", " ")}
-              </button>
-            ))}
-            {r.status !== "picked_up" ? (
+            {r.status === "ready" ? (
               <span className="rounded-xl border border-app-success/30 bg-app-success/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-app-success">
                 Pick up at Register
               </span>
             ) : null}
-            <button
-              type="button"
-              onClick={() => setSchedulingAlt(r)}
-              className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-blue-400 transition-all hover:bg-blue-500 hover:text-white"
-            >
-              Plan / Reassign
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void printAlterationCard(r.id)}
-              className="rounded-xl border border-app-border/30 bg-app-surface-2 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-app-text transition-all hover:bg-app-accent hover:text-white disabled:opacity-50"
-            >
-              Print Card
-            </button>
+            <details className="relative">
+              <summary className="flex cursor-pointer list-none items-center gap-1 rounded-xl border border-app-border bg-app-surface-2 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-app-text-muted hover:text-app-text">
+                <MoreHorizontal size={14} aria-hidden="true" /> More
+              </summary>
+              <div className="absolute bottom-full right-0 z-30 mb-2 w-56 space-y-2 rounded-xl border border-app-border bg-app-surface p-2 shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => setSchedulingAlt(r)}
+                  className="ui-btn-secondary min-h-10 w-full justify-start px-3 text-left text-[10px] font-black uppercase tracking-wider"
+                >
+                  Plan / Reassign
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void printAlterationCard(r.id)}
+                  className="ui-btn-secondary min-h-10 w-full justify-start px-3 text-left text-[10px] font-black uppercase tracking-wider disabled:opacity-50"
+                >
+                  Print card
+                </button>
+                {r.status !== "picked_up" ? (
+                  <div className="border-t border-app-border pt-2">
+                    <p className="px-1 text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+                      Correct status
+                    </p>
+                    <div className="mt-1 grid gap-1">
+                      {["intake", "in_work", "verify_completed", "ready"]
+                        .filter((status) => status !== r.status && status !== nextAlterationStatus(r.status))
+                        .map((status) => (
+                          <button
+                            key={status}
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void setStatus(r.id, status)}
+                            className="min-h-9 rounded-lg px-2 text-left text-[9px] font-bold uppercase tracking-wider text-app-text-muted hover:bg-app-surface-2 hover:text-app-text disabled:opacity-50"
+                          >
+                            {alterationStatusActionLabel(status)}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </details>
          </div>
       </div>
     </div>

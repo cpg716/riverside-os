@@ -52,12 +52,14 @@ If the Timeline says a source feed did not refresh, treat it as a partial view a
 2. Requires **register.reports**. Use this for store-wide register totals, booked vs completed pickup/takeaway revenue, lane activity, customer drill-down, and transaction drill-down.
 3. The dashboard includes captured weather for the selected store day or date range when weather snapshots are available.
 4. This is a reporting surface, not the same thing as the live POS register.
+5. **New Orders** counts Special and Custom Transactions whose initial booking activity belongs to the selected business-date range. Older open Orders and later amendments remain in their correct historical or amendment activity; they are not counted again as new.
 
 ## Pickup Queue
 
 1. **Operations** → **Pickup Queue**.
-2. Requires **orders.view**. Use this to prioritize customer-ready orders, rush orders, due-soon work, and blocked follow-up.
-3. This is a triage queue for pickup/order follow-up, not the full Orders workspace. Open the row to continue fulfillment work and review the linked Transaction Record context.
+2. Requires **orders.view**. Use this to prioritize **Received** and **Ready for Pickup** items, rush work, due-soon work, and current release blockers.
+3. This is a release queue, not the full Orders workspace. Procurement, measurement, and vendor-order work stays in **Orders**. Open the row to continue fulfillment work and review the linked Transaction Record context.
+4. A remaining balance is context, not automatically a pickup block. The queue shows **Payment needed** only when recorded payments do not cover even one ready item after previously released merchandise. **Verify readiness** means received garments still need the Ready for Pickup check.
 
 ## Customer Interactions
 

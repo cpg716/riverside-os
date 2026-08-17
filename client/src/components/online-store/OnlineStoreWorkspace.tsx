@@ -1354,6 +1354,7 @@ export default function OnlineStoreWorkspace({
   );
   const [checkoutConfig, setCheckoutConfig] =
     useState<StoreCheckoutConfigResponse | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const headers = useCallback(
@@ -1366,7 +1367,11 @@ export default function OnlineStoreWorkspace({
   );
 
   const loadOverview = useCallback(async () => {
-    if (!canManage) return;
+    if (!canManage) {
+      setOverviewLoading(false);
+      return;
+    }
+    setOverviewLoading(true);
     setLoadError(null);
     try {
       const [pagesRes, couponsRes, merchRes, checkoutRes, dashboardRes] =
@@ -1407,6 +1412,8 @@ export default function OnlineStoreWorkspace({
       setDashboard(dashboardJson);
     } catch {
       setLoadError("Could not load online store status.");
+    } finally {
+      setOverviewLoading(false);
     }
   }, [baseUrl, canManage, headers]);
 
@@ -1449,23 +1456,31 @@ export default function OnlineStoreWorkspace({
     () => [
       {
         label: "Web sales",
-        value: money(dashboard?.web_sales_usd ?? "0"),
-        detail: `${dashboard?.web_transactions ?? 0} paid web transactions.`,
+        value: dashboard ? money(dashboard.web_sales_usd) : "—",
+        detail: dashboard
+          ? `${dashboard.web_transactions} paid web transactions.`
+          : "Loading current web sales…",
       },
       {
         label: "Open checkouts",
-        value: `${dashboard?.pending_checkouts ?? 0}`,
-        detail: "Draft or payment-pending storefront checkouts.",
+        value: dashboard ? `${dashboard.pending_checkouts}` : "—",
+        detail: dashboard
+          ? "Draft or payment-pending storefront checkouts."
+          : "Loading checkout status…",
       },
       {
         label: "Abandoned",
-        value: `${dashboard?.abandoned_checkouts ?? 0}`,
-        detail: "Failed, expired, or cancelled checkout sessions.",
+        value: dashboard ? `${dashboard.abandoned_checkouts}` : "—",
+        detail: dashboard
+          ? "Failed, expired, or cancelled checkout sessions."
+          : "Loading checkout exceptions…",
       },
       {
         label: "Campaigns",
-        value: `${dashboard?.active_campaigns ?? 0}`,
-        detail: "Active Online Store campaigns.",
+        value: dashboard ? `${dashboard.active_campaigns}` : "—",
+        detail: dashboard
+          ? "Active Online Store campaigns."
+          : "Loading campaign status…",
       },
       {
         label: "Published pages",
@@ -1515,11 +1530,7 @@ export default function OnlineStoreWorkspace({
     [
       activeCoupons,
       coupons.length,
-      dashboard?.abandoned_checkouts,
-      dashboard?.active_campaigns,
-      dashboard?.pending_checkouts,
-      dashboard?.web_sales_usd,
-      dashboard?.web_transactions,
+      dashboard,
       merchProductIds.size,
       needsSlugProductIds.size,
       onWebProductIds.size,
@@ -1568,57 +1579,64 @@ export default function OnlineStoreWorkspace({
         </button>
       </header>
 
-      <nav className="flex flex-wrap gap-2">
-        {sections.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onNavigateToTab("online-store", item.id)}
-            className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest ${
-              section === item.id
-                ? "bg-app-accent text-white"
-                : "border border-app-border bg-app-surface text-app-text-muted"
-            }`}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
-
       {loadError ? (
-        <p className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">
-          {loadError}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">
+          <span>{loadError} Last known values remain visible where available.</span>
+          <button
+            type="button"
+            className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+            onClick={() => void loadOverview()}
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+
+      {overviewLoading && !dashboard ? (
+        <p className="text-xs font-bold text-app-text-muted" role="status">
+          Loading current Online Store operations…
         </p>
       ) : null}
 
       {section === "dashboard" ? (
         <div className="space-y-5">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {dashboardCards.map((card) => (
-              <StatusCard key={card.label} {...card} />
-            ))}
-          </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            {sections
-              .filter((item) => item.id !== "dashboard")
-              .map((item) => (
-                <section key={item.id} className="ui-card p-4">
-                  <p className="text-sm font-black text-app-text">
-                    {item.label}
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-app-text-muted">
-                    {item.desc}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => onNavigateToTab("online-store", item.id)}
-                    className="mt-3 text-[10px] font-black uppercase tracking-widest text-app-accent"
-                  >
-                    Open {item.label}
-                  </button>
-                </section>
+            {dashboardCards
+              .filter((card) =>
+                [
+                  "Web sales",
+                  "Open checkouts",
+                  "Abandoned",
+                  "Zero-stock web",
+                ].includes(card.label),
+              )
+              .map((card) => (
+                <StatusCard key={card.label} {...card} />
               ))}
           </div>
+          <section className="ui-card p-4">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Daily web operations</p>
+            <p className="mt-1 text-sm font-semibold text-app-text">Work customer orders, checkout problems, and fulfillment first.</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              {sections
+                .filter((item) => ["orders", "carts", "shipping"].includes(item.id))
+                .map((item) => (
+                  <button key={item.id} type="button" onClick={() => onNavigateToTab("online-store", item.id)} className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left transition hover:border-app-accent">
+                    <span className="text-sm font-black text-app-text">{item.label}</span>
+                    <span className="mt-1 block text-xs font-semibold text-app-text-muted">{item.desc}</span>
+                  </button>
+                ))}
+            </div>
+          </section>
+          <details className="ui-card p-4">
+            <summary className="cursor-pointer text-sm font-black text-app-text">Store administration status</summary>
+            <p className="mt-1 text-xs font-semibold text-app-text-muted">Detailed setup remains available from the Online Store sidebar.</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {dashboardCards
+                .filter((card) => !["Web sales", "Open checkouts", "Abandoned", "Zero-stock web"].includes(card.label))
+                .map((card) => <StatusCard key={card.label} {...card} />)}
+            </div>
+          </details>
         </div>
       ) : null}
 

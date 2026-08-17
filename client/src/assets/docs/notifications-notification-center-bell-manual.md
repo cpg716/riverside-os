@@ -23,7 +23,7 @@ status: approved
 
 The bell is Riverside’s shared notification entry point. Use it to see whether anything new needs your attention and to open the full **Communications & Alerts** drawer.
 
-The number on the bell is your unread count. It represents new staff-facing work or communication, not routine system telemetry.
+The number on the bell is the unread **Needs action** count: urgent, action, and system-priority rows still requiring review. Informational unread history remains in the drawer without turning the shared bell into a four-digit backlog counter.
 
 ## When to use it
 
@@ -44,7 +44,7 @@ Use the bell when you need to:
 ## Steps
 
 1. Click the **bell** in the top bar.
-2. Look at the unread badge first. A larger number means more new alerts, not necessarily more urgent alerts.
+2. Look at the badge first. It counts unread rows classified as needing action; it is not the total notification history.
 3. In the drawer, start with the **Inbox** tab.
 4. Review rows from top to bottom. Riverside separates items into **Today** and **Earlier** to make fresh work easier to scan.
 5. Tap a row:

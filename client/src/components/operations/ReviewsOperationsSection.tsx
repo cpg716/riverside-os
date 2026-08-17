@@ -52,6 +52,20 @@ function reviewStatusLabel(status: string | null | undefined, sent: boolean, sup
   }
 }
 
+function reviewProviderFailureLabel(error: string | null | undefined) {
+  const normalized = error?.toLowerCase() ?? "";
+  if (/429|rate.?limit|too many requests/.test(normalized)) {
+    return "Provider rate limit";
+  }
+  if (/timeout|timed out/.test(normalized)) {
+    return "Provider timeout";
+  }
+  if (/reqwest|connect|connection|dns|http|https|url/.test(normalized)) {
+    return "Provider connection problem";
+  }
+  return "Delivery failed";
+}
+
 export interface ReviewInviteRow {
   transaction_id: string;
   display_id: string;
@@ -125,6 +139,7 @@ export default function ReviewsOperationsSection({
   const [rows, setRows] = useState<ReviewInviteRow[]>([]);
   const [providerReviews, setProviderReviews] = useState<PodiumReviewActivityRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<ReviewInviteRow | null>(null);
@@ -140,6 +155,7 @@ export default function ReviewsOperationsSection({
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const [invitesResponse, reviewsResponse] = await Promise.all([
         fetch(`${baseUrl}/api/reviews/invite-rows?limit=200`, {
@@ -159,9 +175,13 @@ export default function ReviewsOperationsSection({
         : [];
       setRows(Array.isArray(invites) ? invites : []);
       setProviderReviews(Array.isArray(reviews) ? reviews : []);
+      if (!invitesResponse.ok || !reviewsResponse.ok) {
+        setLoadError("Some review activity could not be loaded. Refresh to try again.");
+      }
     } catch {
       setRows([]);
       setProviderReviews([]);
+      setLoadError("Review activity could not be loaded. Check the connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -320,6 +340,19 @@ export default function ReviewsOperationsSection({
       ["scheduled", "sending"].includes(r.podium_review_invite_status ?? ""),
     ).length;
     return { total, sent, suppressed, failed, scheduled };
+  }, [rows]);
+
+  const providerFailureGroups = useMemo(() => {
+    const counts = new Map<string, number>();
+    rows
+      .filter((row) => row.podium_review_invite_status === "failed")
+      .forEach((row) => {
+        const label = reviewProviderFailureLabel(row.review_invite_last_error);
+        counts.set(label, (counts.get(label) ?? 0) + 1);
+      });
+    return Array.from(counts, ([label, count]) => ({ label, count })).sort(
+      (a, b) => b.count - a.count,
+    );
   }, [rows]);
 
   const filteredRows = useMemo(() => {
@@ -496,6 +529,52 @@ export default function ReviewsOperationsSection({
           </div>
         </div>
 
+        {loadError ? (
+          <div className="px-4 pt-4 sm:px-6">
+            <div className="ui-card ui-tint-warning flex flex-wrap items-center justify-between gap-3 px-4 py-3" role="alert">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-app-warning" aria-hidden />
+                <div>
+                  <p className="text-sm font-black text-app-text">Review data is incomplete</p>
+                  <p className="text-xs font-semibold text-app-text-muted">{loadError}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => void load()} className="ui-btn-secondary px-3 py-1.5 text-xs font-black">
+                Try again
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {providerFailureGroups.length > 0 ? (
+          <div className="px-4 pt-4 sm:px-6">
+            <div className="ui-card ui-tint-danger flex flex-wrap items-start justify-between gap-4 px-4 py-4" role="status">
+              <div className="flex min-w-0 items-start gap-3">
+                <AlertCircle className="mt-0.5 h-6 w-6 shrink-0 text-app-danger" aria-hidden />
+                <div>
+                  <p className="text-sm font-black text-app-text">
+                    Review delivery incident · {stats.failed} affected
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                    Wait for provider recovery before retrying. Retry each failed request only once; Riverside keeps the record-level evidence below.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {providerFailureGroups.map((group) => (
+                      <span key={group.label} className="rounded-full border border-app-danger/25 bg-app-danger/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-app-danger">
+                        {group.count} {group.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <button type="button" onClick={() => void syncProviderStatus()} disabled={syncBusy} className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-1.5 text-xs font-black disabled:opacity-50">
+                <RefreshCw className={`h-4 w-4 ${syncBusy ? "animate-spin" : ""}`} aria-hidden />
+                Check provider status
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {/* Data table section */}
         <div className="flex flex-1 flex-col gap-4 p-3 sm:p-6 lg:p-8 animate-workspace-snap">
           <div className="ui-card flex flex-col overflow-hidden">
@@ -595,6 +674,7 @@ export default function ReviewsOperationsSection({
                               <button
                                 type="button"
                                 onClick={() => setTxDetailFullId(review.transaction_id)}
+                                aria-label={`Open Transaction Record ${review.display_id ?? review.transaction_id}`}
                                 className="mt-2 text-[10px] font-black uppercase tracking-wider text-app-accent underline underline-offset-4"
                               >
                                 Open Transaction Record
@@ -790,12 +870,9 @@ export default function ReviewsOperationsSection({
                           <td className="px-4 py-3 text-app-text">{customer}</td>
                           <td className="px-4 py-3">
                             {failed ? (
-                              <span
-                                className="inline-flex items-center gap-1.5 rounded-full border border-app-danger/20 bg-app-danger/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-app-danger"
-                                title={r.review_invite_last_error ?? undefined}
-                              >
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-app-danger/20 bg-app-danger/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-app-danger">
                                 <AlertCircle size={12} />
-                                Failed
+                                {reviewProviderFailureLabel(r.review_invite_last_error)}
                               </span>
                             ) : sent ? (
                               <span className="inline-flex items-center gap-1.5 rounded-full border border-app-success/20 bg-app-success/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-app-success">
@@ -833,9 +910,12 @@ export default function ReviewsOperationsSection({
                               <div className="max-w-xs text-xs text-app-text-muted">
                                 <span>{r.podium_review_invite_id ?? "—"}</span>
                                 {r.review_invite_last_error ? (
-                                  <p className="mt-1 line-clamp-2 text-app-danger">
-                                    {r.review_invite_last_error}
-                                  </p>
+                                  <details className="mt-1 text-app-text-muted">
+                                    <summary className="cursor-pointer font-bold text-app-danger">Technical details</summary>
+                                    <code className="mt-1 block max-w-xs whitespace-pre-wrap break-words text-[10px]">
+                                      {r.review_invite_last_error}
+                                    </code>
+                                  </details>
                                 ) : null}
                               </div>
                             )}
@@ -849,6 +929,7 @@ export default function ReviewsOperationsSection({
                                 <button
                                   type="button"
                                   onClick={() => setCancelTarget(r)}
+                                  aria-label={`Cancel review invite for ${r.display_id}`}
                                   className="rounded-lg border border-app-danger/25 bg-app-danger/10 px-3 py-1.5 text-[10px] font-bold text-app-danger transition-colors hover:bg-app-danger/15"
                                 >
                                   Cancel Invite
@@ -859,6 +940,7 @@ export default function ReviewsOperationsSection({
                                   type="button"
                                   onClick={() => void retryFailedInvite(r.transaction_id)}
                                   disabled={retryingId === r.transaction_id}
+                                  aria-label={`Retry review request for ${r.display_id}`}
                                   className="ui-btn-secondary px-3 py-1.5 text-[10px] font-bold disabled:opacity-50"
                                 >
                                   {retryingId === r.transaction_id
@@ -869,6 +951,7 @@ export default function ReviewsOperationsSection({
                               <button
                                 type="button"
                                 onClick={() => setTxDetailFullId(r.transaction_id)}
+                                aria-label={`View review request record ${r.display_id}`}
                                 className="ui-btn-secondary px-3 py-1.5 text-[10px] font-bold"
                               >
                                 Record
@@ -876,6 +959,7 @@ export default function ReviewsOperationsSection({
                               <button
                                 type="button"
                                 onClick={() => onOpenTransactionInBackoffice(r.transaction_id)}
+                                aria-label={`Open Transaction ${r.display_id} in Orders`}
                                 className="ui-btn-secondary px-3 py-1.5 text-[10px] font-bold"
                               >
                                 Open

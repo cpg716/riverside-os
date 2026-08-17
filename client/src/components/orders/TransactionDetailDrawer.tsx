@@ -17,6 +17,7 @@ import {
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
+import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useToast } from "../ui/ToastProviderLogic";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import {
@@ -153,6 +154,7 @@ export interface TransactionDrawerDetail {
   is_tax_exempt?: boolean;
   tax_exempt_reason?: string | null;
   register_session_id?: string | null;
+  register_lane?: number | null;
   void_record?: {
     id: string;
     original_status: string;
@@ -958,22 +960,17 @@ function addressLines(
 function mapOrderActionButtons(
   detail: TransactionDrawerDetail | null,
   orderActions?: TransactionDrawerOrderActions,
-  onCancelOrderItems?: () => void,
-  cancellableLineCount = 0,
+  returnableLineCount = 0,
 ) {
   if (!detail || !orderActions) return null;
+  const customerVisibleLineCount = detail.items.filter((item) => !item.is_internal).length;
+  const hasFinancialValue =
+    parseMoneyToCents(detail.total_price) !== 0 ||
+    parseMoneyToCents(detail.amount_paid) !== 0;
   return (
     <>
-      {orderActions.onOpenInRegister ? (
-        <button
-          type="button"
-          onClick={() => orderActions.onOpenInRegister?.(detail.transaction_id)}
-          className="rounded-xl border border-emerald-500/20 bg-emerald-600 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white"
-        >
-          Open in Register
-        </button>
-      ) : null}
       {orderActions.canModify &&
+      customerVisibleLineCount > 0 &&
       !detail.wedding_member_id &&
       !isOrderStatus(detail.status, "cancelled") &&
       orderActions.onAttachToWedding ? (
@@ -986,6 +983,7 @@ function mapOrderActionButtons(
         </button>
       ) : null}
       {orderActions.canAttemptCancel &&
+      (customerVisibleLineCount > 0 || hasFinancialValue) &&
       !isOrderStatus(detail.status, "cancelled") &&
       orderActions.onCancel ? (
         <button
@@ -997,18 +995,7 @@ function mapOrderActionButtons(
         </button>
       ) : null}
       {orderActions.canModify &&
-      cancellableLineCount > 0 &&
-      !isOrderStatus(detail.status, "cancelled") &&
-      onCancelOrderItems ? (
-        <button
-          type="button"
-          onClick={onCancelOrderItems}
-          className="rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-warning"
-        >
-          Cancel Order Items
-        </button>
-      ) : null}
-      {orderActions.canModify &&
+      returnableLineCount > 0 &&
       !isOrderStatus(detail.status, "cancelled") &&
       orderActions.onReturnAll ? (
         <button
@@ -1019,7 +1006,7 @@ function mapOrderActionButtons(
           Return All
         </button>
       ) : null}
-      {orderActions.canRefund && orderActions.onProcessRefund ? (
+      {orderActions.canRefund && hasFinancialValue && orderActions.onProcessRefund ? (
         <button
           type="button"
           onClick={orderActions.onProcessRefund}
@@ -1288,6 +1275,17 @@ export default function TransactionDetailDrawer({
       ) ?? [],
     [detail?.items],
   );
+  const returnableOrderLines = useMemo(
+    () =>
+      detail?.items.filter(
+        (item) =>
+          !item.is_internal &&
+          item.is_fulfilled &&
+          remainingItemQuantity(item) > 0 &&
+          Boolean(item.transaction_line_id),
+      ) ?? [],
+    [detail?.items],
+  );
   const openCancellation = useCallback(
     (transactionLineId?: string) => {
       const defaultIds = transactionLineId
@@ -1497,6 +1495,26 @@ export default function TransactionDetailDrawer({
     setPickupTargetLineIds(null);
     setPickupError(null);
   }, [pickupBusy]);
+  const { dialogRef: pickupDialogRef, titleId: pickupDialogTitleId } =
+    useDialogAccessibility(showPickupReleaseModal, {
+      onEscape: closePickupReleaseModal,
+      closeOnEscape: !pickupBusy,
+    });
+  const { dialogRef: cancellationDialogRef, titleId: cancellationDialogTitleId } =
+    useDialogAccessibility(cancellationOpen, {
+      onEscape: closeCancellation,
+      closeOnEscape: !cancellationBusy,
+    });
+  const { dialogRef: suitSwapDialogRef, titleId: suitSwapDialogTitleId } =
+    useDialogAccessibility(Boolean(suitSwapTarget), {
+      onEscape: closeSuitSwap,
+      closeOnEscape: !suitSwapBusy,
+    });
+  const { dialogRef: readyDialogRef, titleId: readyDialogTitleId } =
+    useDialogAccessibility(Boolean(readyTarget), {
+      onEscape: closeReadyModal,
+      closeOnEscape: !readyBusy,
+    });
 
   const submitReadyTransition = useCallback(async () => {
     if (!readyTarget?.transaction_line_id) return;
@@ -1827,8 +1845,7 @@ export default function TransactionDetailDrawer({
         actions={mapOrderActionButtons(
           detail,
           orderActions,
-          () => openCancellation(),
-          cancellableOrderLines.length,
+          returnableOrderLines.length,
         )}
         footer={
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1842,7 +1859,9 @@ export default function TransactionDetailDrawer({
               Reprint Receipt
             </button>
             <div className="hidden lg:block" aria-hidden />
-            {detail && orderActions?.onOpenInRegister ? (
+            {detail &&
+            detail.items.some((item) => !item.is_internal) &&
+            orderActions?.onOpenInRegister ? (
               <button
                 type="button"
                 onClick={() =>
@@ -2987,10 +3006,11 @@ export default function TransactionDetailDrawer({
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Register Session
+                    Register
                   </p>
                   <p className="mt-1 text-[12px] font-semibold text-app-text">
-                    {detail.register_session_id ?? "—"}
+                    {detail.register_lane ? `Register #${detail.register_lane}` : "Register not recorded"}
+                    {detail.register_session_id ? ` · ${new Date(detail.booked_at).toLocaleString()}` : ""}
                   </p>
                 </div>
                 <div>
@@ -3002,6 +3022,16 @@ export default function TransactionDetailDrawer({
                   </p>
                 </div>
               </div>
+              {detail.register_session_id ? (
+                <details className="mt-4 rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                  <summary className="cursor-pointer text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Audit details
+                  </summary>
+                  <p className="mt-2 break-all font-mono text-[10px] text-app-text-muted">
+                    Register session {detail.register_session_id}
+                  </p>
+                </details>
+              ) : null}
             </section>
 
             <section className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
@@ -3046,13 +3076,13 @@ export default function TransactionDetailDrawer({
       {showPickupReleaseModal && detail && drawerRoot
         ? createPortal(
             <div className="ui-overlay-backdrop z-200 flex items-center justify-center p-4">
-              <div className="ui-modal w-full max-w-2xl">
+              <div ref={pickupDialogRef} role="dialog" aria-modal="true" aria-labelledby={pickupDialogTitleId} className="ui-modal w-full max-w-2xl">
                 <div className="ui-modal-header flex items-center justify-between">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Finish Pickup in Register
                     </p>
-                    <h3 className="mt-1 text-xl font-black text-app-text">
+                    <h3 id={pickupDialogTitleId} className="mt-1 text-xl font-black text-app-text">
                       {detail.transaction_display_id ??
                         detail.transaction_id.slice(0, 8)}
                     </h3>
@@ -3238,9 +3268,10 @@ export default function TransactionDetailDrawer({
         ? createPortal(
             <div className="ui-overlay-backdrop z-200 flex items-center justify-center p-4">
               <div
+                ref={cancellationDialogRef}
                 role="dialog"
                 aria-modal="true"
-                aria-labelledby="order-item-cancellation-title"
+                aria-labelledby={cancellationDialogTitleId}
                 className="ui-modal flex max-h-[90vh] w-full max-w-3xl flex-col"
               >
                 <div className="ui-modal-header flex items-start justify-between gap-4">
@@ -3249,7 +3280,7 @@ export default function TransactionDetailDrawer({
                       Partial Order Cancellation
                     </p>
                     <h2
-                      id="order-item-cancellation-title"
+                      id={cancellationDialogTitleId}
                       className="mt-1 text-xl font-black text-app-text"
                     >
                       Cancel Ordered Items
@@ -3456,7 +3487,7 @@ export default function TransactionDetailDrawer({
       {suitSwapTarget && drawerRoot
         ? createPortal(
             <div className="ui-overlay-backdrop z-200 flex items-center justify-center p-4">
-              <div className="ui-modal w-full max-w-lg">
+              <div ref={suitSwapDialogRef} role="dialog" aria-modal="true" aria-labelledby={suitSwapDialogTitleId} className="ui-modal w-full max-w-lg">
                 <div className="ui-modal-header flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Shirt className="h-5 w-5 text-emerald-600 animate-pulse" />
@@ -3464,7 +3495,7 @@ export default function TransactionDetailDrawer({
                       <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                         Suit Component Swap
                       </p>
-                      <h3 className="mt-1 text-lg font-black text-app-text">
+                      <h3 id={suitSwapDialogTitleId} className="mt-1 text-lg font-black text-app-text">
                         Swap Component: {suitSwapTarget.product_name}
                       </h3>
                       <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
@@ -3551,13 +3582,13 @@ export default function TransactionDetailDrawer({
       {readyTarget && drawerRoot
         ? createPortal(
             <div className="ui-overlay-backdrop z-200 flex items-center justify-center p-4">
-              <div className="ui-modal w-full max-w-lg">
+              <div ref={readyDialogRef} role="dialog" aria-modal="true" aria-labelledby={readyDialogTitleId} className="ui-modal w-full max-w-lg">
                 <div className="ui-modal-header flex items-center justify-between">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Ready for Pickup Checklist
                     </p>
-                    <h3 className="mt-1 text-xl font-black text-app-text">
+                    <h3 id={readyDialogTitleId} className="mt-1 text-xl font-black text-app-text">
                       {readyTarget.product_name}
                     </h3>
                     <p className="mt-1 text-xs font-semibold text-app-text-muted">

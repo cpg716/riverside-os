@@ -1674,6 +1674,7 @@ export default function PaymentsWorkspace({
             {section === "reconciliation" && (
               <ReconciliationPanel
                 groups={groupedIssues}
+                lastSuccessfulSyncAt={lastSuccess?.completed_at ?? lastSuccess?.started_at ?? null}
                 onOpenIssue={openIssue}
                 onOpenPayment={openTransaction}
               />
@@ -1838,13 +1839,11 @@ function OverviewPanel({
         <MetricCard
           label="Known Fees"
           value={money(overview?.known_fees, "Fee not ready")}
-          note={`${overview?.fee_not_ready_count ?? 0} payments waiting for fees`}
           tone={(overview?.fee_not_ready_count ?? 0) > 0 ? "neutral" : "good"}
         />
         <MetricCard
           label="Expected Net"
           value={money(overview?.known_net, "Net not ready")}
-          note={`${overview?.net_not_ready_count ?? 0} payments waiting for net`}
           tone={(overview?.net_not_ready_count ?? 0) > 0 ? "neutral" : "good"}
         />
         <MetricCard
@@ -1873,6 +1872,14 @@ function OverviewPanel({
           tone={settlementSyncHealthy ? "good" : "warning"}
         />
       </div>
+      {(overview?.fee_not_ready_count ?? 0) > 0 || (overview?.net_not_ready_count ?? 0) > 0 ? (
+        <div className="flex items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-sm text-app-text-muted">
+          <Clock3 className="mt-0.5 shrink-0 text-app-accent" size={18} aria-hidden />
+          <p>
+            Final settlement details are pending for <strong className="text-app-text">{overview?.fee_not_ready_count ?? 0}</strong> fee record(s) and <strong className="text-app-text">{overview?.net_not_ready_count ?? 0}</strong> net record(s).
+          </p>
+        </div>
+      ) : null}
       <div className="grid gap-4 lg:grid-cols-3">
         <WarningLine count={missingPayments} label="Missing payments" />
         <WarningLine count={notInDeposit} label="Not in deposit" />
@@ -2038,6 +2045,26 @@ function DepositsPanel({
         <MetricCard label="Page Needs Review" value={`${openIssues}`} tone={openIssues > 0 ? "warning" : "good"} />
       </div>
 
+      <section className="ui-card p-4" aria-label="Deposit reconciliation timeline">
+        <div className="grid gap-3 md:grid-cols-4">
+          {[
+            ["1", "Expected", "Helcim batch evidence establishes what should reach the bank."],
+            ["2", "Actual", "The bank deposit records what truly cleared."],
+            ["3", "Linked", "Staff match records only with authoritative batch and deposit identifiers."],
+            ["4", "Cleared", "A reviewed match closes the difference without changing payment totals."],
+          ].map(([step, title, copy]) => (
+            <div key={step} className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-app-accent text-xs font-black text-white">{step}</span>
+              <p className="mt-2 text-sm font-black text-app-text">{title}</p>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">{copy}</p>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 rounded-xl border border-app-warning/25 bg-app-warning/10 px-3 py-2 text-xs font-bold text-app-warning">
+          A similar date or amount is not proof of a match. Confirm the Helcim batch and bank-deposit evidence before linking.
+        </p>
+      </section>
+
       <PaymentListFilterBar value={filters} searchPlaceholder="Reference, QBO deposit, or bank reference" onChange={onFiltersChange} onApply={onApplyFilters} onClear={onClearFilters} />
 
       <div className="flex flex-wrap gap-2">
@@ -2163,10 +2190,12 @@ function DepositsPanel({
 
 function ReconciliationPanel({
   groups,
+  lastSuccessfulSyncAt,
   onOpenIssue,
   onOpenPayment,
 }: {
   groups: [string, ReconciliationItem[]][];
+  lastSuccessfulSyncAt: string | null;
   onOpenIssue: (issue: ReconciliationItem) => void;
   onOpenPayment: (paymentId: string | null) => void;
 }) {
@@ -2175,37 +2204,71 @@ function ReconciliationPanel({
   }
   return (
     <div className="space-y-5">
-      {groups.map(([label, items]) => (
-        <section key={label} className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-black text-app-text">{label}</h2>
-            <span className="text-sm font-semibold text-app-text-muted">{items.length}</span>
-          </div>
-          <DataTable
-            empty="No issues in this group."
-            headers={["Issue", "Severity", "Amount", "Reference", "When", "Action"]}
-            rows={items.map((issue) => ({
-              key: issue.id,
-              onClick: () => onOpenIssue(issue),
-              cells: [
-                issue.message || issue.issue_label,
-                <StatusPill value={issue.severity} />,
-                money(issue.amount, "Not ready"),
-                issue.reference ?? "Not ready",
-                shortDate(issue.created_at),
-                <div className="flex flex-wrap gap-3">
-                  <button type="button" className="text-sm font-bold text-app-accent" onClick={(event) => { event.stopPropagation(); onOpenIssue(issue); }}>
-                    Open Issue
-                  </button>
-                  <button type="button" className="text-sm font-bold text-app-text-muted" onClick={(event) => { event.stopPropagation(); onOpenPayment(issue.payment_transaction_id); }}>
-                    View Payment
-                  </button>
-                </div>,
-              ],
-            }))}
-          />
-        </section>
-      ))}
+      {groups.map(([label, items]) => {
+        const knownAmounts = items.map((issue) => issue.amount).filter((amount): amount is string => amount != null && amount !== "");
+        const oldest = items.reduce((candidate, issue) =>
+          new Date(issue.created_at).getTime() < new Date(candidate.created_at).getTime() ? issue : candidate,
+        );
+        const messageCounts = new Map<string, number>();
+        items.forEach((issue) => {
+          if (issue.message) messageCounts.set(issue.message, (messageCounts.get(issue.message) ?? 0) + 1);
+        });
+        const incidentSummary = Array.from(messageCounts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
+        return (
+          <section key={label} className="ui-card overflow-hidden">
+            <div className="flex flex-col gap-4 border-b border-app-border bg-app-surface-2 p-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-black text-app-text">{label}</h2>
+                  <span className="rounded-full bg-app-warning/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-app-warning">
+                    {items.length} affected
+                  </span>
+                </div>
+                <p className="mt-1 max-w-3xl text-sm font-semibold text-app-text-muted">
+                  {incidentSummary ?? "These payment records share the same reconciliation problem."}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
+                  <span className="rounded-full border border-app-border bg-app-surface px-2.5 py-1">
+                    Known amount {knownAmounts.length > 0 ? money(sumMoney(knownAmounts), "$0.00") : "not ready"}
+                  </span>
+                  <span className="rounded-full border border-app-border bg-app-surface px-2.5 py-1">
+                    Oldest {shortDate(oldest.created_at)}
+                  </span>
+                  <span className="rounded-full border border-app-border bg-app-surface px-2.5 py-1">
+                    Last successful sync {shortDateTime(lastSuccessfulSyncAt)}
+                  </span>
+                </div>
+              </div>
+              <button type="button" className="ui-btn-secondary shrink-0 px-3 py-2 text-xs font-black" onClick={() => onOpenIssue(oldest)}>
+                Review oldest issue
+              </button>
+            </div>
+            <DataTable
+              empty="No issues in this group."
+              headers={["Evidence", "Severity", "Amount", "Reference", "When", "Action"]}
+              rows={items.map((issue) => ({
+                key: issue.id,
+                onClick: () => onOpenIssue(issue),
+                cells: [
+                  staffLabel(issue.item_type),
+                  <StatusPill value={issue.severity} />,
+                  money(issue.amount, "Not ready"),
+                  issue.reference ?? "Not ready",
+                  shortDate(issue.created_at),
+                  <div className="flex flex-wrap gap-3">
+                    <button type="button" aria-label={`Open ${label} issue from ${shortDate(issue.created_at)}`} className="text-sm font-bold text-app-accent" onClick={(event) => { event.stopPropagation(); onOpenIssue(issue); }}>
+                      Review
+                    </button>
+                    <button type="button" aria-label={`View payment for ${label} issue from ${shortDate(issue.created_at)}`} className="text-sm font-bold text-app-text-muted" onClick={(event) => { event.stopPropagation(); onOpenPayment(issue.payment_transaction_id); }}>
+                      Payment
+                    </button>
+                  </div>,
+                ],
+              }))}
+            />
+          </section>
+        );
+      })}
     </div>
   );
 }

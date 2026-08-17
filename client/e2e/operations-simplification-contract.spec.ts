@@ -35,3 +35,20 @@ test("desktop handoffs and workstation identity have safe fallbacks", async () =
   expect(stationIdentity).toContain("Riverside Workstation ${stationSuffix}");
   expect(stationIdentity).not.toContain('return hostname && hostname !== "tauri.localhost" ? hostname : "Riverside Station"');
 });
+
+test("staff bulk customer assignments use reviewed bounded server batches", async () => {
+  const [customersWorkspace, customersApi, weddingsApi] = await Promise.all([
+    repoFile("client/src/components/customers/CustomersWorkspace.tsx"),
+    repoFile("server/src/api/customers.rs"),
+    repoFile("server/src/api/weddings.rs"),
+  ]);
+
+  expect(customersWorkspace).toContain("Confirm wedding assignment");
+  expect(customersWorkspace).toContain("Confirm group assignment");
+  expect(customersWorkspace).toContain("/members/bulk-link");
+  expect(customersWorkspace).toContain("/group-members/bulk");
+  expect(customersApi).toContain('"/group-members/bulk"');
+  expect(customersApi).toContain("select between 1 and 100 customers");
+  expect(weddingsApi).toContain('"/parties/{party_id}/members/bulk-link"');
+  expect(weddingsApi).toContain("reviewed customer batch");
+});

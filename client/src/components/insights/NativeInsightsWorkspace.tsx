@@ -91,6 +91,19 @@ type ReportingHealth = {
 
 const baseUrl = getBaseUrl();
 const CHART_COLORS = ["#7c3aed", "#2563eb", "#059669", "#d97706", "#dc2626"];
+
+function historyScopeLabel(spec: InsightsReportSpec): string {
+  const range = spec.time_dimension?.date_range;
+  if (range?.length === 2) {
+    return `${range[0]} to ${range[1]}`;
+  }
+  if (range?.length === 1) return range[0];
+  if (spec.filters.length > 0) {
+    return `${spec.filters.length} filter${spec.filters.length === 1 ? "" : "s"}`;
+  }
+  return spec.dataset.replaceAll("_", " ");
+}
+
 const STARTERS = [
   "Show booked sales by salesperson this month",
   "What were recognized sales by category for the last 90 days?",
@@ -991,7 +1004,15 @@ export default function NativeInsightsWorkspace() {
                       >
                         <p className="line-clamp-2 text-xs font-black text-app-text">{entry.title}</p>
                         <p className="mt-1 text-[10px] font-medium text-app-text-muted">
-                          {new Date(entry.last_accessed_at).toLocaleDateString()} · {entry.row_count.toLocaleString()} rows
+                          Run {new Date(entry.created_at).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })} · {historyScopeLabel(entry.report_spec)}
+                        </p>
+                        <p className="mt-0.5 text-[10px] font-medium text-app-text-muted">
+                          {entry.row_count.toLocaleString()} rows · last opened {new Date(entry.last_accessed_at).toLocaleDateString()}
                         </p>
                       </button>
                       <div className="mt-2 flex justify-end">
@@ -999,7 +1020,7 @@ export default function NativeInsightsWorkspace() {
                           type="button"
                           onClick={() => void setArchived(entry, historyMode !== "archive")}
                           className="rounded-lg p-1.5 text-app-text-muted opacity-60 hover:bg-violet-500/10 hover:text-violet-600 group-hover:opacity-100"
-                          aria-label={historyMode === "archive" ? "Restore report" : "Archive report"}
+                          aria-label={`${historyMode === "archive" ? "Restore" : "Archive"} ${entry.title} run from ${new Date(entry.created_at).toLocaleString()}`}
                         >
                           {historyMode === "archive" ? (
                             <ArchiveRestore className="h-3.5 w-3.5" />

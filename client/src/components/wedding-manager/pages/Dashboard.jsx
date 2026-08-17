@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Icon from '../components/Icon';
-import logo from '../../../assets/images/riverside_logo.jpg';
 
 import SettingsModal from '../components/SettingsModal';
 import ImportDataModal from '../components/ImportDataModal';
@@ -67,7 +66,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState(null);
-    const [activeTab, setActiveTab] = useState('parties');
+    const [activeTab, setActiveTab] = useState('health');
     const [dateFilter, setDateFilter] = useState('next-90');
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
@@ -362,10 +361,16 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                 ) : (
                     <>
                         {/* Header */}
-                        <div className="flex flex-col lg:flex-row justify-between items-center mb-8 gap-4 bg-app-surface p-4 sm:p-8 rounded-3xl border border-app-border transition-all print:hidden">
+                        <div className="flex flex-col lg:flex-row justify-between items-center mb-8 gap-4 bg-app-surface p-4 sm:p-6 rounded-3xl border border-app-border transition-all print:hidden">
                             <div className="flex flex-col items-start gap-1">
-                                <div className="h-16 md:h-20 flex-shrink-0">
-                                    <img src={logo} alt="Riverside Men's Shop" className="h-full w-auto object-contain rounded-lg" />
+                                <div className="flex items-center gap-3">
+                                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-app-accent/10 text-app-accent">
+                                        <Icon name="Activity" size={24} />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Wedding operations</p>
+                                        <h1 className="text-xl font-black text-app-text">Readiness & Parties</h1>
+                                    </div>
                                 </div>
                                 <div className="flex items-center gap-2 mt-1">
                                     <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></div>
@@ -378,54 +383,53 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
                             <div className="flex items-center gap-2 sm:gap-4 flex-wrap justify-center">
                                 {/* Tab Switcher */}
-                                <div className="flex bg-app-border/50/50 rounded-xl p-1.5 transition-colors gap-1">
+                                <div className="flex flex-wrap justify-center bg-app-surface-2 rounded-xl p-1.5 transition-colors gap-1">
+                                    <button type="button"
+                                        onClick={() => setActiveTab('health')}
+                                        className={`px-3 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'health' ? 'bg-navy-900 text-white shadow-md' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
+                                    >
+                                        <Icon name="Activity" size={16} className={activeTab === 'health' ? 'text-gold-400' : ''} />
+                                        Readiness
+                                    </button>
                                     <button type="button"
                                         onClick={() => setActiveTab('parties')}
-                                        className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'parties' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
+                                        className={`px-3 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'parties' ? 'bg-navy-900 text-white shadow-md' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
                                     >
                                         <Icon name="Users" size={16} className={activeTab === 'parties' ? 'text-gold-400' : ''} />
                                         Parties
                                     </button>
                                     <button type="button"
                                         onClick={() => setActiveTab('calendar')}
-                                        className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'calendar' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
+                                        className={`px-3 sm:px-5 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'calendar' ? 'bg-navy-900 text-white shadow-md' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
                                     >
                                         <Icon name="Calendar" size={16} className={activeTab === 'calendar' ? 'text-gold-400' : ''} />
                                         Appointments
                                     </button>
-                                    <button type="button"
-                                        onClick={() => setActiveTab('health')}
-                                        className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'health' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
-                                    >
-                                        <Icon name="Activity" size={16} className={activeTab === 'health' ? 'text-gold-400' : ''} />
-                                        Readiness
-                                    </button>
-                                    <button type="button"
-                                        onClick={() => setActiveTab('cutover')}
-                                        className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'cutover' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
-                                    >
-                                        <Icon name="ClipboardList" size={16} className={activeTab === 'cutover' ? 'text-gold-400' : ''} />
-                                        Cutover
-                                    </button>
-                                    <button type="button"
-                                        onClick={() => setActiveTab('reports')}
-                                        className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'reports' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
-                                    >
-                                        <Icon name="BarChart3" size={16} className={activeTab === 'reports' ? 'text-gold-400' : ''} />
-                                        Reports
-                                    </button>
+                                    <label className="relative flex items-center">
+                                        <span className="sr-only">More wedding tools</span>
+                                        <select
+                                            aria-label="More wedding tools"
+                                            value={activeTab === 'cutover' || activeTab === 'reports' ? activeTab : ''}
+                                            onChange={(event) => {
+                                                if (event.target.value === 'settings') {
+                                                    setIsSettingsModalOpen(true);
+                                                    return;
+                                                }
+                                                if (event.target.value) setActiveTab(event.target.value);
+                                            }}
+                                            className={`min-h-[40px] appearance-none rounded-lg border-0 bg-transparent py-2 pl-4 pr-9 text-xs font-extrabold outline-none sm:text-sm ${activeTab === 'cutover' || activeTab === 'reports' ? 'bg-navy-900 text-white shadow-md' : 'text-app-text-muted'}`}
+                                        >
+                                            <option value="">More</option>
+                                            <option value="cutover">Cutover review</option>
+                                            <option value="reports">Reports</option>
+                                            <option value="settings">Settings</option>
+                                        </select>
+                                        <Icon name="ChevronDown" size={14} className="pointer-events-none absolute right-3 text-app-text-muted" />
+                                    </label>
                                 </div>
                             </div>
 
                             <div className="flex gap-3">
-                                <button type="button"
-                                    onClick={() => setIsSettingsModalOpen(true)}
-                                    className="bg-app-surface text-app-text border border-app-border hover:bg-app-surface-2 px-4 py-2.5 rounded-lg font-bold transition-all flex items-center justify-center gap-2 shadow-sm min-h-[44px] active:scale-95"
-                                    title="Settings"
-                                >
-                                    <Icon name="Settings" size={18} />
-                                    <span className="hidden lg:inline">Settings</span>
-                                </button>
                                 <button type="button"
                                     onClick={() => setIsAddModalOpen(true)}
                                     className="bg-gradient-to-r from-gold-500 to-gold-600 hover:from-gold-600 hover:to-gold-700 text-white px-5 py-2.5 rounded-lg font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-gold-500/30 hover:shadow-gold-500/40 transform active:scale-95 md:hover:-translate-y-0.5 min-h-[44px]"
@@ -595,7 +599,9 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                         )}
                                     </h3>
                                     <span className="text-sm font-bold text-app-text-muted bg-app-surface px-3 py-1 rounded-full border border-app-border shadow-sm whitespace-nowrap">
-                                        {loading && parties.length > 0 ? 'Updating… · ' : ''}{totalParties} Parties
+                                        {loading && parties.length === 0
+                                            ? 'Loading parties…'
+                                            : `${loading ? 'Updating… · ' : ''}${totalParties.toLocaleString()} Parties`}
                                     </span>
                                 </div>
 

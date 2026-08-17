@@ -143,6 +143,7 @@ export default function StaffSchedulePanel() {
 	const [weekCursor, setWeekCursor] = useState(() => new Date());
 	const [weeklyViewRows, setWeeklyViewRows] = useState<WeeklyViewStaff[]>([]);
 	const [loadingWeeklyView, setLoadingWeeklyView] = useState(false);
+	const [showAllWeeklyStaff, setShowAllWeeklyStaff] = useState(false);
 
 	const headers = useMemo(() => {
 	  const h = new Headers(backofficeHeaders());
@@ -166,6 +167,29 @@ export default function StaffSchedulePanel() {
 	    };
 	  });
 	}, [weekCursor]);
+
+	const scheduledWeeklyRows = useMemo(
+	  () =>
+	    weeklyViewRows.filter((staff) =>
+	      staff.days.some((day) => {
+	        const label = day.shift_label?.trim().toUpperCase() ?? "";
+	        return day.working || day.is_highlighted || (label !== "" && label !== "OFF");
+	      }),
+	    ),
+	  [weeklyViewRows],
+	);
+	const visibleWeeklyRows = showAllWeeklyStaff ? weeklyViewRows : scheduledWeeklyRows;
+	const weeklyCoverage = useMemo(
+	  () =>
+	    weekHeaders.map((header) => ({
+	      ...header,
+	      staffCount: weeklyViewRows.filter((staff) =>
+	        staff.days.some((day) => day.date === header.date && day.working),
+	      ).length,
+	    })),
+	  [weekHeaders, weeklyViewRows],
+	);
+	const maxWeeklyCoverage = Math.max(1, ...weeklyCoverage.map((day) => day.staffCount));
 
   const activeStaff = useMemo(
     () => eligible.find((e) => e.id === staffId),
@@ -533,7 +557,7 @@ export default function StaffSchedulePanel() {
                   <CalendarDays className="h-5 w-5" aria-hidden />
                 </div>
                 <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">All staff</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Scheduled staff first</p>
                   <h3 className="text-lg font-black text-app-text">Weekly schedule</h3>
                 </div>
               </div>
@@ -565,8 +589,34 @@ export default function StaffSchedulePanel() {
                 >
                   Next week
                 </button>
+                <button
+                  type="button"
+                  className="ui-btn-secondary px-3 py-1 text-xs"
+                  aria-pressed={showAllWeeklyStaff}
+                  onClick={() => setShowAllWeeklyStaff((current) => !current)}
+                >
+                  {showAllWeeklyStaff ? "Scheduled only" : `Show all staff (${weeklyViewRows.length})`}
+                </button>
               </div>
             </div>
+            {!loadingWeeklyView && weeklyViewRows.length > 0 ? (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7" aria-label="Weekly staffing coverage">
+                {weeklyCoverage.map((day) => (
+                  <div key={day.date} className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2">
+                    <div className="flex items-center justify-between gap-2 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
+                      <span>{day.label} {day.dayNum}</span>
+                      <span>{day.staffCount}</span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-app-surface-3">
+                      <div
+                        className={`h-full rounded-full ${day.staffCount > 0 ? "bg-app-accent" : "bg-app-warning"}`}
+                        style={{ width: `${Math.max(day.staffCount > 0 ? 12 : 4, (day.staffCount / maxWeeklyCoverage) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             {loadingWeeklyView ? (
               <div className="flex items-center gap-2 text-sm text-app-text-muted">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -574,6 +624,11 @@ export default function StaffSchedulePanel() {
               </div>
             ) : weeklyViewRows.length === 0 ? (
               <p className="text-sm text-app-text-muted">No schedule-eligible staff found for weekly schedule.</p>
+            ) : visibleWeeklyRows.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-app-border bg-app-surface-2 p-6 text-center">
+                <p className="text-sm font-black text-app-text">No one is scheduled this week.</p>
+                <p className="mt-1 text-xs font-semibold text-app-text-muted">Show all staff to review availability patterns and exceptions.</p>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full table-fixed text-left text-sm">
@@ -589,7 +644,7 @@ export default function StaffSchedulePanel() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-app-border">
-                    {weeklyViewRows.map((staff) => {
+                    {visibleWeeklyRows.map((staff) => {
                       const dayByDate = new Map(staff.days.map((d) => [d.date, d]));
                       return (
                         <tr key={staff.staff_id} className="hover:bg-app-surface-2/40">

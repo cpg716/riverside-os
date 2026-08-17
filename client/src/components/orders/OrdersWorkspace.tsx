@@ -23,6 +23,7 @@ import {
   RotateCcw,
   Wallet,
   Printer,
+  LoaderCircle,
 } from "lucide-react";
 import AttachOrderToWeddingModal from "./AttachOrderToWeddingModal";
 import TransactionDetailDrawer, {
@@ -371,6 +372,12 @@ function asPrintItems(
   });
 }
 
+function hasEmbeddedOrderPrintItems(
+  row: Pick<TransactionRow, "order_print_items">,
+): boolean {
+  return Array.isArray(row.order_print_items) && row.order_print_items.length > 0;
+}
+
 function dateFilterLabel(datePreset: string, dateFrom: string, dateTo: string) {
   if (datePreset === "today") return "Today";
   if (datePreset === "30d") return "Last 30 days";
@@ -567,6 +574,7 @@ async function openBespokeOrdersPrint(opts: {
 }
 
 type OrderViewPreset = "open" | "all" | "closed" | "cancelled";
+type RecordMode = "orders" | "transactions";
 type FulfillmentKind =
   | "takeaway"
   | "shipment"
@@ -1076,6 +1084,8 @@ export default function OrdersWorkspace({
   const posSurface = surface === "pos";
   const defaultViewPreset: OrderViewPreset =
     activeSection === "open" ? "open" : "all";
+  const defaultRecordMode: RecordMode =
+    activeSection === "transactions" ? "transactions" : "orders";
   const baseUrl = getBaseUrl();
   const { toast } = useToast();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
@@ -1093,6 +1103,7 @@ export default function OrdersWorkspace({
   >(null);
   const [pipelineStats, setPipelineStats] =
     useState<TransactionPipelineStats | null>(null);
+  const [pipelineStatsError, setPipelineStatsError] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<WorkspaceOrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -1149,13 +1160,15 @@ export default function OrdersWorkspace({
   const [dateTo, setDateTo] = useState("");
   const [viewPreset, setViewPreset] =
     useState<OrderViewPreset>(defaultViewPreset);
+  const [recordMode, setRecordMode] = useState<RecordMode>(defaultRecordMode);
   const [hydratedOrderLines, setHydratedOrderLines] = useState<
     Record<string, OrderLineSummary>
   >({});
 
   useEffect(() => {
     setViewPreset(defaultViewPreset);
-  }, [defaultViewPreset]);
+    setRecordMode(defaultRecordMode);
+  }, [defaultRecordMode, defaultViewPreset]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -1164,6 +1177,7 @@ export default function OrdersWorkspace({
 
   useEffect(() => {
     setPage(0);
+    setSelectedId(null);
   }, [
     debouncedSearch,
     kindFilter,
@@ -1174,6 +1188,7 @@ export default function OrdersWorkspace({
     dateFrom,
     dateTo,
     viewPreset,
+    recordMode,
   ]);
 
   const loadPipelineStats = useCallback(async () => {
@@ -1181,11 +1196,12 @@ export default function OrdersWorkspace({
       const res = await fetch(`${baseUrl}/api/transactions/pipeline-stats`, {
         headers: backofficeHeaders(),
       });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error("pipeline_stats_load_failed");
       const data = (await res.json()) as TransactionPipelineStats;
       setPipelineStats(data);
+      setPipelineStatsError(false);
     } catch {
-      // ignore
+      setPipelineStatsError(true);
     }
   }, [baseUrl, backofficeHeaders]);
 
@@ -1200,7 +1216,7 @@ export default function OrdersWorkspace({
     params.set("limit", String(limit));
     params.set("offset", String(page * limit));
     params.set("status_scope", viewPreset);
-    params.set("record_scope", "orders");
+    params.set("record_scope", recordMode);
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (kindFilter !== "all") params.set("kind_filter", kindFilter);
     if (paymentFilter !== "all") params.set("payment_filter", paymentFilter);
@@ -1236,7 +1252,7 @@ export default function OrdersWorkspace({
       if (error instanceof DOMException && error.name === "AbortError") return;
       if (requestSeq !== transactionsRequestSeqRef.current) return;
       setTransactionsLoadError(
-        "Orders could not load right now. Try again in a moment.",
+        `${recordMode === "orders" ? "Orders" : "Transaction Records"} could not load right now. Try again in a moment.`,
       );
     } finally {
       if (requestSeq === transactionsRequestSeqRef.current) {
@@ -1258,6 +1274,7 @@ export default function OrdersWorkspace({
     limit,
     dateFrom,
     dateTo,
+    recordMode,
     viewPreset,
   ]);
 
@@ -1355,13 +1372,18 @@ export default function OrdersWorkspace({
       (row) =>
         row.item_count > 0 &&
         !row.order_items_summary?.trim() &&
+        !hasEmbeddedOrderPrintItems(row) &&
         !hydratedOrderLines[row.transaction_id],
     );
     if (rowsNeedingNames.length === 0) return;
 
     let cancelled = false;
-    void Promise.all(
-      rowsNeedingNames.map(async (row) => {
+    void (async () => {
+      const entries: Array<readonly [string, OrderLineSummary]> = [];
+      for (let index = 0; index < rowsNeedingNames.length; index += 4) {
+        if (cancelled) return;
+        const batch = rowsNeedingNames.slice(index, index + 4);
+        const batchEntries = await Promise.all(batch.map(async (row) => {
         try {
           const res = await fetch(
             `${baseUrl}/api/transactions/${row.transaction_id}`,
@@ -1386,8 +1408,9 @@ export default function OrdersWorkspace({
             } satisfies OrderLineSummary,
           ] as const;
         }
-      }),
-    ).then((entries) => {
+        }));
+        entries.push(...batchEntries);
+      }
       if (cancelled) return;
       setHydratedOrderLines((current) => {
         const next = { ...current };
@@ -1396,7 +1419,7 @@ export default function OrdersWorkspace({
         }
         return next;
       });
-    });
+    })();
 
     return () => {
       cancelled = true;
@@ -1954,7 +1977,7 @@ export default function OrdersWorkspace({
     },
     {
       label: "Wedding Orders",
-      value: pipelineStats?.wedding_orders ?? 0,
+      value: pipelineStats ? pipelineStats.wedding_orders : "—",
       icon: WEDDINGS_ICON,
       tone: "accent" as const,
       badge: "Wedding",
@@ -1964,24 +1987,24 @@ export default function OrdersWorkspace({
   const orderFollowUpMetrics = [
     {
       label: "Needs action",
-      value: pipelineStats?.needs_action ?? 0,
+      value: pipelineStats ? pipelineStats.needs_action : "—",
       icon: Activity,
     },
     {
       label: "Needs ready check",
-      value: pipelineStats?.ready_check_needed ?? 0,
+      value: pipelineStats ? pipelineStats.ready_check_needed : "—",
       icon: CheckCircle2,
       lifecycle: "ready_check_needed",
     },
     {
       label: "Ready pickup",
-      value: pipelineStats?.ready_for_pickup ?? 0,
+      value: pipelineStats ? pipelineStats.ready_for_pickup : "—",
       icon: CheckCircle2,
       lifecycle: "ready_for_pickup",
     },
     {
       label: "Overdue follow-up",
-      value: pipelineStats?.overdue ?? 0,
+      value: pipelineStats ? pipelineStats.overdue : "—",
       icon: AlertTriangle,
     },
   ];
@@ -2057,7 +2080,7 @@ export default function OrdersWorkspace({
         <div className={wrapperClass}>
           <Clock size={iconSize} className="mx-auto mb-3 opacity-50" />
           <p className="text-sm font-black uppercase tracking-widest italic">
-            Loading orders
+            Loading {recordMode === "orders" ? "orders" : "Transaction Records"}
           </p>
         </div>
       );
@@ -2109,7 +2132,7 @@ export default function OrdersWorkspace({
   return (
     <div className="ui-page flex flex-1 flex-col bg-transparent p-0">
       <div className="flex flex-1 flex-col bg-transparent">
-        {!posSurface ? <div className="ui-workspace-summary">
+        {!posSurface && recordMode === "orders" ? <div className="ui-workspace-summary">
           {orderStatCards.map((stat) => (
             <WorkspaceMetricCard
               key={stat.label}
@@ -2122,7 +2145,7 @@ export default function OrdersWorkspace({
           ))}
         </div> : null}
 
-        <div className="px-4 sm:px-6">
+        {recordMode === "orders" ? <div className="px-4 sm:px-6">
           <div className="ui-card ui-tint-warning px-4 py-4">
             <div className="flex flex-wrap items-start gap-3">
               <div>
@@ -2194,26 +2217,61 @@ export default function OrdersWorkspace({
                   )}
                 >
                   <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">All open</p>
-                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">{pipelineStats?.needs_action ?? totalCount}</p>
+                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">{pipelineStats ? pipelineStats.needs_action : totalCount}</p>
                 </button>
               ) : null}
             </div>
+            {pipelineStatsError ? (
+              <div className="mt-3 flex items-center gap-2 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text" role="status">
+                <AlertTriangle size={15} className="shrink-0 text-app-warning" aria-hidden="true" />
+                Follow-up totals are unavailable. The order list remains usable; refresh before treating a metric as clear.
+              </div>
+            ) : null}
           </div>
-        </div>
+        </div> : null}
 
         <div className="flex flex-1 flex-col p-3 sm:p-6 lg:p-8 animate-workspace-snap">
           <div className="ui-card ui-workspace-panel flex flex-col overflow-hidden">
             <div className="ui-workspace-panel-header">
+              {!posSurface ? (
+                <div className="flex rounded-xl border border-app-border bg-app-surface-2 p-1" aria-label="Record type">
+                  {([
+                    { id: "orders", label: "Orders" },
+                    { id: "transactions", label: "Transaction Records" },
+                  ] satisfies Array<{ id: RecordMode; label: string }>).map((mode) => (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() => {
+                        setRecordMode(mode.id);
+                        setViewPreset(mode.id === "transactions" ? "all" : defaultViewPreset);
+                        setLifecycleFilter("all");
+                      }}
+                      aria-pressed={recordMode === mode.id}
+                      className={cn(
+                        "rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-wider transition",
+                        recordMode === mode.id
+                          ? "bg-app-accent text-white shadow-sm"
+                          : "text-app-text-muted hover:text-app-text",
+                      )}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <div className="relative group min-w-0 flex-1">
                 <Search
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors"
                   size={16}
                 />
                 <input
-                  aria-label="Search orders"
+                  aria-label={recordMode === "orders" ? "Search orders" : "Search transaction records"}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by customer, phone, order item, Transaction Record #, or fulfillment order #..."
+                  placeholder={recordMode === "orders"
+                    ? "Search by customer, phone, item, Transaction Record #, or fulfillment order #..."
+                    : "Search all Transaction Records by customer, phone, item, or record #..."}
                   className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
                 />
               </div>
@@ -2221,8 +2279,8 @@ export default function OrdersWorkspace({
               <div className="flex flex-wrap items-center gap-2">
                 {!posSurface ? (
                   [
-                    { id: "open", label: "Open Orders" },
-                    { id: "all", label: "All Orders" },
+                    { id: "open", label: recordMode === "orders" ? "Open Orders" : "Open Records" },
+                    { id: "all", label: recordMode === "orders" ? "All Orders" : "All Records" },
                     { id: "closed", label: "Closed" },
                     { id: "cancelled", label: "Cancelled" },
                   ] satisfies Array<{ id: OrderViewPreset; label: string }>
@@ -2246,7 +2304,7 @@ export default function OrdersWorkspace({
                   );
                 }) : null}
 
-                {!posSurface ? <button
+                {!posSurface && recordMode === "orders" ? <button
                   type="button"
                   onClick={() => void printOrdersList()}
                   disabled={
@@ -2286,6 +2344,13 @@ export default function OrdersWorkspace({
               </div>
             </div>
 
+            {transactionsLoading && transactionRows.length > 0 ? (
+              <div className="flex items-center gap-2 border-b border-app-info/20 bg-app-info/10 px-4 py-2 text-xs font-bold text-app-text" role="status">
+                <LoaderCircle size={15} className="animate-spin text-app-info" aria-hidden="true" />
+                Updating {recordMode === "orders" ? "orders" : "Transaction Records"}… Existing rows are temporarily read-only until the current filters finish loading.
+              </div>
+            ) : null}
+
             {!posSurface ? <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-3 px-4 py-4 lg:px-5">
               <select
                 aria-label="Filter orders by type"
@@ -2297,6 +2362,7 @@ export default function OrdersWorkspace({
                 <option value="special_order">Special</option>
                 <option value="wedding_order">Wedding</option>
                 <option value="custom">Custom</option>
+                {recordMode === "transactions" ? <option value="regular_order">Retail / Takeaway</option> : null}
               </select>
               <select
                 aria-label="Filter orders by payment status"
@@ -2322,7 +2388,7 @@ export default function OrdersWorkspace({
                   </option>
                 ))}
               </select>
-              <select
+              {recordMode === "orders" ? <select
                 aria-label="Filter orders by lifecycle status"
                 value={lifecycleFilter}
                 onChange={(e) => setLifecycleFilter(e.target.value)}
@@ -2336,7 +2402,7 @@ export default function OrdersWorkspace({
                 <option value="ntbo">Ready to Order</option>
                 <option value="needs_measurements">Needs Measurements</option>
                 <option value="picked_up">Picked Up</option>
-              </select>
+              </select> : null}
               <select
                 aria-label="Filter orders by date range"
                 value={datePreset}
@@ -2385,7 +2451,13 @@ export default function OrdersWorkspace({
               ) : null}
             </div> : null}
 
-            <div className="grid gap-3 p-3 xl:hidden">
+            <div
+              className={cn(
+                "grid gap-3 p-3 xl:hidden transition-opacity",
+                transactionsLoading && transactionRows.length > 0 && "pointer-events-none opacity-60",
+              )}
+              aria-busy={transactionsLoading}
+            >
               {transactionRows.map((r) => (
                 <OrderMobileCard
                   key={r.transaction_id}
@@ -2417,7 +2489,13 @@ export default function OrdersWorkspace({
               {renderTransactionListState("mobile")}
             </div>
 
-            <div className="hidden flex-1 xl:block">
+            <div
+              className={cn(
+                "hidden flex-1 transition-opacity xl:block",
+                transactionsLoading && transactionRows.length > 0 && "pointer-events-none opacity-60",
+              )}
+              aria-busy={transactionsLoading}
+            >
               <table className="w-full table-fixed border-collapse text-left">
                 <colgroup>
                   <col className="w-[8%]" />
@@ -2689,7 +2767,7 @@ export default function OrdersWorkspace({
         orderId={selectedId}
         isOpen={selectedId !== null}
         onClose={() => setSelectedId(null)}
-        recordContext="order"
+        recordContext={recordMode === "orders" ? "order" : "transaction"}
         detail={detail}
         audit={audit}
         loading={detailLoading}

@@ -17,6 +17,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, QueryBuilder, Row};
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
@@ -777,6 +778,18 @@ pub enum CreateMemberRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct BulkLinkMembersRequest {
+    customer_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Serialize)]
+struct BulkLinkMembersResponse {
+    selected: usize,
+    added: usize,
+    already_linked: usize,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct UpdateMemberRequest {
     pub role: Option<String>,
     pub notes: Option<String>,
@@ -1159,6 +1172,10 @@ pub fn router() -> Router<AppState> {
             post(post_party_cutover_review),
         )
         .route("/parties/{party_id}/members", post(add_member))
+        .route(
+            "/parties/{party_id}/members/bulk-link",
+            post(bulk_link_members),
+        )
         .route(
             "/parties/{party_id}",
             get(get_party)
@@ -2613,6 +2630,106 @@ async fn add_member(
         .await?
         .ok_or(WeddingError::MemberNotFound)?;
     Ok(Json(member))
+}
+
+async fn bulk_link_members(
+    State(state): State<AppState>,
+    Path(party_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<BulkLinkMembersRequest>,
+) -> Result<Json<BulkLinkMembersResponse>, WeddingError> {
+    let actor = require_weddings_mutate(&state, &headers).await?;
+    let mut seen = HashSet::new();
+    let customer_ids: Vec<Uuid> = body
+        .customer_ids
+        .into_iter()
+        .filter(|customer_id| seen.insert(*customer_id))
+        .collect();
+    if customer_ids.is_empty() || customer_ids.len() > 100 {
+        return Err(WeddingError::BadRequest(
+            "select between 1 and 100 customers".into(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+    let party_exists =
+        sqlx::query_scalar::<_, Uuid>("SELECT id FROM wedding_parties WHERE id = $1 FOR UPDATE")
+            .bind(party_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if party_exists.is_none() {
+        return Err(WeddingError::PartyNotFound);
+    }
+
+    let existing_customers: i64 =
+        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM customers WHERE id = ANY($1)")
+            .bind(&customer_ids)
+            .fetch_one(&mut *tx)
+            .await?;
+    if existing_customers != customer_ids.len() as i64 {
+        return Err(WeddingError::BadRequest(
+            "one or more selected customers no longer exist".into(),
+        ));
+    }
+
+    let mut next_index: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(member_index), 0) FROM wedding_members WHERE wedding_party_id = $1",
+    )
+    .bind(party_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let mut added = 0usize;
+    for customer_id in &customer_ids {
+        let candidate_index = next_index + 1;
+        let member_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO wedding_members (
+                wedding_party_id, customer_id, role, status, member_index,
+                customer_verified
+            )
+            VALUES ($1, $2, 'Member', 'prospect', $3, TRUE)
+            ON CONFLICT DO NOTHING
+            RETURNING id
+            "#,
+        )
+        .bind(party_id)
+        .bind(customer_id)
+        .bind(candidate_index)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let Some(member_id) = member_id else {
+            continue;
+        };
+        next_index = candidate_index;
+        added += 1;
+        wedding_logic::insert_wedding_activity(
+            &mut *tx,
+            party_id,
+            Some(member_id),
+            &actor.full_name,
+            "STATUS_CHANGE",
+            "Member linked to party by reviewed customer batch",
+            json!({
+                "customer_id": customer_id,
+                "wedding_member_id": member_id,
+                "batch_selected_count": customer_ids.len(),
+            }),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+
+    state
+        .wedding_events
+        .parties_updated(wedding_client_sender(&headers).as_deref());
+    spawn_meilisearch_wedding_party(&state, party_id);
+
+    Ok(Json(BulkLinkMembersResponse {
+        selected: customer_ids.len(),
+        added,
+        already_linked: customer_ids.len() - added,
+    }))
 }
 
 async fn update_member(

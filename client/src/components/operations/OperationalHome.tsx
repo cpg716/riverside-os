@@ -2060,45 +2060,53 @@ export default function OperationalHome({
                 }
               />
             ) : null}
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              <SummaryPill
-                label="Net sales"
-                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary ? money(todaySummary.net_sales) : "$0.00"}
-                tone="good"
-                onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
-                ariaLabel="Open Daily Sales"
-              />
-              <SummaryPill
-                label="Sales count"
-                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.sales_count ?? 0}
-                onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
-                ariaLabel="Open Daily Sales"
-              />
-              <SummaryPill
-                label="Pickups"
-                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.pickup_count ?? 0}
-                onClick={() => onNavigateMetric?.({ tab: "home", section: "fulfillment" })}
-                ariaLabel="Open Pickup Queue"
-              />
-              <SummaryPill
-                label="Online orders"
-                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.online_order_count ?? 0}
-                onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
-                ariaLabel="Open Daily Sales"
-              />
-              <SummaryPill
-                label="Appointments"
-                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.appointment_count ?? 0}
-                onClick={() => onNavigateMetric?.({ tab: "appointments", section: "scheduler" })}
-                ariaLabel="Open Scheduler"
-              />
-              <SummaryPill
-                label="New weddings"
-                value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.new_wedding_parties_count ?? 0}
-                onClick={() => onNavigateMetric?.({ tab: "weddings" })}
-                ariaLabel="Open Weddings"
-              />
-            </div>
+            <details className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
+              <summary className="cursor-pointer text-xs font-black uppercase tracking-widest text-app-text">
+                View detailed daily totals
+              </summary>
+              <p className="mt-1 text-xs text-app-text-muted">
+                The primary cards above remain the quick status view; these totals provide source-linked detail.
+              </p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <SummaryPill
+                  label="Net sales"
+                  value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary ? money(todaySummary.net_sales) : "$0.00"}
+                  tone="good"
+                  onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+                  ariaLabel="Open Daily Sales"
+                />
+                <SummaryPill
+                  label="Sales count"
+                  value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.sales_count ?? 0}
+                  onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+                  ariaLabel="Open Daily Sales"
+                />
+                <SummaryPill
+                  label="Pickups"
+                  value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.pickup_count ?? 0}
+                  onClick={() => onNavigateMetric?.({ tab: "home", section: "fulfillment" })}
+                  ariaLabel="Open Pickup Queue"
+                />
+                <SummaryPill
+                  label="Online orders"
+                  value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.online_order_count ?? 0}
+                  onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+                  ariaLabel="Open Daily Sales"
+                />
+                <SummaryPill
+                  label="Appointments"
+                  value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.appointment_count ?? 0}
+                  onClick={() => onNavigateMetric?.({ tab: "appointments", section: "scheduler" })}
+                  ariaLabel="Open Scheduler"
+                />
+                <SummaryPill
+                  label="New weddings"
+                  value={feedLoadErrors.todaySummary ? "Not loaded" : todaySummary?.new_wedding_parties_count ?? 0}
+                  onClick={() => onNavigateMetric?.({ tab: "weddings" })}
+                  ariaLabel="Open Weddings"
+                />
+              </div>
+            </details>
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               {todayDecisionTakeaways.length === 0 ? (
                 <div className="ui-panel px-4 py-3 text-sm font-semibold text-app-text-muted">

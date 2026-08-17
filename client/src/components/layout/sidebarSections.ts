@@ -60,7 +60,10 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
   alterations: [
     { id: "queue", label: "Queue" },
   ],
-  orders: [],
+  orders: [
+    { id: "open", label: "Open Orders" },
+    { id: "transactions", label: "Transaction Records" },
+  ],
   inventory: [
     { id: "list", label: "Find Item" },
     { id: "add", label: "Add/Edit Catalog" },
@@ -74,13 +77,19 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
   ],
   "online-store": [
     { id: "dashboard", label: "Dashboard" },
-    { id: "storefront", label: "Storefront" },
-    { id: "products", label: "Products" },
     { id: "orders", label: "Orders" },
-    { id: "customers", label: "Customers" },
-    { id: "promotions", label: "Promotions" },
+    { id: "carts", label: "Carts" },
     { id: "shipping", label: "Shipping" },
+    { id: "customers", label: "Customers" },
+    { id: "products", label: "Products" },
+    { id: "promotions", label: "Promotions" },
     { id: "analytics", label: "Analytics" },
+    { id: "storefront", label: "Storefront" },
+    { id: "layout", label: "Layout" },
+    { id: "campaigns", label: "Campaigns" },
+    { id: "seo", label: "SEO" },
+    { id: "navigation", label: "Navigation" },
+    { id: "media", label: "Media" },
   ],
   weddings: [
     { id: "action-board", label: "Action Board" },
@@ -117,6 +126,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "deposits", label: "Deposits" },
     { id: "reconciliation", label: "Reconciliation" },
     { id: "transactions", label: "Transactions" },
+    { id: "disputes", label: "Disputes" },
     { id: "health", label: "Health" },
   ],
   appointments: [

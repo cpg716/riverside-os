@@ -1793,17 +1793,40 @@ async fn fetch_register_day_summary_page_on_connection(
         Decimal::ZERO
     };
 
-    let special_sql = format!(
-        r#"
-        SELECT COUNT(DISTINCT o.id)::bigint
-        FROM transactions o
-        INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
-        WHERE {order_in_range}
-          {order_source_ownership_filter}
-          AND oi.fulfillment::text IN ('special_order', 'custom')
-        {order_session_filter}
-        "#
-    );
+    let special_sql = match basis {
+        ReportBasis::Booked => format!(
+            r#"
+            SELECT COUNT(DISTINCT o.id)::bigint
+            FROM transaction_line_booking_events e
+            INNER JOIN transactions o ON o.id = e.transaction_id
+            INNER JOIN transaction_lines oi ON oi.id = e.transaction_line_id
+            WHERE e.booked_at >= $1
+              AND e.booked_at < $2
+              AND e.event_kind = 'initial_booking'
+              AND e.is_internal = FALSE
+              AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
+              AND o.status::text NOT IN ('cancelled')
+              AND reporting.counterpoint_source_is_reportable(
+                    o.is_counterpoint_import,
+                    (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  )
+              AND oi.fulfillment::text IN ('special_order', 'custom')
+            {booked_session_filter}
+            "#,
+            booked_session_filter = ORDER_BOOKED_SESSION_FILTER,
+        ),
+        ReportBasis::Completed => format!(
+            r#"
+            SELECT COUNT(DISTINCT o.id)::bigint
+            FROM transactions o
+            INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
+            WHERE {order_in_range}
+              {order_source_ownership_filter}
+              AND oi.fulfillment::text IN ('special_order', 'custom')
+            {order_session_filter}
+            "#
+        ),
+    };
     let special_row: (i64,) = sqlx::query_as(&special_sql)
         .bind(start_utc)
         .bind(end_utc)
@@ -4234,6 +4257,10 @@ mod tests {
         assert_eq!(
             summary.sales_tax_total.parse::<Decimal>().unwrap(),
             Decimal::ZERO
+        );
+        assert_eq!(
+            summary.special_order_sale_count, 0,
+            "an older Order amendment must not be counted as a new Order"
         );
         assert_eq!(activity.title, "Order Adjustment (No Net Change)");
         assert_eq!(

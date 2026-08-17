@@ -26,7 +26,7 @@ Deterministic help articles are primary when staff need the official step-by-ste
 
 ## How to use it
 
-1. Open Help from the top bar.
+1. Open Help from the top bar. Riverside opens the manual for the current workspace when one is available.
 2. Search or choose a manual in Help Library mode.
 3. Print the current manual section or the full guide when a paper copy is needed.
 4. Use Ask ROSIE for a focused answer.
@@ -35,6 +35,8 @@ Deterministic help articles are primary when staff need the official step-by-ste
 ## Open Help
 
 Select the **Help** icon from the top bar. The drawer opens without leaving the current workspace.
+
+Contextual Help routes common Operations, Register, Customer, Order, Inventory, Wedding, Alterations, Appointment, Staff, Payments, Reports, Insights, Shipping, Online Store, and QBO screens directly to their matching manual. You can still choose any other manual or search the full library.
 
 Use **Help Library** to read manuals, **Ask ROSIE** for a direct sourced answer, or **ROSIE Chat** when staff need a live back-and-forth conversation.
 

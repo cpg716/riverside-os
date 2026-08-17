@@ -559,6 +559,8 @@ pub async fn run_messaging_and_reviews_unread_nudges(pool: &PgPool) -> Result<()
         SELECT an.id, an.title, an.body, an.deep_link
         FROM app_notification an
         WHERE an.created_at <= NOW() - INTERVAL '18 hours'
+          AND an.kind <> 'messaging_unread_nudge'
+          AND COALESCE(an.dedupe_key, '') NOT LIKE 'unread_nudge:%'
           AND (
             an.kind IN ('podium_sms_inbound', 'podium_email_inbound')
             OR an.deep_link->>'bundle_kind' IN ('podium_sms_bundle', 'podium_email_bundle')

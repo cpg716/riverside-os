@@ -35,9 +35,11 @@ Inventory, prices, tax, payments, customers, and Transaction Records remain serv
 ## Review the dashboard
 
 1. Open **Online Store → Dashboard**.
-2. Review storefront health, web orders, checkout activity, products, campaigns, and publishing signals.
-3. Open the affected workspace instead of treating a dashboard count as the final record.
-4. Resolve configuration issues in **Settings → Online Store** and operational issues in this workspace.
+2. Start with **Daily web operations**: Orders, carts needing attention, and shipping/fulfillment.
+3. Review web sales, open checkout, abandoned checkout, and zero-stock signals. A dash or **Loading** message means the current value is not available yet; it is not zero.
+4. Open **Store administration status** only when setup or publishing needs review. The Online Store sidebar owns navigation to Products, Promotions, Storefront, Layout, Campaigns, SEO, Navigation, Media, Customers, and Analytics.
+5. Open the affected workspace instead of treating a dashboard count as the final record.
+6. Resolve configuration issues in **Settings → Online Store** and operational issues in this workspace.
 
 ## Publish products
 

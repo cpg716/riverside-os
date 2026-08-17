@@ -1547,6 +1547,19 @@ struct CustomerGroupMemberBody {
 }
 
 #[derive(Debug, Deserialize)]
+struct BulkCustomerGroupMemberBody {
+    customer_ids: Vec<Uuid>,
+    group_id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+struct BulkCustomerGroupMemberResponse {
+    selected: usize,
+    added: u64,
+    already_linked: u64,
+}
+
+#[derive(Debug, Deserialize)]
 struct RemoveCustomerGroupQuery {
     customer_id: Uuid,
     group_id: Uuid,
@@ -4097,6 +4110,7 @@ pub fn router() -> Router<AppState> {
             "/group-members",
             post(add_customer_group_member).delete(remove_customer_group_member),
         )
+        .route("/group-members/bulk", post(add_customer_group_members_bulk))
         .route("/merge", post(post_merge_customers))
         .route("/bulk-vip", post(bulk_set_customer_vip))
         .route("/import/lightspeed", post(import_lightspeed_customers))
@@ -9118,6 +9132,75 @@ async fn add_customer_group_member(
     .await?;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn add_customer_group_members_bulk(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<BulkCustomerGroupMemberBody>,
+) -> Result<Json<BulkCustomerGroupMemberResponse>, CustomerError> {
+    let _staff =
+        middleware::require_staff_with_permission(&state, &headers, CUSTOMER_GROUPS_MANAGE)
+            .await
+            .map_err(|(_code, axum::Json(v))| {
+                CustomerError::Unauthorized(
+                    v.get("error")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("not authorized")
+                        .to_string(),
+                )
+            })?;
+
+    let mut seen = HashSet::new();
+    let customer_ids: Vec<Uuid> = body
+        .customer_ids
+        .into_iter()
+        .filter(|customer_id| seen.insert(*customer_id))
+        .collect();
+    if customer_ids.is_empty() || customer_ids.len() > 100 {
+        return Err(CustomerError::BadRequest(
+            "select between 1 and 100 customers".into(),
+        ));
+    }
+
+    let group_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customer_groups WHERE id = $1)")
+            .bind(body.group_id)
+            .fetch_one(&state.db)
+            .await?;
+    if !group_exists {
+        return Err(CustomerError::BadRequest("customer group not found".into()));
+    }
+    let existing_customers: i64 =
+        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM customers WHERE id = ANY($1)")
+            .bind(&customer_ids)
+            .fetch_one(&state.db)
+            .await?;
+    if existing_customers != customer_ids.len() as i64 {
+        return Err(CustomerError::BadRequest(
+            "one or more selected customers no longer exist".into(),
+        ));
+    }
+
+    let result = sqlx::query(
+        r#"
+        INSERT INTO customer_group_members (customer_id, group_id)
+        SELECT customer_id, $2
+        FROM UNNEST($1::uuid[]) AS selected(customer_id)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(&customer_ids)
+    .bind(body.group_id)
+    .execute(&state.db)
+    .await?;
+    let added = result.rows_affected();
+
+    Ok(Json(BulkCustomerGroupMemberResponse {
+        selected: customer_ids.len(),
+        added,
+        already_linked: customer_ids.len() as u64 - added,
+    }))
 }
 
 async fn remove_customer_group_member(

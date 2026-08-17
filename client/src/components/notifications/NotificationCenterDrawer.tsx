@@ -244,6 +244,12 @@ function rowPreviewText(r: NotificationRow, bundleCount: number | null): string 
   return body.length > 120 ? `${body.slice(0, 119)}…` : body;
 }
 
+function notificationDisplayTitle(r: NotificationRow): string {
+  if (r.kind !== "messaging_unread_nudge") return r.title;
+  const originalTitle = r.title.replace(/^(?:Still unread:\s*)+/i, "").trim();
+  return originalTitle ? `Unread reminder: ${originalTitle}` : "Unread message reminder";
+}
+
 type Tab = "inbox" | "history" | "search" | "cleanup" | "broadcast";
 
 function recencySectionMeta(
@@ -1122,6 +1128,7 @@ export default function NotificationCenterDrawer({
                         const severity = notificationSeverity(r.kind, r.deep_link);
                         const relativeTime = formatRelativeTime(r.created_at);
                         const preview = rowPreviewText(r, isBundle ? bundleItems.length : null);
+                        const displayTitle = notificationDisplayTitle(r);
                         const olderRead = group.bucket === "earlier" && !!r.read_at && !expanded;
 
                         return (
@@ -1139,7 +1146,7 @@ export default function NotificationCenterDrawer({
                                 olderRead ? "p-3" : "p-4"
                               }`}
                               onClick={() => onRowActivate(r)}
-                              aria-label={`${r.title} — ${
+                              aria-label={`${displayTitle} — ${
                                 isBundle
                                   ? "Expand bundle"
                                   : primaryInteraction === "open"
@@ -1181,7 +1188,7 @@ export default function NotificationCenterDrawer({
                                   ) : null}
                                 </div>
                                 <p className="mt-1 truncate text-base font-black leading-tight text-app-text">
-                                  {r.title}
+                                  {displayTitle}
                                 </p>
                                 <p className="mt-1.5 line-clamp-2 text-[12px] leading-relaxed text-app-text-muted">
                                   {preview}
@@ -1292,7 +1299,7 @@ export default function NotificationCenterDrawer({
                                           type="button"
                                           className="ui-btn-primary w-full py-2 text-xs font-black uppercase tracking-widest"
                                           onClick={() => navigateFromItem(r, r.deep_link)}
-                                          aria-label={`Open ${destination} from ${r.title}`}
+                                          aria-label={`Open ${destination} from ${displayTitle}`}
                                         >
                                           Open {destination}
                                         </button>
@@ -1311,7 +1318,7 @@ export default function NotificationCenterDrawer({
                                   type="button"
                                   className="h-6 px-3 text-[10px] font-bold text-app-accent hover:bg-app-accent/5 rounded-md transition-colors"
                                   onClick={() => void markRead(r.staff_notification_id)}
-                                  aria-label={`Mark ${r.title} as read`}
+                                  aria-label={`Mark ${displayTitle} as read`}
                                 >
                                   Mark Read
                                 </button>
@@ -1321,7 +1328,7 @@ export default function NotificationCenterDrawer({
                                   type="button"
                               className="h-6 px-3 text-[10px] font-bold text-app-success hover:bg-app-success/10 rounded-md transition-colors"
                                   onClick={() => void markComplete(r.staff_notification_id)}
-                                  aria-label={`Complete ${r.title}`}
+                                  aria-label={`Complete ${displayTitle}`}
                                 >
                                   Complete
                                 </button>
@@ -1331,7 +1338,7 @@ export default function NotificationCenterDrawer({
                                   type="button"
                                   className="ml-auto h-6 px-3 text-[10px] font-bold text-app-text-muted hover:bg-app-surface-3 rounded-md transition-colors"
                                   onClick={() => void markArchive(r.staff_notification_id)}
-                                  aria-label={`Dismiss ${r.title}`}
+                                  aria-label={`Dismiss ${displayTitle}`}
                                 >
                                   Dismiss
                                 </button>

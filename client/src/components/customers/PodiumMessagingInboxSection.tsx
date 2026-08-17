@@ -42,6 +42,13 @@ const PROVIDER_PULL_STALE_MS = 30 * 60 * 1000;
 const MULTIPLE_ASSIGNMENT_VALUE = "__multiple_podium_assignees__";
 const MESSAGE_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
 const MESSAGE_EMOJI_CHOICES = ["🙂", "👍", "🙏", "👔", "📸"];
+const MESSAGE_EMOJI_LABELS: Record<string, string> = {
+  "🙂": "smile",
+  "👍": "thumbs up",
+  "🙏": "thank you",
+  "👔": "necktie",
+  "📸": "camera",
+};
 
 type InboxRow = {
   conversation_id: string;
@@ -2204,7 +2211,7 @@ export default function PodiumMessagingInboxSection({
                           onClick={() => setReplyDraft((current) => `${current}${emoji}`)}
                           disabled={replyBusy}
                           className="ui-touch-target inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border border-app-border bg-app-surface-2 px-2 text-sm disabled:opacity-40"
-                          aria-label={`Add ${emoji} emoji`}
+                          aria-label={`Insert ${MESSAGE_EMOJI_LABELS[emoji] ?? "emoji"}`}
                         >
                           {emoji}
                         </button>

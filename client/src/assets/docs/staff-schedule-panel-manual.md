@@ -28,6 +28,8 @@ This workspace is divided into three primary modes to balance long-term planning
 2.  **Individual View (Personnel Management)**: Detailed availability for a single staff member, including their master template, sick days, and PTO.
 3.  **Planning Mode (Master Grid)**: The command center where managers build upcoming schedules, manage **Store Events**, and **Publish** the final agenda.
 
+Weekly View starts with scheduled staff and exception/highlight rows instead of filling the screen with repeated **OFF** cells. The coverage strip shows the scheduled count for each day. Select **Show all staff** when an off-schedule or dormant profile must be reviewed.
+
 ## When to use it
 
 - To set a new employee's standard working hours (Master Template).

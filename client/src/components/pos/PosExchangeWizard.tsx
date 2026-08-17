@@ -6,6 +6,7 @@ import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { centsToFixed2, parseMoney, parseMoneyToCents, formatMoney } from "../../lib/money";
 import type { Customer } from "../pos/CustomerSelector";
 import TransactionSearchInput from "../ui/TransactionSearchInput";
+import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
 
@@ -229,6 +230,10 @@ export default function PosExchangeWizard({
   const [customerTransactions, setCustomerTransactions] = useState<CustomerTransactionRow[]>([]);
   const [customerTransactionsLoading, setCustomerTransactionsLoading] = useState(false);
   const [customerTransactionsError, setCustomerTransactionsError] = useState<string | null>(null);
+  const { dialogRef, titleId } = useDialogAccessibility(open, {
+    onEscape: onClose,
+    closeOnEscape: !submitting && !loading,
+  });
   const workflowIndex = EXCHANGE_WORKFLOW_STEPS.findIndex((item) => item.id === step);
   const receiptLabel =
     detail?.transaction_display_id ?? detail?.transaction_id.slice(0, 8).toUpperCase() ?? "";
@@ -507,12 +512,13 @@ export default function PosExchangeWizard({
   return createPortal(
     <div
       className="ui-overlay-backdrop !z-[200]"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Exchange/Return wizard"
       data-testid="pos-exchange-wizard-dialog"
     >
-      <div 
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="ui-card flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface/80 backdrop-blur-xl shadow-2xl sm:max-h-[min(720px,90vh)] sm:max-w-3xl sm:rounded-2xl"
         onClick={e => e.stopPropagation()}
       >
@@ -522,7 +528,7 @@ export default function PosExchangeWizard({
               <ArrowLeftRight className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-sm font-black uppercase tracking-[0.2em] text-app-text">
+              <h2 id={titleId} className="text-sm font-black uppercase tracking-[0.2em] text-app-text">
                 Exchange / Return Wizard
               </h2>
               <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted opacity-60">

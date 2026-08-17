@@ -307,11 +307,12 @@ test.describe("Orders detail drawer and POS handoff", () => {
         /Orders are Special, Custom, and Wedding fulfillment work/i,
       ),
     ).toBeVisible();
+    const ordersWorkspace = page.getByTestId("backoffice-workspace-root");
     await expect(
-      page.getByRole("button", { name: "Open Orders" }),
+      ordersWorkspace.getByRole("button", { name: "Open Orders" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "All Orders" }),
+      ordersWorkspace.getByRole("button", { name: "All Orders" }),
     ).toBeVisible();
 
     const orderRow = page.locator("tr", { hasText: order.displayId }).first();

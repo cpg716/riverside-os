@@ -47,6 +47,7 @@ export function NotificationCenterProvider({
   const canReachApi = staffCode.trim().length > 0 || hasPos;
 
   const [unread, setUnread] = useState(0);
+  const [actionRequired, setActionRequired] = useState(0);
   const [podiumInboxUnread, setPodiumInboxUnread] = useState(0);
   const [mailboxUnread, setMailboxUnread] = useState(0);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
@@ -58,6 +59,7 @@ export function NotificationCenterProvider({
   const refreshUnread = useCallback(async () => {
     if (!canView || !canReachApi) {
       setUnread(0);
+      setActionRequired(0);
       setPodiumInboxUnread(0);
       setMailboxUnread(0);
       setNotifications([]);
@@ -75,10 +77,14 @@ export function NotificationCenterProvider({
       if (countRes.ok) {
         const data = (await countRes.json()) as {
           unread?: number;
+          action_required?: number;
           podium_inbox_unread?: number;
           mailbox_unread?: number;
         };
         setUnread(typeof data.unread === "number" ? data.unread : 0);
+        setActionRequired(
+          typeof data.action_required === "number" ? data.action_required : 0,
+        );
         setPodiumInboxUnread(
           typeof data.podium_inbox_unread === "number" ? data.podium_inbox_unread : 0,
         );
@@ -157,6 +163,7 @@ export function NotificationCenterProvider({
   const value = useMemo<NotificationCenterContextValue>(
     () => ({
       unread,
+      actionRequired,
       notifications,
       podiumInboxUnread,
       mailboxUnread,
@@ -168,6 +175,7 @@ export function NotificationCenterProvider({
     }),
     [
       unread,
+      actionRequired,
       notifications,
       podiumInboxUnread,
       mailboxUnread,

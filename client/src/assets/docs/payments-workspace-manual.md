@@ -44,6 +44,8 @@ Use the Register checkout drawer to collect payment. Start card refunds from the
 3. If **Sync Status** says **Sync overdue**, run **Sync Batches** before treating a zero-payment day as current. A completed historical run is not current payment evidence.
 4. Treat warning and critical issues as evidence to investigate, not automatic permission to edit a Transaction Record.
 5. Open the related tab for details.
+
+The Overview shows fee and net totals once, followed by one settlement-details notice when either value is still pending. Pending provider details are not zero and do not change the Riverside ledger. Reconciliation leads with grouped incident cause, affected count, known amount, oldest age, and the last successful sync; expand the record list for exact evidence.
 6. Record a review note when the issue requires follow-up across shifts.
 
 ## Review batches and deposits
@@ -70,9 +72,12 @@ Creating a manual deposit or accepting a variance is an audited manager/bookkeep
 
 1. Open **Transactions**, set the needed date range, and search by customer, `TXN-` number, provider transaction, batch, or payment method. Select **Apply** to search the complete period.
 2. Follow the Transaction number to the financial record when one is linked.
+3. Use **Disputes** for dispute, chargeback, duplicate, refund, and reversal signals. It is a review workbench; it does not claim that Helcim exposes a supported dispute-response action.
 3. An approved **Card Not Present** payment that lost its checkout attachment appears as **Unlinked** / **Missing ROS TXN**. Do not charge the card again; finish the retained checkout or use the audited recovery workflow in **Health → Helcim Approval Review**.
 4. Open **Health** for terminal, automatic processor update, sync, provider-reference, and failed-update evidence.
 5. Replay only the stored failed update after its configuration or data problem is corrected.
+
+Deposit review follows one evidence path: **Expected → Actual → Linked → Cleared**. A similar date and amount are not proof of a link; use authoritative processor batch/deposit identifiers before accepting or changing a match.
 6. Confirm the replay attached existing provider evidence rather than creating a second charge.
 
 **Reviewed: no ROS action** records staff's investigation but does not hide or financially resolve an approval that is still unlinked. The approval remains visible until an audited link, recovery, refund, or later processor evidence actually resolves it.

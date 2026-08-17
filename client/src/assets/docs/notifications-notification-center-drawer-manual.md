@@ -103,6 +103,8 @@ If you have broadcast permission:
 
 ## What to watch for
 
+- An **Unread reminder** is created once for the original stale Podium or review alert. Reminder notifications do not generate more reminders. Open the linked conversation or review, then mark the alert read or complete so it leaves the action queue.
+
 - The inbox should earn attention. Routine negative-stock findings and successful fulfillment events stay in their authoritative reports and records rather than creating bell noise.
 - Bundled rows are there to reduce clutter. Expand them to open the exact child item you need.
 - **Dismiss** removes the row from active inbox use, but it does not erase the underlying order, task, or record.

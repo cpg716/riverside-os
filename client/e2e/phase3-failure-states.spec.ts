@@ -223,9 +223,14 @@ test.describe("Phase 3 failure-state coverage", () => {
             customer_name: "Phase Three Blocked",
             item_count: 2,
             fulfilled_item_count: 0,
+            ready_item_count: 1,
+            received_item_count: 1,
             urgency: "blocked",
+            release_status: "payment_required",
+            blocker_codes: ["payment_required"],
             next_deadline: "2026-05-13",
             balance_due: 25,
+            payment_coverage_remaining: 0,
             wedding_party_name: "Phase Three Wedding",
           },
           {
@@ -235,10 +240,15 @@ test.describe("Phase 3 failure-state coverage", () => {
             status: "open",
             customer_name: "Phase Three Ready",
             item_count: 1,
-            fulfilled_item_count: 1,
+            fulfilled_item_count: 0,
+            ready_item_count: 1,
+            received_item_count: 0,
             urgency: "ready",
+            release_status: "ready",
+            blocker_codes: [],
             next_deadline: null,
             balance_due: 0,
+            payment_coverage_remaining: 100,
             wedding_party_name: null,
           },
         ]),
@@ -254,9 +264,9 @@ test.describe("Phase 3 failure-state coverage", () => {
     await expect(
       page.getByText("Blocked pickups first: do not release garments until balance, readiness, or lifecycle blockers are cleared."),
     ).toBeVisible();
-    await expect(page.getByText("Next: Pickup blocked until balance is cleared.")).toBeVisible();
+    await expect(page.getByText("Next: Collect enough payment for a ready item.")).toBeVisible();
     await expect(
-      page.getByText("Escalation: Requires payment collection before release."),
+      page.getByText("Escalation: Collect payment or use the audited Manager Access override."),
     ).toBeVisible();
   });
 

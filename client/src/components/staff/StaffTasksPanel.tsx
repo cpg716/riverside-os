@@ -521,7 +521,24 @@ export default function StaffTasksPanel({
                 </button>
               </div>
               {!me?.open?.length ? (
-                <p className="text-sm text-app-text-muted">No open tasks.</p>
+                <div className="rounded-2xl border border-dashed border-app-border bg-app-surface-2 px-5 py-8 text-center">
+                  <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-app-success/10 text-app-success">
+                    <ListChecks className="h-7 w-7" aria-hidden />
+                  </span>
+                  <p className="mt-3 text-sm font-black text-app-text">You’re caught up</p>
+                  <p className="mx-auto mt-1 max-w-md text-xs font-semibold text-app-text-muted">
+                    New assigned and recurring checklists will appear here with their due date and completion steps.
+                  </p>
+                  {canManage ? (
+                    <button type="button" onClick={() => setSub("admin")} className="ui-btn-secondary mt-4 px-3 py-2 text-xs font-black">
+                      Manage task templates
+                    </button>
+                  ) : canTeam ? (
+                    <button type="button" onClick={() => setSub("team")} className="ui-btn-secondary mt-4 px-3 py-2 text-xs font-black">
+                      View team tasks
+                    </button>
+                  ) : null}
+                </div>
               ) : (
                 <ul className="space-y-2">
                   {me.open.map((t) => (

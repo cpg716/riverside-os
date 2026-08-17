@@ -881,7 +881,7 @@ export default function QboWorkspace({
                 : "bg-amber-100 text-amber-800"
             }`}
           >
-            2 Map accounts {mappingsReady ? "ready" : "needed"}
+            2 {mappedLedgerCount} accounts mapped
           </span>
             <span className="rounded-full bg-app-surface px-2 py-1 text-app-text-muted">
             3 Review + send

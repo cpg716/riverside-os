@@ -470,6 +470,13 @@ function callDurationLabel(seconds: number | null): string | null {
 }
 
 const messageEmojiChoices = ["🙂", "👍", "🙏", "👔", "📸"];
+const messageEmojiLabels: Record<string, string> = {
+  "🙂": "smile",
+  "👍": "thumbs up",
+  "🙏": "thank you",
+  "👔": "necktie",
+  "📸": "camera",
+};
 const messageAttachmentMaxBytes = 5 * 1024 * 1024;
 
 function latestInboundAfterOutbound<T>(
@@ -1090,6 +1097,9 @@ export function CustomerRelationshipHubDrawer({
   const [mergePreviewLoading, setMergePreviewLoading] = useState(false);
   const [mergeConfirmOpen, setMergeConfirmOpen] = useState(false);
   const [mergeBusy, setMergeBusy] = useState(false);
+  const [discardDraftOpen, setDiscardDraftOpen] = useState(false);
+  const [pendingTab, setPendingTab] = useState<HubTab | null>(null);
+  const [pendingClose, setPendingClose] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -2533,13 +2543,69 @@ export function CustomerRelationshipHubDrawer({
     });
   };
 
+  const profileDraftDirty = Boolean(
+    profileDraftBaseline.current &&
+      JSON.stringify(profileDraft) !== JSON.stringify(profileDraftBaseline.current),
+  );
+  const measurementDraftDirty =
+    tab === "measurements" &&
+    JSON.stringify(measDraft) !==
+      JSON.stringify(measurementDraftFromLatest(vault?.latest ?? null));
+  const hasUnsavedDraft = Boolean(
+    profileDraftDirty ||
+      measurementDraftDirty ||
+      noteDraft.trim() ||
+      smsReplyDraft.trim() ||
+      podiumComposeSubject.trim() ||
+      podiumComposeHtml.trim() ||
+      smsAttachment ||
+      emailAttachments.length > 0 ||
+      (showCreatePartner && Object.values(partnerDraft).some((value) => value.trim())),
+  );
+
+  const discardCurrentDrafts = () => {
+    if (profileDraftBaseline.current) {
+      setProfileDraft(profileDraftBaseline.current);
+    }
+    setMeasDraft(measurementDraftFromLatest(vault?.latest ?? null));
+    setNoteDraft("");
+    setSmsReplyDraft("");
+    setSmsAttachment(null);
+    setPodiumComposeSubject("");
+    setPodiumComposeHtml("");
+    setEmailAttachments([]);
+    setShowCreatePartner(false);
+    setPartnerDraft({ first_name: "", last_name: "", email: "", phone: "" });
+  };
+
+  const requestClose = () => {
+    if (!hasUnsavedDraft) {
+      onClose();
+      return;
+    }
+    setPendingTab(null);
+    setPendingClose(true);
+    setDiscardDraftOpen(true);
+  };
+
+  const requestTab = (nextTab: HubTab) => {
+    if (nextTab === tab) return;
+    if (!hasUnsavedDraft) {
+      setTab(nextTab);
+      return;
+    }
+    setPendingClose(false);
+    setPendingTab(nextTab);
+    setDiscardDraftOpen(true);
+  };
+
   const tabBtn = (id: HubTab, label: string) => (
     <button
       key={id}
       type="button"
       role="tab"
       aria-selected={tab === id}
-      onClick={() => setTab(id)}
+      onClick={() => requestTab(id)}
       className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-[0.12em] transition-colors ${
         tab === id
           ? "bg-app-accent text-white"
@@ -2653,24 +2719,46 @@ export function CustomerRelationshipHubDrawer({
   return (
     <DetailDrawer
       isOpen={open}
-      onClose={onClose}
+      onClose={requestClose}
       title={title}
       subtitle={subtitle}
       panelMaxClassName={panelMaxClassName}
       titleClassName="!normal-case !tracking-tight"
       actions={
-        <div role="tablist" aria-label="Customer hub sections" className="flex flex-wrap gap-2">
-          {tabBtn("profile", "Profile")}
-          {tabBtn("messages", "Messages")}
-          {canShipmentsView ? tabBtn("shipments", "Shipping") : null}
-          {canOrdersView ? tabBtn("transactions", "History") : null}
-          {canOrdersView ? tabBtn("orders", "Orders") : null}
-          {canOrdersView ? tabBtn("layaways", "Layaways") : null}
-          {canAlterationsView ? tabBtn("alterations", "Alterations") : null}
-          {tabBtn("loyalty", "Loyalty")}
-          {canMeasurements ? tabBtn("measurements", "Measurements") : null}
-          {tabBtn("weddings", "Weddings")}
-        </div>
+        isCompactHub ? (
+          <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Customer section
+            <select
+              value={tab}
+              onChange={(event) => requestTab(event.target.value as HubTab)}
+              className="ui-input min-h-11 min-w-48 px-3 text-xs font-black text-app-text"
+            >
+              <option value="profile">Profile</option>
+              <option value="messages">Messages</option>
+              {canShipmentsView ? <option value="shipments">Shipping</option> : null}
+              {canOrdersView ? <option value="transactions">History</option> : null}
+              {canOrdersView ? <option value="orders">Orders</option> : null}
+              {canOrdersView ? <option value="layaways">Layaways</option> : null}
+              {canAlterationsView ? <option value="alterations">Alterations</option> : null}
+              <option value="loyalty">Loyalty</option>
+              {canMeasurements ? <option value="measurements">Measurements</option> : null}
+              <option value="weddings">Weddings</option>
+            </select>
+          </label>
+        ) : (
+          <div role="tablist" aria-label="Customer hub sections" className="flex flex-wrap gap-2">
+            {tabBtn("profile", "Profile")}
+            {tabBtn("messages", "Messages")}
+            {canShipmentsView ? tabBtn("shipments", "Shipping") : null}
+            {canOrdersView ? tabBtn("transactions", "History") : null}
+            {canOrdersView ? tabBtn("orders", "Orders") : null}
+            {canOrdersView ? tabBtn("layaways", "Layaways") : null}
+            {canAlterationsView ? tabBtn("alterations", "Alterations") : null}
+            {tabBtn("loyalty", "Loyalty")}
+            {canMeasurements ? tabBtn("measurements", "Measurements") : null}
+            {tabBtn("weddings", "Weddings")}
+          </div>
+        )
       }
     >
       {tab === "transactions" || tab === "orders" ? (
@@ -3430,13 +3518,42 @@ export function CustomerRelationshipHubDrawer({
           </section>
         </div>
       ) : !permissionsLoaded || loading || !hub ? (
-        <p className="text-sm text-app-text-muted">
-          {!permissionsLoaded
-            ? "Checking access…"
-            : loading
-              ? "Loading customer hub…"
-              : (err ?? "No data.")}
-        </p>
+        !permissionsLoaded || loading ? (
+          <div className="space-y-4" role="status" aria-live="polite">
+            <div className="ui-card flex items-center gap-4 p-4">
+              <div className="h-12 w-12 animate-pulse rounded-2xl bg-app-border/40" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="h-4 w-48 max-w-full animate-pulse rounded bg-app-border/50" />
+                <div className="h-3 w-32 animate-pulse rounded bg-app-border/30" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {["Sale", "Message", "Appointment", "Wedding"].map((label) => (
+                <div
+                  key={label}
+                  className="rounded-2xl border border-app-border bg-app-surface-2 p-4"
+                >
+                  <div className="h-8 w-8 animate-pulse rounded-xl bg-app-border/40" />
+                  <p className="mt-3 text-xs font-black text-app-text-muted">
+                    {label}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <p className="text-sm font-semibold text-app-text-muted">
+              {!permissionsLoaded
+                ? "Checking customer access…"
+                : "Loading customer overview…"}
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-app-warning/30 bg-app-warning/10 p-5">
+            <p className="font-black text-app-text">Customer overview unavailable</p>
+            <p className="mt-1 text-sm text-app-text-muted">
+              {err ?? "No customer data was returned. Close and try again."}
+            </p>
+          </div>
+        )
       ) : (
         <div className="flex flex-col gap-3">
           {showHubSummary ? (
@@ -4275,6 +4392,7 @@ export function CustomerRelationshipHubDrawer({
                               key={emoji}
                               type="button"
                               onClick={() => appendComposeEmoji(emoji)}
+                              aria-label={`Insert ${messageEmojiLabels[emoji] ?? "emoji"}`}
                               className="rounded-full border border-app-border bg-app-surface px-2 py-1 text-sm"
                             >
                               {emoji}
@@ -4396,6 +4514,7 @@ export function CustomerRelationshipHubDrawer({
                               key={emoji}
                               type="button"
                               onClick={() => appendComposeEmoji(emoji)}
+                              aria-label={`Insert ${messageEmojiLabels[emoji] ?? "emoji"}`}
                               className="rounded-full border border-app-border bg-app-surface px-2 py-1 text-sm"
                             >
                               {emoji}
@@ -5042,7 +5161,7 @@ export function CustomerRelationshipHubDrawer({
                           label: "Balance answer",
                           value: balanceDue ? fmtMoney(hub.stats.balance_due_usd) : "Clear",
                           helper: balanceDue
-                            ? "Collect before pickup or release."
+                            ? "Review item-level payment coverage before pickup."
                             : "No balance due visible.",
                           tone: balanceDue ? "warn" : "ok",
                         },
@@ -5637,6 +5756,28 @@ export function CustomerRelationshipHubDrawer({
           )}
         </div>
       )}
+      <ConfirmationModal
+        isOpen={discardDraftOpen}
+        onClose={() => {
+          setDiscardDraftOpen(false);
+          setPendingClose(false);
+          setPendingTab(null);
+        }}
+        onConfirm={() => {
+          const nextTab = pendingTab;
+          const shouldClose = pendingClose;
+          discardCurrentDrafts();
+          setDiscardDraftOpen(false);
+          setPendingClose(false);
+          setPendingTab(null);
+          if (shouldClose) onClose();
+          else if (nextTab) setTab(nextTab);
+        }}
+        title="Discard unsaved customer changes?"
+        message="This customer workspace has unsaved profile, measurement, note, or message content. Discard it before leaving this section?"
+        confirmLabel="Discard changes"
+        variant="danger"
+      />
       <ConfirmationModal
         isOpen={unlinkConfirmOpen}
         onClose={() => {

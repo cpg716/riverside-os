@@ -29,8 +29,9 @@ Deterministic customer facts stay primary. Optional ROSIE customer snapshot insi
 
 1. Confirm the customer name and contact details.
 2. Review **Quick look** directly below the contact fields for balances, loyalty, active work, wedding status, and recent customer context.
-3. Open the needed tab for orders, alterations, loyalty, messages, measurements, or timeline.
-4. Treat degraded section messages as missing data until that section reloads.
+3. Open the needed tab for orders, alterations, loyalty, messages, measurements, or timeline. On a compact screen, use the single **Customer section** menu instead of a wall of tabs.
+4. If you have an unsaved profile, measurement, note, message, attachment, or linked-profile draft, Riverside asks before closing the Hub or changing sections. Choose **Keep editing** to preserve the draft or **Discard changes** to reset it.
+5. Treat degraded section messages as missing data until that section reloads.
 
 ## ✨ Things to know
 

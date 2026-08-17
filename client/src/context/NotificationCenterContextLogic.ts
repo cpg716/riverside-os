@@ -26,6 +26,7 @@ export type NotificationRow = {
 
 export type NotificationCenterContextValue = {
   unread: number;
+  actionRequired: number;
   /** Shared active preview used by dashboards so notification data has one owner. */
   notifications: NotificationRow[];
   /** Shared unread Podium conversations from the authoritative inbox state. */

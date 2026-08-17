@@ -34,6 +34,8 @@ This workspace handles the administrative lifecycle of your team. It is divided 
 
 ## Staff Profile Layout
 
+Team opens to **Active Staff**. Search by name or staff type, and change the account-status filter only when inactive or imported profiles are needed. Cards keep identity, staff type, Access PIN status, and contact context visible; open **Profile details** for economics and CRM linkage, or **Edit profile** for the full record.
+
 When you select a staff member, their profile is organized for clarity:
 
 - **Left Column (Identity)**: Contains the staff member's full name, display name, employment dates, and their 4-digit **Access PIN**.

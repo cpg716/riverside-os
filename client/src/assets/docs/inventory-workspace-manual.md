@@ -45,6 +45,9 @@ Each subsection is job-based:
 
 ## Workflow notes
 
+- The Inventory Hub summary shows current Asset Value, variants **At / Below Zero**, replenishment candidates, and active vendors. Large counts use digit grouping. Riverside does not calculate or display a trend unless real comparison data exists.
+- A dash or **Summary unavailable** means the summary request failed; it is not a zero. Inventory tools remain available, but retry before treating any summary as clear.
+
 - **Receive Stock** opens the purchase-order-backed workflow directly. It is not a separate manual stock-adjustment path.
 - Standard POs must be **drafted**, lined, and **submitted** before receiving can begin.
 - Direct invoices skip the separate submit step but still land in the same **Receive Stock** final posting path.

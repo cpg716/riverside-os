@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-16T22:16:28.108Z",
+  "generated_at": "2026-08-17T02:36:39.816Z",
   "standard_version": "help-manual-standard-v3",
   "published_manual_count": 73,
   "draft_manual_count": 0,
@@ -554,7 +554,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 42,
+      "numbered_steps": 43,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -620,7 +620,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 24,
+      "numbered_steps": 26,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -952,7 +952,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
+      "numbered_steps": 5,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []

@@ -842,6 +842,7 @@ function App() {
           "deposits",
           "reconciliation",
           "transactions",
+          "disputes",
           "health",
         ]);
         setActiveSubSection(allowedPayments.has(sec) ? sec : "overview");
@@ -1326,6 +1327,7 @@ const POS_SHELL_TABS = new Set<SidebarTabId>([
   "mailbox",
   "inventory",
   "orders",
+  "payments",
   "weddings",
   "alterations",
   "reports",
@@ -1335,6 +1337,53 @@ const POS_SHELL_TABS = new Set<SidebarTabId>([
   "shipping",
   "settings",
 ]);
+
+function contextualHelpManualId(tab: SidebarTabId, section: string): string {
+  if (tab === "home") {
+    if (section === "daily-sales") return "pos-register-reports";
+    if (section === "fulfillment") return "operations-fulfillment-command-center";
+    if (section === "inbox") return "customers-podium-messaging-inbox-section";
+    if (section === "notification-queue" || section === "reviews") {
+      return "notifications-notification-center-drawer";
+    }
+    return "operations-operational-home";
+  }
+  if (tab === "customers" && section === "shipments") return "customers-shipments-hub-section";
+  if (tab === "customers" && section === "rms-charge") return "customers-rms-charge-admin-section";
+  if (tab === "inventory" && section === "physical") return "inventory-physical-inventory-workspace";
+  if (tab === "inventory" && section === "purchase_orders") return "inventory-purchase-order-panel";
+  if (tab === "inventory" && section === "receiving") return "inventory-receiving-bay";
+  if (tab === "staff" && section === "schedule") return "staff-schedule-panel";
+  if (tab === "staff" && section === "commission") return "staff-commission-manager-workspace";
+  if (tab === "settings" && section === "printers-scanners") return "settings-printers-and-scanners-panel";
+  if (tab === "settings" && section === "helcim") return "settings-helcim-settings-panel";
+
+  const manualByTab: Partial<Record<SidebarTabId, string>> = {
+    register: "pos",
+    "pos-dashboard": "pos-register-dashboard",
+    customers: "customers-workspace",
+    "rms-charge": "customers-rms-charge-admin-section",
+    "customer-notifications": "notifications-notification-center-drawer",
+    "podium-inbox": "customers-podium-messaging-inbox-section",
+    mailbox: "notifications-notification-center-drawer",
+    alterations: "alterations-workspace",
+    orders: "orders-workspace",
+    inventory: "inventory-workspace",
+    "online-store": "online-store-workspace",
+    weddings: "wedding-manager",
+    "gift-cards": "gift-cards-workspace",
+    loyalty: "loyalty-workspace",
+    staff: "staff-workspace",
+    qbo: "qbo-workspace",
+    payments: "payments-workspace",
+    appointments: "scheduler-workspace",
+    reports: "reports-workspace",
+    dashboard: "insights",
+    shipping: "pos-shipping-manual",
+    settings: "getting-started",
+  };
+  return manualByTab[tab] ?? "getting-started";
+}
 
 function AppShell({
   posMode,
@@ -1808,7 +1857,11 @@ function AppShell({
         onShellReturn={onShellReturn}
         isRegisterOpen={isRegisterOpen}
         onOpenHelp={() => {
-          setHelpDrawerInitialTarget(null);
+          setHelpDrawerInitialTarget({
+            query: "",
+            manualId: contextualHelpManualId(activeTab, activeSubSection),
+            sectionSlug: "",
+          });
           setHelpDrawerMode("browse");
           setHelpDrawerOpen(true);
         }}

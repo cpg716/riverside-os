@@ -46,15 +46,17 @@ Use the **Scheduler** to:
 ## Steps
 
 1. Open **Appointments → Scheduler** in the sidebar.
-2. Use the top search field first when looking for an existing booking by customer or appointment detail.
+2. Open **Find appointment** when looking for an existing booking by customer or appointment detail. Search and Print remain compact utilities so the date, Day/Week view, Today, and New Appointment controls stay primary.
 3. Select your preferred view with **Day** or **Week**, then use the date controls or **Today** to move the calendar.
-4. **Book Appointment**: Click on an empty time slot or use the **New Appt** button.
+4. **Book Appointment**: Click on an empty time slot or use the **New Appt** button. When the entire day is open, choose the visual **Morning**, **Afternoon**, or **Evening** window; adjust the exact time before saving.
 5. Fill in the **Customer**, **Appointment Type**, **Duration**, optional **Rooms & Resources**, and **Assigned Staff**.
 6. Save the appointment. If the booking overlaps assigned staff or exceeds resource capacity, choose another slot or use an approved Manager Access override with a written reason.
 7. To edit or move an appointment, select the appointment, change its date or time in the dialog, and save. ROS warns when another workstation changed the same appointment first.
 8. Mark the visit **Attended** or **Missed** after it occurs. To cancel, enter a reason and use **Cancel Appointment**; ROS preserves the history.
 
 ## What to watch for
+
+- Riverside shows a loading state while a new day refreshes. **The day is open** appears only after a successful refresh confirms no scheduled appointments.
 
 - **Conflicts**: Open **Appointments → Conflicts** to review staff overlaps, room/resource capacity conflicts, and configured resource capacities.
 - **Calendar authority**: ROS is the appointment calendar. Podium carries enabled messages; it is not a second booking calendar. Google/Outlook calendar synchronization is not part of this workflow.

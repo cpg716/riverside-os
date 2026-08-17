@@ -379,27 +379,21 @@ export default function InventoryWorkspace({
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
   const baseUrl = getBaseUrl();
-  const [globalStats, setGlobalStats] = useState<BoardStats>({
-    total_asset_value: "0.00",
-    skus_out_of_stock: 0,
-    active_vendors: 0,
-    need_label_skus: 0,
-    oos_replenishment_skus: 0,
-  });
+  const [globalStats, setGlobalStats] = useState<BoardStats | null>(null);
+  const [globalStatsError, setGlobalStatsError] = useState<string | null>(null);
 
   const refreshGlobalStats = useCallback(async () => {
     try {
       const res = await fetch(apiUrl(baseUrl, "/api/inventory/control-board?limit=1"), {
         headers: mergedPosStaffHeaders(backofficeHeaders),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setGlobalStats(data.stats);
-      }
+      if (!res.ok) throw new Error(`Inventory summary failed with status ${res.status}`);
+      const data = await res.json();
+      setGlobalStats(data.stats);
+      setGlobalStatsError(null);
     } catch (e) {
       console.error("Failed to fetch global inventory stats", e);
-    } finally {
-      // stats loading handled implicitly by data presence
+      setGlobalStatsError("Inventory totals are temporarily unavailable. Operational tools remain available.");
     }
   }, [baseUrl, backofficeHeaders]);
 
@@ -490,51 +484,73 @@ export default function InventoryWorkspace({
                   <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                     <DashboardStatsCard
                       title="Asset Value"
-                      value={formatUsdFromCents(parseMoneyToCents(globalStats.total_asset_value))}
+                      value={globalStats ? formatUsdFromCents(parseMoneyToCents(globalStats.total_asset_value)) : "—"}
                       icon={TrendingUp}
-                      trend={{ value: "+2.4%", isUp: true }}
                     />
                     <DashboardStatsCard
-                      title="Stock Alerts"
-                      value={globalStats.skus_out_of_stock.toString()}
+                      title="At / Below Zero"
+                      value={globalStats ? new Intl.NumberFormat().format(globalStats.skus_out_of_stock) : "—"}
                       icon={AlertCircle}
                       color="orange"
                     />
                     <DashboardStatsCard
                       title="Replenishments"
-                      value={(globalStats.oos_replenishment_skus || 0).toString()}
+                      value={globalStats ? new Intl.NumberFormat().format(globalStats.oos_replenishment_skus || 0) : "—"}
                       icon={INVENTORY_ICON}
                     />
                     <DashboardStatsCard
                       title="Vendors"
-                      value={globalStats.active_vendors.toString()}
+                      value={globalStats ? new Intl.NumberFormat().format(globalStats.active_vendors) : "—"}
                       icon={VENDOR_ICON}
                       color="purple"
                     />
                   </div>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {INVENTORY_JOBS.map((job) => (
-                    <section
-                      key={job.label}
-                      className="rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setSection(job.primarySection)}
-                        className="block w-full rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-left transition-all hover:border-app-accent hover:text-app-accent active:scale-95"
-                      >
-                        <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-app-text">
-                          {job.label}
-                        </span>
-                        <span className="mt-2 block text-[11px] font-semibold leading-relaxed text-app-text-muted">
-                          {job.description}
-                        </span>
-                      </button>
-                      {renderSubtoolChips(job)}
-                    </section>
-                  ))}
+                {globalStatsError ? (
+                  <div className="flex items-start gap-3 rounded-2xl border border-app-warning/30 bg-app-warning/10 px-4 py-3 text-sm text-app-warning" role="status">
+                    <AlertCircle className="mt-0.5 shrink-0" size={18} aria-hidden />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-black">Summary unavailable</p>
+                      <p className="mt-0.5 text-xs font-semibold opacity-90">{globalStatsError}</p>
+                    </div>
+                    <button type="button" onClick={() => void refreshGlobalStats()} className="ui-btn-secondary shrink-0">
+                      Retry
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="ui-card p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Priority work</p>
+                      <p className="mt-1 text-sm font-semibold text-app-text">Open a queue from current inventory evidence.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => setSection("list")} className="ui-btn-primary px-4 py-2 text-xs font-black">Find item</button>
+                      <button type="button" onClick={() => setSection("receiving")} className="ui-btn-secondary px-4 py-2 text-xs font-black">Receive stock</button>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <button type="button" onClick={() => setSection("list")} className="rounded-2xl border border-app-warning/25 bg-app-warning/10 p-4 text-left transition hover:border-app-warning">
+                      <AlertCircle className="h-6 w-6 text-app-warning" aria-hidden />
+                      <p className="mt-3 text-2xl font-black tabular-nums text-app-text">{globalStats ? globalStats.skus_out_of_stock.toLocaleString() : "—"}</p>
+                      <p className="text-xs font-black uppercase tracking-wider text-app-warning">At or below zero</p>
+                      <p className="mt-1 text-xs font-semibold text-app-text-muted">Find affected SKUs and review stock evidence.</p>
+                    </button>
+                    <button type="button" onClick={() => setSection("intelligence")} className="rounded-2xl border border-app-accent/25 bg-app-accent/10 p-4 text-left transition hover:border-app-accent">
+                      <INVENTORY_ICON className="h-6 w-6 text-app-accent" aria-hidden />
+                      <p className="mt-3 text-2xl font-black tabular-nums text-app-text">{globalStats ? (globalStats.oos_replenishment_skus ?? 0).toLocaleString() : "—"}</p>
+                      <p className="text-xs font-black uppercase tracking-wider text-app-accent">Replenishment candidates</p>
+                      <p className="mt-1 text-xs font-semibold text-app-text-muted">Review explained buying guidance before ordering.</p>
+                    </button>
+                    <button type="button" onClick={() => setSection("list")} className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left transition hover:border-app-accent">
+                      <VENDOR_ICON className="h-6 w-6 text-app-text-muted" aria-hidden />
+                      <p className="mt-3 text-2xl font-black tabular-nums text-app-text">{globalStats ? globalStats.need_label_skus.toLocaleString() : "—"}</p>
+                      <p className="text-xs font-black uppercase tracking-wider text-app-text-muted">Labels needed</p>
+                      <p className="mt-1 text-xs font-semibold text-app-text-muted">Open item search and work the label queue.</p>
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (

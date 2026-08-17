@@ -33,6 +33,8 @@ Use the direct POS destinations to move between register-side tools without open
 
 ## How to use it
 
+The rail lists the most-used staff workspaces first. Choose **More workspaces** for Insights, Gift Cards, Loyalty, Shipping, Online Store, QBO bridge, and Settings. If one of those workspaces is already open, it remains visible until you leave it. The rail does not repeat POS/Back Office badges on every row; permissions and the workspace itself remain authoritative.
+
 1. Open **Register** when you are ringing a customer.
 2. Use **Customers** before or during checkout when the sale needs a customer record.
 3. Select **Orders**, **Weddings**, **Alterations**, **Tasks**, or a messaging destination directly for customer follow-up.

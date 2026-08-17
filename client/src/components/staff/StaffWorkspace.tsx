@@ -220,6 +220,7 @@ export default function StaffWorkspace({
     }
   }, [activeSection]);
   const [roster, setRoster] = useState<HubRow[]>([]);
+  const [rosterLoading, setRosterLoading] = useState(true);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [statusFilter, setStatusFilter] = useState<StaffStatusFilter>("active");
@@ -248,6 +249,7 @@ export default function StaffWorkspace({
 
   const refreshRoster = useCallback(async () => {
     setLoadErr(null);
+    setRosterLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/staff/admin/roster`, {
         headers: backofficeHeaders(),
@@ -257,6 +259,8 @@ export default function StaffWorkspace({
       setRoster(Array.isArray(rows) ? rows : []);
     } catch (e) {
       setLoadErr(e instanceof Error ? e.message : "Load failed");
+    } finally {
+      setRosterLoading(false);
     }
   }, [backofficeHeaders]);
 
@@ -611,7 +615,7 @@ export default function StaffWorkspace({
                 <input
                   type="text"
                   aria-label="Search staff"
-                  placeholder="Search staff by name, PIN or role…"
+                  placeholder="Search by name or staff type…"
                   className="ui-input w-full pl-10"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
@@ -704,16 +708,7 @@ export default function StaffWorkspace({
               {filteredRoster.map((r) => (
                 <div
                   key={r.id}
-                  tabIndex={0}
-                  aria-label={`Edit ${r.full_name}`}
-                  className="ui-card flex touch-manipulation cursor-pointer select-none flex-col p-4 transition-colors active:bg-app-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30"
-                  onClick={() => openEdit(r)}
-                  onKeyDown={(event) => {
-                    if (event.target !== event.currentTarget) return;
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    openEdit(r);
-                  }}
+                  className="ui-card flex flex-col p-4"
                 >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-start gap-3">
@@ -752,61 +747,30 @@ export default function StaffWorkspace({
                     {r.has_pin ? "PIN set" : "No PIN"}
                   </span>
                 </div>
-                <dl className="mt-3 grid gap-1 text-xs text-app-text-muted">
-                  <div className="flex justify-between gap-2">
-                    <dt>Sales MTD</dt>
-                    <dd className="font-bold tabular-nums text-app-text">
-                      {money(r.sales_mtd)}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <dt>Base commission</dt>
-                    <dd className="font-bold tabular-nums text-app-text">
-                      {pctFromDecimal(r.base_commission_rate)}%
-                    </dd>
-                  </div>
+                <div className="mt-3 min-h-5 text-xs font-semibold text-app-text-muted">
                   {r.phone ? (
-                    <div className="flex justify-between gap-2">
-                      <dt>Phone</dt>
-                      <dd className="font-bold text-app-text">{r.phone}</dd>
-                    </div>
-                  ) : null}
-                  {r.email ? (
-                    <div className="flex justify-between gap-2">
-                      <dt>Email</dt>
-                      <dd className="max-w-[10rem] truncate font-bold text-app-text" title={r.email}>
-                        {r.email}
-                      </dd>
-                    </div>
-                  ) : null}
-                  <div className="flex justify-between gap-2">
-                    <dt>Max discount</dt>
-                    <dd className="font-bold tabular-nums text-app-text">
-                      {String(r.max_discount_percent ?? "—")}%
-                    </dd>
-                  </div>
-                  {r.employee_customer_code ? (
-                    <div className="flex justify-between gap-2">
-                      <dt>Employee CRM</dt>
-                      <dd className="truncate font-bold text-app-text" title={r.employee_customer_code}>
-                        {r.employee_customer_code}
-                      </dd>
-                    </div>
-                  ) : null}
-                  {r.staff_account_balance != null ? (
-                    <div className="flex justify-between gap-2">
-                      <dt>Staff acct</dt>
-                      <dd className="font-bold tabular-nums text-app-text">{money(r.staff_account_balance)}</dd>
-                    </div>
-                  ) : null}
-                </dl>
+                    <span>{r.phone}</span>
+                  ) : r.email ? (
+                    <span className="block truncate" title={r.email}>{r.email}</span>
+                  ) : (
+                    <span>No contact details</span>
+                  )}
+                </div>
+                <details className="mt-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs">
+                  <summary className="cursor-pointer font-black text-app-text-muted">Profile details</summary>
+                  <dl className="mt-3 grid gap-1 text-app-text-muted">
+                    <div className="flex justify-between gap-2"><dt>Sales MTD</dt><dd className="font-bold tabular-nums text-app-text">{money(r.sales_mtd)}</dd></div>
+                    <div className="flex justify-between gap-2"><dt>Base commission</dt><dd className="font-bold tabular-nums text-app-text">{pctFromDecimal(r.base_commission_rate)}%</dd></div>
+                    <div className="flex justify-between gap-2"><dt>Max discount</dt><dd className="font-bold tabular-nums text-app-text">{String(r.max_discount_percent ?? "—")}%</dd></div>
+                    {r.employee_customer_code ? <div className="flex justify-between gap-2"><dt>Employee CRM</dt><dd className="truncate font-bold text-app-text" title={r.employee_customer_code}>{r.employee_customer_code}</dd></div> : null}
+                    {r.staff_account_balance != null ? <div className="flex justify-between gap-2"><dt>Staff account</dt><dd className="font-bold tabular-nums text-app-text">{money(r.staff_account_balance)}</dd></div> : null}
+                  </dl>
+                </details>
                 <div className="mt-auto pt-4">
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditRow(r);
-                    }}
+                    onClick={() => openEdit(r)}
+                    aria-label={`Edit ${r.full_name} profile`}
                     className="ui-btn-secondary w-full py-2.5 flex items-center justify-center"
                   >
                     Edit profile
@@ -814,6 +778,17 @@ export default function StaffWorkspace({
                 </div>
               </div>
             ))}
+            {rosterLoading && roster.length === 0 ? (
+              <div className="col-span-full rounded-2xl border border-app-border bg-app-surface-2 px-5 py-10 text-center text-sm font-bold text-app-text-muted" role="status">
+                Loading staff…
+              </div>
+            ) : null}
+            {!rosterLoading && filteredRoster.length === 0 ? (
+              <div className="col-span-full rounded-2xl border border-dashed border-app-border px-5 py-10 text-center">
+                <p className="font-black text-app-text">No staff match this view</p>
+                <p className="mt-1 text-sm text-app-text-muted">Clear the search or choose a different account status.</p>
+              </div>
+            ) : null}
           </div>
           </div>
         </section>

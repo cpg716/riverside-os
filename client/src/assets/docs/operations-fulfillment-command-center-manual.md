@@ -28,7 +28,7 @@ It highlights:
 - **Ready for Pickup**
 - **Rush Orders**
 - **Due Soon**
-- **Stagnant / Blocked**
+- **Blocked**
 
 This is narrower than the full **Orders** workspace. Use it to decide what needs attention first.
 
@@ -41,14 +41,16 @@ This is narrower than the full **Orders** workspace. Use it to decide what needs
 
 ## Operational detail
 
-Use Pickup Queue as a priority list, then complete the work from the source order work or linked Transaction Record. Ready, rush, due-soon, and blocked labels are prompts for staff follow-up; they do not replace balance checks, fulfillment status, or customer communication notes. If the queue seems stale, refresh before calling customers.
+Pickup Queue contains release work only: ordered items that are **Received** or **Ready for Pickup**. Earlier procurement and measurement work stays in **Orders**. Each row uses the same item readiness and recorded-payment evidence as the pickup workflow. A remaining Transaction balance is shown for context, but it blocks the next pickup only when recorded payment does not cover even one ready item after merchandise already released.
+
+Use the row's **Next** instruction. **Verify readiness** means at least one received garment still needs its Ready for Pickup check. **Payment needed** means staff must collect enough payment for a ready item or use the audited Manager Access override. **Partial** means only the displayed ready garments may be released.
 
 
 ## Tips
 
 - **Ready for Pickup** is about customer release and follow-up.
 - **Rush** and **Due Soon** help staff prioritize same-day and near-term work.
-- **Blocked** is the cleanup list for orders that have stalled and need staff action.
+- **Blocked** identifies a current release blocker, such as readiness verification or insufficient recorded payment coverage. It is not an age-only cleanup label.
 
 ## What happens next
 

@@ -6,6 +6,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
 interface PartyRow {
   id: string;
@@ -41,6 +42,10 @@ export default function AttachOrderToWeddingModal({
   const [role, setRole] = useState("Groomsman");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const { dialogRef, titleId } = useDialogAccessibility(isOpen, {
+    onEscape: onClose,
+    closeOnEscape: !busy,
+  });
 
   // New Party Form
   const [newPartyName, setNewPartyName] = useState("");
@@ -120,6 +125,10 @@ export default function AttachOrderToWeddingModal({
   return createPortal(
     <div className="ui-overlay-backdrop !z-[200]">
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="w-full max-w-xl rounded-3xl border border-app-border bg-app-surface shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200"
       >
         <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 p-6">
@@ -128,7 +137,7 @@ export default function AttachOrderToWeddingModal({
               <Heart size={20} />
             </div>
             <div>
-              <h3 className="text-xl font-black italic tracking-tighter text-app-text uppercase">
+              <h3 id={titleId} className="text-xl font-black italic tracking-tighter text-app-text uppercase">
                 Attach to Wedding
               </h3>
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
@@ -136,7 +145,7 @@ export default function AttachOrderToWeddingModal({
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-full bg-app-surface-3 p-2 text-app-text-muted hover:bg-app-accent hover:text-white transition-all">
+          <button type="button" onClick={onClose} disabled={busy} aria-label="Close wedding link" className="rounded-full bg-app-surface-3 p-2 text-app-text-muted hover:bg-app-accent hover:text-white transition-all disabled:opacity-50">
             <X size={20} />
           </button>
         </div>

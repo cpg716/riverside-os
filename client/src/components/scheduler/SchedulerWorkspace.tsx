@@ -189,6 +189,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [searchFailed, setSearchFailed] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [isLoadingAppointments, setIsLoadingAppointments] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [conflictsRefreshKey, setConflictsRefreshKey] = useState(0);
   const searchRequestRef = useRef(0);
@@ -198,6 +199,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
 
   const fetchAppointments = useCallback(async () => {
     const requestId = ++appointmentsRequestRef.current;
+    setIsLoadingAppointments(true);
     try {
       let startStr, endStr;
       const start = new Date(selectedDate);
@@ -229,6 +231,8 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
       if (requestId !== appointmentsRequestRef.current) return;
       console.error("Failed to fetch appointments:", err);
       setLoadError("Appointments could not refresh. Check the connection and try again.");
+    } finally {
+      if (requestId === appointmentsRequestRef.current) setIsLoadingAppointments(false);
     }
   }, [selectedDate, viewMode, wmHeaders]);
 
@@ -415,6 +419,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
 
   const printableRows = useMemo<PrintableRow[]>(() => {
     if (viewMode === "day") {
+      if (selectedDayAppointments.length === 0) return [];
       const dateStr = localDateKey(selectedDate);
       const dayRows: PrintableRow[] = [];
       timeSlots.forEach((time) => {
@@ -484,7 +489,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
       });
     });
     return weekRows;
-  }, [appointments, selectedDate, timeSlots, viewMode, weekDates]);
+  }, [appointments, selectedDate, selectedDayAppointments.length, timeSlots, viewMode, weekDates]);
 
   const printTitle = useMemo(() => {
     if (viewMode === "day") return formatApptDate(selectedDate);
@@ -604,8 +609,13 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
             </div>
           </div>
 
-            <div className="relative group/search min-w-[18rem] flex-1 xl:max-w-sm">
-              <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${searchQuery ? 'text-app-accent' : 'text-app-text-muted'}`} />
+            <details className="group/search relative w-full sm:w-auto">
+              <summary className="ui-touch-target flex min-h-11 cursor-pointer list-none items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text">
+                <Search size={15} aria-hidden />
+                Find appointment
+              </summary>
+              <div className="relative mt-2 min-w-0 sm:min-w-[18rem] xl:w-96">
+              <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${searchQuery ? 'text-app-accent' : 'text-app-text-muted'}`} aria-hidden />
               <input
                 type="text"
                 placeholder="Search appointments…"
@@ -690,7 +700,8 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                   )}
                 </div>
               )}
-            </div>
+              </div>
+            </details>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -777,26 +788,46 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
         ) : null}
         {viewMode === 'day' ? (
           <div className="mx-auto max-w-5xl rounded-2xl border border-app-border bg-app-surface shadow-2xl shadow-black/10 overflow-hidden print:border-0 print:shadow-none">
-            {!loadError && selectedDayAppointments.length === 0 ? (
-              <div className="flex flex-col gap-3 border-b border-app-border bg-app-surface-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="text-sm font-black text-app-text">
-                    No appointments scheduled for this day
-                  </p>
+            {isLoadingAppointments && selectedDayAppointments.length === 0 ? (
+              <div className="flex min-h-64 items-center justify-center px-6 py-12" role="status">
+                <div className="text-center">
+                  <Calendar className="mx-auto animate-pulse text-app-accent" size={38} aria-hidden />
+                  <p className="mt-3 text-sm font-black text-app-text">Loading the day’s schedule…</p>
+                </div>
+              </div>
+            ) : !loadError && selectedDayAppointments.length === 0 ? (
+              <div className="p-5 sm:p-7">
+                <div className="mx-auto max-w-2xl text-center">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-500">
+                    <Calendar size={28} aria-hidden />
+                  </div>
+                  <p className="mt-4 text-lg font-black text-app-text">The day is open</p>
                   <p className="mt-1 text-sm text-app-text-muted">
-                    Choose any time slot below or create an appointment now.
+                    No appointments are scheduled. Start in a time window below; the exact time can be adjusted before saving.
                   </p>
                 </div>
-                {canMutate ? <button
-                  type="button"
-                  onClick={() => handleAddApptAtDate(selectedDate, "09:00")}
-                  className="ui-btn-primary inline-flex items-center justify-center gap-2"
-                >
-                  <Plus size={16} aria-hidden />
-                  New Appointment
-                </button> : null}
+                {canMutate ? (
+                  <div className="mx-auto mt-6 grid max-w-3xl gap-3 sm:grid-cols-3">
+                    {[
+                      { label: "Morning", time: "09:00", range: "8 AM–12 PM" },
+                      { label: "Afternoon", time: "13:00", range: "12–5 PM" },
+                      { label: "Evening", time: "17:30", range: "5–9 PM" },
+                    ].map((window) => (
+                      <button
+                        key={window.label}
+                        type="button"
+                        onClick={() => handleAddApptAtDate(selectedDate, window.time)}
+                        className="group rounded-2xl border border-app-border bg-app-surface-2 p-4 text-left transition hover:-translate-y-0.5 hover:border-app-accent/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent"
+                      >
+                        <Clock className="text-app-accent" size={20} aria-hidden />
+                        <span className="mt-3 block text-sm font-black text-app-text">{window.label}</span>
+                        <span className="mt-1 block text-xs font-bold text-app-text-muted">{window.range}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            ) : (
             <div className={`grid ${isCompactLayout ? "grid-cols-[72px_1fr]" : "grid-cols-[100px_1fr]"} divide-y divide-app-border/40`}>
               {timeSlots.map(time => {
                 const dateStr = localDateKey(selectedDate);
@@ -829,6 +860,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
                 );
               })}
             </div>
+            )}
           </div>
         ) : (
           <div

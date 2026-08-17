@@ -41,7 +41,7 @@ This list helps you decide which customer to open. It is not the full support re
 Normal customer search and browse results show active profiles. Inactive profiles from duplicate cleanup or import repair are kept for audit/history but are not offered for normal customer selection.
 Customers with an active linked RMS Charge account or a match in the latest weekly RMS account list show an **RMS Charge** pill. The pill is a quick account-presence signal; open the customer relationship hub or RMS Charge workspace to review balances, account details, and reporting status.
 
-The workspace now also shows a `Customer Completeness` summary above the list. That summary uses the same existing profile-complete expectation already used elsewhere in Riverside: a complete customer profile has both a phone number and an email address. Use it to spot records that may block future receipt, pickup, or follow-up work.
+Open **Customer management summary** when you need pipeline totals or the profile-quality view. Profile quality uses the same existing profile-complete expectation already used elsewhere in Riverside: a complete customer profile has both a phone number and an email address. The summary is review guidance only and never auto-corrects imported identity data.
 
 ## What belongs here versus RMS Charge
 
@@ -75,6 +75,8 @@ The relationship hub supports customer review. The RMS workspace supports financ
 7. Return to the main workspace if you need a different customer.
 8. Move to `RMS Charge` only when the question is about RMS financing accounts or RMS support follow-up.
 
+When several customers are selected, **Apply group** and **Add to wedding** show the target and selected count before the first write. Riverside sends one permission-checked batch of at most 100 customers. The completion message separates added and already-linked customers; if validation fails, the batch stops without applying a partial result.
+
 ## Related sections
 
 - `Duplicate Review`
@@ -88,6 +90,7 @@ The relationship hub supports customer review. The RMS workspace supports financ
 - Use phone, customer code, and wedding context to confirm the right record before taking action.
 - Customer search accepts initials or partial fragments from both names in either order, such as `C Garcia`, `Ch Gar`, or `Gar C`, as well as a full name and phone digits even when the stored phone uses different punctuation. Confirm phone, email, customer code, or wedding context before selecting a similar name. Use **Load more records** when the matching customer is not on the first page.
 - Riverside waits for a short pause in typing before it searches. Existing rows stay visible but dimmed while the latest results load; wait for **Updating customer results** to clear before treating the list as the latest match set.
+- Use **Clear filters** to reset search, wedding, lifecycle, segment, VIP, balance, and wedding-date filters together. This starts one current unfiltered request; an older request cannot replace it.
 - A blocked merge is a data-protection stop, not a failed search. Keep the record named by the linked-history warning as the master, or resolve the listed link in its normal workspace before merging.
 - When adding a customer, keep the required identity/contact fields complete before moving to optional preferences. The four contact approvals are prechecked for new accounts but remain editable before save.
 - If the issue is financing-specific, do not try to solve it from the relationship hub alone. Open `RMS Charge`.

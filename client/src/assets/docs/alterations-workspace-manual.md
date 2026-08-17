@@ -48,7 +48,7 @@ Use this workspace when you need to:
 3. Use the **Search** bar or **Filters** (Vendor, Status, Source) to find a specific garment or customer.
 4. From **Search Across Riverside**, select an alteration result to open its **Plan / Reassign** workspace directly, even when it is not in the currently loaded queue page.
 5. Tap a garment card to see the full work description and charge notes.
-6. **Change Status**: Drag-and-drop or use the status buttons to move the work through the pipeline (Intake → In Work → Ready → Picked Up).
+6. **Use the next action**: Each garment card presents one primary step, such as **Start tailoring**, **Mark tailoring complete**, or **Mark ready & queue notice**. Open **More** only for planning, reassigning, printing, or correcting status.
 7. For a standalone alteration pickup, use **Pick Up & Print** on a **Ready** alteration card.
 8. For an alteration linked to an order, mark the alteration **Ready**, then complete the customer order pickup from the Register. The Register includes ready linked alteration pickups with the order.
 
@@ -62,7 +62,7 @@ Alteration labor added through the alteration intake workflow is non-taxable. Ch
 
 ## What to watch for
 
-- **Notifications**: Marking a job **Ready** may trigger an automated SMS/Email to the customer (depending on store settings).
+- **Notifications**: **Mark ready & queue notice** explicitly queues the configured customer notification. Do not use Ready merely to clear the board.
 - **Charge Notes**: This queue displays the "Alteration Charge Note" from the intake, but it does not collect payment. All financial transactions must happen at the Register.
 - **Order-linked pickup**: Only alterations marked **Ready** are included when an order is loaded for Register pickup. In Work or Verify Completed alterations remain in the tailoring queue.
 - **Due Dates**: Red dates indicate the job is overdue. Contact the customer if a delay is expected.

@@ -210,6 +210,12 @@ export default function CustomersWorkspace({
   const [showAddDrawer, setShowAddDrawer] = useState(false);
   const { toast } = useToast();
   const [showBulkWeddingPrompt, setShowBulkWeddingPrompt] = useState(false);
+  const [bulkWeddingTarget, setBulkWeddingTarget] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
+  const [bulkGroupConfirmOpen, setBulkGroupConfirmOpen] = useState(false);
+  const [bulkOperationBusy, setBulkOperationBusy] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
   const [importConfirmOpen, setImportConfirmOpen] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
@@ -351,6 +357,7 @@ export default function CustomersWorkspace({
   const [loading, setLoading] = useState(false);
   const [pipelineStats, setPipelineStats] =
     useState<CustomerPipelineStats | null>(null);
+  const [pipelineStatsFailed, setPipelineStatsFailed] = useState(false);
   const [picked, setPicked] = useState<Customer | null>(null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [_tableFocus, _setTableFocus] = useState(false);
@@ -398,6 +405,8 @@ export default function CustomersWorkspace({
   const [customerGroups, setCustomerGroups] = useState<
     { id: string; code: string; label: string }[]
   >([]);
+  const [customerGroupsFailed, setCustomerGroupsFailed] = useState(false);
+  const [customerMetadataRefresh, setCustomerMetadataRefresh] = useState(0);
   const [groupFilterCode, setGroupFilterCode] = useState("");
   const [bulkGroupId, setBulkGroupId] = useState("");
   const [mergeOpen, setMergeOpen] = useState(false);
@@ -424,6 +433,13 @@ export default function CustomersWorkspace({
       onEscape: () => setMergeOpen(false),
       closeOnEscape: !mergeBusy,
     });
+  useShellBackdropLayer(showBulkWeddingPrompt);
+  const {
+    dialogRef: bulkWeddingDialogRef,
+    titleId: bulkWeddingTitleId,
+  } = useDialogAccessibility(showBulkWeddingPrompt, {
+    onEscape: () => setShowBulkWeddingPrompt(false),
+  });
 
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(_q.trim()), 280);
@@ -499,22 +515,48 @@ export default function CustomersWorkspace({
   browseFiltersKeyRef.current = browseFiltersKey;
   const browseSearchSettling = _q.trim() !== _qDebounced;
   const browseUpdating = browseSearchSettling || loading;
+  const hasActiveBrowseFilters = Boolean(
+    _q.trim() ||
+      vipOnly ||
+      balanceDueOnly ||
+      weddingSoonOnly ||
+      lifecycleFilter ||
+      _weddingPartyQuery.trim() ||
+      groupFilterCode.trim(),
+  );
+
+  const clearBrowseFilters = () => {
+    _setQ("");
+    setQDebounced("");
+    setVipOnly(false);
+    setBalanceDueOnly(false);
+    setWeddingSoonOnly(false);
+    setLifecycleFilter("");
+    _setWeddingPartyQuery("");
+    setGroupFilterCode("");
+  };
 
   useEffect(() => {
     if (posSurface) {
       setCustomerGroups([]);
+      setCustomerGroupsFailed(false);
       return;
     }
     if (!canRequestCustomerData) {
       setCustomerGroups([]);
+      setCustomerGroupsFailed(false);
       return;
     }
     void (async () => {
+      setCustomerGroupsFailed(false);
       try {
         const res = await fetch(`${baseUrl}/api/customers/groups`, {
           headers: apiAuth(),
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          setCustomerGroupsFailed(true);
+          return;
+        }
         const data = (await res.json()) as {
           id: string;
           code: string;
@@ -522,10 +564,10 @@ export default function CustomersWorkspace({
         }[];
         setCustomerGroups(Array.isArray(data) ? data : []);
       } catch {
-        /* ignore */
+        setCustomerGroupsFailed(true);
       }
     })();
-  }, [apiAuth, canRequestCustomerData, posSurface]);
+  }, [apiAuth, canRequestCustomerData, customerMetadataRefresh, posSurface]);
 
   const loadFirstPage = useCallback(
     async (clearList: boolean) => {
@@ -588,21 +630,26 @@ export default function CustomersWorkspace({
 
   const fetchPipelineStats = useCallback(async () => {
     if (!canRequestCustomerData || posSurface) return;
+    setPipelineStatsFailed(false);
     try {
       const res = await fetch(`${baseUrl}/api/customers/pipeline-stats`, {
         headers: apiAuth(),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setPipelineStatsFailed(true);
+        return;
+      }
       const data = (await res.json()) as CustomerPipelineStats;
       setPipelineStats(data);
     } catch {
-      /* ignore */
+      setPipelineStatsFailed(true);
     }
   }, [apiAuth, canRequestCustomerData, posSurface]);
 
   const refresh = useCallback(() => {
     void loadFirstPage(false);
     void fetchPipelineStats();
+    setCustomerMetadataRefresh((current) => current + 1);
   }, [loadFirstPage, fetchPipelineStats]);
 
   useEffect(() => {
@@ -693,37 +740,37 @@ export default function CustomersWorkspace({
     const partyId = partyIdRaw.trim();
     if (!partyId) return;
 
-    let ok = 0;
-    let dup = 0;
-    let fail = 0;
-    for (const id of selected) {
+    setBulkOperationBusy(true);
+    try {
       const res = await fetch(
-        `${baseUrl}/api/weddings/parties/${partyId}/members`,
+        `${baseUrl}/api/weddings/parties/${partyId}/members/bulk-link`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json", ...apiAuth() },
-          body: JSON.stringify({ customer_id: id }),
+          body: JSON.stringify({ customer_ids: [...selected] }),
         },
       );
-      if (res.ok) {
-        ok += 1;
-        continue;
+      const result = (await res.json().catch(() => ({}))) as {
+        added?: number;
+        already_linked?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast(result.error ?? "Wedding assignment failed. No customers were changed.", "error");
+        return;
       }
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (res.status === 400 && body.error?.includes("already a member")) {
-        dup += 1;
-      } else {
-        fail += 1;
-      }
-    }
 
-    toast(
-      `Successfully added ${ok} customers. (Skipped: ${dup}, Failed: ${fail})`,
-      ok > 0 ? "success" : "error",
-    );
-    setSelected(new Set());
-    void refresh();
-    onOpenWeddingParty(partyId);
+      toast(
+        `Wedding assignment: ${result.added ?? 0} added, ${result.already_linked ?? 0} already linked.`,
+        "success",
+      );
+      setBulkWeddingTarget(null);
+      setSelected(new Set());
+      void refresh();
+      onOpenWeddingParty(partyId);
+    } finally {
+      setBulkOperationBusy(false);
+    }
   };
 
   const bulkToggleVip = async () => {
@@ -749,26 +796,35 @@ export default function CustomersWorkspace({
     void refresh();
   };
 
-  const bulkAssignToGroup = async () => {
+  const executeBulkAssignToGroup = async () => {
     const gid = bulkGroupId.trim();
     if (!gid || selected.size === 0) return;
-    let ok = 0;
-    let fail = 0;
-    for (const cid of selected) {
-      const res = await fetch(`${baseUrl}/api/customers/group-members`, {
+    setBulkOperationBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/group-members/bulk`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify({ customer_id: cid, group_id: gid }),
+        body: JSON.stringify({ customer_ids: [...selected], group_id: gid }),
       });
-      if (res.ok) ok += 1;
-      else fail += 1;
+      const result = (await res.json().catch(() => ({}))) as {
+        added?: number;
+        already_linked?: number;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast(result.error ?? "Group assignment failed. No customers were changed.", "error");
+        return;
+      }
+      toast(
+        `Group assignment: ${result.added ?? 0} added, ${result.already_linked ?? 0} already linked.`,
+        "success",
+      );
+      setBulkGroupConfirmOpen(false);
+      setSelected(new Set());
+      void refresh();
+    } finally {
+      setBulkOperationBusy(false);
     }
-    toast(
-      `Group assign: ${ok} ok${fail ? `, ${fail} failed` : ""}`,
-      fail ? "error" : "success",
-    );
-    setSelected(new Set());
-    void refresh();
   };
 
   const openMergeModal = () => {
@@ -1076,8 +1132,30 @@ export default function CustomersWorkspace({
     <div className="ui-page flex-1 p-0 bg-transparent flex flex-col">
       <div className="flex flex-1 flex-col bg-transparent">
         {/* Management summaries stay in Back Office; POS opens directly into lookup. */}
-        {!posSurface ? <div className="ui-workspace-summary">
-          {([
+        {!posSurface ? (
+          <details className="mx-4 mt-4 rounded-2xl border border-app-border bg-app-surface sm:mx-6">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+              <span>
+                <span className="block text-sm font-black text-app-text">Customer overview</span>
+                <span className="block text-xs font-semibold text-app-text-muted">Management totals and profile-quality work</span>
+              </span>
+              <span className="rounded-full border border-app-border bg-app-surface-2 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
+                View metrics
+              </span>
+            </summary>
+            <div className="border-t border-app-border p-4">
+              {pipelineStatsFailed || customerGroupsFailed ? (
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-app-warning/25 bg-app-warning/10 px-4 py-3" role="status">
+                  <p className="text-xs font-bold text-app-warning">
+                    Some customer management totals or group filters are unavailable. Customer lookup remains available.
+                  </p>
+                  <button type="button" onClick={() => void refresh()} className="ui-btn-secondary px-3 py-1.5 text-xs font-black">
+                    Retry overview
+                  </button>
+                </div>
+              ) : null}
+              <div className="ui-workspace-summary !p-0">
+                {([
             {
               title: "Customer Profiles",
               value: pipelineStats?.total_customers == null ? "—" : pipelineStats.total_customers.toLocaleString(),
@@ -1106,47 +1184,36 @@ export default function CustomersWorkspace({
               tone: "accent",
               badge: "Next 30 days",
             },
-          ] as const).map((summary) => (
-            <WorkspaceMetricCard key={summary.title} {...summary} />
-          ))}
-        </div> : null}
-
-        {!posSurface ? <div className="px-4 sm:px-6">
-          <div className="ui-card ui-tint-warning px-4 py-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                  Profile Completeness
-                </p>
-                <p className="mt-1 text-sm font-semibold text-app-text">
-                  Customer profiles in this list missing a phone or email.
-                </p>
+                ] as const).map((summary) => (
+                  <WorkspaceMetricCard key={summary.title} {...summary} />
+                ))}
               </div>
-              <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                {customerQualitySummary.visibleCustomers.toLocaleString()} customers in view
-              </span>
-            </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-3">
-              {[
-                ["Profiles incomplete", customerQualitySummary.incompleteProfiles],
-                ["Missing phone", customerQualitySummary.missingPhone],
-                ["Missing email", customerQualitySummary.missingEmail],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="ui-metric-cell px-3 py-3"
-                >
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    {label}
-                  </p>
-                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                    {Number(value).toLocaleString()}
-                  </p>
+              <div className="mt-4 rounded-xl border border-app-warning/25 bg-app-warning/10 px-4 py-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Profile quality</p>
+                    <p className="mt-1 text-sm font-semibold text-app-text">Review missing contact details; never auto-correct imported identity data.</p>
+                  </div>
+                  <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    {customerQualitySummary.visibleCustomers.toLocaleString()} in view
+                  </span>
                 </div>
-              ))}
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  {[
+                    ["Profiles incomplete", customerQualitySummary.incompleteProfiles],
+                    ["Missing phone", customerQualitySummary.missingPhone],
+                    ["Missing email", customerQualitySummary.missingEmail],
+                  ].map(([label, value]) => (
+                    <div key={label} className="ui-metric-cell px-3 py-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{label}</p>
+                      <p className="mt-1 text-lg font-black tabular-nums text-app-text">{Number(value).toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-        </div> : null}
+          </details>
+        ) : null}
 
         <div className="flex flex-1 flex-col p-3 sm:p-6 lg:p-8 animate-workspace-snap">
           <div className="ui-card ui-workspace-panel flex flex-col overflow-hidden">
@@ -1161,7 +1228,7 @@ export default function CustomersWorkspace({
                   aria-label="Search customers"
                   value={_q}
                   onChange={(e) => _setQ(e.target.value)}
-                  placeholder="Try Ch Gar, phone, code, or company..."
+                  placeholder="Search name, phone, email, customer code, or company…"
                   className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
                 />
               </div>
@@ -1291,6 +1358,16 @@ export default function CustomersWorkspace({
                     ))}
                   </select>
                 </label>
+                {hasActiveBrowseFilters ? (
+                  <button
+                    type="button"
+                    onClick={clearBrowseFilters}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-app-border bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
+                  >
+                    <CloseIcon size={13} aria-hidden />
+                    Clear filters
+                  </button>
+                ) : null}
               </div>
               <div
                 role="status"
@@ -1771,24 +1848,9 @@ export default function CustomersWorkspace({
             </div>
           </div>
 
-          <div className="mt-4 flex items-center justify-between px-2 shrink-0">
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-app-success shadow-sm" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Customer List Updated
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-app-accent shadow-sm shadow-app-accent/50" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Compact List
-                </span>
-              </div>
-            </div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-disabled">
-              Customer profiles
-            </p>
+          <div className="mt-4 flex items-center justify-between px-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted" role="status" aria-live="polite">
+            <span>{browseUpdating ? "Updating results…" : `${rows.length.toLocaleString()} customers shown`}</span>
+            {hasMore ? <span>More available</span> : null}
           </div>
         </div>
       </div>
@@ -1815,7 +1877,8 @@ export default function CustomersWorkspace({
             </select>
             <button
               type="button"
-              onClick={() => void bulkAssignToGroup()}
+              onClick={() => setBulkGroupConfirmOpen(true)}
+              disabled={!bulkGroupId || bulkOperationBusy}
               className="ui-btn-secondary px-3 py-2"
             >
               Apply group
@@ -2019,9 +2082,11 @@ export default function CustomersWorkspace({
         ? createPortal(
             <div className="ui-overlay-backdrop !z-[200] flex items-center justify-center p-4">
               <div
+                ref={bulkWeddingDialogRef}
                 role="dialog"
                 aria-modal="true"
-                aria-labelledby="bulk-wedding-assignment-title"
+                aria-labelledby={bulkWeddingTitleId}
+                tabIndex={-1}
                 className="ui-modal w-full max-w-md overflow-hidden rounded-[28px] p-6 shadow-2xl ring-1 ring-black/10 transition-all animate-in zoom-in-95 duration-200"
               >
                 <div className="mb-4 flex items-center gap-3">
@@ -2029,7 +2094,7 @@ export default function CustomersWorkspace({
                     <Users size={20} />
                   </div>
                   <h2
-                    id="bulk-wedding-assignment-title"
+                    id={bulkWeddingTitleId}
                     className="text-sm font-black uppercase tracking-widest text-app-text"
                   >
                     Add Customers to Wedding
@@ -2047,8 +2112,15 @@ export default function CustomersWorkspace({
                       ariaLabel="Target wedding party"
                       className="mt-1"
                       onSelect={(p) => {
-                        void executeBulkAddToWedding(p.id);
                         setShowBulkWeddingPrompt(false);
+                        setBulkWeddingTarget({
+                          id: p.id,
+                          label:
+                            p.party_name?.trim() ||
+                            [p.groom_name, p.bride_name]
+                              .filter(Boolean)
+                              .join(" & "),
+                        });
                       }}
                       placeholder="Search by groom name..."
                     />
@@ -2069,6 +2141,36 @@ export default function CustomersWorkspace({
             document.getElementById("drawer-root")!,
           )
         : null}
+
+      <ConfirmationModal
+        isOpen={bulkWeddingTarget !== null}
+        onClose={() => {
+          if (!bulkOperationBusy) setBulkWeddingTarget(null);
+        }}
+        onConfirm={() => {
+          if (bulkWeddingTarget) {
+            void executeBulkAddToWedding(bulkWeddingTarget.id);
+          }
+        }}
+        title="Confirm wedding assignment"
+        message={`Add ${selected.size} selected customer${selected.size === 1 ? "" : "s"} to ${bulkWeddingTarget?.label ?? "this wedding"}? Existing members will be skipped and every result will be reported.`}
+        confirmLabel="Add Customers"
+        variant="info"
+        loading={bulkOperationBusy}
+      />
+
+      <ConfirmationModal
+        isOpen={bulkGroupConfirmOpen}
+        onClose={() => {
+          if (!bulkOperationBusy) setBulkGroupConfirmOpen(false);
+        }}
+        onConfirm={() => void executeBulkAssignToGroup()}
+        title="Confirm group assignment"
+        message={`Add ${selected.size} selected customer${selected.size === 1 ? "" : "s"} to ${customerGroups.find((group) => group.id === bulkGroupId)?.label ?? "the selected group"}? Every result will be reported.`}
+        confirmLabel="Apply Group"
+        variant="info"
+        loading={bulkOperationBusy}
+      />
 
       <ConfirmationModal
         isOpen={importConfirmOpen}
@@ -2305,6 +2407,18 @@ export function AddCustomerDrawer({
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [emailPromptOpen, setEmailPromptOpen] = useState(false);
   const [emailPromptValue, setEmailPromptValue] = useState("");
+  const [discardDraftOpen, setDiscardDraftOpen] = useState(false);
+  const addCustomerBaselineRef = useRef<AddCustomerForm>({
+    ...EMPTY_ADD_CUSTOMER_FORM,
+  });
+  const emailPromptInputRef = useRef<HTMLInputElement>(null);
+  const closeEmailPrompt = useCallback(() => setEmailPromptOpen(false), []);
+  const { dialogRef: emailPromptDialogRef, titleId: emailPromptTitleId } =
+    useDialogAccessibility(emailPromptOpen && isOpen, {
+      onEscape: closeEmailPrompt,
+      closeOnEscape: !busy,
+      initialFocusRef: emailPromptInputRef,
+    });
 
   const set = (k: keyof AddCustomerForm, v: string | boolean) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -2313,6 +2427,22 @@ export function AddCustomerDrawer({
   const state = form.state.trim();
   const postal = form.postal_code.trim();
   const phoneDigits = form.phone.replace(/\D/g, "");
+  const isDirty = useMemo(
+    () =>
+      (Object.keys(form) as (keyof AddCustomerForm)[]).some(
+        (key) => form[key] !== addCustomerBaselineRef.current[key],
+      ),
+    [form],
+  );
+
+  const requestClose = useCallback(() => {
+    if (busy) return;
+    if (isDirty) {
+      setDiscardDraftOpen(true);
+      return;
+    }
+    onClose();
+  }, [busy, isDirty, onClose]);
 
   const errors = {
     first_name:
@@ -2354,7 +2484,7 @@ export function AddCustomerDrawer({
 
     if (isOpen && !wasOpen) {
       dupAbortRef.current?.abort();
-      setForm({
+      const nextForm = {
         ...EMPTY_ADD_CUSTOMER_FORM,
         ...(initialDraft ?? {}),
         phone: initialDraft?.phone
@@ -2363,11 +2493,14 @@ export function AddCustomerDrawer({
         state: initialDraft?.state
           ? initialDraft.state.toUpperCase()
           : EMPTY_ADD_CUSTOMER_FORM.state,
-      });
+      };
+      addCustomerBaselineRef.current = nextForm;
+      setForm(nextForm);
       setTouched({});
       setErr(null);
       setDupCandidates([]);
       setNameNeedsPhoneReview(false);
+      setDiscardDraftOpen(false);
     } else if (!isOpen && wasOpen) {
       dupAbortRef.current?.abort();
       setEmailPromptOpen(false);
@@ -2377,6 +2510,8 @@ export function AddCustomerDrawer({
       setDupCandidates([]);
       setNameNeedsPhoneReview(false);
       setForm({ ...EMPTY_ADD_CUSTOMER_FORM });
+      addCustomerBaselineRef.current = { ...EMPTY_ADD_CUSTOMER_FORM };
+      setDiscardDraftOpen(false);
     }
   }, [isOpen, initialDraft]);
 
@@ -2453,17 +2588,6 @@ export function AddCustomerDrawer({
     form.postal_code,
     apiAuth,
   ]);
-
-  useEffect(() => {
-    if (!emailPromptOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.stopImmediatePropagation();
-      setEmailPromptOpen(false);
-    };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [emailPromptOpen]);
 
   const submitToApi = async (
     resolvedEmail: string,
@@ -2584,6 +2708,7 @@ export function AddCustomerDrawer({
         }
       }
       setForm({ ...EMPTY_ADD_CUSTOMER_FORM });
+      addCustomerBaselineRef.current = { ...EMPTY_ADD_CUSTOMER_FORM };
       onSaved();
     } catch (e) {
       console.error("Could not create customer", e);
@@ -2602,7 +2727,7 @@ export function AddCustomerDrawer({
     <>
       <DetailDrawer
         isOpen={isOpen}
-        onClose={onClose}
+        onClose={requestClose}
         title="Add Customer"
         subtitle="Name, contact, address, dates, notes, and preferences."
         panelMaxClassName="max-w-5xl"
@@ -2610,7 +2735,7 @@ export function AddCustomerDrawer({
           <div className="flex gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               className="ui-btn-secondary flex-1 py-3"
             >
               Cancel
@@ -3009,14 +3134,16 @@ export function AddCustomerDrawer({
         ? createPortal(
             <div className="ui-overlay-backdrop !z-[200]" role="presentation">
               <div
+                ref={emailPromptDialogRef}
                 className="ui-modal max-w-lg shadow-2xl"
                 role="dialog"
                 aria-modal="true"
-                aria-labelledby="add-cust-email-prompt-title"
+                aria-labelledby={emailPromptTitleId}
+                tabIndex={-1}
               >
                 <div className="ui-modal-header">
                   <h3
-                    id="add-cust-email-prompt-title"
+                    id={emailPromptTitleId}
                     className="text-base font-black text-app-text"
                   >
                     Did you ask for their email?
@@ -3030,6 +3157,7 @@ export function AddCustomerDrawer({
                   <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                     Email (optional)
                     <input
+                      ref={emailPromptInputRef}
                       type="email"
                       value={emailPromptValue}
                       onChange={(e) => setEmailPromptValue(e.target.value)}
@@ -3072,6 +3200,19 @@ export function AddCustomerDrawer({
             document.getElementById("drawer-root") || document.body,
           )
         : null}
+      <ConfirmationModal
+        isOpen={discardDraftOpen}
+        title="Discard new customer draft?"
+        message="The customer information entered here has not been saved. Discard it and close the drawer?"
+        confirmLabel="Discard Draft"
+        variant="danger"
+        onClose={() => setDiscardDraftOpen(false)}
+        onConfirm={() => {
+          addCustomerBaselineRef.current = form;
+          setDiscardDraftOpen(false);
+          onClose();
+        }}
+      />
     </>
   );
 }

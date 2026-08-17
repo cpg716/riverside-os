@@ -76,7 +76,8 @@ export default function DetailDrawer({
         type="button"
         className={backdropClassName}
         onClick={onClose}
-        aria-label="Close drawer"
+        aria-hidden="true"
+        tabIndex={-1}
       />
 
       <div

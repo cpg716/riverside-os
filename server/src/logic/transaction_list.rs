@@ -54,6 +54,16 @@ fn uses_default_open_order_scope(
         || (status_scope.is_none() && !show_closed && !exact_display_id_query)
 }
 
+fn uses_default_order_scope_for_query(
+    record_scope: Option<&str>,
+    status_scope: Option<&str>,
+    show_closed: bool,
+    exact_display_id_query: bool,
+) -> bool {
+    record_scope != Some("transactions")
+        && uses_default_open_order_scope(status_scope, show_closed, exact_display_id_query)
+}
+
 fn uses_order_search_index(
     order_record_scope: bool,
     default_order_scope: bool,
@@ -65,20 +75,76 @@ fn uses_order_search_index(
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct FulfillmentItem {
-    pub fulfillment_order_id: Uuid,
-    pub display_id: String,
-    pub created_at: DateTime<Utc>,
+    pub order_id: Uuid,
+    pub order_short_id: String,
+    pub booked_at: DateTime<Utc>,
     pub status: String,
     pub customer_id: Option<Uuid>,
     pub customer_name: Option<String>,
     pub item_count: i64,
     pub fulfilled_item_count: i64,
+    pub ready_item_count: i64,
+    pub received_item_count: i64,
     pub urgency: String,
-    pub next_deadline: Option<DateTime<Utc>>,
+    pub release_status: String,
+    pub blocker_codes: Vec<String>,
+    pub next_deadline: Option<NaiveDate>,
     pub balance_due: Decimal,
+    pub payment_coverage_remaining: Decimal,
     pub wedding_party_id: Option<Uuid>,
     pub wedding_party_name: Option<String>,
     pub counterpoint_customer_code: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct FulfillmentQueueRow {
+    order_id: Uuid,
+    order_short_id: String,
+    booked_at: DateTime<Utc>,
+    status: String,
+    customer_id: Option<Uuid>,
+    customer_name: Option<String>,
+    item_count: i64,
+    fulfilled_item_count: i64,
+    ready_item_count: i64,
+    received_item_count: i64,
+    is_rush: bool,
+    next_deadline: Option<NaiveDate>,
+    balance_due: Decimal,
+    amount_paid: Decimal,
+    already_released_value: Decimal,
+    minimum_ready_item_value: Option<Decimal>,
+    wedding_party_id: Option<Uuid>,
+    wedding_party_name: Option<String>,
+    counterpoint_customer_code: Option<String>,
+}
+
+fn classify_pickup_release(
+    ready_item_count: i64,
+    received_item_count: i64,
+    minimum_ready_item_value: Option<Decimal>,
+    payment_coverage_remaining: Decimal,
+) -> (&'static str, Vec<String>) {
+    let payment_required =
+        minimum_ready_item_value.is_some_and(|minimum| payment_coverage_remaining < minimum);
+    let readiness_required = ready_item_count == 0;
+    let release_status = if readiness_required {
+        "readiness_required"
+    } else if payment_required {
+        "payment_required"
+    } else if received_item_count > 0 {
+        "partial_ready"
+    } else {
+        "ready"
+    };
+    let mut blocker_codes = Vec::new();
+    if readiness_required {
+        blocker_codes.push("readiness_required".to_string());
+    }
+    if payment_required {
+        blocker_codes.push("payment_required".to_string());
+    }
+    (release_status, blocker_codes)
 }
 
 #[derive(Debug, Serialize)]
@@ -276,8 +342,12 @@ pub async fn query_paged_transactions(
         Some("special_order" | "custom" | "wedding_order")
     );
     let exact_display_id_query = search_trim.is_some_and(is_exact_transaction_display_id_query);
-    let default_order_scope =
-        uses_default_open_order_scope(status_scope, q.show_closed, exact_display_id_query);
+    let default_order_scope = uses_default_order_scope_for_query(
+        q.record_scope.as_deref().map(str::trim),
+        status_scope,
+        q.show_closed,
+        exact_display_id_query,
+    );
     let list_line_filter = if is_layaway_filter {
         "oi.fulfillment::text = 'layaway'"
     } else if order_record_scope || default_order_scope || is_order_kind_filter {
@@ -844,10 +914,12 @@ pub async fn query_paged_transactions(
 #[cfg(test)]
 mod tests {
     use super::{
-        is_exact_transaction_display_id_query, kind_filter_having_clause, lifecycle_filter_status,
-        literal_ilike_pattern, order_kind_from_flags, phone_like_pattern, query_paged_transactions,
-        uses_default_open_order_scope, uses_order_search_index, TransactionListQuery,
+        classify_pickup_release, is_exact_transaction_display_id_query, kind_filter_having_clause,
+        lifecycle_filter_status, literal_ilike_pattern, order_kind_from_flags, phone_like_pattern,
+        query_paged_transactions, uses_default_open_order_scope,
+        uses_default_order_scope_for_query, uses_order_search_index, TransactionListQuery,
     };
+    use rust_decimal::Decimal;
     use uuid::Uuid;
 
     #[test]
@@ -902,6 +974,31 @@ mod tests {
     }
 
     #[test]
+    fn pickup_release_classification_uses_item_level_payment_coverage() {
+        let (status, blockers) =
+            classify_pickup_release(1, 0, Some(Decimal::new(5000, 2)), Decimal::new(5000, 2));
+        assert_eq!(status, "ready");
+        assert!(blockers.is_empty());
+
+        let (status, blockers) =
+            classify_pickup_release(1, 0, Some(Decimal::new(5000, 2)), Decimal::new(4999, 2));
+        assert_eq!(status, "payment_required");
+        assert_eq!(blockers, ["payment_required"]);
+    }
+
+    #[test]
+    fn pickup_release_classification_keeps_received_work_out_of_ready() {
+        let (status, blockers) = classify_pickup_release(0, 2, None, Decimal::new(10000, 2));
+        assert_eq!(status, "readiness_required");
+        assert_eq!(blockers, ["readiness_required"]);
+
+        let (status, blockers) =
+            classify_pickup_release(1, 1, Some(Decimal::new(2500, 2)), Decimal::new(10000, 2));
+        assert_eq!(status, "partial_ready");
+        assert!(blockers.is_empty());
+    }
+
+    #[test]
     fn all_financial_records_use_the_transaction_search_index() {
         assert!(!uses_order_search_index(false, false, false, false));
         assert!(uses_order_search_index(true, false, false, false));
@@ -941,6 +1038,22 @@ mod tests {
         assert!(uses_default_open_order_scope(None, false, false));
         assert!(uses_default_open_order_scope(Some("open"), false, true));
         assert!(!uses_default_open_order_scope(Some("all"), false, false));
+    }
+
+    #[test]
+    fn explicit_transaction_record_scope_includes_open_takeaway_sales() {
+        assert!(!uses_default_order_scope_for_query(
+            Some("transactions"),
+            Some("open"),
+            false,
+            false,
+        ));
+        assert!(uses_default_order_scope_for_query(
+            Some("orders"),
+            Some("open"),
+            false,
+            false,
+        ));
     }
 
     #[tokio::test]
@@ -1085,50 +1198,98 @@ pub async fn query_pipeline_stats(
 pub async fn query_fulfillment_queue(
     pool: &sqlx::PgPool,
 ) -> Result<Vec<FulfillmentItem>, sqlx::Error> {
-    let rows = sqlx::query_as::<_, FulfillmentItem>(
+    let rows = sqlx::query_as::<_, FulfillmentQueueRow>(
         format!(
             r#"
+        WITH returned_quantities AS (
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned_quantity
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ),
+        order_line_stats AS (
+            SELECT
+                tl.transaction_id,
+                COUNT(*) FILTER (
+                    WHERE tl.is_fulfilled = FALSE
+                      AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
+                )::bigint AS item_count,
+                COUNT(*) FILTER (
+                    WHERE tl.is_fulfilled = TRUE
+                      AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
+                )::bigint AS fulfilled_item_count,
+                COUNT(*) FILTER (
+                    WHERE tl.is_fulfilled = FALSE
+                      AND tl.order_lifecycle_status = 'ready_for_pickup'
+                      AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
+                )::bigint AS ready_item_count,
+                COUNT(*) FILTER (
+                    WHERE tl.is_fulfilled = FALSE
+                      AND tl.order_lifecycle_status = 'received'
+                      AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
+                )::bigint AS received_item_count,
+                COALESCE(BOOL_OR(tl.is_rush) FILTER (
+                    WHERE tl.is_fulfilled = FALSE
+                      AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
+                ), FALSE) AS is_rush,
+                MIN(tl.need_by_date) FILTER (
+                    WHERE tl.is_fulfilled = FALSE
+                      AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
+                ) AS next_deadline,
+                COALESCE(SUM(
+                    GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0)
+                    * (COALESCE(tl.unit_price, 0)
+                       + COALESCE(tl.state_tax, 0)
+                       + COALESCE(tl.local_tax, 0))
+                ) FILTER (WHERE tl.is_fulfilled = TRUE), 0)::numeric(14,2)
+                    AS already_released_value,
+                MIN(
+                    GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0)
+                    * (COALESCE(tl.unit_price, 0)
+                       + COALESCE(tl.state_tax, 0)
+                       + COALESCE(tl.local_tax, 0))
+                ) FILTER (
+                    WHERE tl.is_fulfilled = FALSE
+                      AND tl.order_lifecycle_status = 'ready_for_pickup'
+                      AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
+                )::numeric(14,2) AS minimum_ready_item_value
+            FROM transaction_lines tl
+            LEFT JOIN returned_quantities rq ON rq.transaction_line_id = tl.id
+            WHERE tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+              AND COALESCE(tl.is_internal, FALSE) = FALSE
+            GROUP BY tl.transaction_id
+        )
         SELECT
-            o.id AS fulfillment_order_id,
-            o.display_id,
-            o.created_at,
-            o.status,
+            t.id AS order_id,
+            COALESCE(NULLIF(TRIM(t.display_id), ''), 'TXN-' || LEFT(t.id::text, 8)) AS order_short_id,
+            t.booked_at,
+            t.status::text AS status,
             c.id AS customer_id,
-            COALESCE(NULLIF(TRIM(CONCAT(MIN(c.first_name), ' ', MIN(c.last_name))), ''), 'CP: ' || NULLIF(TRIM(c.customer_code), ''), 'Walk-in') AS customer_name,
-            COUNT(tl.id)::bigint AS item_count,
-            COUNT(tl.id) FILTER (WHERE tl.is_fulfilled = true)::bigint AS fulfilled_item_count,
-            CASE
-                WHEN EXISTS (SELECT 1 FROM transaction_lines tl2 WHERE tl2.fulfillment_order_id = o.id AND tl2.is_rush = true) THEN 'rush'
-                WHEN o.status = 'open' AND EXISTS (SELECT 1 FROM transaction_lines tl3 WHERE tl3.fulfillment_order_id = o.id AND tl3.is_fulfilled = false) THEN 'standard'
-                WHEN o.status = 'ready' THEN 'ready'
-                ELSE 'standard'
-            END AS urgency,
-            NULL::timestamptz AS next_deadline, -- Logic for deadline moves to fulfillment_orders soon
-            COALESCE(t.balance_due, 0) AS balance_due,
+            COALESCE(
+                NULLIF(TRIM(CONCAT(c.first_name, ' ', c.last_name)), ''),
+                'CP: ' || NULLIF(TRIM(c.customer_code), ''),
+                'Walk-in'
+            ) AS customer_name,
+            stats.item_count,
+            stats.fulfilled_item_count,
+            stats.ready_item_count,
+            stats.received_item_count,
+            stats.is_rush,
+            stats.next_deadline,
+            COALESCE(t.balance_due, 0)::numeric(14,2) AS balance_due,
+            COALESCE(t.amount_paid, 0)::numeric(14,2) AS amount_paid,
+            stats.already_released_value,
+            stats.minimum_ready_item_value,
             wp.id AS wedding_party_id,
             {SQL_PARTY_TRACKING_LABEL_WP} AS wedding_party_name,
             NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code
-        FROM fulfillment_orders o
-        LEFT JOIN customers c ON c.id = o.customer_id
-        LEFT JOIN transaction_lines tl ON tl.fulfillment_order_id = o.id
-        LEFT JOIN transactions t ON t.id = tl.transaction_id
+        FROM transactions t
+        INNER JOIN order_line_stats stats ON stats.transaction_id = t.id
+        LEFT JOIN customers c ON c.id = t.customer_id
         LEFT JOIN wedding_members wm ON wm.id = t.wedding_member_id
-        LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-        WHERE o.status IN ('open', 'ready')
-          AND EXISTS (
-              SELECT 1
-              FROM transaction_lines tl_order
-              WHERE tl_order.fulfillment_order_id = o.id
-                AND tl_order.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
-          )
-        GROUP BY o.id, c.id, c.customer_code, wp.id, wm.id, t.balance_due
-        ORDER BY
-            CASE
-                WHEN o.status = 'ready' THEN 1
-                ELSE 5
-            END ASC,
-            o.created_at ASC
-        LIMIT 100
+        LEFT JOIN wedding_parties wp ON wp.id = COALESCE(wm.wedding_party_id, t.wedding_id)
+        WHERE t.status::text NOT IN ('cancelled', 'fulfilled')
+          AND (stats.ready_item_count > 0 OR stats.received_item_count > 0)
+        ORDER BY stats.is_rush DESC, stats.next_deadline ASC NULLS LAST, t.booked_at ASC
         "#
         )
         .as_str(),
@@ -1136,5 +1297,63 @@ pub async fn query_fulfillment_queue(
     .fetch_all(pool)
     .await?;
 
-    Ok(rows)
+    let due_soon_cutoff = Utc::now().date_naive() + chrono::Duration::days(4);
+    let mut items = rows
+        .into_iter()
+        .map(|row| {
+            let payment_coverage_remaining =
+                (row.amount_paid - row.already_released_value).max(Decimal::ZERO);
+            let (release_status, blocker_codes) = classify_pickup_release(
+                row.ready_item_count,
+                row.received_item_count,
+                row.minimum_ready_item_value,
+                payment_coverage_remaining,
+            );
+            let urgency = if !blocker_codes.is_empty() {
+                "blocked"
+            } else if row.is_rush {
+                "rush"
+            } else if row
+                .next_deadline
+                .is_some_and(|deadline| deadline <= due_soon_cutoff)
+            {
+                "due_soon"
+            } else {
+                "ready"
+            };
+
+            FulfillmentItem {
+                order_id: row.order_id,
+                order_short_id: row.order_short_id,
+                booked_at: row.booked_at,
+                status: row.status,
+                customer_id: row.customer_id,
+                customer_name: row.customer_name,
+                item_count: row.item_count,
+                fulfilled_item_count: row.fulfilled_item_count,
+                ready_item_count: row.ready_item_count,
+                received_item_count: row.received_item_count,
+                urgency: urgency.to_string(),
+                release_status: release_status.to_string(),
+                blocker_codes,
+                next_deadline: row.next_deadline,
+                balance_due: row.balance_due,
+                payment_coverage_remaining,
+                wedding_party_id: row.wedding_party_id,
+                wedding_party_name: row.wedding_party_name,
+                counterpoint_customer_code: row.counterpoint_customer_code,
+            }
+        })
+        .collect::<Vec<_>>();
+    items.sort_by_key(|item| {
+        let urgency_rank = match item.urgency.as_str() {
+            "blocked" => 0,
+            "rush" => 1,
+            "due_soon" => 2,
+            "ready" => 3,
+            _ => 4,
+        };
+        (urgency_rank, item.next_deadline, item.booked_at)
+    });
+    Ok(items)
 }

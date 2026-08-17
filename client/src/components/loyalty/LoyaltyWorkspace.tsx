@@ -1524,6 +1524,7 @@ function EligibleList({
                              setBatchOpen(true);
                            }}
                            disabled={!settings}
+	                           aria-label={`Redeem ${rewardsReady.toLocaleString()} ${rewardsReady === 1 ? "reward" : "rewards"} for ${loyaltyEligibleDisplayName(c)}`}
 	                           className="flex min-h-11 items-center gap-3 rounded-2xl border-b-4 border-emerald-800 bg-emerald-600 px-6 text-sm font-black text-white shadow-2xl shadow-emerald-500/20 transition-all hover:brightness-110 active:scale-95"
                          >
                            <Award size={18} />
@@ -1532,6 +1533,7 @@ function EligibleList({
                          <button
                            type="button"
                            onClick={() => void printMailingLabels([c])}
+                           aria-label={`Print mailing label for ${loyaltyEligibleDisplayName(c)}`}
                            className="flex h-11 w-11 items-center justify-center rounded-2xl bg-app-surface border border-app-border text-app-text-muted hover:text-app-text hover:border-app-accent hover:shadow-lg transition-all active:scale-95"
                          >
                            <Printer size={18} />

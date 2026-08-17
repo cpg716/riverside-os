@@ -18,6 +18,7 @@ import { openProfessionalTablePrint } from "../pos/zReportPrint";
 const baseUrl = getBaseUrl();
 
 type Urgency = "rush" | "due_soon" | "standard" | "blocked" | "ready";
+type ReleaseStatus = "ready" | "partial_ready" | "payment_required" | "readiness_required";
 type QueueSort = "priority" | "deadline" | "customer";
 
 const urgencyRank: Record<Urgency, number> = {
@@ -42,9 +43,14 @@ interface FulfillmentItem {
   customer_name: string | null;
   item_count: number;
   fulfilled_item_count: number;
+  ready_item_count?: number;
+  received_item_count?: number;
   urgency: Urgency;
+  release_status?: ReleaseStatus;
+  blocker_codes?: string[];
   next_deadline: string | null;
   balance_due: number;
+  payment_coverage_remaining?: number;
   wedding_party_id: string | null;
   wedding_party_name: string | null;
 }
@@ -161,7 +167,7 @@ export default function FulfillmentCommandCenter({
           onClick={() => setFilter(filter === "due_soon" ? "all" : "due_soon")}
         />
         <StatCard 
-          label="Stagnant / Blocked" 
+          label="Blocked"
           count={stats.blocked} 
           icon={<History className="text-app-text-muted" />} 
           active={filter === "blocked"}
@@ -379,27 +385,44 @@ function formatPickupMoney(value: number): string {
   }).format(Math.max(0, value));
 }
 
+function pickupReleaseStatus(item: FulfillmentItem): ReleaseStatus {
+  if (item.release_status) return item.release_status;
+  if (item.urgency === "blocked" && item.balance_due > 0) return "payment_required";
+  if (item.urgency === "blocked") return "readiness_required";
+  if ((item.ready_item_count ?? 0) > 0 && (item.received_item_count ?? 0) > 0) {
+    return "partial_ready";
+  }
+  return "ready";
+}
+
 function pickupReadiness(item: FulfillmentItem): { label: string; className: string } {
-  if (item.urgency === "blocked") {
-    return { label: "Blocked", className: "border-app-danger/30 bg-app-danger/10 text-app-danger" };
+  const releaseStatus = pickupReleaseStatus(item);
+  if (releaseStatus === "readiness_required") {
+    return { label: "Verify readiness", className: "border-app-danger/30 bg-app-danger/10 text-app-danger" };
   }
-  if (item.fulfilled_item_count > 0 && item.fulfilled_item_count < item.item_count) {
-    return { label: "Partial", className: "border-app-warning/40 bg-app-warning/10 text-app-warning" };
+  if (releaseStatus === "payment_required") {
+    return { label: `${item.ready_item_count ?? 0} ready`, className: "border-app-warning/40 bg-app-warning/10 text-app-warning" };
   }
-  if (item.urgency === "ready" || item.fulfilled_item_count >= item.item_count) {
-    return { label: "Ready", className: "border-app-success/30 bg-app-success/10 text-app-success" };
+  if (releaseStatus === "partial_ready") {
+    return { label: `${item.ready_item_count ?? 0} ready · partial`, className: "border-app-warning/40 bg-app-warning/10 text-app-warning" };
   }
-  return { label: "Needs review", className: "border-app-border bg-app-surface-2 text-app-text-muted" };
+  return { label: `${item.ready_item_count ?? item.item_count} ready`, className: "border-app-success/30 bg-app-success/10 text-app-success" };
 }
 
 function pickupPaymentState(item: FulfillmentItem): { label: string; className: string } {
+  if (pickupReleaseStatus(item) === "payment_required") {
+    return {
+      label: "Payment needed",
+      className: "border-app-danger/30 bg-app-danger/10 text-app-danger",
+    };
+  }
   if (item.balance_due > 0) {
     return {
-      label: `Balance ${formatPickupMoney(item.balance_due)}`,
+      label: `${formatPickupMoney(item.balance_due)} remains`,
       className: "border-app-warning/40 bg-app-warning/10 text-app-warning",
     };
   }
-  return { label: "Paid", className: "border-app-success/30 bg-app-success/10 text-app-success" };
+  return { label: "Payment covered", className: "border-app-success/30 bg-app-success/10 text-app-success" };
 }
 
 function pickupFittingState(item: FulfillmentItem): { label: string; className: string } {
@@ -423,19 +446,18 @@ function pickupContext(item: FulfillmentItem): { label: string; className: strin
 }
 
 function pickupNextSafeAction(item: FulfillmentItem): string {
-  if (item.balance_due > 0) return "Pickup blocked until balance is cleared.";
-  if (item.urgency === "blocked") return "Open Transaction Record before releasing garments.";
-  if (item.fulfilled_item_count > 0 && item.fulfilled_item_count < item.item_count) {
-    return "Partial-ready: release only confirmed ready garments.";
-  }
+  const releaseStatus = pickupReleaseStatus(item);
+  if (releaseStatus === "payment_required") return "Collect enough payment for a ready item.";
+  if (releaseStatus === "readiness_required") return "Verify garments and mark at least one Ready for Pickup.";
+  if (releaseStatus === "partial_ready") return "Release only the confirmed ready garments.";
   if (item.wedding_party_name) return "Confirm fitting and wedding member before release.";
-  if (item.urgency === "ready") return "Ready after ID and garment check.";
-  return "Open Transaction Record for pickup readiness details.";
+  return "Confirm customer ID and garment check, then release in Register.";
 }
 
 function pickupEscalation(item: FulfillmentItem): string {
-  if (item.balance_due > 0) return "Requires payment collection before release.";
-  if (item.urgency === "blocked") return "Requires manager review if staff believe release is still necessary.";
+  const releaseStatus = pickupReleaseStatus(item);
+  if (releaseStatus === "payment_required") return "Collect payment or use the audited Manager Access override.";
+  if (releaseStatus === "readiness_required") return "Complete the readiness check before release.";
   if (item.urgency === "rush") return "Escalate if deadline conflicts with readiness.";
   if (item.wedding_party_name) return "Escalate wedding-risk mismatches before releasing partial work.";
   return "Standard release path.";
@@ -501,7 +523,7 @@ function QueueItem({
         <div className={`flex items-center gap-3 text-xs font-bold text-app-text-muted ${compact ? "mt-0.5" : "mt-1"}`}>
           <span className="flex items-center gap-1">
             <TrendingUp size={12} />
-            {item.fulfilled_item_count} / {item.item_count} Fulfilled
+            {item.ready_item_count ?? 0} ready / {item.item_count} open
           </span>
           {item.next_deadline && (
             <span className="flex items-center gap-1">
@@ -530,7 +552,7 @@ function QueueItem({
 
       <div className="shrink-0 text-right">
         <p className="text-sm font-black text-app-text">
-          {item.balance_due > 0 ? `$${item.balance_due}` : "Paid"}
+          {item.balance_due > 0 ? `${formatPickupMoney(item.balance_due)} balance` : "Payment covered"}
         </p>
         <div className="mt-1 flex justify-end gap-1">
           {onOpenWeddingParty && !compact ? (
