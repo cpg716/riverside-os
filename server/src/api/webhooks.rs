@@ -1302,6 +1302,10 @@ async fn handle_helcim_card_transaction(
         .unwrap_or_else(|| format!("helcim:cardTransaction:{provider_transaction_id}"));
     let provider_status = transaction.provider_status();
     let provider_warning = transaction.warning.clone();
+    let provider_auth_code = transaction.approval_code.clone();
+    let provider_card_type = transaction.card_type.clone();
+    let card_brand = transaction.card_brand();
+    let card_last4 = transaction.card_last4();
     let terminal_id = helcim_webhook_device_code(value).unwrap_or_default();
 
     let mut tx = state.db.begin().await?;
@@ -1389,10 +1393,18 @@ async fn handle_helcim_card_transaction(
                               AND status = 'failed'
                               AND LOWER(COALESCE(error_code, '')) IN ('decline', 'declined')
                           )
+                          OR (
+                              $3 IN ('approved', 'captured')
+                              AND status = 'expired'
+                              AND error_code = 'unresolved_hosted_attempt_detached'
+                          )
                       )
                       AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%refund%'
                       AND LOWER(COALESCE(raw_audit_reference, '')) NOT LIKE '%reverse%'
-                      AND NULLIF(TRIM(COALESCE(terminal_id, device_id, '')), '') IS NOT NULL
+                      AND (
+                          NULLIF(TRIM(COALESCE(terminal_id, device_id, '')), '') IS NOT NULL
+                          OR LOWER(COALESCE(raw_audit_reference, '')) LIKE 'helcim-pay-js%'
+                      )
                       AND ($2 = '' OR terminal_id = $2 OR device_id = $2)
                     FOR UPDATE
                     "#,
@@ -1408,7 +1420,7 @@ async fn handle_helcim_card_transaction(
                         match_type = "ros_invoice";
                     } else {
                         correlation_mismatch = Some(
-                            "Helcim ROS invoice correlation did not resolve to the matching active terminal purchase attempt; automatic ledger binding was blocked."
+                            "Helcim ROS invoice correlation did not resolve to the matching payment attempt; automatic ledger binding was blocked."
                                 .to_string(),
                         );
                     }
@@ -1503,10 +1515,17 @@ async fn handle_helcim_card_transaction(
     }
 
     let mut matched_attempt_is_return = false;
+    let mut matched_attempt_is_hosted = false;
     let mut attempt_row: Option<(Uuid, Option<Uuid>)> = None;
     let mut provider_payment_id: Option<String> = None;
     if let Some(candidate) = direct_candidates.first() {
         matched_attempt_is_return = helcim_attempt_reference_is_return(candidate.4.as_deref());
+        matched_attempt_is_hosted = candidate.4.as_deref().is_some_and(|reference| {
+            reference
+                .trim()
+                .to_ascii_lowercase()
+                .starts_with("helcim-pay-js")
+        });
         let terminal_retry_decline = helcim_terminal_decline_keeps_invoice_open(
             &normalized_status,
             provider_transaction_type.as_deref(),
@@ -1655,9 +1674,9 @@ async fn handle_helcim_card_transaction(
                 let payment_txn_id = Uuid::new_v4();
                 let payment_amount = Decimal::from(amount_cents) / Decimal::from(100);
 
-                // If staff recorded the approved terminal payment as Manual
-                // Card after the checkout disappeared, convert that exact
-                // allocated payment instead of creating a duplicate movement.
+                // If staff recorded the approved Helcim payment as Manual Card
+                // after the checkout disappeared, convert that exact allocated
+                // payment instead of creating a duplicate movement.
                 let manual_payment_ids: Vec<Uuid> = sqlx::query_scalar(
                     r#"
                     SELECT pt.id
@@ -1685,33 +1704,100 @@ async fn handle_helcim_card_transaction(
 
                 if manual_payment_ids.len() == 1 {
                     let manual_payment_id = manual_payment_ids[0];
+                    let recovered_payment_method = if matched_attempt_is_hosted {
+                        "card_not_present"
+                    } else {
+                        "card_terminal"
+                    };
+                    let recovered_payment_status = if matched_attempt_is_hosted {
+                        "success"
+                    } else {
+                        "approved"
+                    };
+                    let recovered_tender_family = if matched_attempt_is_hosted {
+                        "card_not_present"
+                    } else {
+                        "credit_card"
+                    };
+                    let mut replacement_metadata = serde_json::Map::new();
+                    replacement_metadata.insert(
+                        "tender_family".to_string(),
+                        serde_json::json!(recovered_tender_family),
+                    );
+                    replacement_metadata
+                        .insert("payment_provider".to_string(), serde_json::json!("helcim"));
+                    replacement_metadata.insert(
+                        "payment_provider_attempt_id".to_string(),
+                        serde_json::json!(attempt_id),
+                    );
+                    replacement_metadata.insert(
+                        "provider_status".to_string(),
+                        serde_json::json!(provider_status),
+                    );
+                    replacement_metadata.insert(
+                        "provider_transaction_id".to_string(),
+                        serde_json::json!(provider_transaction_id),
+                    );
+                    replacement_metadata.insert(
+                        "provider_payment_id".to_string(),
+                        serde_json::json!(provider_payment_id),
+                    );
+                    replacement_metadata.insert(
+                        "audit_reference".to_string(),
+                        serde_json::json!(audit_reference),
+                    );
+                    replacement_metadata
+                        .insert("manual_card_replaced".to_string(), serde_json::json!(true));
+                    for (key, value) in [
+                        ("provider_auth_code", provider_auth_code.as_ref()),
+                        ("provider_card_type", provider_card_type.as_ref()),
+                        ("card_brand", card_brand.as_ref()),
+                        ("card_last4", card_last4.as_ref()),
+                    ] {
+                        if let Some(value) = value {
+                            replacement_metadata.insert(key.to_string(), serde_json::json!(value));
+                        }
+                    }
+                    let replacement_metadata = serde_json::Value::Object(replacement_metadata);
                     sqlx::query(
                         r#"
                         UPDATE payment_transactions
-                        SET payment_method = 'card_terminal',
-                            status = 'approved',
+                        SET payment_method = $2,
+                            status = $3,
                             payment_provider = 'helcim',
-                            provider_payment_id = $2,
-                            provider_transaction_id = $3,
-                            provider_status = $4,
+                            provider_payment_id = $4,
+                            provider_transaction_id = $5,
+                            provider_status = $6,
+                            provider_auth_code = $7,
+                            provider_card_type = $8,
+                            card_brand = $9,
+                            card_last4 = $10,
                             metadata = (
                                 COALESCE(metadata, '{}'::jsonb)
-                                - ARRAY['card_last4', 'offline_card_entry_type']::text[]
-                            ) || $5::jsonb
+                                - ARRAY[
+                                    'card_last4', 'tender_family', 'manual_card_last4',
+                                    'external_auth_code', 'manual_card_reason',
+                                    'offline_card_last4', 'offline_card_reason',
+                                    'manual_card_direction', 'manual_card_entry_type',
+                                    'offline_card_direction', 'offline_card_entry_type',
+                                    'external_transaction_type', 'manual_card_approval_code',
+                                    'offline_card_approval_code'
+                                  ]::text[]
+                            ) || $11::jsonb
                         WHERE id = $1
                         "#,
                     )
                     .bind(manual_payment_id)
+                    .bind(recovered_payment_method)
+                    .bind(recovered_payment_status)
                     .bind(&provider_payment_id)
                     .bind(&provider_transaction_id)
                     .bind(provider_status.clone())
-                    .bind(serde_json::json!({
-                        "payment_provider_attempt_id": attempt_id,
-                        "helcim_transaction_id": provider_transaction_id.clone(),
-                        "helcim_payment_id": provider_payment_id.clone(),
-                        "audit_reference": audit_reference.clone(),
-                        "manual_card_replaced": true,
-                    }))
+                    .bind(&provider_auth_code)
+                    .bind(&provider_card_type)
+                    .bind(&card_brand)
+                    .bind(&card_last4)
+                    .bind(&replacement_metadata)
                     .execute(&mut *tx)
                     .await?;
                     sqlx::query(
@@ -1719,19 +1805,21 @@ async fn handle_helcim_card_transaction(
                         UPDATE payment_allocations
                         SET metadata = (
                                 COALESCE(metadata, '{}'::jsonb)
-                                - ARRAY['card_last4', 'offline_card_entry_type']::text[]
+                                - ARRAY[
+                                    'card_last4', 'tender_family', 'manual_card_last4',
+                                    'external_auth_code', 'manual_card_reason',
+                                    'offline_card_last4', 'offline_card_reason',
+                                    'manual_card_direction', 'manual_card_entry_type',
+                                    'offline_card_direction', 'offline_card_entry_type',
+                                    'external_transaction_type', 'manual_card_approval_code',
+                                    'offline_card_approval_code'
+                                  ]::text[]
                             ) || $2::jsonb
                         WHERE transaction_id = $1
                         "#,
                     )
                     .bind(manual_payment_id)
-                    .bind(serde_json::json!({
-                        "tender_family": "credit_card",
-                        "payment_provider_attempt_id": attempt_id,
-                        "helcim_transaction_id": provider_transaction_id.clone(),
-                        "helcim_payment_id": provider_payment_id.clone(),
-                        "manual_card_replaced": true,
-                    }))
+                    .bind(&replacement_metadata)
                     .execute(&mut *tx)
                     .await?;
                     final_payment_transaction_id = Some(manual_payment_id);
@@ -1782,30 +1870,82 @@ async fn handle_helcim_card_transaction(
                     });
                 }
 
+                let recovered_payment_method = if matched_attempt_is_hosted {
+                    "card_not_present"
+                } else {
+                    "card_terminal"
+                };
+                let recovered_payment_status = if matched_attempt_is_hosted {
+                    "success"
+                } else {
+                    "approved"
+                };
+                let recovered_tender_family = if matched_attempt_is_hosted {
+                    "card_not_present"
+                } else {
+                    "credit_card"
+                };
+                let mut recovered_metadata = serde_json::Map::new();
+                for (key, value) in [
+                    (
+                        "payment_provider_attempt_id",
+                        attempt_id.map(|value| value.to_string()),
+                    ),
+                    ("provider_status", provider_status.clone()),
+                    (
+                        "provider_transaction_id",
+                        Some(provider_transaction_id.clone()),
+                    ),
+                    ("provider_payment_id", provider_payment_id.clone()),
+                    ("provider_auth_code", provider_auth_code.clone()),
+                    ("provider_card_type", provider_card_type.clone()),
+                    ("card_brand", card_brand.clone()),
+                    ("card_last4", card_last4.clone()),
+                ] {
+                    if let Some(value) = value {
+                        recovered_metadata.insert(key.to_string(), serde_json::json!(value));
+                    }
+                }
+                recovered_metadata.insert(
+                    "tender_family".to_string(),
+                    serde_json::json!(recovered_tender_family),
+                );
+                recovered_metadata
+                    .insert("payment_provider".to_string(), serde_json::json!("helcim"));
+                recovered_metadata.insert(
+                    "audit_reference".to_string(),
+                    serde_json::json!(audit_reference),
+                );
+                let recovered_metadata = serde_json::Value::Object(recovered_metadata);
+
                 let insert_result = sqlx::query(
                     r#"
                     INSERT INTO payment_transactions (
                         id, category, payment_method, amount, status, occurred_at,
                         merchant_fee, net_amount, metadata,
-                        payment_provider, provider_payment_id, provider_transaction_id, provider_status
+                        payment_provider, provider_payment_id, provider_transaction_id, provider_status,
+                        provider_auth_code, provider_card_type, card_brand, card_last4
                     )
                     VALUES (
-                        $1, 'retail_sale', 'card_terminal', $2, 'approved', now(),
-                        0, $2, $3,
-                        'helcim', $4, $5, $6
+                        $1, 'retail_sale', $2, $3, $4, now(),
+                        0, $3, $5,
+                        'helcim', $6, $7, $8,
+                        $9, $10, $11, $12
                     )
-                    "#
+                    "#,
                 )
                 .bind(payment_txn_id)
+                .bind(recovered_payment_method)
                 .bind(payment_amount)
-                .bind(serde_json::json!({
-                    "helcim_transaction_id": provider_transaction_id.clone(),
-                    "helcim_payment_id": provider_payment_id.clone(),
-                    "audit_reference": audit_reference.clone()
-                }))
+                .bind(recovered_payment_status)
+                .bind(&recovered_metadata)
                 .bind(&provider_payment_id)
                 .bind(&provider_transaction_id)
                 .bind(provider_status.clone())
+                .bind(&provider_auth_code)
+                .bind(&provider_card_type)
+                .bind(&card_brand)
+                .bind(&card_last4)
                 .execute(&mut *tx)
                 .await;
 
@@ -1834,19 +1974,22 @@ async fn handle_helcim_card_transaction(
 
                 sqlx::query(
                     r#"
-                    INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated)
-                    SELECT $1, $2, $3
+                    INSERT INTO payment_allocations (
+                        transaction_id, target_transaction_id, amount_allocated, metadata
+                    )
+                    SELECT $1, $2, $3, $4
                     WHERE NOT EXISTS (
                         SELECT 1
                         FROM payment_allocations
                         WHERE transaction_id = $1
                           AND target_transaction_id = $2
                     )
-                    "#
+                    "#,
                 )
                 .bind(recovered_payment_txn_id)
                 .bind(tid)
                 .bind(payment_amount)
+                .bind(&recovered_metadata)
                 .execute(&mut *tx)
                 .await?;
 
@@ -2818,12 +2961,26 @@ mod tests {
             invoice_binding.contains("LOWER(COALESCE(error_code, '')) IN ('decline', 'declined')")
         );
         assert!(invoice_binding.contains("$2 = '' OR terminal_id = $2 OR device_id = $2"));
-        assert!(invoice_binding
-            .contains("NULLIF(TRIM(COALESCE(terminal_id, device_id, '')), '') IS NOT NULL"));
+        assert!(invoice_binding.contains("LIKE 'helcim-pay-js%'"));
+        assert!(invoice_binding.contains("status = 'expired'"));
+        assert!(invoice_binding.contains("error_code = 'unresolved_hosted_attempt_detached'"));
         assert!(invoice_binding.contains("NOT LIKE '%refund%'"));
         assert!(invoice_binding.contains("direct_candidates[0].0 != invoice_attempt_id"));
         assert!(!handler.contains("let provider_payment_id = provider_transaction_id.clone()"));
         assert!(handler.contains("ELSE provider_payment_id END"));
+
+        let manual_replacement = handler
+            .split_once("If staff recorded the approved Helcim payment as Manual Card")
+            .expect("manual-card replacement")
+            .1
+            .split_once("if final_payment_transaction_id.is_some()")
+            .expect("end of manual-card replacement")
+            .0;
+        assert!(manual_replacement.contains("\"card_not_present\""));
+        assert!(manual_replacement.contains("provider_auth_code = $7"));
+        assert!(manual_replacement.contains("provider_card_type = $8"));
+        assert!(manual_replacement.contains("manual_card_approval_code"));
+        assert!(manual_replacement.contains("manual_card_replaced"));
 
         let fallback = source
             .split("async fn find_safe_helcim_terminal_fallback_candidate")

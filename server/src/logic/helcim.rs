@@ -211,6 +211,23 @@ pub struct HelcimCardReverseRequest {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct HelcimPayInvoiceLineItem {
+    pub sku: String,
+    pub description: String,
+    pub quantity: i32,
+    pub price: String,
+    pub total: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HelcimPayInvoiceRequest {
+    #[serde(rename = "invoiceNumber")]
+    pub invoice_number: String,
+    #[serde(rename = "lineItems")]
+    pub line_items: Vec<HelcimPayInvoiceLineItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct HelcimPayInitializeRequest {
     #[serde(rename = "paymentType")]
     pub payment_type: String,
@@ -222,6 +239,8 @@ pub struct HelcimPayInitializeRequest {
     pub customer_code: Option<String>,
     #[serde(rename = "invoiceNumber", skip_serializing_if = "Option::is_none")]
     pub invoice_number: Option<String>,
+    #[serde(rename = "invoiceRequest", skip_serializing_if = "Option::is_none")]
+    pub invoice_request: Option<HelcimPayInvoiceRequest>,
     #[serde(
         rename = "hideExistingPaymentDetails",
         skip_serializing_if = "Option::is_none"
@@ -2765,6 +2784,41 @@ mod tests {
         assert!(value["transactionAmount"].is_number());
         assert_eq!(value["transactionAmount"].to_string(), "10.99");
         assert_eq!(value["invoiceNumber"], "ROS-123");
+    }
+
+    #[test]
+    fn hosted_checkout_serializes_ros_owned_invoice_request() {
+        let request = HelcimPayInitializeRequest {
+            payment_type: "purchase".to_string(),
+            amount: "260.00".to_string(),
+            currency: "USD".to_string(),
+            payment_method: "cc".to_string(),
+            customer_code: None,
+            invoice_number: None,
+            invoice_request: Some(HelcimPayInvoiceRequest {
+                invoice_number: "ROS-4b1c7a4f3a1e43dcbb10bfcb20c7b1e2".to_string(),
+                line_items: vec![HelcimPayInvoiceLineItem {
+                    sku: "ROS-CNP".to_string(),
+                    description: "Riverside Card Not Present payment".to_string(),
+                    quantity: 1,
+                    price: "260.00".to_string(),
+                    total: "260.00".to_string(),
+                }],
+            }),
+            hide_existing_payment_details: Some(1),
+            set_as_default_payment_method: None,
+            confirmation_screen: false,
+            display_contact_fields: None,
+        };
+
+        let value = serde_json::to_value(request).expect("hosted checkout payload");
+
+        assert!(value.get("invoiceNumber").is_none());
+        assert_eq!(
+            value["invoiceRequest"]["invoiceNumber"],
+            "ROS-4b1c7a4f3a1e43dcbb10bfcb20c7b1e2"
+        );
+        assert_eq!(value["invoiceRequest"]["lineItems"][0]["total"], "260.00");
     }
 
     #[test]

@@ -792,6 +792,7 @@ pub async fn create_payment(
             payment_method: "cc".to_string(),
             customer_code: None,
             invoice_number: None,
+            invoice_request: None,
             hide_existing_payment_details: None,
             set_as_default_payment_method: None,
             confirmation_screen: false,

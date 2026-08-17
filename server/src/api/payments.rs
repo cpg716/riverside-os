@@ -11066,17 +11066,30 @@ async fn initialize_helcim_pay(
     // for POS customers yet, so omit it to avoid Helcim rejecting ROS-* / C-*
     // customer numbers during hosted Card Not Present entry.
     let customer_code = None;
-    // Do not synthesize an invoice number for hosted CNP. Helcim validates
-    // invoiceNumber against its own invoice format and rejects ROS-owned UUID
-    // references before opening the card-entry page. Recovery is server-side.
-    let invoice_number = payload.invoice_number.and_then(non_empty_string);
+    if payload.invoice_number.and_then(non_empty_string).is_some() {
+        return Err(PaymentError::InvalidPayload(
+            "Card Not Present invoice identity is assigned by Riverside.".to_string(),
+        ));
+    }
+    let amount = cents_to_decimal_string(payload.amount_cents);
+    let invoice_number = helcim_manual_invoice_number(attempt_id);
     let request = helcim::HelcimPayInitializeRequest {
         payment_type: "purchase".to_string(),
-        amount: cents_to_decimal_string(payload.amount_cents),
+        amount: amount.clone(),
         currency: currency.clone(),
         payment_method: "cc".to_string(),
         customer_code,
-        invoice_number,
+        invoice_number: None,
+        invoice_request: Some(helcim::HelcimPayInvoiceRequest {
+            invoice_number,
+            line_items: vec![helcim::HelcimPayInvoiceLineItem {
+                sku: "ROS-CNP".to_string(),
+                description: "Riverside Card Not Present payment".to_string(),
+                quantity: 1,
+                price: amount.clone(),
+                total: amount,
+            }],
+        }),
         hide_existing_payment_details: payload
             .hide_existing_payment_details
             .filter(|enabled| *enabled)
@@ -11150,7 +11163,7 @@ async fn initialize_helcim_pay(
             idempotency_key, provider_payment_id, provider_client_secret,
             raw_audit_reference, checkout_client_id
         )
-        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $7, $8, 'helcim-pay-js', $9)
+        VALUES ($1, 'helcim', 'pending', $2, $3, $4, $5, $6, $7, $8, 'helcim-pay-js:ros-invoice', $9)
         "#,
     )
     .bind(attempt_id)
@@ -12414,6 +12427,10 @@ fn is_hosted_manual_helcim_attempt(attempt: &HelcimAttemptRow) -> bool {
         .is_some_and(|reference| reference.to_ascii_lowercase().starts_with("helcim-pay-js"))
 }
 
+fn hosted_manual_attempt_has_ros_invoice(attempt: &HelcimAttemptRow) -> bool {
+    attempt.raw_audit_reference.as_deref() == Some("helcim-pay-js:ros-invoice")
+}
+
 fn is_detachable_unresolved_hosted_attempt(attempt: &HelcimAttemptRow) -> bool {
     is_hosted_manual_helcim_attempt(attempt)
         && attempt.status == "pending"
@@ -13012,7 +13029,7 @@ async fn recover_helcim_attempt_by_invoice(
     config: &helcim::HelcimConfig,
     approved_only: bool,
 ) -> Result<HelcimInvoiceRecovery, PaymentError> {
-    if is_hosted_manual_helcim_attempt(attempt) {
+    if is_hosted_manual_helcim_attempt(attempt) && !hosted_manual_attempt_has_ros_invoice(attempt) {
         return Ok(
             match recover_hosted_manual_helcim_attempt(state, attempt, config).await? {
                 Some(attempt) => HelcimInvoiceRecovery::Recovered(attempt),
@@ -13195,12 +13212,9 @@ async fn recover_hosted_manual_helcim_attempt(
     attempt: &HelcimAttemptRow,
     _config: &helcim::HelcimConfig,
 ) -> Result<Option<HelcimAttemptRow>, PaymentError> {
-    // HelcimPay initialization and transaction responses do not expose a
-    // caller-supplied checkout identity. Amount and time are not identity, so
-    // scanning provider transactions cannot safely bind a lost confirmation to
-    // this ROS sale. Keep the attempt unresolved for Payments Health instead of
-    // guessing. Exact automatic recovery would require a provider-supported
-    // invoiceRequest/existing-invoice correlation introduced in a future flow.
+    // Legacy HelcimPay attempts predate ROS-owned invoiceRequest correlation.
+    // Amount and time are not identity, so they remain unresolved instead of
+    // being guessed from provider history.
     let first_notice: bool = sqlx::query_scalar(
         r#"
         UPDATE payment_provider_attempts
@@ -13604,7 +13618,7 @@ mod tests {
     }
 
     #[test]
-    fn hosted_recovery_does_not_scan_amount_and_time_for_identity() {
+    fn legacy_hosted_recovery_does_not_scan_amount_and_time_for_identity() {
         let source = include_str!("payments.rs");
         let recovery = source
             .split_once("async fn recover_hosted_manual_helcim_attempt(")
@@ -14755,19 +14769,20 @@ mod tests {
     }
 
     #[test]
-    fn hosted_manual_invoice_number_uses_existing_invoice_only() {
-        let request = HelcimPayInitializeRequestBody {
-            amount_cents: 1234,
-            currency: Some("usd".to_string()),
-            register_session_id: Some(Uuid::new_v4()),
-            checkout_client_id: None,
-            customer_code: None,
-            invoice_number: None,
-            save_as_default: None,
-            hide_existing_payment_details: Some(true),
-        };
+    fn hosted_manual_initialization_creates_exact_ros_invoice_correlation() {
+        let source = include_str!("payments.rs");
+        let initialize = source
+            .split_once("async fn initialize_helcim_pay(")
+            .expect("hosted initialization")
+            .1
+            .split_once("async fn confirm_helcim_pay(")
+            .expect("end of hosted initialization")
+            .0;
 
-        assert_eq!(request.invoice_number.and_then(non_empty_string), None);
+        assert!(initialize.contains("helcim_manual_invoice_number(attempt_id)"));
+        assert!(initialize.contains("invoice_request: Some(helcim::HelcimPayInvoiceRequest"));
+        assert!(initialize.contains("invoice_number: None"));
+        assert!(initialize.contains("'helcim-pay-js:ros-invoice'"));
     }
 
     #[test]
