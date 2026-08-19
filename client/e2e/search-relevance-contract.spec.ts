@@ -45,7 +45,7 @@ test("empty lexical candidate sets use broader authoritative SQL matching", asyn
   expect(universal.match(/Some\(ids\) if ids\.is_empty\(\) => None/g)?.length).toBeGreaterThanOrEqual(2);
 });
 
-test("high-traffic search fields teach staff the shorthand contract", async () => {
+test("high-traffic search fields use clear staff guidance", async () => {
   const [cart, customers, inventory, selector] = await Promise.all([
     repoSource("client/src/components/pos/Cart.tsx"),
     repoSource("client/src/components/customers/CustomersWorkspace.tsx"),
@@ -58,5 +58,5 @@ test("high-traffic search fields teach staff the shorthand contract", async () =
     "Search name, phone, email, customer code, or company",
   );
   expect(inventory).toContain("Try partial product + style/SKU");
-  expect(selector).toContain("Try Ch Gar, phone, email, or customer code");
+  expect(selector).toContain("Search by name, phone, email, or customer code");
 });

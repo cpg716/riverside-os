@@ -536,7 +536,7 @@ export default function CustomerSelector({
           />
           <input
             data-testid="pos-customer-search"
-            placeholder="Try Ch Gar, phone, email, or customer code..."
+            placeholder="Search by name, phone, email, or customer code..."
             className="ui-input w-full py-2.5 pl-9 pr-4 transition-all border-2 border-app-border focus:border-app-accent"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

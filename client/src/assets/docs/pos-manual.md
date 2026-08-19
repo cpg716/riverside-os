@@ -277,7 +277,7 @@ When staff open the loaded customer's profile from Register and save updated con
 
 Choose the sale's primary salesperson from the Register header. The menu shows the full active Salesperson roster without an internal scrollbar, closes as soon as a selection is made, and keeps the chosen name visible on the header control.
 
-Customer search accepts initials and partial first-and-last-name fragments. For example, `C Garcia`, `Ch Gar`, and `Gar C` can find Chris Garcia; enter enough of each name to distinguish people with similar names, then confirm the phone or email shown before selecting the profile.
+Customer search accepts initials and partial first-and-last-name fragments. For example, `C Garcia`, `Chris Gar`, and `Gar C` can find Chris Garcia; enter enough of each name to distinguish people with similar names, then confirm the phone or email shown before selecting the profile.
 
 When a loaded customer has no email on file, Register opens **Please add customer email**. Enter the address and choose **Save email**, choose **Skip** to continue without changing the account for this customer load, or choose **Customer declined** only when the customer has explicitly declined. Choosing **Save email** with the field empty shows guidance and keeps the prompt open; it is not recorded as a product error. A decline permanently prevents this collection prompt from appearing again for that account. Saving an email does not enroll the customer in marketing; Riverside records the customer and signed-in staff member for the **Email Collection Report** in Back Office → Reports.
 

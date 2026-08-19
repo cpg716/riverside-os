@@ -218,7 +218,7 @@ fn parse_hit_ids(hits: &[meilisearch_sdk::search::SearchResult<IdHit>]) -> Vec<U
 
 /// Multi-token human-name queries get prefix matching on every term. Meilisearch's normal prefix
 /// search applies only to the final query word, which makes cashier shorthand such as `C Garcia`
-/// and `Ch Gar` unnecessarily rigid.
+/// and `Chris Gar` unnecessarily rigid.
 pub fn customer_name_query_tokens(query: &str) -> Option<Vec<&str>> {
     let tokens = query.split_whitespace().collect::<Vec<_>>();
     if !(2..=4).contains(&tokens.len())
@@ -951,8 +951,8 @@ mod tests {
             Some(vec!["C", "Garcia"])
         );
         assert_eq!(
-            customer_name_query_tokens("Ch Gar"),
-            Some(vec!["Ch", "Gar"])
+            customer_name_query_tokens("Chris Gar"),
+            Some(vec!["Chris", "Gar"])
         );
         assert_eq!(customer_name_query_tokens("Chris"), None);
         assert_eq!(customer_name_query_tokens("chris@example.com Garcia"), None);
