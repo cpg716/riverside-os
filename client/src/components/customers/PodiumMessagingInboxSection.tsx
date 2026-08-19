@@ -650,7 +650,7 @@ export default function PodiumMessagingInboxSection({
   }, [apiAuth, lastLoadedAt, selectedConversationId]);
 
   useEffect(() => {
-    if (!selectedRow) {
+    if (!selectedConversationId) {
       setThreadMessages([]);
       setThreadCalls([]);
       setThreadReviews([]);
@@ -663,7 +663,7 @@ export default function PodiumMessagingInboxSection({
     const loadThread = async () => {
       setThreadLoading(true);
       try {
-        const conversationUrl = `${baseUrl}/api/customers/podium/conversations/${encodeURIComponent(selectedRow.conversation_id)}`;
+        const conversationUrl = `${baseUrl}/api/customers/podium/conversations/${encodeURIComponent(selectedConversationId)}`;
         const [messagesResponse, callsResponse, reviewsResponse] = await Promise.all([
           fetch(`${conversationUrl}/messages`, { headers: apiAuth(), cache: "no-store" }),
           fetch(`${conversationUrl}/calls`, { headers: apiAuth(), cache: "no-store" }),
@@ -697,7 +697,7 @@ export default function PodiumMessagingInboxSection({
     return () => {
       cancelled = true;
     };
-  }, [apiAuth, selectedRow]);
+  }, [apiAuth, selectedConversationId]);
 
   const runSync = useCallback(async (opts?: { quiet?: boolean }) => {
     setSyncBusy(true);

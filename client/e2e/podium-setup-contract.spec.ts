@@ -302,6 +302,15 @@ test("Podium inbox maps staff identity and supports shared conversation triage",
   expect(staffProfile).not.toContain('placeholder="senderUid from Podium"');
 });
 
+test("Podium background refresh does not reload the open message thread", () => {
+  expect(podiumInbox).toContain("if (!selectedConversationId)");
+  expect(podiumInbox).toContain(
+    "encodeURIComponent(selectedConversationId)",
+  );
+  expect(podiumInbox).toContain("}, [apiAuth, selectedConversationId]);");
+  expect(podiumInbox).not.toContain("}, [apiAuth, selectedRow]);");
+});
+
 test("Podium inbox assigns conversations only to linked staff without sending a reply", () => {
   expect(customersApi).toContain('"/podium/assignment-staff"');
   expect(customersApi).toContain("assignment_staff_by_id");

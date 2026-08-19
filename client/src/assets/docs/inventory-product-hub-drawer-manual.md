@@ -86,6 +86,7 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 13. Use recent inventory events when you need to confirm why an inventory number changed.
 14. Open **Stock Report** to review every variation's current quantity, last sold date, average monthly unit sales, and average yearly unit sales, then select **Print Report**.
 15. Select **Analyze product** only when you want the optional read-only ROSIE catalog review. Product Hub does not run that analysis automatically when the drawer opens.
+16. On a variation card, leave tag quantity at `1` and select **Print tag x 1** for one tag. Enter a larger quantity and select the same button, or press Enter in the quantity field, to print that many identical tags. Repeated button presses remain separate print jobs.
 
 ## Parent stock and sales report
 

@@ -114,6 +114,70 @@ const cardActionButtonClass =
 const identifierInputClass =
   "min-w-0 rounded-lg border border-app-border bg-app-surface px-2 py-1.5 font-mono text-xs text-app-text outline-none focus:border-app-accent";
 
+const MAX_TAG_PRINT_QUANTITY = 999;
+
+function parseTagPrintQuantity(value: string): number | null {
+  if (!/^\d+$/.test(value)) return null;
+  const quantity = Number.parseInt(value, 10);
+  return quantity >= 1 && quantity <= MAX_TAG_PRINT_QUANTITY ? quantity : null;
+}
+
+function VariantTagPrintControl({
+  sku,
+  onPrint,
+}: {
+  sku: string;
+  onPrint: (quantity: number) => void;
+}) {
+  const [quantityDraft, setQuantityDraft] = useState("1");
+  const quantity = parseTagPrintQuantity(quantityDraft);
+
+  const print = () => {
+    if (quantity != null) onPrint(quantity);
+  };
+
+  return (
+    <div
+      role="group"
+      aria-label={`Print tags for ${sku}`}
+      className="grid min-w-0 grid-cols-[3.25rem_minmax(0,1fr)] gap-1.5"
+    >
+      <input
+        type="number"
+        min={1}
+        max={MAX_TAG_PRINT_QUANTITY}
+        step={1}
+        inputMode="numeric"
+        aria-label={`Tag quantity for ${sku}`}
+        aria-invalid={quantity == null}
+        value={quantityDraft}
+        onChange={(event) => setQuantityDraft(event.target.value)}
+        onBlur={() => {
+          if (quantity == null) setQuantityDraft("1");
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            print();
+          }
+        }}
+        className="min-w-0 rounded-xl border border-app-border bg-app-surface px-1.5 py-2 text-center text-xs font-black tabular-nums text-app-text outline-none focus:border-app-accent"
+        title={`Tag quantity (1-${MAX_TAG_PRINT_QUANTITY})`}
+      />
+      <button
+        type="button"
+        onClick={print}
+        disabled={quantity == null}
+        className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-accent disabled:cursor-not-allowed disabled:opacity-50`}
+        title="Print inventory tags"
+      >
+        <Printer size={14} className="shrink-0" />
+        Print tag x {quantity ?? "-"}
+      </button>
+    </div>
+  );
+}
+
 function VariantIdentifierEditor({
   variant,
   onSave,
@@ -498,21 +562,29 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   };
 
   const handlePrintTags = useCallback(
-    async (variantsToPrint: HubVariant[], successLabel: string) => {
+    async (
+      variantsToPrint: HubVariant[],
+      successLabel: string,
+      copiesPerVariant = 1,
+    ) => {
       if (variantsToPrint.length === 0) {
         toast("No variations are ready to print.", "info");
         return;
       }
 
+      const tagItems = variantsToPrint.flatMap((variant) =>
+        Array.from({ length: copiesPerVariant }, () => ({
+          sku: variant.sku,
+          productName,
+          variation: variant.variation_label ?? "Standard",
+          price: `$${centsToFixed2(parseMoneyToCents(variant.effective_retail))}`,
+        })),
+      );
+
       let printResult: InventoryTagPrintResult;
       try {
         printResult = await openInventoryTagsWindow(
-          variantsToPrint.map((variant) => ({
-            sku: variant.sku,
-            productName,
-            variation: variant.variation_label ?? "Standard",
-            price: `$${centsToFixed2(parseMoneyToCents(variant.effective_retail))}`,
-          })),
+          tagItems,
           getInventoryTagPrintConfig(),
           { allowPreviewFallback: false },
         );
@@ -538,7 +610,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
               ...apiAuth(),
             },
             body: JSON.stringify({
-              variant_ids: variantsToPrint.map((variant) => variant.id),
+              variant_ids: Array.from(new Set(variantsToPrint.map((variant) => variant.id))),
             }),
           },
         );
@@ -738,17 +810,16 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 >
                   Clear Cost
                 </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void handlePrintTags([v], "Inventory tag sent to print.")
+                <VariantTagPrintControl
+                  sku={v.sku}
+                  onPrint={(quantity) =>
+                    void handlePrintTags(
+                      [v],
+                      `${quantity} inventory tag${quantity === 1 ? "" : "s"} sent to print.`,
+                      quantity,
+                    )
                   }
-                  className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-accent`}
-                  title="Print inventory tag"
-                >
-                  <Printer size={14} className="shrink-0" />
-                  Print tag
-                </button>
+                />
                 <button
                   type="button"
                   onClick={() => setMaintenanceTarget({ variantId: v.id, sku: v.sku, type: "damaged" })}
