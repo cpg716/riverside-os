@@ -83,6 +83,7 @@ pub mod receipt_plain_text;
 pub mod receipt_privacy;
 pub mod receipt_shared;
 pub mod receipt_studio_html;
+pub mod refund_tender_correction;
 pub mod register_day_activity;
 pub mod register_staff_metrics;
 pub mod remote_access;

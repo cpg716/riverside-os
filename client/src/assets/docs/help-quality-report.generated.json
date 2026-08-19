@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-17T02:36:39.816Z",
+  "generated_at": "2026-08-19T14:14:32.260Z",
   "standard_version": "help-manual-standard-v3",
   "published_manual_count": 73,
   "draft_manual_count": 0,
@@ -1678,7 +1678,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 18,
+      "numbered_steps": 22,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []

@@ -3374,6 +3374,12 @@ export default function NexoCheckoutDrawer({
       return;
     }
 
+    const normalizedCheckNumber = checkNumber.trim();
+    if (tab === "check" && normalizedCheckNumber.length === 0) {
+      toast("Enter the check number before adding payment.", "error");
+      return;
+    }
+
     if (tab === "rms_charge") {
       if (!customerId) {
         toast("Attach a customer before using RMS Charge.", "error");
@@ -3467,7 +3473,7 @@ export default function NexoCheckoutDrawer({
               }
             : tab === "check"
             ? {
-                check_number: checkNumber.trim() || null,
+                check_number: normalizedCheckNumber,
                 ...(rmsPaymentCollectionMode
                   ? {
                       rms_charge_collection: true,
@@ -3531,7 +3537,7 @@ export default function NexoCheckoutDrawer({
               : isRmsCollectionTender
                 ? {
                     ...(meta.method === "check"
-                      ? { check_number: checkNumber.trim() || null }
+                      ? { check_number: normalizedCheckNumber }
                       : {}),
                     rms_charge_collection: true,
                     tender_family: "rms_charge",
@@ -5043,6 +5049,7 @@ export default function NexoCheckoutDrawer({
                               Math.min(keypadCents, Math.abs(remainingCents)) >
                                 parseMoneyToCents(giftCardPreview?.current_balance ?? "0"))) ||
                           (tab === "donation" && donationNote.trim().length < 3) ||
+                          (tab === "check" && checkNumber.trim().length === 0) ||
                           (tab === "rms_charge" &&
                             (!customerId ||
                               !rmsSelectedAccount ||
@@ -5468,6 +5475,8 @@ export default function NexoCheckoutDrawer({
                             value={checkNumber}
                             onChange={e => setCheckNumber(e.target.value)}
                             placeholder="CHECK #"
+                            aria-label="Check number"
+                            required
                             className="ui-input h-14 w-full pl-12 pr-4 rounded-xl bg-app-bg border border-app-border text-lg font-black tracking-widest uppercase focus:border-app-accent"
                           />
                         </div>

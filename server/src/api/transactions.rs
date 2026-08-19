@@ -4027,6 +4027,19 @@ pub struct RepairRefundLinesRequest {
     pub return_lines: Vec<TransactionReturnLineBody>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CorrectInternalRefundTenderRequest {
+    pub payment_transaction_id: Uuid,
+    pub expected_payment_method: String,
+    pub payment_method: String,
+    #[serde(default)]
+    pub check_number: Option<String>,
+    pub manager_staff_id: Uuid,
+    pub manager_pin: String,
+    pub reason: String,
+    pub confirmation: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ProcessRefundResponse {
     pub status: String,
@@ -4198,6 +4211,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{transaction_id}/refunds/{refund_event_id}/repair-lines",
             post(repair_refund_return_lines),
+        )
+        .route(
+            "/{transaction_id}/refunds/{refund_event_id}/correct-internal-tender",
+            post(correct_internal_refund_tender),
         )
         .route(
             "/{transaction_id}/exchange-settlement",
@@ -14004,6 +14021,174 @@ async fn repair_refund_return_lines(
     .await;
     let detail = load_transaction_detail(&state.db, transaction_id).await?;
     Ok(Json(detail))
+}
+
+async fn correct_internal_refund_tender(
+    State(state): State<AppState>,
+    Path((transaction_id, refund_event_id)): Path<(Uuid, Uuid)>,
+    headers: HeaderMap,
+    Json(body): Json<CorrectInternalRefundTenderRequest>,
+) -> Result<Json<serde_json::Value>, TransactionError> {
+    let requester =
+        middleware::require_staff_with_permission(&state, &headers, ORDERS_REFUND_PROCESS)
+            .await
+            .map_err(map_perm_err)?;
+    if body.confirmation.trim() != "CORRECT REFUND TENDER" {
+        return Err(TransactionError::InvalidPayload(
+            "confirmation must be CORRECT REFUND TENDER".to_string(),
+        ));
+    }
+    let reason = body.reason.trim();
+    if !(12..=500).contains(&reason.chars().count()) {
+        return Err(TransactionError::InvalidPayload(
+            "correction reason must be between 12 and 500 characters".to_string(),
+        ));
+    }
+    let expected_method = body.expected_payment_method.trim().to_ascii_lowercase();
+    let corrected_method = body.payment_method.trim().to_ascii_lowercase();
+    if !matches!(expected_method.as_str(), "cash" | "check")
+        || !matches!(corrected_method.as_str(), "cash" | "check")
+    {
+        return Err(TransactionError::InvalidPayload(
+            "only Cash and Check refund tenders can be corrected with this workflow".to_string(),
+        ));
+    }
+    if expected_method == corrected_method {
+        return Err(TransactionError::InvalidPayload(
+            "the corrected refund tender must differ from the current tender".to_string(),
+        ));
+    }
+    let corrected_check_number = required_refund_check_number(
+        RefundPaymentMethod::parse(&corrected_method)?,
+        body.check_number.as_deref(),
+    )?;
+    if corrected_check_number
+        .as_deref()
+        .is_some_and(|value| value.chars().count() > 64)
+    {
+        return Err(TransactionError::InvalidPayload(
+            "check_number must be 64 characters or fewer".to_string(),
+        ));
+    }
+    let manager = authenticate_manager_approval(
+        &state,
+        body.manager_staff_id,
+        body.manager_pin.as_str(),
+        "Manager Access approval is required to correct a completed refund tender",
+    )
+    .await?;
+    let outcome = crate::logic::refund_tender_correction::correct_internal_refund_tender(
+        &state.db,
+        crate::logic::refund_tender_correction::CorrectInternalRefundTenderInput {
+            transaction_id,
+            refund_event_id,
+            payment_transaction_id: body.payment_transaction_id,
+            expected_payment_method: &expected_method,
+            payment_method: &corrected_method,
+            check_number: corrected_check_number.as_deref(),
+            requesting_staff_id: requester.id,
+            manager_staff_id: manager.id,
+            reason,
+        },
+    )
+    .await
+    .map_err(|error| match error {
+        crate::logic::refund_tender_correction::RefundTenderCorrectionError::Invalid(message) => {
+            TransactionError::InvalidPayload(message)
+        }
+        crate::logic::refund_tender_correction::RefundTenderCorrectionError::Conflict(message) => {
+            TransactionError::Conflict(message)
+        }
+        crate::logic::refund_tender_correction::RefundTenderCorrectionError::Database(error) => {
+            TransactionError::Database(error)
+        }
+    })?;
+
+    let mut refresh_warnings = Vec::new();
+    let eod_snapshot_refreshed =
+        if let Some((till_close_group_id, primary_session_id)) = outcome.snapshot_context {
+            match crate::logic::register_day_activity::fetch_complete_register_day_summary(
+                &state.db,
+                None,
+                Some(outcome.effective_date),
+                Some(outcome.effective_date),
+                None,
+                crate::logic::report_basis::ReportBasis::Booked,
+            )
+            .await
+            {
+                Ok(mut summary) => {
+                    summary.from_eod_snapshot = false;
+                    match crate::logic::register_day_activity::save_eod_snapshot(
+                        &state.db,
+                        outcome.effective_date,
+                        till_close_group_id,
+                        primary_session_id,
+                        &summary,
+                    )
+                    .await
+                    {
+                        Ok(()) => true,
+                        Err(error) => {
+                            refresh_warnings.push(format!("EOD snapshot refresh failed: {error}"));
+                            false
+                        }
+                    }
+                }
+                Err(error) => {
+                    refresh_warnings.push(format!("EOD summary refresh failed: {error}"));
+                    false
+                }
+            }
+        } else {
+            false
+        };
+    let qbo_proposal_refreshed = match crate::logic::qbo_journal::ensure_pending_daily_journal(
+        &state.db,
+        outcome.effective_date,
+    )
+    .await
+    {
+        Ok(_) => true,
+        Err(error) => {
+            refresh_warnings.push(format!("QBO proposal refresh failed: {error}"));
+            false
+        }
+    };
+    if outcome.register_was_closed
+        && outcome
+            .corrected_cash_discrepancy
+            .is_some_and(|value| !value.is_zero())
+    {
+        let _ = crate::logic::notifications::broadcast_system_alert(
+            &state.db,
+            &format!(
+                "Post-close refund tender correction for Transaction {transaction_id}: {} was corrected from Cash to Check. The preserved physical cash count now differs from corrected expected cash by ${} and requires Manager review.",
+                outcome.amount,
+                outcome.corrected_cash_discrepancy.unwrap_or(Decimal::ZERO)
+            ),
+        )
+        .await;
+    }
+
+    Ok(Json(json!({
+        "status": "corrected",
+        "transaction_id": transaction_id,
+        "refund_event_id": refund_event_id,
+        "payment_transaction_id": body.payment_transaction_id,
+        "amount": outcome.amount,
+        "payment_method": outcome.payment_method,
+        "check_number": outcome.check_number,
+        "effective_date": outcome.effective_date,
+        "register_close_snapshot_preserved": outcome.register_was_closed,
+        "corrected_expected_cash": outcome.corrected_expected_cash,
+        "preserved_actual_cash": outcome.preserved_actual_cash,
+        "corrected_cash_discrepancy": outcome.corrected_cash_discrepancy,
+        "eod_snapshot_refreshed": eod_snapshot_refreshed,
+        "qbo_proposal_refreshed": qbo_proposal_refreshed,
+        "daily_report_was_already_sent": outcome.daily_report_was_already_sent,
+        "refresh_warnings": refresh_warnings,
+    })))
 }
 
 async fn post_transaction_returns(

@@ -935,6 +935,86 @@ test.describe("refund split-tender capacity contract", () => {
     expect(refundAllocation?.allocation_check_number).toBe("REF-CHK-417");
   });
 
+  test("Manager correction reclassifies one exact cash refund as a check", async ({ request }) => {
+    test.setTimeout(60_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Refund Tender Correction");
+    const checkout = await doCheckout(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      fixture,
+    });
+    const lines = await getTransactionLines(request, checkout.transaction_id);
+    await openRefundQueueFromVoid(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      sessionToken,
+      lineId: lines[0]!.transaction_line_id,
+      qty: 1,
+    });
+
+    const completed = await doRefund(request, {
+      transactionId: checkout.transaction_id,
+      sessionId,
+      amount: checkout.grossStr,
+      paymentMethod: "cash",
+      refundTenderId: "cash-to-check-correction",
+    });
+    expect(completed.status, JSON.stringify(completed.body)).toBe(200);
+    const completedBody = completed.body as {
+      payment_transaction_id: string;
+      refund_event_id: string;
+    };
+
+    const corrected = await request.post(
+      apiUrl(
+        `/api/transactions/${checkout.transaction_id}/refunds/${completedBody.refund_event_id}/correct-internal-tender`,
+      ),
+      {
+        headers: { ...staffHeaders(), "Content-Type": "application/json" },
+        data: {
+          payment_transaction_id: completedBody.payment_transaction_id,
+          expected_payment_method: "cash",
+          payment_method: "check",
+          check_number: "REF-CHK-8908",
+          manager_staff_id: operatorStaffId,
+          manager_pin: "1234",
+          reason: "Correct the completed refund to the check actually issued.",
+          confirmation: "CORRECT REFUND TENDER",
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const correctionBody = (await corrected.json()) as {
+      status?: string;
+      payment_method?: string;
+      check_number?: string;
+      refresh_warnings?: string[];
+    };
+    expect(corrected.status(), JSON.stringify(correctionBody)).toBe(200);
+    expect(correctionBody).toMatchObject({
+      status: "corrected",
+      payment_method: "check",
+      check_number: "REF-CHK-8908",
+      refresh_warnings: [],
+    });
+
+    const artifacts = await getArtifacts(request, checkout.transaction_id);
+    expect(
+      artifacts.payment_rows.some(
+        (row) =>
+          row.payment_method === "check" && row.check_number === "REF-CHK-8908",
+      ),
+    ).toBe(true);
+    const correctedAllocation = artifacts.allocation_rows.find(
+      (row) => row.payment_check_number === "REF-CHK-8908",
+    );
+    expect(correctedAllocation?.payment_method).toBe("check");
+    expect(correctedAllocation?.allocation_check_number).toBe("REF-CHK-8908");
+  });
+
   test("legacy/manual card refund recording requires manager authorization", async ({ request }) => {
     test.setTimeout(60_000);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
