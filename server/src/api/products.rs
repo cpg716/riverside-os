@@ -23,7 +23,9 @@ use crate::logic::importer::{execute_import, ImportPayload, ImportSummary, Impor
 use crate::logic::product_catalog_analysis::{
     analyze_product_catalog, suggest_product_catalog_normalization, ProductCatalogAnalysisInput,
 };
-use crate::logic::template_variant_pricing::{effective_retail_usd, effective_sale_usd};
+use crate::logic::template_variant_pricing::{
+    effective_cost_usd, effective_retail_usd, effective_sale_usd,
+};
 use crate::middleware;
 use crate::models::DbStaffRole;
 
@@ -1081,6 +1083,9 @@ pub struct HubVariantRow {
     pub retail_price_override: Option<Decimal>,
     pub sale_price_override: Option<Decimal>,
     pub cost_override: Option<Decimal>,
+    pub last_cost_override: Option<Decimal>,
+    pub effective_average_cost: Decimal,
+    pub effective_last_cost: Option<Decimal>,
     pub effective_retail: Decimal,
     pub effective_sale: Option<Decimal>,
     pub web_published: bool,
@@ -1110,8 +1115,11 @@ struct HubVariantJoinRow {
     retail_price_override: Option<Decimal>,
     sale_price_override: Option<Decimal>,
     cost_override: Option<Decimal>,
+    last_cost_override: Option<Decimal>,
     base_retail_price: Decimal,
     base_sale_price: Option<Decimal>,
+    base_cost: Decimal,
+    last_cost: Option<Decimal>,
     web_published: bool,
     web_price_override: Option<Decimal>,
     web_gallery_order: i32,
@@ -1127,6 +1135,7 @@ pub struct ProductHubProductRow {
     base_retail_price: Decimal,
     base_sale_price: Option<Decimal>,
     base_cost: Decimal,
+    last_cost: Option<Decimal>,
     variation_axes: Vec<String>,
     category_id: Option<Uuid>,
     category_name: Option<String>,
@@ -3113,7 +3122,7 @@ async fn bulk_archive_products(
             FROM transaction_lines tl
             WHERE tl.product_id = p.id
               AND tl.quantity > 0
-              AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order', 'layaway')
+              AND tl.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order', 'layaway')
               AND COALESCE(tl.order_lifecycle_status::text, '') <> 'picked_up'
               AND tl.fulfilled_at IS NULL
         ) open_orders ON true
@@ -3716,6 +3725,7 @@ async fn fetch_product_hub(
             p.base_retail_price,
             p.base_sale_price,
             p.base_cost,
+            p.last_cost,
             p.variation_axes,
             c.id AS category_id,
             c.name AS category_name,
@@ -3969,8 +3979,11 @@ async fn fetch_product_hub(
             pv.retail_price_override,
             pv.sale_price_override,
             pv.cost_override,
+            pv.last_cost_override,
             p.base_retail_price,
             p.base_sale_price,
+            p.base_cost,
+            p.last_cost,
             COALESCE(pv.web_published, false) AS web_published,
             pv.web_price_override,
             pv.web_gallery_order,
@@ -4032,6 +4045,9 @@ async fn fetch_product_hub(
             retail_price_override: r.retail_price_override,
             sale_price_override: r.sale_price_override,
             cost_override: r.cost_override,
+            last_cost_override: r.last_cost_override,
+            effective_average_cost: effective_cost_usd(r.base_cost, r.cost_override),
+            effective_last_cost: r.last_cost_override.or(r.last_cost),
             effective_retail: effective_retail_usd(r.base_retail_price, r.retail_price_override),
             effective_sale: effective_sale_usd(r.base_sale_price, r.sale_price_override),
             web_published: r.web_published,

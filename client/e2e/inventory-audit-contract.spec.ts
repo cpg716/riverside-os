@@ -39,6 +39,15 @@ type TransactionDetailResponse = {
     quantity: number;
     quantity_returned: number;
     is_fulfilled: boolean;
+    fulfillment: string;
+    order_lifecycle_status?: string | null;
+  }>;
+};
+
+type OrdersResponse = {
+  items: Array<{
+    transaction_id: string;
+    order_kind: string;
   }>;
 };
 
@@ -160,6 +169,29 @@ async function createInventoryProduct(
     unitPrice: "49.99",
     unitCost: "20.00",
   };
+}
+
+async function createInventoryCustomer(
+  request: APIRequestContext,
+  label: string,
+): Promise<string> {
+  const suffix = uniqueSuffix(label);
+  const res = await request.post(`${apiBase()}/api/customers`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+      "x-riverside-station-key": "station-e2e",
+    },
+    data: {
+      first_name: "Pickup",
+      last_name: `Later ${suffix}`,
+      email: `${suffix}@example.test`,
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return (JSON.parse(bodyText) as { id: string }).id;
 }
 
 async function getActivePhysicalInventorySession(
@@ -289,8 +321,15 @@ async function checkoutInventoryProduct(
     sessionId: string;
     sessionToken: string;
     operatorStaffId: string;
-    fulfillment: "takeaway" | "special_order" | "custom" | "wedding_order" | "layaway";
+    fulfillment:
+      | "takeaway"
+      | "pickup_later"
+      | "special_order"
+      | "custom"
+      | "wedding_order"
+      | "layaway";
     quantity?: number;
+    customerId?: string | null;
   },
 ): Promise<CheckoutResponse> {
   const quantity = options.quantity ?? 1;
@@ -308,7 +347,7 @@ async function checkoutInventoryProduct(
       session_id: options.sessionId,
       operator_staff_id: options.operatorStaffId,
       primary_salesperson_id: options.operatorStaffId,
-      customer_id: null,
+      customer_id: options.customerId ?? null,
       payment_method: "cash",
       total_price: total,
       amount_paid: total,
@@ -506,6 +545,101 @@ test.describe("inventory audit contract", () => {
     const detailAfterPickup = await fetchTransactionDetail(request, checkout.transaction_id);
     const lineAfterPickup = detailAfterPickup.items.find((item) => item.sku === product.sku);
     expect(lineAfterPickup?.is_fulfilled).toBe(true);
+  });
+
+  test("pickup later reserves an on-hand item and completes through Orders pickup", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const customerId = await createInventoryCustomer(request, "pickup-later");
+    const product = await createInventoryProduct(
+      request,
+      operatorStaffId,
+      "pickup-later",
+      2,
+    );
+
+    const before = await getInventoryIntelligence(request, product.variantId);
+    const checkout = await checkoutInventoryProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId,
+      fulfillment: "pickup_later",
+    });
+
+    const afterCheckout = await getInventoryIntelligence(request, product.variantId);
+    expect(afterCheckout.stock_on_hand).toBe(before.stock_on_hand);
+    expect(afterCheckout.reserved_stock).toBe(before.reserved_stock + 1);
+    expect(afterCheckout.available_stock).toBe(before.available_stock - 1);
+
+    const detailBeforePickup = await fetchTransactionDetail(
+      request,
+      checkout.transaction_id,
+    );
+    const heldLine = detailBeforePickup.items.find(
+      (item) => item.sku === product.sku,
+    );
+    expect(heldLine?.fulfillment).toBe("pickup_later");
+    expect(heldLine?.order_lifecycle_status).toBe("ready_for_pickup");
+    expect(heldLine?.is_fulfilled).toBe(false);
+
+    const ordersRes = await request.get(
+      `${apiBase()}/api/transactions?record_scope=orders&status_scope=open&customer_id=${encodeURIComponent(customerId)}`,
+      { headers: staffHeaders(), failOnStatusCode: false },
+    );
+    const ordersText = await ordersRes.text();
+    expect(ordersRes.status(), ordersText.slice(0, 1000)).toBe(200);
+    const orders = JSON.parse(ordersText) as OrdersResponse;
+    expect(
+      orders.items.find((item) => item.transaction_id === checkout.transaction_id)
+        ?.order_kind,
+    ).toBe("pickup_later");
+
+    const pickupRes = await request.post(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/pickup`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+          "Content-Type": "application/json",
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          delivered_item_ids: [heldLine!.transaction_line_id],
+          register_cart_completion: true,
+          actor: "E2E Pick Up Later",
+          register_session_id: sessionId,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const pickupText = await pickupRes.text();
+    expect(pickupRes.status(), pickupText.slice(0, 1000)).toBe(200);
+
+    const afterPickup = await getInventoryIntelligence(request, product.variantId);
+    expect(afterPickup.stock_on_hand).toBe(before.stock_on_hand - 1);
+    expect(afterPickup.reserved_stock).toBe(before.reserved_stock);
+    expect(afterPickup.available_stock).toBe(before.available_stock - 1);
+    await expectMovementEvidence(request, product, {
+      txType: "sale",
+      quantityDelta: -1,
+      referenceId: checkout.transaction_id,
+    });
+
+    const detailAfterPickup = await fetchTransactionDetail(
+      request,
+      checkout.transaction_id,
+    );
+    const pickedUpLine = detailAfterPickup.items.find(
+      (item) => item.sku === product.sku,
+    );
+    expect(pickedUpLine?.is_fulfilled).toBe(true);
+    expect(pickedUpLine?.order_lifecycle_status).toBe("picked_up");
   });
 
   test("simultaneous pickup decrements stock and reserved quantity exactly once", async ({

@@ -80,6 +80,8 @@ export interface ProductHubVariantInventoryRow {
   average_yearly_units_sold: string;
   qty_on_order?: number | null;
   last_physical_count_at?: string | null;
+  effective_average_cost: string;
+  effective_last_cost: string | null;
 }
 
 export interface ProductHubInventoryResponse {

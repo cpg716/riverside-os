@@ -37,6 +37,9 @@ export interface HubVariant {
   retail_price_override: string | null;
   sale_price_override: string | null;
   cost_override: string | null;
+  last_cost_override: string | null;
+  effective_average_cost: string;
+  effective_last_cost: string | null;
   barcode: string | null;
   vendor_upc: string | null;
   effective_retail: string;
@@ -766,7 +769,10 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                       : "border-app-border bg-app-surface-2 text-app-text-muted"
                   }`}
                 >
-                  Cost {v.cost_override ? `$${centsToFixed2(parseMoneyToCents(v.cost_override))}` : "inherited"}
+                  Avg cost ${centsToFixed2(parseMoneyToCents(v.effective_average_cost))}
+                </span>
+                <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 text-app-text-muted">
+                  Last cost {v.effective_last_cost ? `$${centsToFixed2(parseMoneyToCents(v.effective_last_cost))}` : "not available"}
                 </span>
                 <span className={`rounded-lg border px-2 py-1 ${v.web_published ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-app-border bg-app-surface-2 text-app-text-muted"}`}>
                   {v.web_published ? "Online" : "Not online"}
@@ -808,7 +814,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                   onClick={() => void patchVariant(v.id, { cost_override: null })}
                   className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-amber-300 hover:text-amber-700`}
                 >
-                  Clear Cost
+                  Clear Avg Cost
                 </button>
                 <VariantTagPrintControl
                   sku={v.sku}

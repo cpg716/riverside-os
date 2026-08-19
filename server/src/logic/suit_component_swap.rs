@@ -137,6 +137,13 @@ pub async fn execute_suit_component_swap(
     let mut inventory_adjusted = false;
     let takeaway = ctx.fulfillment == DbFulfillmentType::Takeaway;
 
+    if ctx.fulfillment == DbFulfillmentType::PickupLater && !ctx.is_fulfilled {
+        return Err(SuitSwapError::InvalidPayload(
+            "Pick Up Later merchandise must be cancelled and re-rung before changing its variant so the inventory hold stays exact."
+                .to_string(),
+        ));
+    }
+
     if takeaway && !ctx.is_fulfilled && new_resolved.available_stock < eff_qty {
         return Err(SuitSwapError::InvalidPayload(format!(
             "insufficient available stock for {} (need {}, have {})",
@@ -149,6 +156,7 @@ pub async fn execute_suit_component_swap(
         DbFulfillmentType::SpecialOrder
             | DbFulfillmentType::WeddingOrder
             | DbFulfillmentType::Custom
+            | DbFulfillmentType::PickupLater
     );
 
     if takeaway && ctx.is_fulfilled {

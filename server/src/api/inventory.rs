@@ -95,6 +95,7 @@ pub struct BatchScanResponse {
 
 #[derive(Debug, Serialize)]
 pub struct ProductOrderCounts {
+    pub pickup_later: i32,
     pub special_order: i32,
     pub custom: i32,
     pub wedding_order: i32,
@@ -496,7 +497,7 @@ async fn fetch_product_intelligence(
             FROM transaction_lines tl
             WHERE ($1::uuid IS NULL OR tl.variant_id = $1)
               AND ($2::uuid IS NULL OR tl.product_id = $2)
-              AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+              AND tl.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')
               AND COALESCE(tl.order_lifecycle_status::text, '') <> 'picked_up'
               AND tl.quantity > 0
             GROUP BY tl.fulfillment::text
@@ -509,12 +510,14 @@ async fn fetch_product_intelligence(
         .unwrap_or_default();
 
         let mut counts = ProductOrderCounts {
+            pickup_later: 0,
             special_order: 0,
             custom: 0,
             wedding_order: 0,
         };
         for (kind, qty) in rows {
             match kind.as_str() {
+                "pickup_later" => counts.pickup_later = qty,
                 "special_order" => counts.special_order = qty,
                 "custom" => counts.custom = qty,
                 "wedding_order" => counts.wedding_order = qty,

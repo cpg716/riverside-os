@@ -578,6 +578,7 @@ type RecordMode = "orders" | "transactions";
 type FulfillmentKind =
   | "takeaway"
   | "shipment"
+  | "pickup_later"
   | "wedding_order"
   | "special_order"
   | "custom"
@@ -622,6 +623,8 @@ interface OrderRowActions {
 
 function orderKindLabel(kind: string) {
   switch (kind) {
+    case "pickup_later":
+      return "Pick Up Later";
     case "wedding_order":
       return "Wedding";
     case "special_order":
@@ -2359,6 +2362,7 @@ export default function OrdersWorkspace({
                 className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
               >
                 <option value="all">Type: All</option>
+                <option value="pickup_later">Pick Up Later</option>
                 <option value="special_order">Special</option>
                 <option value="wedding_order">Wedding</option>
                 <option value="custom">Custom</option>

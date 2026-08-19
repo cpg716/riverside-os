@@ -434,6 +434,7 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
         } else {
             match it.fulfillment {
                 DbFulfillmentType::Takeaway => "Taken home today",
+                DbFulfillmentType::PickupLater => "Held for pickup",
                 DbFulfillmentType::WeddingOrder => "Wedding order",
                 DbFulfillmentType::SpecialOrder | DbFulfillmentType::Custom => "Order",
                 DbFulfillmentType::Layaway => "Layaway",
@@ -994,6 +995,7 @@ fn receipt_item_section_label(
     } else {
         match it.fulfillment {
             DbFulfillmentType::Takeaway => "Taken Today",
+            DbFulfillmentType::PickupLater => "Pick Up Later",
             DbFulfillmentType::SpecialOrder => "Special Order",
             DbFulfillmentType::Custom => "Custom Order",
             DbFulfillmentType::WeddingOrder => "Wedding Order",

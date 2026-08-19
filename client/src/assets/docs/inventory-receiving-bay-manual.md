@@ -66,6 +66,8 @@ Before posting, unreceived lines can be corrected for ordered quantity and invoi
 
 Unit cost and freight fields accept typed decimal amounts from the invoice paperwork. Enter the exact invoice cost before posting.
 
+When posting succeeds, the invoice unit becomes that SKU's **last cost**. Riverside separately recalculates its **average/WAC cost** from the prior on-hand quantity and average cost plus the received quantity and invoice unit. Inventory value, COGS, margin, below-cost controls, and employee pricing continue to use average/WAC cost; last cost remains a purchasing reference.
+
 Posted receiving reports show invoice unit cost, merchandise extended total, and freight allocation as separate values. Freight is not added into item cost; QBO distribution and sync review post inbound freight separately from merchandise receiving.
 
 ## Stale paperwork

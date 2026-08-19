@@ -54,6 +54,7 @@ interface ProductHubProduct {
   base_retail_price: string;
   base_sale_price: string | null;
   base_cost: string;
+  last_cost: string | null;
   variation_axes: string[];
   category_id: string | null;
   category_name: string | null;
@@ -115,6 +116,9 @@ interface HubApiVariant {
   retail_price_override: string | null;
   sale_price_override: string | null;
   cost_override: string | null;
+  last_cost_override: string | null;
+  effective_average_cost: string;
+  effective_last_cost: string | null;
   barcode?: string | null;
   vendor_upc?: string | null;
   effective_retail: string;
@@ -1345,6 +1349,9 @@ export default function ProductHubDrawer({
       retail_price_override: v.retail_price_override,
       sale_price_override: v.sale_price_override,
       cost_override: v.cost_override,
+      last_cost_override: v.last_cost_override,
+      effective_average_cost: v.effective_average_cost,
+      effective_last_cost: v.effective_last_cost,
       barcode: v.barcode ?? null,
       vendor_upc: v.vendor_upc ?? null,
       effective_retail: v.effective_retail,
@@ -1375,9 +1382,9 @@ export default function ProductHubDrawer({
       : "Standard employee discount";
   const employeePreviewWarning =
     employeeBaseCost <= 0
-      ? "Add cost before using a cost-plus employee override."
+      ? "Add average cost before using a cost-plus employee override."
       : employeePreview != null && employeeBaseRetail > 0 && employeePreview > employeeBaseRetail
-        ? "Preview is above retail. Review markup or cost before using employee pricing."
+        ? "Preview is above retail. Review markup or average cost before using employee pricing."
         : null;
 
   const tabBtn = (id: HubTab, label: string) => (
@@ -1783,9 +1790,15 @@ export default function ProductHubDrawer({
                     </div>
                   ) : null}
                   <div>
-                    <dt className="text-app-text-muted">Base cost</dt>
+                    <dt className="text-app-text-muted">Base average cost</dt>
                     <dd className="font-mono text-app-text">
                       {money(hub.product.base_cost)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-app-text-muted">Base last cost</dt>
+                    <dd className="font-mono text-app-text">
+                      {hub.product.last_cost == null ? "—" : money(hub.product.last_cost)}
                     </dd>
                   </div>
                   <div className="sm:col-span-2">
@@ -2334,7 +2347,7 @@ export default function ProductHubDrawer({
                     <p className="mb-4 text-xs text-app-text-muted">
                       Unit price for employee sales is{" "}
                       <span className="font-semibold text-app-text">
-                        cost × (1 + markup%) + extra
+                        average cost × (1 + markup%) + extra
                       </span>
                       . Leave markup blank to use the store default (
                       {formatMoney(
@@ -2355,7 +2368,7 @@ export default function ProductHubDrawer({
                       </div>
                       <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-3">
                         <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          Current cost
+                          Average cost basis
                         </p>
                         <p className="mt-1 text-sm font-black tabular-nums text-app-text">
                           {money(hub.product.base_cost)}

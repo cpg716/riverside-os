@@ -538,6 +538,8 @@ function fulfillmentDisplayLabel(value?: string | null): string | null {
   switch ((value || "").toLowerCase()) {
     case "takeaway":
       return "Takeaway";
+    case "pickup_later":
+      return "Pick Up Later";
     case "special_order":
       return "Special Order";
     case "custom":

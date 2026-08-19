@@ -6,6 +6,8 @@ This document is the source policy for release-gated financial checks. If a work
 
 1. Supplier inbound freight is separate from merchandise item cost.
    - Receiving item cost, weighted average cost, inventory asset value, and receiving merchandise clearing use invoice unit cost only.
+   - The effective product/SKU cost is average or weighted-average cost. It is the sole current-cost basis for inventory value, frozen checkout COGS, gross margin, below-cost controls, and employee cost-plus pricing.
+   - Last cost is the latest Counterpoint source cost or posted invoice unit cost. It remains visible for purchasing reference but must never replace average/WAC cost in valuation, COGS, margin, below-cost, or employee-price calculations.
    - Supplier freight posts separately through inbound freight expense and receiving clearing.
    - Supplier freight must not be mixed with customer shipping.
 

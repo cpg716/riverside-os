@@ -658,6 +658,10 @@ export function useCartActions({
 
   const updateLineFulfillment = useCallback((rowId: string, next: FulfillmentKind) => {
     const line = lines.find((l) => l.cart_row_id === rowId);
+    if (next === "pickup_later" && !selectedCustomer) {
+      toast("Select a customer before choosing Pick Up Later.", "info");
+      return;
+    }
     if (rmsPaymentMeta && line && line.sku === rmsPaymentMeta.sku && next !== "takeaway") {
       toast("R2S payment must stay on Take Now.", "info");
       return;
@@ -688,7 +692,14 @@ export function useCartActions({
           : l,
       )
     );
-  }, [lines, rmsPaymentMeta, staffAccountPaymentMeta, giftCardLoadMeta, toast]);
+  }, [
+    lines,
+    rmsPaymentMeta,
+    selectedCustomer,
+    staffAccountPaymentMeta,
+    giftCardLoadMeta,
+    toast,
+  ]);
 
   const updateLineSalesperson = useCallback((rowId: string, salespersonId: string) => {
     setLines((prev) =>

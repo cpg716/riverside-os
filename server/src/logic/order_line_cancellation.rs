@@ -49,6 +49,8 @@ fn cancellation_inventory_bucket(
 ) -> CancellationInventoryBucket {
     if fulfillment == DbFulfillmentType::Layaway {
         CancellationInventoryBucket::Layaway
+    } else if fulfillment == DbFulfillmentType::PickupLater {
+        CancellationInventoryBucket::ReservedStock
     } else if matches!(
         fulfillment,
         DbFulfillmentType::SpecialOrder
@@ -298,7 +300,12 @@ pub async fn preview_in_tx(
             cancellation_inventory_bucket(fulfillment, lifecycle, received_at.is_some());
         let inventory_disposition = match inventory_bucket {
             CancellationInventoryBucket::ReservedStock => {
-                "Received item stays on hand and its customer reservation is released.".to_string()
+                if fulfillment == DbFulfillmentType::PickupLater {
+                    "Held item stays on hand and its customer reservation is released.".to_string()
+                } else {
+                    "Received item stays on hand and its customer reservation is released."
+                        .to_string()
+                }
             }
             CancellationInventoryBucket::Layaway => {
                 "Layaway hold is released and the item returns to available stock.".to_string()
@@ -547,6 +554,18 @@ mod tests {
                 false,
             ),
             CancellationInventoryBucket::Layaway,
+        );
+    }
+
+    #[test]
+    fn pickup_later_always_releases_reserved_stock() {
+        assert_eq!(
+            cancellation_inventory_bucket(
+                DbFulfillmentType::PickupLater,
+                DbOrderItemLifecycleStatus::ReadyForPickup,
+                false,
+            ),
+            CancellationInventoryBucket::ReservedStock
         );
     }
 }

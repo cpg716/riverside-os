@@ -112,7 +112,7 @@ pub async fn query_customer_transaction_history(
                 WHERE transaction_id = o.id
                   AND (
                       fulfillment_order_id IS NOT NULL
-                      OR fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                      OR fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')
                   )
             ) AS is_fulfillment_order,
             o.exchange_group_id IS NOT NULL AS is_exchange,
@@ -226,7 +226,7 @@ pub async fn query_customer_transaction_history(
         CustomerHistoryRecordScope::Orders => {
             // Customer Hub Orders includes the complete order record regardless of lifecycle status.
             qb.push(
-                " AND (o.counterpoint_doc_ref IS NOT NULL OR EXISTS(SELECT 1 FROM transaction_lines tl_scope WHERE tl_scope.transaction_id = o.id AND (tl_scope.fulfillment_order_id IS NOT NULL OR tl_scope.fulfillment::text IN ('special_order', 'custom', 'wedding_order')))) ",
+                " AND (o.counterpoint_doc_ref IS NOT NULL OR EXISTS(SELECT 1 FROM transaction_lines tl_scope WHERE tl_scope.transaction_id = o.id AND (tl_scope.fulfillment_order_id IS NOT NULL OR tl_scope.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')))) ",
             );
         }
     }

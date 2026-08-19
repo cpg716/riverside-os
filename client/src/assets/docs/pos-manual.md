@@ -136,7 +136,7 @@ Use this only when the sale must be recorded under an earlier store-local date/t
 
 - Confirm the correct staff identity before you start the sale.
 - Open the correct register lane before serving customers.
-- Do not guess between takeaway, order, and wedding handling if the drawer is asking for a fulfillment decision.
+- Use **Take Now** when the customer leaves with the item, **Pick Up Later** when Riverside is holding that exact in-stock item for the linked customer, and **Order** when the item still needs vendor or wedding fulfillment.
 - Treat receipt printer failures as delivery issues only after the sale already succeeded. Receipt auto-print runs once for the newly completed sale; opening an older receipt from Reports, Orders, Customer history, or Staff Profile never auto-prints it.
 - Pending checkout recovery and failed receipt-print jobs are copied to the Main Hub when a connection is available. Another linked register in the same open till shift can restore those unresolved jobs for review. Never dismiss one until the Transaction Record or replacement receipt has been confirmed.
 - A checkout or follow-up system failure appears once as an error toast and is automatically recorded in **Error Events** for support review. Amber guidance for required staff choices, a declined card, or another protected workflow outcome is not a software error; follow the prompt and continue through the existing audited workflow. Failed recovery records do not remain as checkout-blocking warnings in the top bar or cart; the audited recovery evidence remains available during register close.
@@ -235,6 +235,15 @@ Inventory and bookkeeping follow server rules for takeaway, order, and wedding l
 6. After the sale completes, the **Receipt Summary** screen opens. If printing fails, Riverside now shows that the **sale still succeeded** and gives you **Retry** and **Check station printer** actions.
 7. Close the panel with **Close drawer** when you are done.
 8. If you need to hold the transaction for another cashier, use **Park Sale** and enter the label in the Riverside prompt instead of a browser dialog.
+
+### Sell an in-stock item for later pickup
+
+1. Attach the customer before choosing the fulfillment option.
+2. Add or scan the exact in-stock variation, then choose **Pick Up Later** on that Cart line.
+3. Complete payment using the normal Order deposit rules. Riverside leaves the item physically on hand, reserves it for that customer, and creates a Ready-for-Pickup Fulfillment Order.
+4. Find the item later under **Orders** or **Customer Orders**. Select the held line and choose **Continue with Pickup**, then finish through **Complete Pickup** or Payment and Sale Complete.
+
+Do not use **Pick Up Later** for an item that is not in stock; choose **Order** instead. To change the held item or quantity after checkout, cancel the Order item and ring the correct item again so the inventory reservation remains exact.
 
 ![Payment ledger during checkout](../images/help/pos/nexo-checkout-drawer.png)
 

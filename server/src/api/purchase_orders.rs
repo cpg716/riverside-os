@@ -1412,6 +1412,7 @@ async fn receive_po(
             SET
                 stock_on_hand = stock_on_hand + $1,
                 cost_override = $2,
+                last_cost_override = $4,
                 shelf_labeled_at = NULL
             WHERE id = $3
             "#,
@@ -1419,6 +1420,7 @@ async fn receive_po(
         .bind(row.quantity_received_now)
         .bind(stored_wac)
         .bind(row.variant_id)
+        .bind(invoice_unit)
         .execute(&mut *tx)
         .await?;
 

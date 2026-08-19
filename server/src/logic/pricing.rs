@@ -1,6 +1,6 @@
 //! Employee “cost-plus” sale pricing (ROS §4.2).
 //!
-//! **Logic:** Unit Cost × (1 + Global Employee Markup Percentage).  
+//! **Logic:** Average/WAC Unit Cost × (1 + Global Employee Markup Percentage).
 //! **Safety:** Employee sales use **0%** commission (exposed as a constant for order/commission layers).
 
 use rust_decimal::Decimal;
@@ -16,7 +16,7 @@ pub fn round_money_usd(amount: Decimal) -> Decimal {
     amount.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
 }
 
-/// Employee unit sale price: **Unit Cost × (1 + markup%) + flat extra** (§4.2).
+/// Employee unit sale price: **Average/WAC Unit Cost × (1 + markup%) + flat extra** (§4.2).
 ///
 /// `markup_percent` is a **whole percent of cost**, e.g. `25` means multiplier `1.25`.
 /// `extra_amount_usd` is added per unit after the cost-plus step (default 0).

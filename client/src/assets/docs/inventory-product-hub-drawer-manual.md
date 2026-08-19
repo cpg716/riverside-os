@@ -36,6 +36,7 @@ Use Product Hub when you need to:
 5. Review or update primary and secondary vendor assignments before ordering.
 6. Confirm the product-level `Catalog # / vendor style #` and Counterpoint item number are not being confused.
 7. Review and print stock-and-sales velocity for the parent item and every variation.
+8. Compare average cost with last cost without confusing the two business meanings.
 
 ## Before you start
 
@@ -55,6 +56,13 @@ Use Product Hub when you need to:
   Incoming purchase-order units only. These are not available to sell until the receipt posts.
 
 The Product Hub panel is a visibility surface. It uses current server-computed values instead of asking staff to calculate availability themselves.
+
+## What the cost fields mean
+
+- `Average cost` is Riverside's authoritative current merchandise cost. Inventory value, COGS, margin, below-cost controls, and employee cost-plus pricing all use this amount.
+- `Last cost` is the most recent Counterpoint source cost or posted vendor-invoice unit cost. Buyers may use it as a purchasing reference, but Riverside never substitutes it for average cost in margin or employee pricing.
+- A SKU cost override is still an average-cost override for that exact variation. When no SKU override exists, the variation inherits the parent average cost.
+- Posting a vendor receipt updates last cost to that invoice unit and recalculates average/WAC cost separately. Supplier freight is not included in either merchandise cost field.
 
 ## Vendor assignments
 
@@ -86,7 +94,8 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 13. Use recent inventory events when you need to confirm why an inventory number changed.
 14. Open **Stock Report** to review every variation's current quantity, last sold date, average monthly unit sales, and average yearly unit sales, then select **Print Report**.
 15. Select **Analyze product** only when you want the optional read-only ROSIE catalog review. Product Hub does not run that analysis automatically when the drawer opens.
-16. On a variation card, leave tag quantity at `1` and select **Print tag x 1** for one tag. Enter a larger quantity and select the same button, or press Enter in the quantity field, to print that many identical tags. Repeated button presses remain separate print jobs.
+16. In **Item Setup** and **SKUs & Stock**, read `Average cost` as the financial basis and `Last cost` as purchasing reference only.
+17. On a variation card, leave tag quantity at `1` and select **Print tag x 1** for one tag. Enter a larger quantity and select the same button, or press Enter in the quantity field, to print that many identical tags. Repeated button presses remain separate print jobs.
 
 ## Parent stock and sales report
 

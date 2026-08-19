@@ -53,6 +53,7 @@ export interface SearchResult extends ResolvedSkuItem {
 
 export type FulfillmentKind =
   | "takeaway"
+  | "pickup_later"
   | "special_order"
   | "wedding_order"
   | "custom"

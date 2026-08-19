@@ -183,6 +183,7 @@ pub struct TransactionListRow {
     pub is_rush: bool,
     pub need_by_date: Option<NaiveDate>,
     pub has_special_order: bool,
+    pub has_pickup_later: bool,
     pub has_wedding_order: bool,
     pub has_layaway: bool,
     pub has_custom: bool,
@@ -257,6 +258,7 @@ pub struct TransactionListResponse {
     pub need_by_date: Option<NaiveDate>,
     pub order_kind: String,
     pub has_special_order: bool,
+    pub has_pickup_later: bool,
     pub has_wedding_order: bool,
     pub has_layaway: bool,
     pub has_custom: bool,
@@ -276,7 +278,10 @@ pub struct PagedTransactionsResponse {
 fn kind_filter_having_clause(kind_filter: &str) -> Option<&'static str> {
     match kind_filter {
         "regular_order" => Some(
-            " HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom')) = false AND BOOL_OR(oi.fulfillment::text = 'wedding_order') = false AND BOOL_OR(oi.fulfillment::text = 'layaway') = false ",
+            " HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text IN ('pickup_later', 'special_order', 'custom')) = false AND BOOL_OR(oi.fulfillment::text = 'wedding_order') = false AND BOOL_OR(oi.fulfillment::text = 'layaway') = false ",
+        ),
+        "pickup_later" => Some(
+            " HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text = 'pickup_later') = true ",
         ),
         "special_order" => Some(
             " HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text = 'special_order') = true AND BOOL_OR(oi.fulfillment::text = 'custom') = false ",
@@ -308,6 +313,7 @@ fn order_kind_from_flags(
     has_wedding_order: bool,
     has_custom: bool,
     has_special_order: bool,
+    has_pickup_later: bool,
 ) -> String {
     if has_layaway {
         "layaway".to_string()
@@ -317,6 +323,8 @@ fn order_kind_from_flags(
         "custom".to_string()
     } else if has_special_order {
         "special_order".to_string()
+    } else if has_pickup_later {
+        "pickup_later".to_string()
     } else {
         "regular_order".to_string()
     }
@@ -339,7 +347,7 @@ pub async fn query_paged_transactions(
     let is_layaway_filter = kind_filter == Some("layaway");
     let is_order_kind_filter = matches!(
         kind_filter,
-        Some("special_order" | "custom" | "wedding_order")
+        Some("pickup_later" | "special_order" | "custom" | "wedding_order")
     );
     let exact_display_id_query = search_trim.is_some_and(is_exact_transaction_display_id_query);
     let default_order_scope = uses_default_order_scope_for_query(
@@ -351,7 +359,7 @@ pub async fn query_paged_transactions(
     let list_line_filter = if is_layaway_filter {
         "oi.fulfillment::text = 'layaway'"
     } else if order_record_scope || default_order_scope || is_order_kind_filter {
-        "oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')"
+        "oi.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')"
     } else {
         "oi.id IS NOT NULL"
     };
@@ -498,7 +506,7 @@ pub async fn query_paged_transactions(
             {SQL_PARTY_TRACKING_LABEL_WP} AS party_name,
             wp.event_date AS wedding_event_date,
             op.full_name AS operator_name,
-            COALESCE(BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')), false) AS is_fulfillment_order,
+            COALESCE(BOOL_OR(oi.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')), false) AS is_fulfillment_order,
             ps.full_name AS primary_salesperson_name,
             CASE
                 WHEN COALESCE(o.is_counterpoint_import, false)
@@ -642,6 +650,7 @@ pub async fn query_paged_transactions(
             (COALESCE(o.is_rush, false) OR COALESCE(BOOL_OR(oi.is_rush) FILTER (WHERE {list_line_filter}), false)) AS is_rush,
             COALESCE(MIN(oi.need_by_date) FILTER (WHERE {list_line_filter}), o.need_by_date) AS need_by_date,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'special_order'), false) AS has_special_order,
+            COALESCE(BOOL_OR(oi.fulfillment::text = 'pickup_later'), false) AS has_pickup_later,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'wedding_order'), false) AS has_wedding_order,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'layaway'), false) AS has_layaway,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'custom'), false) AS has_custom,
@@ -685,7 +694,7 @@ pub async fn query_paged_transactions(
     }
 
     let open_orders_predicate =
-        "EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order') AND tl.is_fulfilled = false)";
+        "EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order') AND tl.is_fulfilled = false)";
     let open_work_predicate = if is_layaway_filter {
         "EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text = 'layaway' AND tl.is_fulfilled = false)"
     } else {
@@ -814,7 +823,7 @@ pub async fn query_paged_transactions(
                 SELECT 1
                 FROM transaction_lines tl_lifecycle
                 WHERE tl_lifecycle.transaction_id = o.id
-                  AND tl_lifecycle.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                  AND tl_lifecycle.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')
                   AND tl_lifecycle.order_lifecycle_status = ",
         );
         qb.push_bind(lf);
@@ -828,7 +837,7 @@ pub async fn query_paged_transactions(
             qb.push(clause);
         }
     } else if order_record_scope || default_order_scope {
-        qb.push(" HAVING (o.counterpoint_doc_ref IS NOT NULL OR o.wedding_member_id IS NOT NULL OR BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')) = true) ");
+        qb.push(" HAVING (o.counterpoint_doc_ref IS NOT NULL OR o.wedding_member_id IS NOT NULL OR BOOL_OR(oi.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')) = true) ");
     }
 
     qb.push(" ORDER BY o.booked_at DESC, o.id DESC ");
@@ -863,6 +872,7 @@ pub async fn query_paged_transactions(
                 r.has_wedding_order,
                 r.has_custom,
                 r.has_special_order,
+                r.has_pickup_later,
             );
             let fallback_display_id = r.display_id.unwrap_or_else(|| r.transaction_id.to_string());
             let order_payment_display_id = r
@@ -896,6 +906,7 @@ pub async fn query_paged_transactions(
                 fulfillment_method: r.fulfillment_method,
                 order_kind,
                 has_special_order: r.has_special_order,
+                has_pickup_later: r.has_pickup_later,
                 has_wedding_order: r.has_wedding_order,
                 has_layaway: r.has_layaway,
                 has_custom: r.has_custom,
@@ -925,7 +936,7 @@ mod tests {
     #[test]
     fn custom_kind_wins_when_custom_lines_exist() {
         assert_eq!(
-            order_kind_from_flags(false, None, false, true, false),
+            order_kind_from_flags(false, None, false, true, false, false),
             "custom"
         );
     }
@@ -933,9 +944,20 @@ mod tests {
     #[test]
     fn wedding_kind_wins_when_wedding_member_is_present() {
         assert_eq!(
-            order_kind_from_flags(false, Some(Uuid::new_v4()), false, true, true),
+            order_kind_from_flags(false, Some(Uuid::new_v4()), false, true, true, true),
             "wedding_order"
         );
+    }
+
+    #[test]
+    fn pickup_later_kind_is_distinct_for_non_wedding_orders() {
+        assert_eq!(
+            order_kind_from_flags(false, None, false, false, false, true),
+            "pickup_later"
+        );
+        let clause =
+            kind_filter_having_clause("pickup_later").expect("pickup-later clause should exist");
+        assert!(clause.contains("fulfillment::text = 'pickup_later'"));
     }
 
     #[test]
@@ -1145,7 +1167,7 @@ pub async fn query_pipeline_stats(
                         SELECT 1
                         FROM transaction_lines oi
                         WHERE oi.transaction_id = o.id
-                          AND oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                          AND oi.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')
                     )
                   )
             ) AS needs_action,
@@ -1155,7 +1177,7 @@ pub async fn query_pipeline_stats(
                 INNER JOIN transactions t ON t.id = tl.transaction_id
                 WHERE t.status <> 'cancelled'
                   AND tl.is_fulfilled = false
-                  AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                  AND tl.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')
                   AND tl.order_lifecycle_status = 'received'
             ) AS ready_check_needed,
             (
@@ -1164,7 +1186,7 @@ pub async fn query_pipeline_stats(
                 INNER JOIN transactions t ON t.id = tl.transaction_id
                 WHERE t.status <> 'cancelled'
                   AND tl.is_fulfilled = false
-                  AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                  AND tl.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')
                   AND tl.order_lifecycle_status = 'ready_for_pickup'
             ) AS ready_for_pickup,
             COUNT(*) FILTER (
@@ -1174,7 +1196,7 @@ pub async fn query_pipeline_stats(
                       SELECT 1
                       FROM transaction_lines tl
                       WHERE tl.fulfillment_order_id = fulfillment_orders.id
-                        AND tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+                        AND tl.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')
                   )
             )::bigint AS overdue,
             COUNT(*) FILTER (WHERE wedding_id IS NOT NULL AND status IN ('open', 'ready'))::bigint AS wedding_orders
@@ -1254,7 +1276,7 @@ pub async fn query_fulfillment_queue(
                 )::numeric(14,2) AS minimum_ready_item_value
             FROM transaction_lines tl
             LEFT JOIN returned_quantities rq ON rq.transaction_line_id = tl.id
-            WHERE tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
+            WHERE tl.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')
               AND COALESCE(tl.is_internal, FALSE) = FALSE
             GROUP BY tl.transaction_id
         )

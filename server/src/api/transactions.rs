@@ -6589,12 +6589,12 @@ async fn mark_transaction_pickup(
                 SELECT
                     oi.variant_id,
                     SUM(oi.quantity)::int AS qty,
-                    SUM(CASE WHEN oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order') THEN oi.quantity ELSE 0 END)::int AS qty_reserved,
+                    SUM(CASE WHEN oi.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order') THEN oi.quantity ELSE 0 END)::int AS qty_reserved,
                     SUM(CASE WHEN oi.fulfillment::text = 'layaway' THEN oi.quantity ELSE 0 END)::int AS qty_layaway
                 FROM transaction_lines oi
                 WHERE oi.transaction_id = $1
                   AND oi.id = ANY($2)
-                  AND oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order', 'layaway')
+                  AND oi.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order', 'layaway')
                 GROUP BY oi.variant_id
             ),
             locked AS (
@@ -7207,12 +7207,12 @@ async fn mark_transaction_ship(
                 SELECT
                     oi.variant_id,
                     SUM(oi.quantity)::int AS qty,
-                    SUM(CASE WHEN oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order') THEN oi.quantity ELSE 0 END)::int AS qty_reserved,
+                    SUM(CASE WHEN oi.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order') THEN oi.quantity ELSE 0 END)::int AS qty_reserved,
                     SUM(CASE WHEN oi.fulfillment::text = 'layaway' THEN oi.quantity ELSE 0 END)::int AS qty_layaway
                 FROM transaction_lines oi
                 WHERE oi.transaction_id = $1
                   AND oi.id = ANY($2)
-                  AND oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order', 'layaway')
+                  AND oi.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order', 'layaway')
                 GROUP BY oi.variant_id
             ),
             locked AS (
@@ -14560,6 +14560,12 @@ async fn add_transaction_line(
         body.fulfillment,
     )
     .map_err(|m| TransactionError::InvalidPayload(m.to_string()))?;
+    if fulfillment == DbFulfillmentType::PickupLater {
+        return Err(TransactionError::InvalidPayload(
+            "Add Pick Up Later merchandise through Register checkout so Riverside can reserve the on-hand item atomically."
+                .to_string(),
+        ));
+    }
     let resolved =
         inventory::resolve_variant_by_id(&mut *tx, body.variant_id, state.global_employee_markup)
             .await
@@ -14756,6 +14762,25 @@ async fn update_transaction_line(
         return Err(TransactionError::NotFound);
     };
 
+    if normalized_fulfillment == Some(DbFulfillmentType::PickupLater)
+        && current_fulfillment != DbFulfillmentType::PickupLater
+    {
+        return Err(TransactionError::InvalidPayload(
+            "Convert merchandise to Pick Up Later through Register checkout so Riverside can reserve the on-hand item atomically."
+                .to_string(),
+        ));
+    }
+    if current_fulfillment == DbFulfillmentType::PickupLater
+        && (body.quantity.is_some()
+            || body.variant_id.is_some()
+            || normalized_fulfillment.is_some_and(|next| next != current_fulfillment))
+    {
+        return Err(TransactionError::InvalidPayload(
+            "Pick Up Later item and quantity changes require Cancel Order Item and a new Register sale so the inventory hold stays exact."
+                .to_string(),
+        ));
+    }
+
     if let Some(next_variant_id) = body.variant_id {
         let variant_product_id: Option<Uuid> =
             sqlx::query_scalar("SELECT product_id FROM product_variants WHERE id = $1")
@@ -14778,6 +14803,12 @@ async fn update_transaction_line(
     }
 
     if let Some(next_status) = body.order_lifecycle_status {
+        if current_fulfillment == DbFulfillmentType::PickupLater {
+            return Err(TransactionError::InvalidPayload(
+                "Pick Up Later merchandise is already Ready for Pickup and cannot enter vendor ordering."
+                    .to_string(),
+            ));
+        }
         if is_fulfilled || current_fulfillment == DbFulfillmentType::Takeaway {
             return Err(TransactionError::InvalidPayload(
                 "fulfilled items cannot be moved back into order review.".to_string(),
@@ -15286,6 +15317,12 @@ async fn delete_transaction_line(
     if is_fulfilled || fulfillment == DbFulfillmentType::Takeaway {
         return Err(TransactionError::InvalidPayload(
             "Fulfilled or takeaway sale lines cannot be deleted. Use return or void workflow."
+                .to_string(),
+        ));
+    }
+    if fulfillment == DbFulfillmentType::PickupLater {
+        return Err(TransactionError::InvalidPayload(
+            "Pick Up Later lines must use Cancel Order Item so Riverside releases the exact inventory hold."
                 .to_string(),
         ));
     }

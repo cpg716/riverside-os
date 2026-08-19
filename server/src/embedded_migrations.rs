@@ -207,4 +207,6 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("204_catalog_price_change_history.sql", include_str!("../../migrations/204_catalog_price_change_history.sql")),
     ("205_preserve_customer_names_from_podium_display.sql", include_str!("../../migrations/205_preserve_customer_names_from_podium_display.sql")),
     ("206_repair_verified_rms90_programs_v2.sql", include_str!("../../migrations/206_repair_verified_rms90_programs_v2.sql")),
+    ("207_inventory_average_and_last_cost.sql", include_str!("../../migrations/207_inventory_average_and_last_cost.sql")),
+    ("208_add_pickup_later_fulfillment.sql", include_str!("../../migrations/208_add_pickup_later_fulfillment.sql")),
 ];

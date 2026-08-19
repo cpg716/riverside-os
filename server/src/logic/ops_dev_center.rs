@@ -3712,7 +3712,7 @@ pub async fn execute_audit_probes(
             SELECT it.id::text AS key, it.variant_id::text AS detail
             FROM inventory_transactions it
             JOIN transaction_lines tl ON tl.id = it.reference_id
-            WHERE tl.fulfillment::text IN ('special_order', 'custom', 'wedding_order', 'layaway')
+            WHERE tl.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order', 'layaway')
               AND it.tx_type::text IN ('sale', 'fulfillment')
               AND it.quantity_delta < 0
               AND tl.fulfilled_at IS NULL

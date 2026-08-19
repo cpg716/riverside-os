@@ -1,4 +1,4 @@
-//! Normalize POS fulfillment writes while preserving the Special / Custom / Wedding split.
+//! Normalize POS fulfillment writes while preserving held-inventory and Order semantics.
 
 use uuid::Uuid;
 
@@ -15,6 +15,7 @@ pub fn persist_fulfillment(
     match fulfillment {
         DbFulfillmentType::Custom => Ok(DbFulfillmentType::Custom),
         DbFulfillmentType::Takeaway => Ok(DbFulfillmentType::Takeaway),
+        DbFulfillmentType::PickupLater => Ok(DbFulfillmentType::PickupLater),
         DbFulfillmentType::WeddingOrder => {
             if wedding_member_id.is_some() {
                 Ok(DbFulfillmentType::WeddingOrder)
@@ -58,5 +59,12 @@ mod tests {
         let persisted = persist_fulfillment(Some(Uuid::new_v4()), DbFulfillmentType::Custom)
             .expect("custom fulfillment should persist");
         assert_eq!(persisted, DbFulfillmentType::Custom);
+    }
+
+    #[test]
+    fn pickup_later_remains_a_held_inventory_line() {
+        let persisted = persist_fulfillment(Some(Uuid::new_v4()), DbFulfillmentType::PickupLater)
+            .expect("pickup-later fulfillment should persist");
+        assert_eq!(persisted, DbFulfillmentType::PickupLater);
     }
 }

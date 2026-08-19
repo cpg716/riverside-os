@@ -218,13 +218,17 @@ export function CartItemRow({
             ) : null}
             {line.fulfillment !== "takeaway" ? (
               <span className={`rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest border ${
-                line.fulfillment === "custom"
+                line.fulfillment === "pickup_later"
+                  ? "border-app-success/20 bg-app-success/10 text-app-success"
+                  : line.fulfillment === "custom"
                   ? "border-app-info/20 bg-app-info/10 text-app-info"
                   : line.fulfillment === "wedding_order"
                     ? "border-app-danger/20 bg-app-danger/10 text-app-danger"
                     : "border-app-warning/20 bg-app-warning/10 text-app-warning"
               }`}>
-                {line.fulfillment === "custom"
+                {line.fulfillment === "pickup_later"
+                  ? "PICK UP LATER"
+                  : line.fulfillment === "custom"
                   ? "ORDER (Custom)"
                   : line.fulfillment === "wedding_order"
                     ? "ORDER (Wedding)"
@@ -279,6 +283,17 @@ export function CartItemRow({
               }`}
             >
               Take Now
+            </button>
+            <button
+              type="button"
+              onClick={() => updateLineFulfillment(line.cart_row_id, "pickup_later")}
+              className={`h-8 rounded-lg px-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${
+                line.fulfillment === "pickup_later"
+                  ? "bg-app-success text-white shadow-sm"
+                  : "bg-transparent text-app-text-muted hover:text-app-text"
+              }`}
+            >
+              Pick Up Later
             </button>
             <button
               type="button"

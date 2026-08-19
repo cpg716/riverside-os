@@ -145,6 +145,8 @@ interface OrderItemCancellationPreview {
 
 const fulfillmentLabel = (fulfillment: string) => {
   switch (fulfillment) {
+    case "pickup_later":
+      return "Pick Up Later";
     case "wedding_order":
       return "Wedding Order";
     case "special_order":
@@ -1269,7 +1271,9 @@ export default function OrderLoadModal({
                         {order.display_id}
                       </span>
                       <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        {order.order_kind === "wedding_order"
+                        {order.order_kind === "pickup_later"
+                          ? "Pick Up Later"
+                          : order.order_kind === "wedding_order"
                           ? "Wedding"
                           : order.order_kind === "custom"
                             ? "Custom"
@@ -1658,7 +1662,9 @@ export default function OrderLoadModal({
                               : "Ship Line"}
                           </button>
                         ) : null}
-                        {onUpdateOrderItem && !isCompletedOrderItem(item) ? (
+                        {onUpdateOrderItem &&
+                        !isCompletedOrderItem(item) &&
+                        item.fulfillment !== "pickup_later" ? (
                           <div className="grid w-full gap-2 sm:w-[24rem] sm:grid-cols-[4rem_minmax(0,1fr)]">
                             <div className="col-span-2 rounded-xl border border-app-accent/25 bg-app-accent/5 p-3 text-left">
                               <p className="text-[9px] font-black uppercase tracking-widest text-app-accent">
@@ -1832,6 +1838,25 @@ export default function OrderLoadModal({
                             <span className="text-app-text-muted">
                               ×{item.quantity}
                             </span>
+                            {item.fulfillment === "pickup_later" &&
+                            !isCompletedOrderItem(item) ? (
+                              <>
+                                <span className="mt-2 max-w-64 text-right text-[10px] font-semibold text-app-text-muted">
+                                  This exact on-hand item is reserved. Cancel and
+                                  re-ring it to change the item or quantity.
+                                </span>
+                                <button
+                                  type="button"
+                                  data-testid={`pos-order-cancel-item-${item.transaction_line_id}`}
+                                  disabled={orderMutationBusy}
+                                  onClick={() => openCancelItem(item)}
+                                  className="mt-2 flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-app-danger/30 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger transition-colors hover:bg-app-danger/15 disabled:opacity-50"
+                                >
+                                  <Ban size={13} />
+                                  Cancel Item
+                                </button>
+                              </>
+                            ) : null}
                           </>
                         )}
                       </div>

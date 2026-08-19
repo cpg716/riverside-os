@@ -166,11 +166,17 @@ export default function OrderReviewModal({
                       ${(parseFloat(item.standard_retail_price) * item.quantity).toFixed(2)}
                     </p>
                     <p className="text-xs uppercase text-app-text-muted">
-                      {item.fulfillment === "wedding_order" ? "Wedding" : item.fulfillment}
+                      {item.fulfillment === "wedding_order"
+                        ? "Wedding"
+                        : item.fulfillment === "pickup_later"
+                          ? "Pick Up Later"
+                          : item.fulfillment}
                     </p>
                   </div>
                 </div>
-                {onUpdateLineLifecycleStatus && item.fulfillment !== "takeaway" ? (
+                {onUpdateLineLifecycleStatus &&
+                item.fulfillment !== "takeaway" &&
+                item.fulfillment !== "pickup_later" ? (
                   <button
                     type="button"
                     onClick={() =>

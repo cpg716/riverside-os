@@ -197,7 +197,7 @@ test.describe("Inventory receiving API regressions", () => {
     const vendor = await createVendor(request, suffix);
     const product = await createSingleVariantProduct(request, suffix, { stockOnHand: 2 });
     const po = await createDraftPurchaseOrder(request, vendor.id);
-    await addPurchaseOrderLine(request, po.id, product.variantId, 3);
+    await addPurchaseOrderLine(request, po.id, product.variantId, 3, "26.00");
     await submitPurchaseOrder(request, po.id);
 
     const beforeHub = await getProductHubInventory(request, product.productId);
@@ -214,6 +214,8 @@ test.describe("Inventory receiving API regressions", () => {
     expect(beforeVariant?.stock_on_hand).toBe(2);
     expect(beforeVariant?.reserved_stock).toBe(0);
     expect(beforeVariant?.available_stock).toBe(2);
+    expect(beforeVariant?.effective_average_cost).toBe("20.00");
+    expect(beforeVariant?.effective_last_cost).toBeNull();
     expect(beforeVariant?.last_sold_at).toBeNull();
     expect(Number(beforeVariant?.average_monthly_units_sold)).toBe(0);
     expect(Number(beforeVariant?.average_yearly_units_sold)).toBe(0);
@@ -239,6 +241,8 @@ test.describe("Inventory receiving API regressions", () => {
     expect(afterVariant?.reserved_stock).toBe(0);
     expect(afterVariant?.available_stock).toBe(3);
     expect(afterVariant?.qty_on_order).toBe(2);
+    expect(afterVariant?.effective_average_cost).toBe("22.00");
+    expect(afterVariant?.effective_last_cost).toBe("26.00");
   });
 
   test("product timeline returns readable inventory history after receipt", async ({ request }) => {

@@ -12,13 +12,15 @@
 
 **Transaction Record** = the complete sale: booked items, takeaways, gift cards, alterations, deposits, payments, receipts, refunds, returns, balance, and audit. The visible transaction number starts with **TXN-**.
 
-**Order** / **Fulfillment Order** = unfulfilled work for **Special**, **Custom**, or **Wedding** items. Use the linked Transaction Record for the complete sale and payment context.
+**Order** / **Fulfillment Order** = unfulfilled work for **Pick Up Later**, **Special**, **Custom**, or **Wedding** items. Use the linked Transaction Record for the complete sale and payment context.
 
 **Layaways** are separate. Do not treat a Layaway as an Order.
 
-**Open Orders** = active Special, Custom, and Wedding order work. **Transaction Records** = complete sale search for receipts, disputes, payments, refunds, and CRM follow-up.
+**Open Orders** = active Pick Up Later, Special, Custom, and Wedding order work. **Transaction Records** = complete sale search for receipts, disputes, payments, refunds, and CRM follow-up.
 
-### The Three Order Types
+**Pick Up Later** is the in-stock hold flow, not a fourth procurement type. The exact variation is already in the store, reserved for the customer, and begins at **Ready for Pickup**. Complete it through the same Register pickup flow used by other Orders.
+
+### The Three Procurement Order Types
 
 1.  **Special Order**: Standard floor items that were out of stock. Fixed catalog pricing.
 2.  **Custom (MTM)**: Suits, shirts, or slacks booked as a true **Custom** order. Sale price is entered at booking. Actual vendor cost is entered later, when the garment is received, and should be in place before final fulfillment.
@@ -39,6 +41,7 @@
 
 ### Ready for Pickup checks
 
+- Pick Up Later items begin **Ready for Pickup** because the exact on-hand unit was reserved at Register checkout. They do not need receiving or a ready check.
 - Use the **Needs ready check** metric or the **Lifecycle: Needs Ready Check** filter to find orders where receiving is complete but staff still need to review the garment.
 - **Received** does not mean customer-ready. Open the Transaction Record, use **Mark Ready**, and confirm the received/prep/customer checklist.
 - Marking an item **Ready for Pickup** queues the normal customer SMS/email notification workflow and staff notification. Do not manually text the customer outside the queue unless a manager directs it.

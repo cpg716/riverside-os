@@ -35,7 +35,7 @@ To edit an existing item, always start in **Find Item**. Search for the SKU, pro
 2. Search by **SKU**, **Product UPC**, **Catalog # / vendor style #**, **style name**, or **vendor** per header fields.
 3. Use **Load more** for large catalogs — the server returns pages, not the whole world at once.
 4. Click a row or **hub** icon to open **Product Hub**.
-5. Use **Item Setup** for product family details, vendor, category, tax, employee pricing, and cleanup review.
+5. Use **Item Setup** for product family details, vendor, category, tax, average and last cost review, employee pricing, and cleanup review.
 6. Use **SKUs & Stock** for SKU-level price, Product UPC, Catalog # / vendor style #, web status, tags, low-stock alerts, small count corrections, damage, and vendor returns.
 
 Find Item keeps the full variation matrix visible for qualifying parent products. A zero-stock size, color, or style remains searchable and selectable so staff can confirm the exact requested variation and then decide whether it can be sold immediately, ordered, or handled as a special order. Stock availability is shown on the row; it is not used to hide the variation.
@@ -53,20 +53,26 @@ Use **Add/Edit Catalog** for setup tooling: creating new items, managing categor
 ### Add Item
 
 1. **Add/Edit Catalog** → **Add Item** → follow the wizard (3 or 4 steps depending on web publishing):
-   - **Step 1: Product & Pricing**: Enter item details, base cost, retail price, and primary vendor.
+   - **Step 1: Product & Pricing**: Enter item details, base average cost, retail price, and primary vendor.
      - **Vendor Intelligence**: When a vendor is selected, a contextual sidebar shows the vendor code, rules, and guidance.
-     - **Margin/Markup Hints**: Profit margin and markup percentages calculate in real-time as cost and retail prices are entered.
+     - **Margin/Markup Hints**: Profit margin and markup percentages calculate in real-time from average cost and retail price.
      - **Item Rules Grid**: Tax overrides, low-stock warnings, and web-publishing configurations are grouped into a clean 3-column selector layout.
    - **Step 2: Sizes & Options**: Set up matrix axes (Size, Color, Fit, etc.) manually or by using **Copy From** to duplicate the variation structure of an existing product.
    - **Step 3: Web Listing** *(only if "Publish to Web" was checked in Step 1)*: Marketing overrides, tags, categories, image gallery, and SEO fields.
    - **Final Step — Review & Save**: Verify the SKU variations, enter Product UPC values, enter SKU-level Catalog # / vendor style # values only when they differ from the main product catalog number, and click the green save button to commit the product catalog record.
-2. Enter **non-negative** base retail and cost values. Negative benchmark pricing, negative cost, and negative initial stock are blocked.
+2. Enter **non-negative** base retail and average-cost values. Negative benchmark pricing, negative cost, and negative initial stock are blocked.
 3. Primary vendor is required for manually created items because downstream ordering and receiving depend on it.
 4. New Riverside-created SKUs use **`ROS-XXXXXX`** and should advance to the next available ROS number. Imported Counterpoint SKUs such as **`B-XXXXXX`** stay unchanged.
 5. Use **Copy From** when a new item has similar options to an existing style. Copy From copies option structure only; it does not copy name, vendor, stock, cost, retail, or descriptions.
 6. Keep generated SKUs unique. If a SKU already exists anywhere in ROS, the product will not save until the conflict is resolved.
 7. Clickable step navigation lets you jump directly between validation-passed steps.
 8. Verify the SKU appears in **Find Item** search.
+
+### Average cost and last cost
+
+- **Average cost** is the current merchandise-cost basis. Riverside uses it for inventory value, COGS, margin, below-cost controls, and employee cost-plus pricing.
+- **Last cost** is the most recent Counterpoint or posted vendor-invoice unit cost. It is purchasing reference only and does not drive margin or employee pricing.
+- Posting a receipt records its invoice unit as last cost and recalculates average/WAC cost from the prior on-hand quantity and cost. Freight remains separate.
 
 ### Web Store Listing (Web Listing Step)
 

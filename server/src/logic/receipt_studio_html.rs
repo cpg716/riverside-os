@@ -62,6 +62,7 @@ fn fulfillment_label(order: &ReceiptOrder, item: &ReceiptLine) -> &'static str {
     }
     match item.fulfillment {
         DbFulfillmentType::Takeaway => "Taken today",
+        DbFulfillmentType::PickupLater => "Pick up later",
         DbFulfillmentType::SpecialOrder => "Special order",
         DbFulfillmentType::Custom => "Custom order",
         DbFulfillmentType::WeddingOrder => "Wedding order",

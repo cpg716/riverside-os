@@ -10,8 +10,8 @@ Riverside OS employs a decoupled **transaction-centric architecture** that separ
 ## User Interface (UI) Mapping
 
 To ensure clarity for staff, the Riverside OS interface uses standard industry terminology:
-- **Orders (Sidebar)**: High-level entry into unfulfilled Special, Custom, and Wedding work only.
-- **Orders Workspace**: The central fulfillment workspace where Special, Custom, and Wedding order items are tracked through their logistical lifecycle. It may show payment context from the parent Transaction Record, but the order is not the whole sale.
+- **Orders (Sidebar)**: High-level entry into unfulfilled Pick Up Later, Special, Custom, and Wedding work.
+- **Orders Workspace**: The central fulfillment workspace where Pick Up Later, Special, Custom, and Wedding items are tracked through their logistical lifecycle. It may show payment context from the parent Transaction Record, but the order is not the whole sale.
 - **Transaction Records**: The historical archive and audit surface for the complete sale, including takeaways, order items, gift cards, alterations, deposits, payments, refunds, receipts, and balances.
 - **Daily Sales**: Financial reporting focused on register sessions and tender counts.
 
@@ -71,6 +71,16 @@ In legacy systems, an "Order" represented both the financial receipt and the phy
 
 Special and Custom stay separate operational contracts. Custom is not just another label for a Special Order.
 
+### Pick Up Later — in-stock customer hold
+
+**Pick Up Later** is an additional fulfillment path, not a procurement type. It is used when the exact variation is physically in stock, sold on the current Transaction, but retained by Riverside for customer pickup.
+
+- Checkout requires a linked Customer and authoritative available stock.
+- The line creates a Fulfillment Order and starts **Ready for Pickup**; it never enters NTBO, vendor ordering, or receiving.
+- Checkout keeps `stock_on_hand` unchanged, increments `reserved_stock`, and therefore reduces available stock immediately.
+- Pickup uses the normal Register completion path, decrements both `stock_on_hand` and `reserved_stock`, records recognition/commission/audit evidence, and moves the line to **Picked Up**.
+- Cancellation keeps the physical item on hand and releases the exact reservation. Item or quantity changes require cancellation and a new Register sale so the hold cannot drift.
+
 ## Operational Workflow
 
 ### 1. Booking (Transactions)
@@ -79,7 +89,7 @@ When the cashier completes checkout, a Transaction is generated. If items cannot
 
 ### Item Lifecycle Source of Truth
 
-Every Special, Custom, and Wedding ordered item is tracked at the `transaction_lines` level with an authoritative item lifecycle status. Layaways stay in Layaways and takeaway sale lines stay in the Transaction Record; they are not Orders.
+Every Pick Up Later, Special, Custom, and Wedding item is tracked at the `transaction_lines` level with an authoritative item lifecycle status. Layaways stay in Layaways and takeaway sale lines stay in the Transaction Record; they are not Orders.
 
 1. **Needs Measurements** — the customer still needs measurements or the exact variation is not known.
 2. **NTBO** — exact product/variation is known and needs to be ordered from a vendor.
@@ -88,11 +98,13 @@ Every Special, Custom, and Wedding ordered item is tracked at the `transaction_l
 5. **Ready for Pickup** — verified ready for customer release.
 6. **Picked Up** — fulfilled through the existing pickup path.
 
-The lifecycle belongs to each ordered item, not only to the Transaction Record or Fulfillment Order. A single Transaction Record may therefore contain a takeaway accessory plus a jacket that is **Received**, pants that are still **Ordered**, and a wedding line that is **Ready for Pickup**. Orders list rows, order detail, lifecycle queues, wedding readiness, Operations Center counts, and printable Open Orders reports should read only Special, Custom, and Wedding order lines instead of treating every non-takeaway line as an Order.
+Pick Up Later lines enter directly at **Ready for Pickup** because the exact item is already in store and reserved. They do not pass through Needs Measurements, NTBO, Ordered, or Received.
+
+The lifecycle belongs to each ordered item, not only to the Transaction Record or Fulfillment Order. A single Transaction Record may therefore contain a takeaway accessory plus a jacket that is **Received**, pants that are still **Ordered**, and a wedding line that is **Ready for Pickup**. Orders list rows, order detail, lifecycle queues, wedding readiness, Operations Center counts, and printable Open Orders reports should read Pick Up Later, Special, Custom, and Wedding order lines instead of treating every non-takeaway line as an Order.
 
 Lifecycle changes write audit events in `transaction_line_lifecycle_events`. Manual lifecycle repair paths require `orders.lifecycle_manage`; risky transitions must continue through receiving and pickup workflows so inventory, revenue, commission, and reporting contracts stay intact.
 
-Customer History must keep the Transaction Record booked date, each payment date, and the pickup or shipment date as separate events. For Special, Custom, Wedding, and shipped order lines, the 60-day return/exchange window starts on pickup or shipment, not on the original booked date.
+Customer History must keep the Transaction Record booked date, each payment date, and the pickup or shipment date as separate events. For Pick Up Later, Special, Custom, Wedding, and shipped order lines, the return/exchange timing starts on pickup or shipment, not on the original booked date.
 
 ### Mid-Season Wedding Cutover
 
@@ -107,9 +119,10 @@ When ROS starts mid-year, existing wedding parties may be imported into Wedding 
 
 When a customer attached to the Register belongs to a current or unresolved wedding party, POS reads Wedding Manager context and asks **Part of the Wedding Order?** This is a guided cart entry surface, not a separate source of truth. **Yes — Build Wedding Order** activates the exact member and reuses the Deposit & Build parent-product/variation workflow; **No — Regular Sale** makes no Wedding or financial write.
 
-- After acceptance, linked sellable wedding items appear in the **Wedding Checklist** and can be added as **Take now**, **Order**, or **Measure**.
+- After acceptance, linked sellable wedding items appear in the **Wedding Checklist** and can be added as **Take now**, **Pick Up Later**, **Order**, or **Measure**.
 - Parent products always require staff to resolve the exact member variation. Search/scan additions default to `wedding_order` while the member context is active, but staff can add exceptions and alterations.
 - **Take now** keeps the line as normal takeaway when stock is available.
+- **Pick Up Later** reserves the exact in-stock variation for later release.
 - **Order** creates a `wedding_order` fulfillment line.
 - **Measure** creates a `wedding_order` line with `needs_measurements`.
 - Non-inventory wedding checklist entries are shown as checklist-only notes until a manager links the exact ROS product variation.

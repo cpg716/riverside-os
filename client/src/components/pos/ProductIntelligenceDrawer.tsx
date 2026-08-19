@@ -20,6 +20,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 
 interface ProductOrderCounts {
+  pickup_later: number;
   special_order: number;
   custom: number;
   wedding_order: number;
@@ -140,7 +141,8 @@ function OrderCountsCard({
       <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
         {title}
       </p>
-      <div className="mt-3 grid grid-cols-3 gap-2">
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <MetricCard label="Pickup Later" value={counts.pickup_later} />
         <MetricCard label="Special" value={counts.special_order} />
         <MetricCard label="Custom" value={counts.custom} />
         <MetricCard label="Wedding" value={counts.wedding_order} />

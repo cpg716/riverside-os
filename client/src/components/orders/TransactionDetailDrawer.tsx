@@ -395,6 +395,8 @@ function orderKindLabel(detail: TransactionDrawerDetail): string {
     return "Custom";
   if (detail.items.some((item) => item.fulfillment === "special_order"))
     return "Special";
+  if (detail.items.some((item) => item.fulfillment === "pickup_later"))
+    return "Pick Up Later";
   return "Transaction";
 }
 
@@ -452,6 +454,8 @@ function countLabel(
 
 function fulfillmentLabel(value: string): string {
   switch (value) {
+    case "pickup_later":
+      return "Pick up later";
     case "special_order":
       return "Special order";
     case "custom":
@@ -2723,6 +2727,7 @@ export default function TransactionDetailDrawer({
                                 !item.is_fulfilled &&
                                 !fullyReturned &&
                                 orderActions.updateLine &&
+                                item.fulfillment !== "pickup_later" &&
                                 item.transaction_line_id ? (
                                   <div className="flex items-center gap-1">
                                     <button

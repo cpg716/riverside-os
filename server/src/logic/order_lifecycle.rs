@@ -12,8 +12,24 @@ pub fn initial_status_for_line(
 ) -> DbOrderItemLifecycleStatus {
     if is_fulfilled || fulfillment == DbFulfillmentType::Takeaway {
         DbOrderItemLifecycleStatus::PickedUp
+    } else if fulfillment == DbFulfillmentType::PickupLater {
+        DbOrderItemLifecycleStatus::ReadyForPickup
     } else {
         DbOrderItemLifecycleStatus::Ntbo
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::initial_status_for_line;
+    use crate::models::{DbFulfillmentType, DbOrderItemLifecycleStatus};
+
+    #[test]
+    fn pickup_later_starts_ready_for_pickup() {
+        assert_eq!(
+            initial_status_for_line(DbFulfillmentType::PickupLater, false),
+            DbOrderItemLifecycleStatus::ReadyForPickup
+        );
     }
 }
 

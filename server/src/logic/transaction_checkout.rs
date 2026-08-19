@@ -1612,7 +1612,8 @@ fn checkout_line_type(item: &CheckoutItem) -> &str {
 fn creates_fulfillment_order(fulfillment: DbFulfillmentType) -> bool {
     matches!(
         fulfillment,
-        DbFulfillmentType::SpecialOrder
+        DbFulfillmentType::PickupLater
+            | DbFulfillmentType::SpecialOrder
             | DbFulfillmentType::Custom
             | DbFulfillmentType::WeddingOrder
     )
@@ -1650,6 +1651,15 @@ fn initial_order_lifecycle_status(
     let default = order_lifecycle::initial_status_for_line(fulfillment, line_fulfilled);
     if line_fulfilled || fulfillment == DbFulfillmentType::Takeaway {
         return Ok(default);
+    }
+    if fulfillment == DbFulfillmentType::PickupLater {
+        return match requested {
+            None | Some(DbOrderItemLifecycleStatus::ReadyForPickup) => Ok(default),
+            Some(other) => Err(CheckoutError::InvalidPayload(format!(
+                "Pick Up Later lines must start Ready for Pickup, not {}",
+                other.as_str()
+            ))),
+        };
     }
     match requested {
         Some(DbOrderItemLifecycleStatus::NeedsMeasurements) => {
@@ -4463,12 +4473,24 @@ async fn execute_checkout_internal(
     let has_deferred_current_lines = payload.items.iter().any(|i| {
         matches!(
             i.fulfillment,
-            DbFulfillmentType::SpecialOrder
+            DbFulfillmentType::PickupLater
+                | DbFulfillmentType::SpecialOrder
                 | DbFulfillmentType::Custom
                 | DbFulfillmentType::WeddingOrder
                 | DbFulfillmentType::Layaway
         )
     });
+    if payload.customer_id.is_none()
+        && payload
+            .items
+            .iter()
+            .any(|item| item.fulfillment == DbFulfillmentType::PickupLater)
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "Pick Up Later requires a linked customer so the held item can be found and released safely."
+                .to_string(),
+        ));
+    }
     let minimum_deposit = minimum_order_deposit(payload.total_price);
     if !refund_checkout
         && has_deferred_current_lines
@@ -5215,8 +5237,9 @@ async fn execute_checkout_internal(
             payload.primary_salesperson_id
         };
 
-        // Takeaway stock to deduct once per variant (multiple cart lines can reference the same variant).
+        // Stock changes are aggregated once per variant so mixed lines remain atomic.
         let mut layaway_stock_by_variant: HashMap<Uuid, i32> = HashMap::new();
+        let mut pickup_later_stock_by_variant: HashMap<Uuid, i32> = HashMap::new();
         let mut takeaway_stock_by_variant: HashMap<Uuid, i32> = HashMap::new();
 
         let mut fulfillment_order_id: Option<Uuid> = None;
@@ -5653,9 +5676,9 @@ async fn execute_checkout_internal(
                 })?;
             }
 
-            // Only decrement stock_on_hand for Takeaway (floor stock) lines.
-            // Special / wedding lines are pending fulfillment: no checkout-time deduction;
-            // inventory is adjusted when product is received / at pickup per ops flow.
+            // Takeaway leaves the store now. Pick Up Later stays physically on hand but
+            // becomes unavailable to another sale until pickup or cancellation.
+            // Special / wedding lines remain pending vendor fulfillment.
             let skip_stock = matches!(
                 pos_kind.as_deref(),
                 Some("rms_charge_payment")
@@ -5666,6 +5689,11 @@ async fn execute_checkout_internal(
 
             if fulfillment == DbFulfillmentType::Takeaway && !skip_stock {
                 takeaway_stock_by_variant
+                    .entry(item.variant_id)
+                    .and_modify(|q| *q += item.quantity)
+                    .or_insert(item.quantity);
+            } else if fulfillment == DbFulfillmentType::PickupLater && !skip_stock {
+                pickup_later_stock_by_variant
                     .entry(item.variant_id)
                     .and_modify(|q| *q += item.quantity)
                     .or_insert(item.quantity);
@@ -5919,12 +5947,60 @@ async fn execute_checkout_internal(
             .await?;
         }
 
+        for (variant_id, qty) in pickup_later_stock_by_variant {
+            if qty <= 0 {
+                continue;
+            }
+            let takeaway_qty = takeaway_stock_by_variant
+                .get(&variant_id)
+                .copied()
+                .unwrap_or(0)
+                .max(0);
+            let reserved_sku: Option<String> = sqlx::query_scalar(
+                r#"
+                UPDATE product_variants
+                SET reserved_stock = reserved_stock + $1
+                WHERE id = $2
+                  AND stock_on_hand - reserved_stock - on_layaway - $3 >= $1
+                RETURNING sku
+                "#,
+            )
+            .bind(qty)
+            .bind(variant_id)
+            .bind(takeaway_qty)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if reserved_sku.is_none() {
+                let (sku, available): (String, i32) = sqlx::query_as(
+                    r#"
+                    SELECT
+                        sku,
+                        GREATEST(stock_on_hand - reserved_stock - on_layaway - $2, 0)::int
+                    FROM product_variants
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(variant_id)
+                .bind(takeaway_qty)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| {
+                    CheckoutError::InvalidPayload(format!(
+                        "Pick Up Later variant {variant_id} was not found"
+                    ))
+                })?;
+                return Err(CheckoutError::InvalidPayload(format!(
+                    "Pick Up Later requires available on-hand stock for {sku} (need {qty}, have {available}). Use Order instead when the item is not available to hold."
+                )));
+            }
+        }
+
         for (variant_id, qty) in takeaway_stock_by_variant {
             if qty <= 0 {
                 continue;
             }
             // Allow stock_on_hand to go negative: shortage must not block retail checkout.
-            // (Special / wedding lines never reach this map — they skip deduction until pickup/fulfill.)
+            // (Pick Up Later / special / wedding lines never reach this map.)
             let after_row: Option<(i32, String)> = sqlx::query_as(
                 r#"
             UPDATE product_variants
