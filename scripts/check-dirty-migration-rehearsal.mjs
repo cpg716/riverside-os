@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dbName = `ros_pre_retag_migration_${process.pid}_${Date.now()}`;
+const appRole = `ros_migration_app_${process.pid}`;
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -171,12 +172,20 @@ function dropDatabase() {
   runPostgresAdminCommandWithRetry(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE);`, { quiet: true });
 }
 
+function dropAppRole() {
+  runPostgresAdminCommandWithRetry(`DROP ROLE IF EXISTS ${appRole};`, {
+    quiet: true,
+  });
+}
+
 console.log("[pre-retag] Starting dirty migration rehearsal...");
 run("docker", ["compose", "up", "-d", "db"]);
 waitForPostgres();
 
 try {
   dropDatabase();
+  dropAppRole();
+  runPostgresAdminCommandWithRetry(`CREATE ROLE ${appRole};`);
   runPostgresAdminCommandWithRetry(`CREATE DATABASE ${dbName};`);
 
   psql(
@@ -230,7 +239,101 @@ SELECT setval(
     throw new Error(`Dirty migration rehearsal landed unexpected row ${JSON.stringify(landed)}; expected 9:CREDITCARD.`);
   }
 
+  psql(
+    dbName,
+    `
+ALTER SCHEMA public OWNER TO ${appRole};
+
+CREATE TABLE public.products (
+  id uuid PRIMARY KEY,
+  base_cost numeric(12, 2)
+);
+ALTER TABLE public.products OWNER TO ${appRole};
+
+CREATE TABLE public.product_variants (
+  id uuid PRIMARY KEY,
+  cost_override numeric(12, 2)
+);
+ALTER TABLE public.product_variants OWNER TO ${appRole};
+
+CREATE TABLE public.inventory_transactions (
+  id uuid PRIMARY KEY,
+  variant_id uuid,
+  tx_type text NOT NULL,
+  unit_cost numeric(12, 2),
+  created_at timestamptz NOT NULL
+);
+ALTER TABLE public.inventory_transactions OWNER TO ${appRole};
+
+CREATE TABLE public.inventory_average_cost_line_repair_audit (
+  id uuid PRIMARY KEY
+);
+`,
+  );
+
+  const averageCostMigrationPath = path.join(
+    root,
+    "migrations",
+    "207_inventory_average_and_last_cost.sql",
+  );
+  const averageCostMigrationSql = fs.readFileSync(
+    averageCostMigrationPath,
+    "utf8",
+  );
+  const ownershipFailure = psql(
+    dbName,
+    `BEGIN; SET ROLE ${appRole};\n${averageCostMigrationSql}\nCOMMIT;`,
+    { allowFailure: true, capture: true },
+  );
+  const ownershipFailureOutput = [
+    ownershipFailure.stderr,
+    ownershipFailure.stdout,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  if (
+    ownershipFailure.status === 0 ||
+    !ownershipFailureOutput.includes(
+      "must be owner of table inventory_average_cost_line_repair_audit",
+    )
+  ) {
+    throw new Error(
+      `Dirty migration rehearsal did not reproduce the production average-cost audit ownership failure.\n${ownershipFailureOutput.trim()}`,
+    );
+  }
+
+  psql(
+    dbName,
+    `ALTER TABLE public.inventory_average_cost_line_repair_audit OWNER TO ${appRole};`,
+  );
+  psql(
+    dbName,
+    `BEGIN; SET ROLE ${appRole};\n${averageCostMigrationSql}\nCOMMIT;`,
+  );
+
+  const averageCostResult = psql(
+    dbName,
+    `
+SELECT pg_get_userbyid(c.relowner)
+  || ':' || (to_regclass('public.inventory_average_cost_line_repair_audit') IS NOT NULL)::text
+  || ':' || EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'last_cost'
+  )::text
+FROM pg_class c
+WHERE c.oid = 'public.inventory_average_cost_line_repair_audit'::regclass;
+`,
+    { capture: true, tuplesOnly: true },
+  );
+  const averageCostLanded = averageCostResult.stdout.trim();
+  if (averageCostLanded !== `${appRole}:true:true`) {
+    throw new Error(
+      `Average-cost ownership rehearsal landed unexpected state ${JSON.stringify(averageCostLanded)}.`,
+    );
+  }
+
   console.log("[pre-retag] Dirty migration rehearsal passed.");
 } finally {
   dropDatabase();
+  dropAppRole();
 }

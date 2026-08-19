@@ -755,6 +755,29 @@ for (const copy of [
 
 const mainHubInstaller = "deployment/windows/install-server.ps1";
 const mainHubInstallerSource = read(mainHubInstaller);
+for (const copy of [
+  "function Repair-AverageCostAuditTableOwnership",
+  "public.inventory_average_cost_line_repair_audit",
+  "ALTER TABLE $tableName OWNER TO $appUserIdentifier",
+  "Repair-AverageCostAuditTableOwnership $psql $db",
+]) {
+  assertIncludes(
+    mainHubInstaller,
+    copy,
+    "Main Hub updates must repair a pre-existing average-cost audit table owned by the PostgreSQL administrator before app-role migrations run",
+  );
+}
+for (const copy of [
+  "public.inventory_average_cost_line_repair_audit",
+  "ALTER TABLE public.inventory_average_cost_line_repair_audit OWNER TO %I",
+  "Repair-KnownFunctionOwnership $psql $db",
+]) {
+  assertIncludes(
+    "deployment/windows/apply-riverside-migrations.ps1",
+    copy,
+    "standalone migration recovery must repair the same pre-existing average-cost audit ownership before app-role migrations run",
+  );
+}
 for (const writer of [
   mainHubInstaller,
   "deployment/windows/Install-RosieAiStack.ps1",

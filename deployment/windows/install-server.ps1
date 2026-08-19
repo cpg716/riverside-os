@@ -601,6 +601,37 @@ function Invoke-PsqlAdminScalar($PsqlPath, $Db, $DatabaseName, $Sql) {
   }
 }
 
+function Repair-AverageCostAuditTableOwnership($PsqlPath, $Db) {
+  $appUser = "$($Db.appUser)".Trim()
+  if ([string]::IsNullOrWhiteSpace($appUser)) {
+    throw "PostgreSQL app role is required for average-cost audit ownership repair."
+  }
+
+  $appUserIdentifier = Quote-SqlIdentifier $appUser
+  $tableName = "public.inventory_average_cost_line_repair_audit"
+  $owner = Invoke-PsqlAdminScalar $PsqlPath $Db $Db.databaseName @"
+SELECT pg_get_userbyid(c.relowner)
+FROM pg_class c
+WHERE c.oid = to_regclass('$tableName');
+"@
+
+  if ([string]::IsNullOrWhiteSpace($owner) -or $owner -eq $appUser) {
+    return
+  }
+
+  Invoke-PsqlAdminDatabase $PsqlPath $Db $Db.databaseName "ALTER TABLE $tableName OWNER TO $appUserIdentifier;"
+  $repairedOwner = Invoke-PsqlAdminScalar $PsqlPath $Db $Db.databaseName @"
+SELECT pg_get_userbyid(c.relowner)
+FROM pg_class c
+WHERE c.oid = to_regclass('$tableName');
+"@
+  if ($repairedOwner -ne $appUser) {
+    throw "Could not transfer $tableName ownership from '$owner' to the PostgreSQL app role."
+  }
+
+  Write-Host "Transferred $tableName ownership from '$owner' to the PostgreSQL app role."
+}
+
 function Ensure-OptionalReportingRole($PsqlPath, $Db, [switch]$Required) {
   try {
     Invoke-PsqlAdmin $PsqlPath $Db "DO `$`$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'cube_ro') THEN CREATE ROLE cube_ro LOGIN NOINHERIT; ELSE ALTER ROLE cube_ro LOGIN NOINHERIT; END IF; END `$`$;"
@@ -2684,6 +2715,7 @@ if ($script:postgresReachable) {
       }
       $env:PGPASSWORD = $db.appPassword
       try {
+        Repair-AverageCostAuditTableOwnership $psql $db
         Apply-Migrations $psql $databaseUrl (Join-Path $releaseDir "migrations") $db
         Apply-SeedFiles $psql $databaseUrl (Join-Path $releaseDir "seeds")
         Set-DatabaseEnvironmentMode $psql $databaseUrl (Resolve-ServerEnvironmentMode $config)

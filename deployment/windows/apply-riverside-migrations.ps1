@@ -356,6 +356,12 @@ DO `$`$
 DECLARE
   target_owner name := '$targetOwner';
 BEGIN
+  IF to_regclass('public.inventory_average_cost_line_repair_audit') IS NOT NULL THEN
+    EXECUTE format(
+      'ALTER TABLE public.inventory_average_cost_line_repair_audit OWNER TO %I',
+      target_owner
+    );
+  END IF;
   IF to_regprocedure('public.wedding_number_base(text,date)') IS NOT NULL THEN
     EXECUTE format('ALTER FUNCTION public.wedding_number_base(text,date) OWNER TO %I', target_owner);
   END IF;
