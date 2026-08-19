@@ -199,7 +199,9 @@ test("POS Custom button opens canonical custom-order families", async ({ page })
 
   await expect(customDialog).toBeHidden();
   await expect(
-    page.getByRole("button", { name: "HSM SUIT (Custom)", exact: true }),
+    page
+      .getByTestId("pos-cart-item-row")
+      .filter({ hasText: "HSM SUIT (Custom)" }),
   ).toBeVisible();
   expect(genericSku100ScanCount).toBe(0);
 });

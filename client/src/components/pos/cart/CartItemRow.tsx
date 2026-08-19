@@ -120,6 +120,7 @@ export function CartItemRow({
   return (
     <div
       role="button"
+      data-testid="pos-cart-item-row"
       tabIndex={0}
       onClick={() => setSelectedLineKey(lk)}
       onKeyDown={(e) => {
