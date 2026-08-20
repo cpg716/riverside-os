@@ -371,7 +371,8 @@ settled_return_events AS (
         END AS nontaxable_sales,
         (-refund_state_tax)::numeric(14, 2) AS total_state_tax,
         (-refund_local_tax)::numeric(14, 2) AS total_local_tax,
-        (-refund_total)::numeric(14, 2) AS total_tax_collected,
+        (-ROUND(refund_state_tax + refund_local_tax, 2))::numeric(14, 2)
+            AS total_tax_collected,
         integrity_error
     FROM settled_return_source
 )
