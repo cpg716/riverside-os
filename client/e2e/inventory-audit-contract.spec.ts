@@ -19,6 +19,9 @@ import {
 } from "./helpers/inventoryReceiving";
 import { ensureSessionAuth, staffHeaders, verifyStaffId } from "./helpers/rmsCharge";
 
+const ALTERATION_SERVICE_PRODUCT_ID = "b7c0a006-0006-4006-8006-000000000006";
+const ALTERATION_SERVICE_VARIANT_ID = "b7c0a007-0007-4007-8007-000000000007";
+
 type InventoryProduct = {
   productId: string;
   variantId: string;
@@ -35,13 +38,23 @@ type TransactionDetailResponse = {
   total_price: string;
   items: Array<{
     transaction_line_id: string;
+    booked_at: string;
     sku: string;
     quantity: number;
     quantity_returned: number;
     is_fulfilled: boolean;
+    fulfilled_at?: string | null;
     fulfillment: string;
     order_lifecycle_status?: string | null;
   }>;
+};
+
+type AlterationRow = {
+  id: string;
+  linked_transaction_id?: string | null;
+  source_transaction_id?: string | null;
+  source_transaction_line_id?: string | null;
+  status: string;
 };
 
 type OrdersResponse = {
@@ -120,6 +133,35 @@ function pickupLaterCommissionEventCount(transactionId: string): number {
       AND tl.fulfillment::text = 'pickup_later'
       AND tl.is_fulfilled = TRUE
       AND tl.fulfilled_at = t.booked_at
+      AND ce.event_type = 'sale_commission'
+  `;
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  const output = databaseUrl
+    ? execFileSync("psql", [databaseUrl, "-At", "-c", sql], { encoding: "utf8" }).trim()
+    : execFileSync(
+        "docker",
+        ["exec", "riverside-os-db", "psql", "-U", "postgres", "-d", dbName, "-At", "-c", sql],
+        { encoding: "utf8" },
+      ).trim();
+  return Number(output);
+}
+
+function alterationMerchandiseCommissionEventCount(
+  transactionId: string,
+  transactionLineId: string,
+): number {
+  const dbName = process.env.E2E_DB_NAME ?? "riverside_os_e2e";
+  const sql = `
+    SELECT COUNT(*)::int
+    FROM commission_events ce
+    INNER JOIN transaction_lines tl ON tl.id = ce.transaction_line_id
+    INNER JOIN transactions t ON t.id = tl.transaction_id
+    WHERE ce.transaction_id = ${sqlUuid(transactionId)}
+      AND ce.transaction_line_id = ${sqlUuid(transactionLineId)}
+      AND tl.fulfillment::text = 'takeaway'
+      AND tl.is_fulfilled = TRUE
+      AND tl.fulfilled_at = t.booked_at
+      AND ce.event_at = t.booked_at
       AND ce.event_type = 'sale_commission'
   `;
   const databaseUrl = process.env.DATABASE_URL?.trim();
@@ -354,11 +396,51 @@ async function checkoutInventoryProduct(
       | "layaway";
     quantity?: number;
     customerId?: string | null;
+    attachAlteration?: boolean;
   },
 ): Promise<CheckoutResponse> {
   const quantity = options.quantity ?? 1;
   const tax = taxesFor(options.product);
   const total = totalFor(options.product, quantity);
+  const merchandiseClientLineId = crypto.randomUUID();
+  const alterationIntakeId = options.attachAlteration ? crypto.randomUUID() : null;
+  const alterationLineClientId = options.attachAlteration ? crypto.randomUUID() : null;
+  const items: Array<Record<string, unknown>> = [
+    {
+      ...(options.attachAlteration ? { client_line_id: merchandiseClientLineId } : {}),
+      product_id: options.product.productId,
+      variant_id: options.product.variantId,
+      fulfillment: options.fulfillment,
+      quantity,
+      unit_price: options.product.unitPrice,
+      unit_cost: options.product.unitCost,
+      state_tax: tax.stateTax,
+      local_tax: tax.localTax,
+      salesperson_id: options.operatorStaffId,
+    },
+  ];
+  if (alterationIntakeId && alterationLineClientId) {
+    items.push({
+      client_line_id: alterationLineClientId,
+      line_type: "alteration_service",
+      alteration_intake_id: alterationIntakeId,
+      product_id: ALTERATION_SERVICE_PRODUCT_ID,
+      variant_id: ALTERATION_SERVICE_VARIANT_ID,
+      fulfillment: "takeaway",
+      quantity: 1,
+      unit_price: "0.00",
+      original_unit_price: "0.00",
+      unit_cost: "0.00",
+      state_tax: "0.00",
+      local_tax: "0.00",
+      salesperson_id: options.operatorStaffId,
+      price_override_reason: "alteration_service",
+      custom_item_type: "alteration_service",
+      custom_order_details: {
+        alteration_item_description: `${options.product.sku} paid garment`,
+      },
+    });
+  }
   const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
     headers: {
       ...staffHeaders(),
@@ -376,19 +458,31 @@ async function checkoutInventoryProduct(
       total_price: total,
       amount_paid: total,
       checkout_client_id: crypto.randomUUID(),
-      items: [
-        {
-          product_id: options.product.productId,
-          variant_id: options.product.variantId,
-          fulfillment: options.fulfillment,
-          quantity,
-          unit_price: options.product.unitPrice,
-          unit_cost: options.product.unitCost,
-          state_tax: tax.stateTax,
-          local_tax: tax.localTax,
-          salesperson_id: options.operatorStaffId,
-        },
-      ],
+      items,
+      ...(
+        alterationIntakeId && alterationLineClientId
+          ? {
+              alteration_intakes: [
+                {
+                  intake_id: alterationIntakeId,
+                  alteration_line_client_id: alterationLineClientId,
+                  source_client_line_id: merchandiseClientLineId,
+                  source_type: "current_cart_item",
+                  item_description: `${options.product.sku} paid garment`,
+                  work_requested: "E2E sale-day custody verification",
+                  capacity_bucket: "other",
+                  capacity_units: 1,
+                  source_product_id: options.product.productId,
+                  source_variant_id: options.product.variantId,
+                  source_sku: options.product.sku,
+                  charge_amount: null,
+                  due_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+                  intake_mode: "quick",
+                },
+              ],
+            }
+          : {}
+      ),
       payment_splits: [
         {
           payment_method: "cash",
@@ -677,6 +771,124 @@ test.describe("inventory audit contract", () => {
     expect(pickedUpLine?.is_fulfilled).toBe(true);
     expect(pickedUpLine?.order_lifecycle_status).toBe("picked_up");
     expect(pickupLaterCommissionEventCount(checkout.transaction_id)).toBe(1);
+  });
+
+  test("paid merchandise attached to an alteration posts only on the sale day", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const customerId = await createInventoryCustomer(request, "alteration-custody");
+    const product = await createInventoryProduct(
+      request,
+      operatorStaffId,
+      "alteration-custody",
+      2,
+    );
+
+    const before = await getInventoryIntelligence(request, product.variantId);
+    const checkout = await checkoutInventoryProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      customerId,
+      fulfillment: "takeaway",
+      attachAlteration: true,
+    });
+
+    const afterCheckout = await getInventoryIntelligence(request, product.variantId);
+    expect(afterCheckout.stock_on_hand).toBe(before.stock_on_hand - 1);
+    expect(afterCheckout.available_stock).toBe(before.available_stock - 1);
+    await expectMovementEvidence(request, product, {
+      txType: "sale",
+      quantityDelta: -1,
+      referenceId: checkout.transaction_id,
+      count: 1,
+    });
+
+    const detailAfterCheckout = await fetchTransactionDetail(
+      request,
+      checkout.transaction_id,
+    );
+    const garmentLine = detailAfterCheckout.items.find(
+      (item) => item.sku === product.sku,
+    );
+    expect(garmentLine?.fulfillment).toBe("takeaway");
+    expect(garmentLine?.is_fulfilled).toBe(true);
+    expect(garmentLine?.fulfilled_at).toBe(garmentLine?.booked_at);
+    expect(garmentLine?.transaction_line_id).toBeTruthy();
+
+    await expect
+      .poll(
+        () =>
+          alterationMerchandiseCommissionEventCount(
+            checkout.transaction_id,
+            garmentLine!.transaction_line_id,
+          ),
+        {
+          message: "alteration-attached merchandise commission should be earned at checkout",
+          timeout: 10_000,
+        },
+      )
+      .toBe(1);
+
+    const alterationsRes = await request.get(
+      `${apiBase()}/api/alterations?customer_id=${encodeURIComponent(customerId)}`,
+      { headers: staffHeaders(), failOnStatusCode: false },
+    );
+    const alterationsText = await alterationsRes.text();
+    expect(alterationsRes.status(), alterationsText.slice(0, 1000)).toBe(200);
+    const alteration = (JSON.parse(alterationsText) as AlterationRow[]).find(
+      (row) => row.linked_transaction_id === checkout.transaction_id,
+    );
+    expect(alteration).toMatchObject({
+      source_transaction_id: checkout.transaction_id,
+      source_transaction_line_id: garmentLine!.transaction_line_id,
+    });
+
+    const pickupRes = await request.post(
+      `${apiBase()}/api/alterations/${alteration!.id}/pickup`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+          "Content-Type": "application/json",
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: { register_session_id: sessionId },
+        failOnStatusCode: false,
+      },
+    );
+    const pickupText = await pickupRes.text();
+    expect(pickupRes.status(), pickupText.slice(0, 1000)).toBe(200);
+    expect((JSON.parse(pickupText) as AlterationRow).status).toBe("picked_up");
+
+    const afterPickup = await getInventoryIntelligence(request, product.variantId);
+    expect(afterPickup.stock_on_hand).toBe(afterCheckout.stock_on_hand);
+    expect(afterPickup.available_stock).toBe(afterCheckout.available_stock);
+    await expectMovementEvidence(request, product, {
+      txType: "sale",
+      quantityDelta: -1,
+      count: 1,
+    });
+
+    const detailAfterPickup = await fetchTransactionDetail(
+      request,
+      checkout.transaction_id,
+    );
+    const pickedUpGarmentLine = detailAfterPickup.items.find(
+      (item) => item.sku === product.sku,
+    );
+    expect(pickedUpGarmentLine?.fulfilled_at).toBe(garmentLine?.booked_at);
+    expect(
+      alterationMerchandiseCommissionEventCount(
+        checkout.transaction_id,
+        garmentLine!.transaction_line_id,
+      ),
+    ).toBe(1);
   });
 
   test("simultaneous pickup decrements stock and reserved quantity exactly once", async ({
