@@ -1012,6 +1012,13 @@ async fn fetch_register_sales_totals_on_connection(
     summary_order_in_range: &str,
     order_session_filter: &str,
 ) -> Result<RegisterSalesTotals, RegisterDayActivityError> {
+    // Completed summaries can scope transactions before grouping their lines. Keeping the
+    // recognition filter only in the outer query forces PostgreSQL to aggregate every
+    // historical transaction line before discarding transactions outside the requested range.
+    let outer_order_scope = match basis {
+        ReportBasis::Booked => format!("{summary_order_in_range}\n{order_session_filter}"),
+        ReportBasis::Completed => "TRUE".to_string(),
+    };
     let summary_line_source = match basis {
         ReportBasis::Booked => r#"
             WITH ros_booking_activity AS (
@@ -1122,6 +1129,8 @@ async fn fetch_register_sales_totals_on_connection(
             WHERE COALESCE(oi.is_internal, false) = FALSE
               AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
               AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+              AND {summary_order_in_range}
+            {order_session_filter}
             GROUP BY oi.transaction_id, o.id
             "#,
             recognition_ts = crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL.trim(),
@@ -1152,8 +1161,7 @@ async fn fetch_register_sales_totals_on_connection(
             (ln.is_counterpoint_history AND $3::uuid IS NULL)
             OR (
                 NOT ln.is_counterpoint_history
-                AND {summary_order_in_range}
-                {order_session_filter}
+                AND {outer_order_scope}
             )
         )
         "#,

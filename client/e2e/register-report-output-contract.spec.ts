@@ -465,6 +465,36 @@ test.describe("Register report output integrity contracts", () => {
     );
   });
 
+  test("fulfilled Daily Sales scopes the requested range before line aggregation", () => {
+    const fulfilledSummaryQuery = registerDayServerSource.slice(
+      registerDayServerSource.indexOf(
+        "ReportBasis::Completed => format!(",
+        registerDayServerSource.indexOf("let summary_line_source = match basis"),
+      ),
+      registerDayServerSource.indexOf("let agg_sql = format!("),
+    );
+    const outerSummaryQuery = registerDayServerSource.slice(
+      registerDayServerSource.indexOf("let agg_sql = format!("),
+      registerDayServerSource.indexOf(
+        "let row:",
+        registerDayServerSource.indexOf("let agg_sql = format!("),
+      ),
+    );
+
+    expect(fulfilledSummaryQuery).toContain("AND {summary_order_in_range}");
+    expect(fulfilledSummaryQuery).toContain(
+      "{order_session_filter}\n            GROUP BY oi.transaction_id, o.id",
+    );
+    expect(registerDayServerSource).toContain(
+      'ReportBasis::Completed => "TRUE".to_string()',
+    );
+    expect(outerSummaryQuery).toContain("AND {outer_order_scope}");
+    expect(outerSummaryQuery).not.toContain("AND {summary_order_in_range}");
+    expect(registerReportsSource).toContain(
+      "const SUMMARY_REQUEST_TIMEOUT_SECONDS = 30;",
+    );
+  });
+
   test("Back Office and POS dashboard sales cards use canonical Daily Sales", () => {
     expect(registerDashboardSource).toContain(
       "/api/insights/register-day-activity?",

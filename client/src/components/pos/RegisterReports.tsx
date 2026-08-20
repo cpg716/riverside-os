@@ -48,12 +48,13 @@ const baseUrl = getBaseUrl();
 const ACTIVITY_PAGE_SIZE = 200;
 const ACTIVITY_EXPORT_PAGE_SIZE = 500;
 const ACTIVITY_INTERACTIVE_ROW_LIMIT = 2_000;
-const SUMMARY_REQUEST_TIMEOUT_MS = 15_000;
+const SUMMARY_REQUEST_TIMEOUT_SECONDS = 30;
+const SUMMARY_REQUEST_TIMEOUT_MS = SUMMARY_REQUEST_TIMEOUT_SECONDS * 1_000;
 const Z_LOG_LIMIT = 40;
 
 function reportSummaryErrorMessage(error: unknown): string {
   if (error instanceof DOMException && error.name === "AbortError") {
-    return "The Main Hub did not return this report basis within 15 seconds. Narrow the range or retry; no totals were substituted.";
+    return `The Main Hub did not return this report basis within ${SUMMARY_REQUEST_TIMEOUT_SECONDS} seconds. Narrow the range or retry; no totals were substituted.`;
   }
   return error instanceof Error
     ? error.message
