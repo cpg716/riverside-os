@@ -35,7 +35,7 @@ You need **insights.view** to see the **Reports** tab. Some cards need extra key
 
 **Booked** = when the sale was rung. **Completed** = recognition-style timing for fulfilled lines (see store policy). Ask a lead if you are unsure which to use for payroll or tax questions.
 
-Historical activity imported from Counterpoint is labeled **Imported from Counterpoint** when the report includes a **Data Source** column. New activity created in Riverside is labeled **Created in Riverside OS**.
+Historical activity imported from Counterpoint is labeled **Imported from Counterpoint** when a general operational report includes a **Data Source** column. The New York Sales Tax Report does not show that generic banner and does not divide legal totals by source; it reports the one completed financial record selected for each sale.
 
 ## Finding the right report
 
@@ -77,7 +77,7 @@ Use **Open Advanced Reports** on the Reports page when you need a custom questio
 
 ## Payouts and register tools
 
-- **NYS tax audit**: Drill-down into clothing vs non-clothing sales for audit.
+- **New York Sales Tax Report**: Uses the same **Completed/Fulfilled** date as Riverside's other reporting: a paid takeaway enters on sale, a paid pickup/ship Transaction enters when completed, and a settled return or exchange reduces the settlement date. It filters and sums saved gross, taxable/nontaxable, refund, state-tax, and local-tax evidence. It does not apply a Counterpoint/ROS cutoff, run the tax engine, consult current product data, or read a Z-close snapshot. Gross must equal taxable plus nontaxable, and state plus local tax must equal saved total tax, or the report returns no filing totals.
 - **Merchant activity**: Daily Helcim volume, fees, and net settlement values matched to business days.
 - **Returns, Exchanges & Refunds**: Returned items, exchange activity, refunds still owed, and refunds already paid for the selected date range.
 - **Donation Payments**: Donation tender activity by selected date range, including customer, linked transaction, amount, and the required donation note.

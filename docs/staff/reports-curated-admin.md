@@ -42,7 +42,7 @@ Effective rule: for each **`ReportDef`**, **`reportVisible`** requires **`adminO
 | `negative_stock` | **Negative Stock Watchlist** | **insights.view** | No | Available |
 | `wedding_health` | **Wedding Pipeline** | **insights.view** | No | Available |
 | `commission_ledger` | **Commission Snapshot** | **insights.view** | No | Available |
-| `nys_tax_audit` | **New York Tax Audit** | **insights.view** | No | Available |
+| `nys_tax_audit` | **New York Sales Tax Report** | **insights.view** | No | Available; paid Completed/Fulfilled Transactions and settled refund/exchange events must reconcile |
 | `staff_performance` | **Staff Sales Performance** | **insights.view** | No | Available |
 | `rms_charges` | **RMS Charge Summary** | **insights.view** | No | Available |
 | `rms_charge_crm` | **Customer RMS Charge Records** | **customers.rms_charge** | No | Available |

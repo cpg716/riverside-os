@@ -33,6 +33,8 @@ Insights can run up to two report jobs at the same time. If both slots are activ
 
 Use **booked** for activity measured when a Transaction was created. Use **recognized** for revenue measured when qualifying fulfillment or pickup occurred. If that distinction is unclear, state which business event you mean.
 
+For tax work, ask for a **New York sales tax report** and include the filing period. Insights uses the same approved, reconciled sales-tax dataset as the fixed Reports card: paid Completed/Fulfilled Transactions, settled refund and exchange events, and saved gross/state/local tax evidence. It uses the same completion dates as Riverside's other Completed/Fulfilled reporting and does not use a Counterpoint/ROS cutoff, run the tax engine, consult current catalog classifications, or read Z-close snapshots. If any included tax event fails reconciliation, Insights returns no filing totals.
+
 ## Refine or correct the current report
 
 Keep the current result open and type the change you want, such as:

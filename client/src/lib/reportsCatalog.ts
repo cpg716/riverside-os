@@ -473,7 +473,8 @@ export const REPORTS_CATALOG: ReportDef[] = [
   {
     id: "nys_tax_audit",
     title: "New York Sales Tax Report",
-    description: "Gross sales, taxable/nontaxable breakdown, and total tax collected for NY State filing.",
+    description:
+      "Reconciled paid Completed/Fulfilled sales, nontaxable sales, settled refunds and exchanges, and saved state/local tax for filing.",
     category: "Finance",
     keywords: ["tax", "nys", "new york", "sales tax", "filing", "tax return", "gross sales", "taxable"],
     questions: ["What do I report to NY State?", "How much tax did we collect?", "What are our gross sales?"],

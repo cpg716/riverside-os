@@ -27,10 +27,8 @@ use crate::logic::inventory_velocity;
 use crate::logic::margin_pivot as margin_reporting;
 use crate::logic::register_day_activity;
 use crate::logic::report_basis::{
-    order_date_filter_sql, order_recognition_tax_filter_sql, parse_report_basis, ReportBasis,
-    ORDER_RECOGNITION_TS_SQL,
+    order_date_filter_sql, parse_report_basis, ReportBasis, ORDER_RECOGNITION_TS_SQL,
 };
-use crate::logic::tax::CLOTHING_FOOTWEAR_EXEMPTION_THRESHOLD_USD;
 use crate::middleware::{require_authenticated_staff_headers, require_staff_with_permission};
 use crate::models::DbStaffRole;
 
@@ -46,6 +44,8 @@ pub enum InsightsError {
     Forbidden(String),
     #[error("{0}")]
     Internal(String),
+    #[error("{0}")]
+    Integrity(String),
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,6 +155,7 @@ impl IntoResponse for InsightsError {
                     "Internal server error".to_string(),
                 )
             }
+            InsightsError::Integrity(m) => (StatusCode::CONFLICT, m),
             InsightsError::Database(e) => {
                 tracing::error!(error = %e, "Database error in insights");
                 (
@@ -1022,18 +1023,20 @@ async fn commission_adjustment(
 pub struct NysTaxAuditResponse {
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
-    /// Total gross sales (taxable + nontaxable + exempt)
+    /// Net gross receipts before tax: fulfilled paid sales minus returns in the period.
     pub gross_sales: Decimal,
-    /// Taxable sales (subject to full tax rate)
+    /// Sales with saved state or local tax, net of settled returns.
     pub taxable_sales: Decimal,
-    /// Nontaxable/exempt sales (clothing/footwear under threshold, services, etc.)
+    /// Sales with neither saved state nor local sales tax.
     pub nontaxable_sales: Decimal,
-    /// Total state tax collected
+    /// Total saved state tax collected, net of settled refund and exchange events.
     pub total_state_tax: Decimal,
-    /// Total local tax collected
+    /// Total saved local tax collected, net of settled refund and exchange events.
     pub total_local_tax: Decimal,
-    /// Combined total tax collected (state + local)
+    /// Combined saved tax collected, net of settled refund and exchange events.
     pub total_tax_collected: Decimal,
+    /// True only after every ledger event and all report totals reconcile.
+    pub reconciled: bool,
 }
 
 async fn nys_tax_audit(
@@ -1054,110 +1057,104 @@ async fn nys_tax_audit(
             }
         })?;
 
-    let (start, end) = range_bounds(&q);
-    let order_filter = order_recognition_tax_filter_sql();
+    if matches!((q.from, q.to), (Some(from), Some(to)) if from > to) {
+        return Err(InsightsError::BadRequest(
+            "from date must not be after to date".to_string(),
+        ));
+    }
+
+    let store_today: NaiveDate = sqlx::query_scalar(
+        "SELECT (CURRENT_TIMESTAMP AT TIME ZONE reporting.effective_store_timezone())::date",
+    )
+    .fetch_one(&state.db)
+    .await?;
+    let through_date = q.to.unwrap_or(store_today);
+    let from_date = q.from.unwrap_or_else(|| through_date - Duration::days(89));
 
     #[derive(FromRow)]
     struct Agg {
+        from_at: DateTime<Utc>,
+        to_at: DateTime<Utc>,
         gross_sales: Decimal,
         taxable_sales: Decimal,
         nontaxable_sales: Decimal,
         total_state_tax: Decimal,
         total_local_tax: Decimal,
+        total_tax_collected: Decimal,
+        integrity_errors: i64,
     }
 
-    let row = sqlx::query_as::<_, Agg>(&format!(
+    let row = sqlx::query_as::<_, Agg>(
         r#"
-        WITH tax_lines AS (
+        WITH bounds AS (
             SELECT
-                oi.*,
-                GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) AS effective_qty,
-                COALESCE(
-                    NULLIF(LOWER(BTRIM(oi.size_specs->'tax_category_override'->>'to')), ''),
-                    p.tax_category_override::text,
-                    p.tax_category::text,
-                    CASE
-                        WHEN rc.resolved_category_name IS NULL THEN 'other'
-                        WHEN LOWER(rc.resolved_category_name) LIKE '%shoe%'
-                          OR LOWER(rc.resolved_category_name) LIKE '%footwear%' THEN 'footwear'
-                        ELSE 'clothing'
-                    END
-                ) AS resolved_tax_category
-            FROM transaction_lines oi
-            INNER JOIN transactions o ON o.id = oi.transaction_id
-            INNER JOIN products p ON p.id = oi.product_id
-            INNER JOIN product_variants pv ON pv.id = oi.variant_id
-            LEFT JOIN (
-                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
-                FROM transaction_return_lines
-                GROUP BY transaction_line_id
-            ) orl ON orl.transaction_line_id = oi.id
-            LEFT JOIN LATERAL (
-                WITH RECURSIVE cat_path AS (
-                    SELECT c.id, c.name, c.is_clothing_footwear, c.parent_id, 0 AS depth
-                    FROM categories c
-                    WHERE c.id = p.category_id
-                    UNION ALL
-                    SELECT parent.id, parent.name, parent.is_clothing_footwear, parent.parent_id, cat_path.depth + 1
-                    FROM categories parent
-                    JOIN cat_path ON cat_path.parent_id = parent.id
-                    WHERE cat_path.depth < 16
-                )
-                SELECT cp.name AS resolved_category_name
-                FROM cat_path cp
-                WHERE cp.is_clothing_footwear = true
-                ORDER BY cp.depth
-                LIMIT 1
-            ) rc ON true
-            WHERE {order_filter}
-              AND COALESCE(oi.is_internal, false) = FALSE
-              AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
-              AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+                ($1::date::timestamp AT TIME ZONE reporting.effective_store_timezone())
+                    AS from_at,
+                (($2::date + 1)::timestamp AT TIME ZONE reporting.effective_store_timezone())
+                    AS to_at
         )
         SELECT
-            COALESCE(SUM((unit_price * effective_qty)::numeric), 0)::numeric(14, 2) AS gross_sales,
-            COALESCE(
-                SUM((unit_price * effective_qty)::numeric) FILTER (
-                    WHERE resolved_tax_category NOT IN ('clothing', 'footwear', 'service')
-                       OR (
-                          resolved_tax_category IN ('clothing', 'footwear')
-                          AND unit_price >= $3
-                       )
-                ),
-                0
-            )::numeric(14, 2) AS taxable_sales,
-            COALESCE(
-                SUM((unit_price * effective_qty)::numeric) FILTER (
-                    WHERE resolved_tax_category = 'service'
-                       OR (
-                          resolved_tax_category IN ('clothing', 'footwear')
-                          AND unit_price < $3
-                       )
-                ),
-                0
-            )::numeric(14, 2) AS nontaxable_sales,
-            COALESCE(SUM((state_tax * effective_qty)::numeric), 0)::numeric(14, 2) AS total_state_tax,
-            COALESCE(SUM((local_tax * effective_qty)::numeric), 0)::numeric(14, 2) AS total_local_tax
-        FROM tax_lines
-        "#
-    ))
-    .bind(start)
-    .bind(end)
-    .bind(CLOTHING_FOOTWEAR_EXEMPTION_THRESHOLD_USD)
+            bounds.from_at,
+            bounds.to_at,
+            COALESCE(SUM(ledger.gross_sales), 0)::numeric(14, 2) AS gross_sales,
+            COALESCE(SUM(ledger.taxable_sales), 0)::numeric(14, 2) AS taxable_sales,
+            COALESCE(SUM(ledger.nontaxable_sales), 0)::numeric(14, 2)
+                AS nontaxable_sales,
+            COALESCE(SUM(ledger.total_state_tax), 0)::numeric(14, 2)
+                AS total_state_tax,
+            COALESCE(SUM(ledger.total_local_tax), 0)::numeric(14, 2)
+                AS total_local_tax,
+            COALESCE(SUM(ledger.total_tax_collected), 0)::numeric(14, 2)
+                AS total_tax_collected,
+            (
+                COUNT(*) FILTER (WHERE ledger.integrity_error IS NOT NULL)
+                + (
+                    SELECT COUNT(*)
+                    FROM reporting.nys_sales_tax_ledger undated
+                    WHERE undated.business_date IS NULL
+                      AND undated.integrity_error IS NOT NULL
+                )
+            )::bigint AS integrity_errors
+        FROM bounds
+        LEFT JOIN reporting.nys_sales_tax_ledger ledger
+          ON ledger.business_date >= $1
+         AND ledger.business_date <= $2
+        GROUP BY bounds.from_at, bounds.to_at
+        "#,
+    )
+    .bind(from_date)
+    .bind(through_date)
     .fetch_one(&state.db)
     .await?;
 
-    let total_tax_collected = row.total_state_tax + row.total_local_tax;
+    let gross_reconciles = row.gross_sales == row.taxable_sales + row.nontaxable_sales;
+    let tax_reconciles = row.total_tax_collected == row.total_state_tax + row.total_local_tax;
+
+    if row.integrity_errors > 0 || !gross_reconciles || !tax_reconciles {
+        tracing::error!(
+            from = %from_date,
+            through = %through_date,
+            integrity_errors = row.integrity_errors,
+            gross_reconciles,
+            tax_reconciles,
+            "NYS sales-tax report failed closed"
+        );
+        return Err(InsightsError::Integrity(
+            "Sales tax report blocked because its persisted tax ledger did not reconcile. No filing totals were returned."
+                .to_string(),
+        ));
+    }
 
     Ok(Json(NysTaxAuditResponse {
-        from: start,
-        to: end,
+        from: row.from_at,
+        to: row.to_at,
         gross_sales: row.gross_sales,
         taxable_sales: row.taxable_sales,
         nontaxable_sales: row.nontaxable_sales,
         total_state_tax: row.total_state_tax,
         total_local_tax: row.total_local_tax,
-        total_tax_collected,
+        total_tax_collected: row.total_tax_collected,
+        reconciled: true,
     }))
 }
 

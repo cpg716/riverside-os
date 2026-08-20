@@ -199,6 +199,52 @@ cubes:
         sql: fulfillment
         type: string
 
+  - name: sales_tax
+    title: New York Sales Tax
+    description: Reconciled paid Completed/Fulfilled sales-tax data using saved transaction tax and settled refund or exchange amounts; no tax-engine, source cutoff, current-catalog, or Z-close input.
+    sql: |
+      SELECT *
+      FROM reporting.nys_sales_tax_ledger
+      WHERE integrity_error IS NULL
+    measures:
+      - name: gross_sales
+        sql: gross_sales
+        type: sum
+        format: currency
+      - name: taxable_sales
+        sql: taxable_sales
+        type: sum
+        format: currency
+      - name: nontaxable_sales
+        sql: nontaxable_sales
+        type: sum
+        format: currency
+      - name: state_tax
+        sql: total_state_tax
+        type: sum
+        format: currency
+      - name: local_tax
+        sql: total_local_tax
+        type: sum
+        format: currency
+      - name: total_tax_collected
+        sql: total_tax_collected
+        type: sum
+        format: currency
+    dimensions:
+      - name: business_date
+        sql: business_date
+        type: time
+      - name: event_kind
+        sql: event_kind
+        type: string
+      - name: fulfillment_type
+        sql: fulfillment_type
+        type: string
+      - name: amount_basis
+        sql: amount_basis
+        type: string
+
   - name: fulfillment_orders
     title: Fulfillment Orders
     description: Logistical Fulfillment Orders, separate from financial Transactions.

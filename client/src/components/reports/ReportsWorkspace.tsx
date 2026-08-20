@@ -1971,7 +1971,7 @@ export default function ReportsWorkspace({
           </div>
           ) : null}
 
-          {selectedAvailable ? (
+          {selectedAvailable && selectedAvailable.id !== "nys_tax_audit" ? (
             <p className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text-muted">
               Historical rows imported from Counterpoint are labeled as{" "}
               <span className="font-black text-app-text">Imported from Counterpoint</span> when

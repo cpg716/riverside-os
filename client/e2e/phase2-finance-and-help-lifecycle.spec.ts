@@ -329,10 +329,12 @@ test.describe("Phase 2: Finance-sensitive endpoint contracts", () => {
       total_state_tax?: unknown;
       total_local_tax?: unknown;
       total_tax_collected?: unknown;
+      reconciled?: unknown;
     };
     expect(typeof tax.gross_sales).toBe("string");
     expect(typeof tax.taxable_sales).toBe("string");
     expect(typeof tax.nontaxable_sales).toBe("string");
+    expect(tax.reconciled).toBe(true);
     expect(typeof tax.total_state_tax).toBe("string");
     expect(typeof tax.total_local_tax).toBe("string");
     expect(typeof tax.total_tax_collected).toBe("string");

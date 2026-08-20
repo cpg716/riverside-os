@@ -39,9 +39,15 @@ for (const viewport of REPORTS_VIEWPORTS) {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
+          from: "2026-07-01T04:00:00Z",
+          to: "2026-08-01T04:00:00Z",
+          gross_sales: "2820.55",
           taxable_sales: "2410.55",
-          exempt_sales: "410.00",
-          tax_collected: "192.04",
+          nontaxable_sales: "410.00",
+          total_state_tax: "72.00",
+          total_local_tax: "114.04",
+          total_tax_collected: "186.04",
+          reconciled: true,
         }),
       });
     });
@@ -76,6 +82,9 @@ for (const viewport of REPORTS_VIEWPORTS) {
     await expect(page.getByRole("button", { name: /^print report$/i })).toBeVisible({
       timeout: 15_000,
     });
+    await expect(
+      page.getByText(/historical rows imported from counterpoint/i),
+    ).toHaveCount(0);
 
     if (viewport.width <= 1023) {
       await expect(page.getByTestId("reports-detail-row-object-cards")).toBeVisible({

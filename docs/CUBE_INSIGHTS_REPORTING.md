@@ -27,7 +27,7 @@ Booked and recognized reporting are separate datasets. They are never implemente
 - **`booked_transactions`** and **`booked_items`** use the governed Transaction booking business date.
 - **`recognized_transactions`** and **`recognized_items`** use the governed fulfillment or pickup recognition business date.
 
-The remaining modeled datasets cover Fulfillment Orders, weddings, payments, inventory, loyalty customers, alterations, shipments, and daily sales with weather. The server catalog is authoritative for which measures, dimensions, filters, and time dimensions staff may request. Cost, profit, and margin members are marked Admin-only in the server catalog.
+The governed **`sales_tax`** dataset reads **`reporting.nys_sales_tax_ledger`**, the same saved-amount source used by the fixed New York Sales Tax Report. It includes paid Completed/Fulfilled sales, settled negative refund/exchange events, taxable and nontaxable sales, and saved state/local/total tax. It does not apply a Counterpoint/ROS cutoff, run the tax engine, consult current catalog classifications, or read Z-close snapshots. Both the fixed report and conversational path fail closed when gross or tax evidence does not reconcile. The remaining modeled datasets cover Fulfillment Orders, weddings, payments, inventory, loyalty customers, alterations, shipments, and daily sales with weather. The server catalog is authoritative for which measures, dimensions, filters, and time dimensions staff may request. Cost, profit, and margin members are marked Admin-only in the server catalog.
 
 Update the Cube model and the Rust semantic catalog together. Do not expose a Cube member that bypasses the catalog validator or Riverside permissions.
 

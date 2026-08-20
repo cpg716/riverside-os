@@ -76,6 +76,7 @@ type NysTaxAuditResponse = {
   total_state_tax: string;
   total_local_tax: string;
   total_tax_collected: string;
+  reconciled: boolean;
 };
 
 function uniqueSuffix(label: string): string {
@@ -93,10 +94,6 @@ function localBusinessDate(): string {
   const month = parts.find((part) => part.type === "month")?.value;
   const day = parts.find((part) => part.type === "day")?.value;
   return `${year}-${month}-${day}`;
-}
-
-function utcAuditDate(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function taxFor(category: TaxCategory, unitPrice: string) {
@@ -656,7 +653,7 @@ test.describe("tax audit contract", () => {
     request,
   }) => {
     test.setTimeout(90_000);
-    const day = utcAuditDate();
+    const day = localBusinessDate();
     const before = await fetchNysTaxAudit(request, day);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -716,10 +713,10 @@ test.describe("tax audit contract", () => {
     ).toBe(18000); // $120.00 clothing + $60.00 service
     expect(
       parseMoneyToCents(after.taxable_sales) - parseMoneyToCents(before.taxable_sales)
-    ).toBe(0);
+    ).toBe(12000); // $120.00 clothing is subject to Erie County local tax
     expect(
       parseMoneyToCents(after.nontaxable_sales) - parseMoneyToCents(before.nontaxable_sales)
-    ).toBe(18000); // $120.00 clothing under threshold + $60.00 non-taxable service
+    ).toBe(6000); // $60.00 non-taxable service only
     expect(
       parseMoneyToCents(after.total_state_tax) - parseMoneyToCents(before.total_state_tax)
     ).toBe(0);
@@ -729,6 +726,7 @@ test.describe("tax audit contract", () => {
     expect(
       parseMoneyToCents(after.total_tax_collected) - parseMoneyToCents(before.total_tax_collected)
     ).toBe(570);
+    expect(after.reconciled).toBe(true);
   });
 
   test("checkout enforces NYS/Erie clothing threshold and discount crossing at server boundary", async ({
@@ -1332,6 +1330,8 @@ test.describe("tax audit contract", () => {
     request,
   }) => {
     test.setTimeout(90_000);
+    const day = localBusinessDate();
+    const auditBefore = await fetchNysTaxAudit(request, day);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
     const product = await createTaxProduct(request, operatorStaffId, {
@@ -1429,6 +1429,32 @@ test.describe("tax audit contract", () => {
     const refunds = (await refundQueueRes.json()) as RefundQueueRow[];
     const refund = refunds.find((row) => row.transaction_id === checkout.transaction_id);
     expect(refund).toBeUndefined();
+
+    const auditAfter = await fetchNysTaxAudit(request, day);
+    expect(
+      parseMoneyToCents(auditAfter.gross_sales) - parseMoneyToCents(auditBefore.gross_sales),
+    ).toBe(11000);
+    expect(
+      parseMoneyToCents(auditAfter.taxable_sales) -
+        parseMoneyToCents(auditBefore.taxable_sales),
+    ).toBe(11000);
+    expect(
+      parseMoneyToCents(auditAfter.nontaxable_sales) -
+        parseMoneyToCents(auditBefore.nontaxable_sales),
+    ).toBe(0);
+    expect(
+      parseMoneyToCents(auditAfter.total_state_tax) -
+        parseMoneyToCents(auditBefore.total_state_tax),
+    ).toBe(440);
+    expect(
+      parseMoneyToCents(auditAfter.total_local_tax) -
+        parseMoneyToCents(auditBefore.total_local_tax),
+    ).toBe(523);
+    expect(
+      parseMoneyToCents(auditAfter.total_tax_collected) -
+        parseMoneyToCents(auditBefore.total_tax_collected),
+    ).toBe(963);
+    expect(auditAfter.reconciled).toBe(true);
   });
 
   test("QBO proposed journal maps collected sales tax to the tax liability account", async ({

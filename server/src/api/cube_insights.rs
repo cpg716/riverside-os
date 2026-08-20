@@ -32,6 +32,8 @@ use crate::models::DbStaffRole;
 const DEFAULT_CUBE_UPSTREAM: &str = "http://127.0.0.1:4000";
 const DEFAULT_MAX_ROWS: i64 = 500;
 const MAX_QUESTION_BYTES: usize = 2_000;
+const DEFAULT_MAX_REPORT_MEASURES: usize = 5;
+const SALES_TAX_MAX_REPORT_MEASURES: usize = 6;
 
 #[derive(Debug, Error)]
 enum CubeInsightsError {
@@ -43,6 +45,8 @@ enum CubeInsightsError {
     Forbidden(String),
     #[error("{0}")]
     Unavailable(String),
+    #[error("{0}")]
+    Integrity(String),
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 }
@@ -54,6 +58,7 @@ impl IntoResponse for CubeInsightsError {
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Integrity(_) => StatusCode::CONFLICT,
             Self::Database(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (status, Json(json!({ "error": self.to_string() }))).into_response()
@@ -402,6 +407,29 @@ const RECOGNIZED_ITEM_TIMES: &[SemanticMember] = &[member(
     "date",
 )];
 
+const SALES_TAX_MEASURES: &[SemanticMember] = &[
+    member("sales_tax.gross_sales", "Gross sales", "money"),
+    member("sales_tax.taxable_sales", "Taxable sales", "money"),
+    member("sales_tax.nontaxable_sales", "Nontaxable sales", "money"),
+    member("sales_tax.state_tax", "New York State tax", "money"),
+    member("sales_tax.local_tax", "Erie County local tax", "money"),
+    member(
+        "sales_tax.total_tax_collected",
+        "Total tax collected",
+        "money",
+    ),
+];
+const SALES_TAX_DIMENSIONS: &[SemanticMember] = &[
+    member("sales_tax.event_kind", "Tax event", "text"),
+    member("sales_tax.fulfillment_type", "Fulfillment type", "text"),
+    member("sales_tax.amount_basis", "Saved amount basis", "text"),
+];
+const SALES_TAX_TIMES: &[SemanticMember] = &[member(
+    "sales_tax.business_date",
+    "Tax reporting business date",
+    "date",
+)];
+
 const FULFILLMENT_MEASURES: &[SemanticMember] = &[member(
     "fulfillment_orders.fulfillment_order_count",
     "Fulfillment Orders",
@@ -612,6 +640,14 @@ const DATASETS: &[SemanticDataset] = &[
         time_dimensions: RECOGNIZED_ITEM_TIMES,
     },
     SemanticDataset {
+        name: "sales_tax",
+        title: "New York Sales Tax",
+        description: "Reconciled paid Completed/Fulfilled sales-tax data using saved transaction and settled refund or exchange amounts. This dataset never applies a source cutoff, runs the tax engine, reads current catalog classifications, or uses Z-close snapshots.",
+        measures: SALES_TAX_MEASURES,
+        dimensions: SALES_TAX_DIMENSIONS,
+        time_dimensions: SALES_TAX_TIMES,
+    },
+    SemanticDataset {
         name: "fulfillment_orders",
         title: "Fulfillment Orders",
         description: "Logistical Fulfillment Orders, never the financial Transaction ledger.",
@@ -818,10 +854,15 @@ fn validate_report_spec(
         .map(|member| member.name)
         .collect::<HashSet<_>>();
 
-    if spec.measures.is_empty() || spec.measures.len() > 5 {
-        return Err(CubeInsightsError::BadRequest(
-            "a report must contain 1-5 approved measures".to_string(),
-        ));
+    let max_measures = if spec.dataset == "sales_tax" {
+        SALES_TAX_MAX_REPORT_MEASURES
+    } else {
+        DEFAULT_MAX_REPORT_MEASURES
+    };
+    if spec.measures.is_empty() || spec.measures.len() > max_measures {
+        return Err(CubeInsightsError::BadRequest(format!(
+            "a report must contain 1-{max_measures} approved measures"
+        )));
     }
     if spec
         .measures
@@ -995,7 +1036,7 @@ fn planner_schema(admin: bool, max_rows: i64) -> Value {
                     "title": { "type": "string" },
                     "explanation": { "type": "string" },
                     "dataset": { "type": "string", "enum": datasets },
-                    "measures": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "type": "string", "enum": measures } },
+                    "measures": { "type": "array", "minItems": 1, "maxItems": SALES_TAX_MAX_REPORT_MEASURES, "items": { "type": "string", "enum": measures } },
                     "dimensions": { "type": "array", "maxItems": 4, "items": { "type": "string", "enum": dimensions } },
                     "time_dimension": {
                         "anyOf": [
@@ -1243,6 +1284,83 @@ fn cube_query(spec: &CubeReportSpec) -> Value {
     })
 }
 
+async fn ensure_sales_tax_integrity(
+    state: &AppState,
+    spec: &CubeReportSpec,
+) -> Result<(), CubeInsightsError> {
+    if spec.dataset != "sales_tax" {
+        return Ok(());
+    }
+
+    let parsed_range = spec
+        .time_dimension
+        .as_ref()
+        .and_then(|time| time.date_range.as_ref())
+        .map(|range| {
+            let [from_raw, to_raw] = range.as_slice() else {
+                return Err(CubeInsightsError::BadRequest(
+                    "date_range must contain an inclusive from and to date".to_string(),
+                ));
+            };
+            let from = NaiveDate::parse_from_str(from_raw, "%Y-%m-%d").map_err(|_| {
+                CubeInsightsError::BadRequest("from date must be YYYY-MM-DD".to_string())
+            })?;
+            let to = NaiveDate::parse_from_str(to_raw, "%Y-%m-%d").map_err(|_| {
+                CubeInsightsError::BadRequest("to date must be YYYY-MM-DD".to_string())
+            })?;
+            Ok::<_, CubeInsightsError>((from, to))
+        })
+        .transpose()?;
+    let (from, to) = parsed_range
+        .map(|(from, to)| (Some(from), Some(to)))
+        .unwrap_or((None, None));
+
+    let integrity_errors: i64 = sqlx::query_scalar(
+        r#"
+        WITH scoped AS (
+            SELECT *
+            FROM reporting.nys_sales_tax_ledger
+            WHERE business_date IS NULL
+               OR $1::date IS NULL
+               OR business_date BETWEEN $1 AND $2
+        )
+        SELECT (
+            COUNT(*) FILTER (WHERE integrity_error IS NOT NULL)
+            + CASE
+                WHEN COALESCE(SUM(gross_sales), 0)
+                    = COALESCE(SUM(taxable_sales + nontaxable_sales), 0)
+                THEN 0 ELSE 1
+              END
+            + CASE
+                WHEN COALESCE(SUM(total_tax_collected), 0)
+                    = COALESCE(SUM(total_state_tax + total_local_tax), 0)
+                THEN 0 ELSE 1
+              END
+        )::bigint
+        FROM scoped
+        "#,
+    )
+    .bind(from)
+    .bind(to)
+    .fetch_one(&state.db)
+    .await?;
+
+    if integrity_errors > 0 {
+        tracing::error!(
+            integrity_errors,
+            from = ?from,
+            through = ?to,
+            "governed sales-tax dataset failed closed"
+        );
+        return Err(CubeInsightsError::Integrity(
+            "Sales tax report blocked because its persisted tax ledger did not reconcile. No filing totals were returned."
+                .to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 async fn execute_report(
     state: &AppState,
     staff: &AuthenticatedStaff,
@@ -1250,6 +1368,7 @@ async fn execute_report(
     spec: CubeReportSpec,
     history_id: Option<Uuid>,
 ) -> Result<ReportRunResponse, CubeInsightsError> {
+    ensure_sales_tax_integrity(state, &spec).await?;
     let secret = cube_secret()?;
     let token = cube_token(staff, &secret)?;
     let response = state
@@ -1783,6 +1902,37 @@ mod tests {
         };
         assert!(validate_report_spec(&mut spec, false, 500).is_err());
         validate_report_spec(&mut spec, true, 500).expect("admin margin report");
+    }
+
+    #[test]
+    fn accepts_complete_governed_sales_tax_report() {
+        let mut spec = CubeReportSpec {
+            title: "July New York sales tax".to_string(),
+            explanation: "Paid fulfilled sales and settled refund or exchange events from the reconciled tax dataset."
+                .to_string(),
+            dataset: "sales_tax".to_string(),
+            measures: SALES_TAX_MEASURES
+                .iter()
+                .map(|measure| measure.name.to_string())
+                .collect(),
+            dimensions: Vec::new(),
+            time_dimension: Some(ReportTimeDimension {
+                member: "sales_tax.business_date".to_string(),
+                granularity: None,
+                date_range: Some(vec!["2026-07-01".to_string(), "2026-07-31".to_string()]),
+            }),
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            visualization: ReportVisualization {
+                kind: ReportVisualizationKind::Table,
+                x_member: None,
+                y_members: Vec::new(),
+            },
+        };
+
+        validate_report_spec(&mut spec, false, 500).expect("governed tax report");
+        assert_eq!(spec.measures.len(), SALES_TAX_MAX_REPORT_MEASURES);
     }
 
     #[test]
