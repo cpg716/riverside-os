@@ -1193,8 +1193,24 @@ struct ExistingOrderPaymentTarget {
     calculated_total_price: Decimal,
     balance_due: Decimal,
     calculated_balance_due: Decimal,
+    counterpoint_header_authoritative: bool,
     status: DbOrderStatus,
     line_count: i64,
+}
+
+pub(crate) fn order_payment_financials_reconcile(
+    total_price: Decimal,
+    calculated_total_price: Decimal,
+    balance_due: Decimal,
+    calculated_balance_due: Decimal,
+    counterpoint_header_authoritative: bool,
+) -> bool {
+    // Reviewed legacy Counterpoint repairs can carry source-header totals that
+    // intentionally exclude an unshipped line. The query sets this flag only
+    // when header balance and net payment allocations still reconcile exactly.
+    (total_price.round_dp(2) == calculated_total_price.round_dp(2)
+        && balance_due.round_dp(2) == calculated_balance_due.round_dp(2))
+        || counterpoint_header_authoritative
 }
 
 #[derive(Debug, Clone)]
@@ -1373,9 +1389,13 @@ fn validate_order_payment_against_target(
             "order payment target has no order lines".to_string(),
         ));
     }
-    if target.total_price.round_dp(2) != target.calculated_total_price.round_dp(2)
-        || target.balance_due.round_dp(2) != target.calculated_balance_due.round_dp(2)
-    {
+    if !order_payment_financials_reconcile(
+        target.total_price,
+        target.calculated_total_price,
+        target.balance_due,
+        target.calculated_balance_due,
+        target.counterpoint_header_authoritative,
+    ) {
         return Err(CheckoutError::InvalidPayload(
             "order payment blocked: charged item prices and tax do not match the stored Transaction total or balance. Do not collect payment until this Transaction Record is repaired."
                 .to_string(),
@@ -4785,6 +4805,7 @@ async fn execute_checkout_internal(
             Decimal,
             Decimal,
             Decimal,
+            bool,
             DbOrderStatus,
             i64,
         )> = sqlx::query_as(
@@ -4845,6 +4866,31 @@ async fn execute_checkout_internal(
                     + COALESCE(o.rounding_adjustment, 0)
                     - COALESCE(o.amount_paid, 0)
                 )::numeric AS calculated_balance_due,
+                (
+                    COALESCE(o.is_counterpoint_import, FALSE)
+                    AND o.counterpoint_doc_ref IS NOT NULL
+                    AND NULLIF(
+                        BTRIM(COALESCE(o.metadata->>'counterpoint_financial_repair', '')),
+                        ''
+                    ) IS NOT NULL
+                    AND ROUND(COALESCE(o.balance_due, 0), 2) = ROUND(
+                        COALESCE(o.total_price, 0)
+                        + COALESCE(o.rounding_adjustment, 0)
+                        - COALESCE(o.amount_paid, 0),
+                        2
+                    )
+                    AND ROUND(COALESCE(o.amount_paid, 0), 2) = ROUND(
+                        COALESCE(
+                            (
+                                SELECT SUM(pa.amount_allocated)
+                                FROM payment_allocations pa
+                                WHERE pa.target_transaction_id = o.id
+                            ),
+                            0
+                        ),
+                        2
+                    )
+                ) AS counterpoint_header_authoritative,
                 o.status,
                 COALESCE(charged_lines.line_count, 0)::bigint AS line_count
             FROM transactions o
@@ -4865,6 +4911,7 @@ async fn execute_checkout_internal(
             calculated_total_price,
             balance_due,
             calculated_balance_due,
+            counterpoint_header_authoritative,
             status,
             line_count,
         )) = target
@@ -4887,6 +4934,7 @@ async fn execute_checkout_internal(
             calculated_total_price,
             balance_due: balance_due.round_dp(2),
             calculated_balance_due,
+            counterpoint_header_authoritative,
             status,
             line_count,
         };
@@ -9196,6 +9244,7 @@ mod tests {
             calculated_total_price: balance_due,
             balance_due,
             calculated_balance_due: balance_due,
+            counterpoint_header_authoritative: false,
             status: DbOrderStatus::Open,
             line_count: 1,
         }
@@ -9384,6 +9433,31 @@ mod tests {
 
         let err = validate_order_payment_against_target(&payload[0], &target).unwrap_err();
         assert!(err.to_string().contains("Do not collect payment"));
+    }
+
+    #[test]
+    fn transaction_checkout_order_payment_accepts_repaired_counterpoint_header_total() {
+        let customer_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let payload = validate_order_payment_shape(
+            Some(customer_id),
+            Some(customer_id),
+            &[order_payment_payload(
+                customer_id,
+                target_id,
+                Decimal::new(16722, 2),
+                Decimal::new(16722, 2),
+            )],
+        )
+        .unwrap();
+        let mut target = target_snapshot(customer_id, target_id, Decimal::new(16722, 2));
+        target.display_id = payload[0].target_display_id.clone();
+        target.total_price = Decimal::new(28275, 2);
+        target.calculated_total_price = Decimal::new(34775, 2);
+        target.calculated_balance_due = Decimal::new(23222, 2);
+        target.counterpoint_header_authoritative = true;
+
+        validate_order_payment_against_target(&payload[0], &target).unwrap();
     }
 
     #[test]

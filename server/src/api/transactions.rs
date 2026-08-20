@@ -5654,6 +5654,7 @@ async fn order_payment_preflight(
             Decimal,
             Decimal,
             Decimal,
+            bool,
             i64,
         )> = sqlx::query_as(
             r#"
@@ -5705,6 +5706,31 @@ async fn order_payment_preflight(
                     - COALESCE(t.amount_paid, 0),
                     2
                 )::numeric AS calculated_balance_due,
+                (
+                    COALESCE(t.is_counterpoint_import, FALSE)
+                    AND t.counterpoint_doc_ref IS NOT NULL
+                    AND NULLIF(
+                        BTRIM(COALESCE(t.metadata->>'counterpoint_financial_repair', '')),
+                        ''
+                    ) IS NOT NULL
+                    AND ROUND(COALESCE(t.balance_due, 0), 2) = ROUND(
+                        COALESCE(t.total_price, 0)
+                        + COALESCE(t.rounding_adjustment, 0)
+                        - COALESCE(t.amount_paid, 0),
+                        2
+                    )
+                    AND ROUND(COALESCE(t.amount_paid, 0), 2) = ROUND(
+                        COALESCE(
+                            (
+                                SELECT SUM(pa.amount_allocated)
+                                FROM payment_allocations pa
+                                WHERE pa.target_transaction_id = t.id
+                            ),
+                            0
+                        ),
+                        2
+                    )
+                ) AS counterpoint_header_authoritative,
                 COALESCE(charged_lines.line_count, 0)::bigint AS line_count
             FROM transactions t
             LEFT JOIN charged_lines ON charged_lines.transaction_id = t.id
@@ -5722,6 +5748,7 @@ async fn order_payment_preflight(
             calculated_total_price,
             balance_due,
             calculated_balance_due,
+            counterpoint_header_authoritative,
             line_count,
         )) = snapshot
         else {
@@ -5743,7 +5770,13 @@ async fn order_payment_preflight(
                 "order-payment target has no order lines".to_string(),
             ));
         }
-        if total_price != calculated_total_price || balance_due != calculated_balance_due {
+        if !crate::logic::transaction_checkout::order_payment_financials_reconcile(
+            total_price,
+            calculated_total_price,
+            balance_due,
+            calculated_balance_due,
+            counterpoint_header_authoritative,
+        ) {
             return Err(TransactionError::InvalidPayload(
                 "Payment blocked before tender: charged item prices and tax do not match the Transaction total or balance. Do not collect payment until this Transaction Record is repaired."
                     .to_string(),
