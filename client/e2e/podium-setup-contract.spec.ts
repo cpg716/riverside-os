@@ -222,18 +222,19 @@ test("Podium inbox keeps webhook and history status truthful", () => {
   expect(podiumInbox).toContain("ROS webhook receiving");
   expect(podiumInbox).toContain("failed_webhook_delivery_count");
   expect(podiumInbox).toContain("Processing current");
-  expect(podiumInbox).toContain("Last complete history pull");
+  expect(podiumInbox).toContain("Latest conversation history pull");
   expect(podiumInbox).toContain("historyIncomplete || providerPullStale");
   expect(podiumInbox).not.toContain(
     "health.incomplete_history_count > 0 ||\n        isOlderThan",
   );
 });
 
-test("Podium inbox treats an active history pull as progress, not an alert", () => {
+test("Podium inbox reserves needs-attention warnings for current delivery failures", () => {
   expect(podiumInbox).toContain("const historyNeedsAttention =");
   expect(podiumInbox).toContain(
-    "!syncBusy && Boolean(syncIssue || historyIncomplete)",
+    "const historyNeedsAttention = !syncBusy && Boolean(syncIssue)",
   );
+  expect(podiumInbox).not.toContain("Boolean(syncIssue || historyIncomplete)");
   expect(podiumInbox).toContain(
     "activeWebhookFailure || historyNeedsAttention || callEventsMissing",
   );
@@ -241,6 +242,11 @@ test("Podium inbox treats an active history pull as progress, not an alert", () 
     'syncBusy\n                    ? "bg-app-info/10 text-app-info"',
   );
   expect(podiumInbox).toContain('? "Pulling history"');
+  expect(podiumInbox).toContain('? "Historical gap recorded"');
+  expect(podiumInbox).toContain(
+    "this historical gap does not mean new messages are failing",
+  );
+  expect(podiumInbox).toContain("health.incomplete_history_count === 1");
 });
 
 test("Podium inbox keeps unknown senders in the regular conversation flow", () => {

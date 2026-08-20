@@ -1300,8 +1300,10 @@ export default function PodiumMessagingInboxSection({
   );
   const SelectedActivityIcon = selectedRow ? activityIcon(selectedRow) : MessageCircle;
   const callEventsMissing = health !== null && health.local_call_event_count === 0;
-  const historyNeedsAttention =
-    !syncBusy && Boolean(syncIssue || historyIncomplete);
+  const historyNeedsAttention = !syncBusy && Boolean(syncIssue);
+  const incompleteHistoryLabel = health?.incomplete_history_count
+    ? `${health.incomplete_history_count} stored conversation ${health.incomplete_history_count === 1 ? "history is" : "histories are"} incomplete`
+    : "Stored conversation history has not loaded";
   const hasSystemIssue = Boolean(
     activeWebhookFailure || historyNeedsAttention || callEventsMissing,
   );
@@ -1403,7 +1405,7 @@ export default function PodiumMessagingInboxSection({
                 Refreshes every minute while open.
               </p>
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                Last inbound: {fullDateTime(health.last_webhook_received_at)} · Last stored message: {fullDateTime(health.last_message_at)} · Last complete history pull: {fullDateTime(health.last_sync_at)}
+                Last inbound: {fullDateTime(health.last_webhook_received_at)} · Last stored message: {fullDateTime(health.last_message_at)} · Latest conversation history pull: {fullDateTime(health.last_sync_at)}
               </p>
               <p className="mt-1 text-xs font-semibold text-app-text-muted">
                 Stored calls: {health.local_call_event_count} · Last call: {fullDateTime(health.last_call_event_at)}
@@ -1447,15 +1449,19 @@ export default function PodiumMessagingInboxSection({
                 className={`ui-pill ${
                   syncBusy
                     ? "bg-app-info/10 text-app-info"
-                    : historyIncomplete || syncIssue
+                    : syncIssue
                       ? "bg-app-warning/10 text-app-warning"
+                      : historyIncomplete
+                        ? "bg-app-info/10 text-app-info"
                       : "bg-app-success/10 text-app-success"
                 }`}
               >
                 {syncBusy
                   ? "Pulling history"
-                  : historyIncomplete || syncIssue
-                    ? "History incomplete"
+                  : syncIssue
+                    ? "History pull failed"
+                    : historyIncomplete
+                      ? "Historical gap recorded"
                     : "History current"}
               </span>
             </div>
@@ -1469,6 +1475,11 @@ export default function PodiumMessagingInboxSection({
           {syncIssue ? (
             <p className="mt-2 rounded-xl border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
               {syncIssue}
+            </p>
+          ) : null}
+          {historyIncomplete && !syncIssue && !syncBusy ? (
+            <p className="mt-2 rounded-xl border border-app-info/30 bg-app-info/10 px-3 py-2 text-xs font-semibold text-app-text">
+              {incompleteHistoryLabel}. Live webhook delivery and processing are reported separately above. Use Pull from Podium once if older message history is needed; this historical gap does not mean new messages are failing.
             </p>
           ) : null}
           {callEventsMissing ? (
