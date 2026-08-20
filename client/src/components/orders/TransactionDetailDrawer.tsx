@@ -514,6 +514,21 @@ function isFullyCancelled(item: TransactionDrawerItem): boolean {
   );
 }
 
+function isPickupLaterAwaitingRelease(item: TransactionDrawerItem): boolean {
+  return (
+    item.fulfillment === "pickup_later" &&
+    item.order_lifecycle_status !== "picked_up" &&
+    remainingItemQuantity(item) > 0
+  );
+}
+
+function isPhysicalOrderWorkComplete(item: TransactionDrawerItem): boolean {
+  return (
+    !isPickupLaterAwaitingRelease(item) &&
+    (item.is_fulfilled || item.order_lifecycle_status === "picked_up")
+  );
+}
+
 function orderLifecycleCounts(detail: TransactionDrawerDetail) {
   const counts = ORDER_LIFECYCLE_STEPS.reduce(
     (acc, step) => ({ ...acc, [step.key]: 0 }),
@@ -528,7 +543,7 @@ function orderLifecycleCounts(detail: TransactionDrawerDetail) {
         !isFullyReturned(item),
     )
     .forEach((item) => {
-      const stepKey = item.is_fulfilled
+      const stepKey = isPhysicalOrderWorkComplete(item)
         ? "picked_up"
         : isLifecycleStepKey(item.order_lifecycle_status)
           ? item.order_lifecycle_status
@@ -544,14 +559,14 @@ function orderLifecycleCounts(detail: TransactionDrawerDetail) {
       (item) =>
         !item.is_internal &&
         !isFullyReturned(item) &&
-        !item.is_fulfilled &&
+        !isPhysicalOrderWorkComplete(item) &&
         item.order_lifecycle_status === "received",
     ).length,
     readyNow: detail.items.filter(
       (item) =>
         !item.is_internal &&
         !isFullyReturned(item) &&
-        !item.is_fulfilled &&
+        !isPhysicalOrderWorkComplete(item) &&
         item.order_lifecycle_status === "ready_for_pickup",
     ).length,
   };
@@ -566,7 +581,7 @@ function lineNextAction(
       ? "Order item cancellation is complete."
       : "Return is complete.";
   }
-  if (item.is_fulfilled || item.order_lifecycle_status === "picked_up") {
+  if (isPhysicalOrderWorkComplete(item)) {
     return detail.fulfillment_method === "ship"
       ? "Completed for shipping."
       : "Pickup is complete.";
@@ -605,7 +620,7 @@ function lineNotificationState(item: TransactionDrawerItem): string {
   if (isFullyReturned(item)) {
     return isFullyCancelled(item) ? "Cancelled." : "Returned.";
   }
-  if (item.is_fulfilled || item.order_lifecycle_status === "picked_up") {
+  if (isPhysicalOrderWorkComplete(item)) {
     return "Completed.";
   }
   if (item.order_lifecycle_status === "ready_for_pickup") {
@@ -635,7 +650,7 @@ function deriveLifecycleOverview(
       nextAction: "No pickup work should continue on a cancelled transaction.",
     };
   }
-  if (summary.pending === 0 || isOrderStatus(detail.status, "fulfilled")) {
+  if (summary.pending === 0) {
     return {
       label: "Closed / Picked Up",
       tone: "success",
@@ -687,11 +702,9 @@ function fulfillmentSummary(detail: TransactionDrawerDetail) {
   const customerVisibleItems = detail.items.filter(
     (item) => !item.is_internal && !isFullyReturned(item),
   );
-  const fulfilledItems = customerVisibleItems.filter(
-    (item) => item.is_fulfilled,
-  );
+  const fulfilledItems = customerVisibleItems.filter(isPhysicalOrderWorkComplete);
   const pendingItems = customerVisibleItems.filter(
-    (item) => !item.is_fulfilled,
+    (item) => !isPhysicalOrderWorkComplete(item),
   );
   const readyPendingItems = pendingItems.filter(
     (item) => item.order_lifecycle_status === "ready_for_pickup",
@@ -1254,7 +1267,7 @@ export default function TransactionDetailDrawer({
         (item) =>
           !item.is_internal &&
           !isFullyReturned(item) &&
-          !item.is_fulfilled &&
+          !isPhysicalOrderWorkComplete(item) &&
           item.transaction_line_id,
       ) ?? [];
     return {
@@ -2470,7 +2483,7 @@ export default function TransactionDetailDrawer({
                       (item) =>
                         !item.is_internal &&
                         !isFullyReturned(item) &&
-                        !item.is_fulfilled,
+                        !isPhysicalOrderWorkComplete(item),
                     ),
                   },
                   {
@@ -2484,7 +2497,7 @@ export default function TransactionDetailDrawer({
                       (item) =>
                         !item.is_internal &&
                         !isFullyReturned(item) &&
-                        item.is_fulfilled,
+                        isPhysicalOrderWorkComplete(item),
                     ),
                   },
                   {
@@ -2535,6 +2548,11 @@ export default function TransactionDetailDrawer({
                         const returnedQty = item.quantity_returned ?? 0;
                         const fullyReturned = isFullyReturned(item);
                         const fullyCancelled = isFullyCancelled(item);
+                        const physicallyComplete =
+                          isPhysicalOrderWorkComplete(item);
+                        const soldAwaitingPickup =
+                          isPickupLaterAwaitingRelease(item) &&
+                          item.is_fulfilled;
                         const lifecycleLabel = fullyReturned
                           ? fullyCancelled
                             ? "Cancelled"
@@ -2551,7 +2569,7 @@ export default function TransactionDetailDrawer({
                           : lifecycleStatusTone(
                               item.order_lifecycle_status,
                               item.alteration_status,
-                              item.is_fulfilled,
+                              physicallyComplete,
                             );
                         const nextAction = lineNextAction(item, detail);
                         const notificationState = lineNotificationState(item);
@@ -2587,7 +2605,7 @@ export default function TransactionDetailDrawer({
                           <div
                             key={itemId ?? `${item.sku}-${item.product_name}`}
                             className={`rounded-xl border p-4 ${
-                              item.is_fulfilled || fullyReturned
+                              physicallyComplete || fullyReturned
                                 ? "border-emerald-500/15 bg-emerald-500/5"
                                 : "border-app-border bg-app-surface"
                             }`}
@@ -2600,7 +2618,7 @@ export default function TransactionDetailDrawer({
                                   </p>
                                   <span
                                     className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
-                                      item.is_fulfilled || fullyReturned
+                                      physicallyComplete || fullyReturned
                                         ? "success"
                                         : "warning",
                                     )}`}
@@ -2609,8 +2627,10 @@ export default function TransactionDetailDrawer({
                                       ? fullyCancelled
                                         ? "Cancelled"
                                         : "Returned"
-                                      : item.is_fulfilled
-                                        ? "Fulfilled"
+                                      : soldAwaitingPickup
+                                        ? "Sold · Awaiting Pickup"
+                                        : physicallyComplete
+                                          ? "Fulfilled"
                                         : "Open"}
                                   </span>
                                   <span

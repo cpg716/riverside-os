@@ -18,7 +18,7 @@
 
 **Open Orders** = active Pick Up Later, Special, Custom, and Wedding order work. **Transaction Records** = complete sale search for receipts, disputes, payments, refunds, and CRM follow-up.
 
-**Pick Up Later** is the in-stock hold flow, not a fourth procurement type. The exact variation is already in the store, reserved for the customer, and begins at **Ready for Pickup**. Complete it through the same Register pickup flow used by other Orders.
+**Pick Up Later** is the sold-customer-property hold flow, not a fourth procurement type. The exact variation is fully paid, removed from inventory, recognized as revenue, and commissioned on the sale day, then begins at **Ready for Pickup** while Riverside retains custody. Complete it through the same Register pickup flow used by other Orders; pickup records custody release only.
 
 ### The Three Procurement Order Types
 
@@ -41,7 +41,7 @@
 
 ### Ready for Pickup checks
 
-- Pick Up Later items begin **Ready for Pickup** because the exact on-hand unit was reserved at Register checkout. They do not need receiving or a ready check.
+- Pick Up Later items begin **Ready for Pickup** because the exact on-hand unit was sold at Register checkout and is being held for the customer. They do not need receiving or a ready check.
 - Use the **Needs ready check** metric or the **Lifecycle: Needs Ready Check** filter to find orders where receiving is complete but staff still need to review the garment.
 - **Received** does not mean customer-ready. Open the Transaction Record, use **Mark Ready**, and confirm the received/prep/customer checklist.
 - Marking an item **Ready for Pickup** queues the normal customer SMS/email notification workflow and staff notification. Do not manually text the customer outside the queue unless a manager directs it.

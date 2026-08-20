@@ -58,6 +58,17 @@ pub const ORDER_RECOGNITION_TS_SQL: &str = r#"(CASE
     )
 END)"#;
 
+/// Recognition instant for a transaction line when the query aliases the parent
+/// transaction as `o` and the line as `oi`. Pick Up Later transfers ownership at
+/// checkout, so its immutable line timestamp remains authoritative even when a
+/// mixed Transaction has other Order lines fulfilled on a later date.
+pub fn transaction_line_recognition_ts_sql() -> String {
+    format!(
+        "(CASE WHEN oi.fulfillment::text = 'pickup_later' THEN oi.fulfilled_at ELSE COALESCE(({order}), oi.fulfilled_at) END)",
+        order = ORDER_RECOGNITION_TS_SQL.trim()
+    )
+}
+
 /// `orders` row must be aliased `o`. Bind UTC `$1`/`$2` as half-open `[start, end)`.
 pub fn order_date_filter_sql(basis: ReportBasis) -> String {
     match basis {
@@ -90,7 +101,10 @@ pub fn parse_report_basis(raw: &str) -> Result<ReportBasis, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{order_date_filter_sql, ReportBasis, ORDER_RECOGNITION_TS_SQL};
+    use super::{
+        order_date_filter_sql, transaction_line_recognition_ts_sql, ReportBasis,
+        ORDER_RECOGNITION_TS_SQL,
+    };
 
     #[test]
     fn completed_filter_evaluates_recognition_expression_once() {
@@ -98,5 +112,13 @@ mod tests {
         assert_eq!(filter.matches(ORDER_RECOGNITION_TS_SQL.trim()).count(), 1);
         assert!(filter.contains("tstzrange($1, $2, '[)') @>"));
         assert!(!filter.contains("IS NOT NULL"));
+    }
+
+    #[test]
+    fn pickup_later_line_recognition_uses_the_sale_timestamp() {
+        let sql = transaction_line_recognition_ts_sql();
+        assert!(sql.contains("oi.fulfillment::text = 'pickup_later'"));
+        assert!(sql.contains("THEN oi.fulfilled_at"));
+        assert_eq!(sql.matches(ORDER_RECOGNITION_TS_SQL.trim()).count(), 1);
     }
 }

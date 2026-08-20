@@ -694,7 +694,7 @@ pub async fn query_paged_transactions(
     }
 
     let open_orders_predicate =
-        "EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order') AND tl.is_fulfilled = false)";
+        "EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order') AND (tl.is_fulfilled = false OR (tl.fulfillment::text = 'pickup_later' AND tl.order_lifecycle_status <> 'picked_up')) AND GREATEST(tl.quantity - COALESCE((SELECT SUM(returned.quantity_returned)::int FROM transaction_return_lines returned WHERE returned.transaction_line_id = tl.id), 0), 0) > 0)";
     let open_work_predicate = if is_layaway_filter {
         "EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment::text = 'layaway' AND tl.is_fulfilled = false)"
     } else {
@@ -1158,7 +1158,13 @@ pub async fn query_pipeline_stats(
                         SELECT 1
                         FROM transaction_lines tl
                         WHERE tl.transaction_id = o.id
-                          AND tl.is_fulfilled = false
+                          AND (
+                              tl.is_fulfilled = false
+                              OR (
+                                  tl.fulfillment::text = 'pickup_later'
+                                  AND tl.order_lifecycle_status <> 'picked_up'
+                              )
+                          )
                     )
                   )
                   AND (
@@ -1185,7 +1191,10 @@ pub async fn query_pipeline_stats(
                 FROM transaction_lines tl
                 INNER JOIN transactions t ON t.id = tl.transaction_id
                 WHERE t.status <> 'cancelled'
-                  AND tl.is_fulfilled = false
+                  AND (
+                      tl.is_fulfilled = false
+                      OR tl.fulfillment::text = 'pickup_later'
+                  )
                   AND tl.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order')
                   AND tl.order_lifecycle_status = 'ready_for_pickup'
             ) AS ready_for_pickup,
@@ -1232,15 +1241,30 @@ pub async fn query_fulfillment_queue(
             SELECT
                 tl.transaction_id,
                 COUNT(*) FILTER (
-                    WHERE tl.is_fulfilled = FALSE
+                    WHERE (
+                        tl.is_fulfilled = FALSE
+                        OR (
+                            tl.fulfillment::text = 'pickup_later'
+                            AND tl.order_lifecycle_status <> 'picked_up'
+                        )
+                    )
                       AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
                 )::bigint AS item_count,
                 COUNT(*) FILTER (
-                    WHERE tl.is_fulfilled = TRUE
+                    WHERE (
+                        tl.order_lifecycle_status = 'picked_up'
+                        OR (
+                            tl.is_fulfilled = TRUE
+                            AND tl.fulfillment::text <> 'pickup_later'
+                        )
+                    )
                       AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
                 )::bigint AS fulfilled_item_count,
                 COUNT(*) FILTER (
-                    WHERE tl.is_fulfilled = FALSE
+                    WHERE (
+                        tl.is_fulfilled = FALSE
+                        OR tl.fulfillment::text = 'pickup_later'
+                    )
                       AND tl.order_lifecycle_status = 'ready_for_pickup'
                       AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
                 )::bigint AS ready_item_count,
@@ -1250,11 +1274,23 @@ pub async fn query_fulfillment_queue(
                       AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
                 )::bigint AS received_item_count,
                 COALESCE(BOOL_OR(tl.is_rush) FILTER (
-                    WHERE tl.is_fulfilled = FALSE
+                    WHERE (
+                        tl.is_fulfilled = FALSE
+                        OR (
+                            tl.fulfillment::text = 'pickup_later'
+                            AND tl.order_lifecycle_status <> 'picked_up'
+                        )
+                    )
                       AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
                 ), FALSE) AS is_rush,
                 MIN(tl.need_by_date) FILTER (
-                    WHERE tl.is_fulfilled = FALSE
+                    WHERE (
+                        tl.is_fulfilled = FALSE
+                        OR (
+                            tl.fulfillment::text = 'pickup_later'
+                            AND tl.order_lifecycle_status <> 'picked_up'
+                        )
+                    )
                       AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
                 ) AS next_deadline,
                 COALESCE(SUM(
@@ -1265,12 +1301,18 @@ pub async fn query_fulfillment_queue(
                 ) FILTER (WHERE tl.is_fulfilled = TRUE), 0)::numeric(14,2)
                     AS already_released_value,
                 MIN(
-                    GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0)
-                    * (COALESCE(tl.unit_price, 0)
-                       + COALESCE(tl.state_tax, 0)
-                       + COALESCE(tl.local_tax, 0))
+                    CASE
+                        WHEN tl.fulfillment::text = 'pickup_later' THEN 0::numeric
+                        ELSE GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0)
+                            * (COALESCE(tl.unit_price, 0)
+                               + COALESCE(tl.state_tax, 0)
+                               + COALESCE(tl.local_tax, 0))
+                    END
                 ) FILTER (
-                    WHERE tl.is_fulfilled = FALSE
+                    WHERE (
+                        tl.is_fulfilled = FALSE
+                        OR tl.fulfillment::text = 'pickup_later'
+                    )
                       AND tl.order_lifecycle_status = 'ready_for_pickup'
                       AND GREATEST(tl.quantity - COALESCE(rq.returned_quantity, 0), 0) > 0
                 )::numeric(14,2) AS minimum_ready_item_value
@@ -1309,7 +1351,7 @@ pub async fn query_fulfillment_queue(
         LEFT JOIN customers c ON c.id = t.customer_id
         LEFT JOIN wedding_members wm ON wm.id = t.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = COALESCE(wm.wedding_party_id, t.wedding_id)
-        WHERE t.status::text NOT IN ('cancelled', 'fulfilled')
+        WHERE t.status::text <> 'cancelled'
           AND (stats.ready_item_count > 0 OR stats.received_item_count > 0)
         ORDER BY stats.is_rush DESC, stats.next_deadline ASC NULLS LAST, t.booked_at ASC
         "#

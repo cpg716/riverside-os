@@ -265,7 +265,8 @@ pub struct TransactionDetailItem {
     pub order_lifecycle_status: DbOrderItemLifecycleStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alteration_status: Option<String>,
-    /// Takeaway lines fulfilled at checkout; special transactions fulfill at pickup.
+    /// Take Now and Pick Up Later lines fulfill financially at checkout; deferred
+    /// Order lines fulfill at pickup or shipment.
     pub is_fulfilled: bool,
     pub is_internal: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3728,6 +3729,8 @@ struct PickupGuardLine {
     transaction_line_id: Uuid,
     sku: String,
     product_name: String,
+    fulfillment: DbFulfillmentType,
+    is_fulfilled: bool,
     order_lifecycle_status: DbOrderItemLifecycleStatus,
     variant_id: Uuid,
     quantity: i32,
@@ -3782,6 +3785,18 @@ fn validate_release_transaction_status(
         _ => Err(TransactionError::InvalidPayload(format!(
             "{action} blocked: only open Transaction Records can be released."
         ))),
+    }
+}
+
+fn validate_pickup_transaction_status(status: DbOrderStatus) -> Result<(), TransactionError> {
+    match status {
+        DbOrderStatus::Open | DbOrderStatus::Fulfilled => Ok(()),
+        DbOrderStatus::Cancelled => Err(TransactionError::InvalidPayload(
+            "Pickup blocked: cancelled Transaction Records cannot be released.".to_string(),
+        )),
+        _ => Err(TransactionError::InvalidPayload(
+            "Pickup blocked: this Transaction Record is not ready for release.".to_string(),
+        )),
     }
 }
 
@@ -6174,11 +6189,17 @@ async fn mark_transaction_pickup(
             .await?;
     let locked_status = locked_status.ok_or(TransactionError::NotFound)?;
     if locked_status != DbOrderStatus::Cancelled && !body.delivered_item_ids.is_empty() {
-        let (matched_line_count, fulfilled_line_count): (i64, i64) = sqlx::query_as(
+        let (matched_line_count, completed_line_count): (i64, i64) = sqlx::query_as(
             r#"
             SELECT
                 COUNT(*)::bigint,
-                COUNT(*) FILTER (WHERE is_fulfilled)::bigint
+                COUNT(*) FILTER (
+                    WHERE is_fulfilled
+                      AND NOT (
+                          fulfillment::text = 'pickup_later'
+                          AND order_lifecycle_status <> 'picked_up'
+                      )
+                )::bigint
             FROM transaction_lines
             WHERE transaction_id = $1
               AND id = ANY($2)
@@ -6191,7 +6212,7 @@ async fn mark_transaction_pickup(
         .await?;
         let requested_line_count = body.delivered_item_ids.len() as i64;
         if matched_line_count == requested_line_count
-            && fulfilled_line_count == requested_line_count
+            && completed_line_count == requested_line_count
         {
             return Ok(Json(json!({
                 "success": true,
@@ -6201,7 +6222,7 @@ async fn mark_transaction_pickup(
             })));
         }
     }
-    validate_release_transaction_status(locked_status, "Pickup")?;
+    validate_pickup_transaction_status(locked_status)?;
 
     if let Some(checkout_transaction_id) = body.checkout_transaction_id {
         let valid_checkout_link: bool = sqlx::query_scalar(
@@ -6254,6 +6275,8 @@ async fn mark_transaction_pickup(
                     pv.sku,
                     'Unknown item'
                 ) AS product_name,
+                oi.fulfillment,
+                oi.is_fulfilled,
                 oi.order_lifecycle_status,
                 oi.variant_id,
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::int AS quantity,
@@ -6267,7 +6290,13 @@ async fn mark_transaction_pickup(
                 GROUP BY transaction_line_id
             ) orl ON orl.transaction_line_id = oi.id
             WHERE oi.transaction_id = $1
-              AND oi.is_fulfilled = FALSE
+              AND (
+                  oi.is_fulfilled = FALSE
+                  OR (
+                      oi.fulfillment::text = 'pickup_later'
+                      AND oi.order_lifecycle_status <> 'picked_up'
+                  )
+              )
               AND COALESCE(oi.is_internal, false) = FALSE
               AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
             ORDER BY p.name, pv.sku, oi.id
@@ -6301,6 +6330,8 @@ async fn mark_transaction_pickup(
                     pv.sku,
                     'Unknown item'
                 ) AS product_name,
+                oi.fulfillment,
+                oi.is_fulfilled,
                 oi.order_lifecycle_status,
                 oi.variant_id,
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::int AS quantity,
@@ -6315,7 +6346,13 @@ async fn mark_transaction_pickup(
             ) orl ON orl.transaction_line_id = oi.id
             WHERE oi.transaction_id = $1
               AND oi.id = ANY($2)
-              AND oi.is_fulfilled = FALSE
+              AND (
+                  oi.is_fulfilled = FALSE
+                  OR (
+                      oi.fulfillment::text = 'pickup_later'
+                      AND oi.order_lifecycle_status <> 'picked_up'
+                  )
+              )
               AND COALESCE(oi.is_internal, false) = FALSE
               AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
             ORDER BY p.name, pv.sku, oi.id
@@ -6332,6 +6369,10 @@ async fn mark_transaction_pickup(
         .iter()
         .map(|line| line.transaction_line_id)
         .collect::<Vec<_>>();
+    let expected_financial_claim_count = pickup_guard_lines
+        .iter()
+        .filter(|line| !line.is_fulfilled)
+        .count();
     if !requested_line_ids_match_validated(&body.delivered_item_ids, &validated_pickup_line_ids) {
         return Err(TransactionError::InvalidPayload(
             "Every requested pickup line must be an open, non-internal line with quantity remaining. Refresh Customer Orders and select the lines again."
@@ -6489,7 +6530,9 @@ async fn mark_transaction_pickup(
 
     let insufficient_stock_lines = pickup_guard_lines
         .iter()
-        .filter(|line| line.stock_on_hand < line.quantity)
+        .filter(|line| {
+            line.fulfillment != DbFulfillmentType::PickupLater && line.stock_on_hand < line.quantity
+        })
         .collect::<Vec<_>>();
     let inventory_shortage_details = insufficient_stock_lines
         .iter()
@@ -6557,13 +6600,12 @@ async fn mark_transaction_pickup(
     .bind(&validated_pickup_line_ids)
     .fetch_all(&mut *tx)
     .await?;
-    if claimed_fulfillment_line_ids.len() != validated_pickup_line_ids.len() {
+    if claimed_fulfillment_line_ids.len() != expected_financial_claim_count {
         return Err(TransactionError::InvalidPayload(
             "Pickup lines changed before release. Refresh Customer Orders and try again."
                 .to_string(),
         ));
     }
-
     let remaining_unfulfilled: i64 = sqlx::query_scalar(
         r#"
         SELECT COUNT(*)::bigint
@@ -6595,20 +6637,23 @@ async fn mark_transaction_pickup(
             &claimed_fulfillment_line_ids,
         )
         .await?;
-        order_lifecycle::apply_transition_tx(
-            &mut tx,
-            &claimed_fulfillment_line_ids,
-            DbOrderItemLifecycleStatus::PickedUp,
-            actor_staff_id,
-            "pickup",
-            Some("Fulfilled through pickup workflow"),
-            json!({
-                "transaction_id": transaction_id,
-                "register_session_id": register_session_id,
-            }),
-        )
-        .await?;
     }
+
+    order_lifecycle::apply_transition_tx(
+        &mut tx,
+        &validated_pickup_line_ids,
+        DbOrderItemLifecycleStatus::PickedUp,
+        actor_staff_id,
+        "pickup",
+        Some("Released to customer through pickup workflow"),
+        json!({
+            "transaction_id": transaction_id,
+            "register_session_id": register_session_id,
+            "financially_fulfilled_at_checkout": validated_pickup_line_ids.len()
+                - claimed_fulfillment_line_ids.len(),
+        }),
+    )
+    .await?;
 
     // For Special/Custom transactions: the item physically arrives from the vendor and goes
     // into reserved_stock. At pickup, the item leaves the store, so we decrement both
@@ -6622,12 +6667,12 @@ async fn mark_transaction_pickup(
                 SELECT
                     oi.variant_id,
                     SUM(oi.quantity)::int AS qty,
-                    SUM(CASE WHEN oi.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order') THEN oi.quantity ELSE 0 END)::int AS qty_reserved,
+                    SUM(CASE WHEN oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order') THEN oi.quantity ELSE 0 END)::int AS qty_reserved,
                     SUM(CASE WHEN oi.fulfillment::text = 'layaway' THEN oi.quantity ELSE 0 END)::int AS qty_layaway
                 FROM transaction_lines oi
                 WHERE oi.transaction_id = $1
                   AND oi.id = ANY($2)
-                  AND oi.fulfillment::text IN ('pickup_later', 'special_order', 'custom', 'wedding_order', 'layaway')
+                  AND oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order', 'layaway')
                 GROUP BY oi.variant_id
             ),
             locked AS (
@@ -6724,7 +6769,7 @@ async fn mark_transaction_pickup(
         "pickup",
         &format!("Pickup completed in Register by {who}"),
         json!({
-            "delivered_item_count": claimed_fulfillment_line_ids.len(),
+            "delivered_item_count": validated_pickup_line_ids.len(),
             "requested_delivered_item_count": body.delivered_item_ids.len(),
             "register_cart_completion": body.register_cart_completion,
             "readiness_override": body.override_readiness,
@@ -6735,7 +6780,7 @@ async fn mark_transaction_pickup(
             "inventory_shortage_warning": has_inventory_shortage,
             "inventory_shortage_lines": inventory_shortage_details,
             "checkout_transaction_id": body.checkout_transaction_id,
-            "delivered_item_ids": claimed_fulfillment_line_ids,
+            "delivered_item_ids": validated_pickup_line_ids,
         }),
     )
     .await?;
@@ -7809,7 +7854,12 @@ async fn post_transaction_void(
     let candidates = load_void_return_candidates(&mut tx, transaction_id).await?;
     let restock_units: i32 = candidates
         .iter()
-        .filter(|line| line.fulfillment == DbFulfillmentType::Takeaway && line.is_fulfilled)
+        .filter(|line| {
+            matches!(
+                line.fulfillment,
+                DbFulfillmentType::Takeaway | DbFulfillmentType::PickupLater
+            ) && line.is_fulfilled
+        })
         .map(|line| line.quantity_remaining)
         .sum();
 
@@ -7821,7 +7871,12 @@ async fn post_transaction_void(
                 transaction_line_id: line.transaction_line_id,
                 quantity: line.quantity_remaining,
                 reason: Some("void".to_string()),
-                restock: Some(line.fulfillment == DbFulfillmentType::Takeaway && line.is_fulfilled),
+                restock: Some(
+                    matches!(
+                        line.fulfillment,
+                        DbFulfillmentType::Takeaway | DbFulfillmentType::PickupLater
+                    ) && line.is_fulfilled,
+                ),
                 refund_event_id,
                 register_session_id: Some(body.register_session_id),
                 refund_subtotal: None,

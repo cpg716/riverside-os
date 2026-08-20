@@ -109,6 +109,30 @@ function movementEvidenceCount(
   return Number(output);
 }
 
+function pickupLaterCommissionEventCount(transactionId: string): number {
+  const dbName = process.env.E2E_DB_NAME ?? "riverside_os_e2e";
+  const sql = `
+    SELECT COUNT(*)::int
+    FROM commission_events ce
+    INNER JOIN transaction_lines tl ON tl.id = ce.transaction_line_id
+    INNER JOIN transactions t ON t.id = tl.transaction_id
+    WHERE ce.transaction_id = ${sqlUuid(transactionId)}
+      AND tl.fulfillment::text = 'pickup_later'
+      AND tl.is_fulfilled = TRUE
+      AND tl.fulfilled_at = t.booked_at
+      AND ce.event_type = 'sale_commission'
+  `;
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  const output = databaseUrl
+    ? execFileSync("psql", [databaseUrl, "-At", "-c", sql], { encoding: "utf8" }).trim()
+    : execFileSync(
+        "docker",
+        ["exec", "riverside-os-db", "psql", "-U", "postgres", "-d", dbName, "-At", "-c", sql],
+        { encoding: "utf8" },
+      ).trim();
+  return Number(output);
+}
+
 async function expectMovementEvidence(
   _request: APIRequestContext,
   product: InventoryProduct,
@@ -547,7 +571,7 @@ test.describe("inventory audit contract", () => {
     expect(lineAfterPickup?.is_fulfilled).toBe(true);
   });
 
-  test("pickup later reserves an on-hand item and completes through Orders pickup", async ({
+  test("pickup later sells stock at checkout and later releases custody through Orders", async ({
     request,
   }) => {
     test.setTimeout(90_000);
@@ -572,9 +596,14 @@ test.describe("inventory audit contract", () => {
     });
 
     const afterCheckout = await getInventoryIntelligence(request, product.variantId);
-    expect(afterCheckout.stock_on_hand).toBe(before.stock_on_hand);
-    expect(afterCheckout.reserved_stock).toBe(before.reserved_stock + 1);
+    expect(afterCheckout.stock_on_hand).toBe(before.stock_on_hand - 1);
+    expect(afterCheckout.reserved_stock).toBe(before.reserved_stock);
     expect(afterCheckout.available_stock).toBe(before.available_stock - 1);
+    await expectMovementEvidence(request, product, {
+      txType: "sale",
+      quantityDelta: -1,
+      referenceId: checkout.transaction_id,
+    });
 
     const detailBeforePickup = await fetchTransactionDetail(
       request,
@@ -585,7 +614,13 @@ test.describe("inventory audit contract", () => {
     );
     expect(heldLine?.fulfillment).toBe("pickup_later");
     expect(heldLine?.order_lifecycle_status).toBe("ready_for_pickup");
-    expect(heldLine?.is_fulfilled).toBe(false);
+    expect(heldLine?.is_fulfilled).toBe(true);
+    await expect
+      .poll(() => pickupLaterCommissionEventCount(checkout.transaction_id), {
+        message: "Pick Up Later commission should be earned at checkout",
+        timeout: 10_000,
+      })
+      .toBe(1);
 
     const ordersRes = await request.get(
       `${apiBase()}/api/transactions?record_scope=orders&status_scope=open&customer_id=${encodeURIComponent(customerId)}`,
@@ -629,6 +664,7 @@ test.describe("inventory audit contract", () => {
       txType: "sale",
       quantityDelta: -1,
       referenceId: checkout.transaction_id,
+      count: 1,
     });
 
     const detailAfterPickup = await fetchTransactionDetail(
@@ -640,6 +676,7 @@ test.describe("inventory audit contract", () => {
     );
     expect(pickedUpLine?.is_fulfilled).toBe(true);
     expect(pickedUpLine?.order_lifecycle_status).toBe("picked_up");
+    expect(pickupLaterCommissionEventCount(checkout.transaction_id)).toBe(1);
   });
 
   test("simultaneous pickup decrements stock and reserved quantity exactly once", async ({

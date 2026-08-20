@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::logic::custom_orders::normalize_custom_item_type_key;
-use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
+use crate::logic::report_basis::{transaction_line_recognition_ts_sql, ORDER_RECOGNITION_TS_SQL};
 
 fn is_rms_financing_tender(payment_method: &str, tender_family: Option<&str>) -> bool {
     payment_method.eq_ignore_ascii_case("on_account_rms")
@@ -324,7 +324,7 @@ pub async fn propose_daily_journal(
     activity_date: NaiveDate,
 ) -> Result<JournalProposal, sqlx::Error> {
     let order_recognition_ts = ORDER_RECOGNITION_TS_SQL.trim();
-    let line_recognition_ts = format!("(COALESCE(({order_recognition_ts}), oi.fulfilled_at))");
+    let line_recognition_ts = transaction_line_recognition_ts_sql();
     let business_timezone: String =
         sqlx::query_scalar("SELECT reporting.effective_store_timezone()")
             .fetch_one(pool)

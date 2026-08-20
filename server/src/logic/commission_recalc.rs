@@ -6,7 +6,7 @@ use sqlx::postgres::PgConnection;
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
+use crate::logic::report_basis::transaction_line_recognition_ts_sql;
 use crate::logic::sales_commission;
 use crate::logic::sales_commission::CommissionLineInput;
 
@@ -30,7 +30,7 @@ pub async fn recalc_staff_commissions_from(
     staff_id: Uuid,
     effective_start_date: NaiveDate,
 ) -> Result<u64, sqlx::Error> {
-    let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    let line_rec = transaction_line_recognition_ts_sql();
     // SAFETY: `rec` is a crate-local `pub const` — never user input. This format! embeds a
     // complex CASE expression that must be repeated four times inside the query.
     let sql = format!(
@@ -44,7 +44,7 @@ pub async fn recalc_staff_commissions_from(
             oi.variant_id,
             COALESCE(o.is_employee_purchase, FALSE) AS is_employee_purchase,
             CASE
-                WHEN oi.is_fulfilled AND ({rec}) IS NOT NULL THEN ({rec})
+                WHEN oi.is_fulfilled AND ({line_rec}) IS NOT NULL THEN ({line_rec})
                 ELSE o.booked_at
             END AS calc_at,
             oi.calculated_commission,
@@ -62,8 +62,8 @@ pub async fn recalc_staff_commissions_from(
           AND (
                 (
                     oi.is_fulfilled = TRUE
-                    AND ({rec}) IS NOT NULL
-                    AND ({rec})::date >= $2
+                    AND ({line_rec}) IS NOT NULL
+                    AND ({line_rec})::date >= $2
                 )
                 OR (
                     oi.is_fulfilled = FALSE
@@ -117,7 +117,7 @@ pub async fn recalc_transaction_line_commission(
     transaction_line_id: Uuid,
     salesperson_id: Option<Uuid>,
 ) -> Result<Option<Decimal>, sqlx::Error> {
-    let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    let line_rec = transaction_line_recognition_ts_sql();
     // SAFETY: `rec` is a crate-local `pub const` — never user input.
     let sql = format!(
         r#"
@@ -130,7 +130,7 @@ pub async fn recalc_transaction_line_commission(
             oi.variant_id,
             COALESCE(o.is_employee_purchase, FALSE) AS is_employee_purchase,
             CASE
-                WHEN oi.is_fulfilled AND ({rec}) IS NOT NULL THEN ({rec})
+                WHEN oi.is_fulfilled AND ({line_rec}) IS NOT NULL THEN ({line_rec})
                 ELSE o.booked_at
             END AS calc_at,
             oi.calculated_commission,
@@ -277,7 +277,7 @@ pub async fn recalc_transaction_commissions_after_fulfillment(
     transaction_id: Uuid,
     delivered_item_ids: &[Uuid],
 ) -> Result<u64, sqlx::Error> {
-    let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    let line_rec = transaction_line_recognition_ts_sql();
     // SAFETY: `rec` is a crate-local `pub const` — never user input.
     let filter_sql = if delivered_item_ids.is_empty() {
         String::new()
@@ -295,7 +295,7 @@ pub async fn recalc_transaction_commissions_after_fulfillment(
             oi.variant_id,
             COALESCE(o.is_employee_purchase, FALSE) AS is_employee_purchase,
             CASE
-                WHEN oi.is_fulfilled AND ({rec}) IS NOT NULL THEN ({rec})
+                WHEN oi.is_fulfilled AND ({line_rec}) IS NOT NULL THEN ({line_rec})
                 ELSE o.booked_at
             END AS calc_at,
             oi.calculated_commission,

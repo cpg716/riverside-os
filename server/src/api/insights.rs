@@ -27,7 +27,8 @@ use crate::logic::inventory_velocity;
 use crate::logic::margin_pivot as margin_reporting;
 use crate::logic::register_day_activity;
 use crate::logic::report_basis::{
-    order_date_filter_sql, parse_report_basis, ReportBasis, ORDER_RECOGNITION_TS_SQL,
+    order_date_filter_sql, parse_report_basis, transaction_line_recognition_ts_sql, ReportBasis,
+    ORDER_RECOGNITION_TS_SQL,
 };
 use crate::middleware::{require_authenticated_staff_headers, require_staff_with_permission};
 use crate::models::DbStaffRole;
@@ -638,7 +639,7 @@ async fn commission_ledger(
         })?;
 
     let (start, end) = range_bounds(&q);
-    let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    let line_rec = transaction_line_recognition_ts_sql();
     let sql = format!(
         r#"
         WITH pipeline AS (
@@ -701,7 +702,7 @@ async fn commission_ledger(
                   SELECT h.base_commission_rate
                   FROM staff_commission_rate_history h
                   WHERE h.staff_id = oi.salesperson_id
-                    AND h.effective_start_date <= COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at)::date
+                    AND h.effective_start_date <= COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)::date
                   ORDER BY h.effective_start_date DESC, h.created_at DESC
                   LIMIT 1
                 ), st.base_commission_rate, 0), 2)
@@ -714,7 +715,7 @@ async fn commission_ledger(
                   SELECT h.base_commission_rate
                   FROM staff_commission_rate_history h
                   WHERE h.staff_id = oi.salesperson_id
-                    AND h.effective_start_date <= COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at)::date
+                    AND h.effective_start_date <= COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)::date
                   ORDER BY h.effective_start_date DESC, h.created_at DESC
                   LIMIT 1
                 ), st.base_commission_rate, 0), 2)
@@ -730,8 +731,8 @@ async fn commission_ledger(
             AND oi.salesperson_id IS NOT NULL
             AND oi.calculated_commission <> 0
             AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-            AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) >= $1
-            AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) < $2
+            AND COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) >= $1
+            AND COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) < $2
             AND NOT EXISTS (
               SELECT 1
               FROM commission_events ce
@@ -834,7 +835,7 @@ async fn commission_lines(
         })?;
 
     let (start, end) = range_bounds(&q.range);
-    let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    let line_rec = transaction_line_recognition_ts_sql();
     let sql = format!(
         r#"
         WITH event_rows AS (
@@ -873,14 +874,14 @@ async fn commission_lines(
             oi.id AS transaction_line_id,
             o.id AS transaction_id,
             COALESCE(o.short_id, 'TXN-' || left(o.id::text, 8)) AS order_short_id,
-            COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) AS booked_at,
+            COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) AS booked_at,
             COALESCE(p.name, 'Transaction line') AS product_name,
             oi.unit_price,
             oi.quantity::numeric(14, 2) AS quantity,
             (oi.unit_price * oi.quantity)::numeric(14, 2) AS line_gross,
             oi.calculated_commission::numeric(14, 2) AS calculated_commission,
             TRUE AS is_fulfilled,
-            COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) AS fulfilled_at,
+            COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) AS fulfilled_at,
             FALSE AS is_finalized
           FROM transaction_lines oi
           INNER JOIN transactions o ON o.id = oi.transaction_id
@@ -892,8 +893,8 @@ async fn commission_lines(
             AND ($1 IS NULL OR oi.salesperson_id = $1)
             AND oi.calculated_commission <> 0
             AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-            AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) >= $2
-            AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) < $3
+            AND COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) >= $2
+            AND COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) < $3
             AND NOT EXISTS (
               SELECT 1
               FROM commission_events ce

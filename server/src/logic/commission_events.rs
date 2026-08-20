@@ -5,7 +5,7 @@ use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::logic::pricing::round_money_usd;
-use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
+use crate::logic::report_basis::transaction_line_recognition_ts_sql;
 
 #[derive(Debug, Clone)]
 pub struct ManualCommissionAdjustment {
@@ -33,7 +33,7 @@ pub async fn upsert_fulfilled_transaction_events(
     transaction_id: Uuid,
     delivered_item_ids: &[Uuid],
 ) -> Result<u64, sqlx::Error> {
-    let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    let line_rec = transaction_line_recognition_ts_sql();
     let filter_sql = if delivered_item_ids.is_empty() {
         String::new()
     } else {
@@ -51,7 +51,7 @@ pub async fn upsert_fulfilled_transaction_events(
                 oi.unit_price,
                 oi.quantity,
                 oi.calculated_commission,
-                COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) AS event_at,
+                COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) AS event_at,
                 COALESCE(o.short_id, 'TXN-' || left(o.id::text, 8)) AS transaction_short_id,
                 p.name AS product_name,
                 st.full_name AS staff_name,
@@ -59,7 +59,7 @@ pub async fn upsert_fulfilled_transaction_events(
                     SELECT h.base_commission_rate
                     FROM staff_commission_rate_history h
                     WHERE h.staff_id = oi.salesperson_id
-                      AND h.effective_start_date <= COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at)::date
+                      AND h.effective_start_date <= COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)::date
                     ORDER BY h.effective_start_date DESC, h.created_at DESC
                     LIMIT 1
                 ), st.base_commission_rate, 0) AS base_rate_used
@@ -71,7 +71,7 @@ pub async fn upsert_fulfilled_transaction_events(
             WHERE oi.transaction_id = $1
               AND o.status::text <> 'cancelled'
               AND oi.is_fulfilled = TRUE
-              AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) IS NOT NULL
+              AND COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) IS NOT NULL
               AND oi.salesperson_id IS NOT NULL
               AND oi.calculated_commission <> 0
               AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
@@ -149,7 +149,7 @@ pub async fn upsert_fulfilled_transaction_events_pool(
     transaction_id: Uuid,
     delivered_item_ids: &[Uuid],
 ) -> Result<u64, sqlx::Error> {
-    let rec = ORDER_RECOGNITION_TS_SQL.trim();
+    let line_rec = transaction_line_recognition_ts_sql();
     let filter_sql = if delivered_item_ids.is_empty() {
         String::new()
     } else {
@@ -167,7 +167,7 @@ pub async fn upsert_fulfilled_transaction_events_pool(
                 oi.unit_price,
                 oi.quantity,
                 oi.calculated_commission,
-                COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) AS event_at,
+                COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) AS event_at,
                 COALESCE(o.short_id, 'TXN-' || left(o.id::text, 8)) AS transaction_short_id,
                 p.name AS product_name,
                 st.full_name AS staff_name,
@@ -175,7 +175,7 @@ pub async fn upsert_fulfilled_transaction_events_pool(
                     SELECT h.base_commission_rate
                     FROM staff_commission_rate_history h
                     WHERE h.staff_id = oi.salesperson_id
-                      AND h.effective_start_date <= COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at)::date
+                      AND h.effective_start_date <= COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)::date
                     ORDER BY h.effective_start_date DESC, h.created_at DESC
                     LIMIT 1
                 ), st.base_commission_rate, 0) AS base_rate_used
@@ -187,7 +187,7 @@ pub async fn upsert_fulfilled_transaction_events_pool(
             WHERE oi.transaction_id = $1
               AND o.status::text <> 'cancelled'
               AND oi.is_fulfilled = TRUE
-              AND COALESCE(({rec}), oi.fulfilled_at, o.fulfilled_at, o.booked_at) IS NOT NULL
+              AND COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) IS NOT NULL
               AND oi.salesperson_id IS NOT NULL
               AND oi.calculated_commission <> 0
               AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')

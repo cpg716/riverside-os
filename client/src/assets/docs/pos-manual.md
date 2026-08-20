@@ -243,7 +243,7 @@ Inventory and bookkeeping follow server rules for takeaway, order, and wedding l
 3. Complete payment using the normal Order deposit rules. Riverside leaves the item physically on hand, reserves it for that customer, and creates a Ready-for-Pickup Fulfillment Order.
 4. Find the item later under **Orders** or **Customer Orders**. Select the held line and choose **Continue with Pickup**, then finish through **Complete Pickup** or Payment and Sale Complete.
 
-Do not use **Pick Up Later** for an item that is not in stock; choose **Order** instead. To change the held item or quantity after checkout, cancel the Order item and ring the correct item again so the inventory reservation remains exact.
+Do not use **Pick Up Later** for an item that is not in stock; choose **Order** instead. Pick Up Later must be fully paid and is removed from inventory, recognized as revenue, and commissioned on the sale day. The later pickup records only that Riverside released the sold item to the customer. Reverse or change a completed Pick Up Later sale through Void or Return / Exchange so inventory and commission adjustments remain exact.
 
 ![Payment ledger during checkout](../images/help/pos/nexo-checkout-drawer.png)
 

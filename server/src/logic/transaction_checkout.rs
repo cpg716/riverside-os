@@ -1112,10 +1112,13 @@ fn apply_manual_rms_tracking_metadata(metadata: &mut Value) {
     *metadata = Value::Object(object);
 }
 
-fn takeaway_line_total_decimal(items: &[CheckoutItem]) -> Decimal {
+fn immediate_sale_line_total_decimal(items: &[CheckoutItem]) -> Decimal {
     let mut s = Decimal::ZERO;
     for i in items {
-        if i.fulfillment != DbFulfillmentType::Takeaway {
+        if !matches!(
+            i.fulfillment,
+            DbFulfillmentType::Takeaway | DbFulfillmentType::PickupLater
+        ) {
             continue;
         }
         s += (i.unit_price + i.state_tax + i.local_tax) * Decimal::from(i.quantity);
@@ -1669,9 +1672,6 @@ fn initial_order_lifecycle_status(
     requested: Option<DbOrderItemLifecycleStatus>,
 ) -> Result<DbOrderItemLifecycleStatus, CheckoutError> {
     let default = order_lifecycle::initial_status_for_line(fulfillment, line_fulfilled);
-    if line_fulfilled || fulfillment == DbFulfillmentType::Takeaway {
-        return Ok(default);
-    }
     if fulfillment == DbFulfillmentType::PickupLater {
         return match requested {
             None | Some(DbOrderItemLifecycleStatus::ReadyForPickup) => Ok(default),
@@ -1680,6 +1680,9 @@ fn initial_order_lifecycle_status(
                 other.as_str()
             ))),
         };
+    }
+    if line_fulfilled || fulfillment == DbFulfillmentType::Takeaway {
+        return Ok(default);
     }
     match requested {
         Some(DbOrderItemLifecycleStatus::NeedsMeasurements) => {
@@ -4456,7 +4459,7 @@ async fn execute_checkout_internal(
         ));
     }
 
-    let takeaway_total = takeaway_line_total_decimal(&payload.items);
+    let immediate_sale_total = immediate_sale_line_total_decimal(&payload.items);
     validate_open_deposit_scope(
         &payment_splits,
         payload.total_price,
@@ -4464,16 +4467,16 @@ async fn execute_checkout_internal(
         order_payment_total,
     )?;
     let tender_ex_deposit = tender_sum_excluding_deposit_ledger(&payment_splits);
-    if takeaway_total > Decimal::ZERO && tender_ex_deposit + tol < takeaway_total {
+    if immediate_sale_total > Decimal::ZERO && tender_ex_deposit + tol < immediate_sale_total {
         return Err(CheckoutError::InvalidPayload(
-            "Takeaway merchandise and tax must be paid in full with tender or the selected customer's held wedding deposit (a new deposit ledger cannot satisfy takeaway-only amounts)."
+            "Take Now and Pick Up Later merchandise and tax must be paid in full with tender or the selected customer's held wedding deposit (a new deposit ledger cannot satisfy sold merchandise amounts)."
                 .to_string(),
         ));
     }
 
-    if takeaway_total > Decimal::ZERO && amount_toward_order + tol < takeaway_total {
+    if immediate_sale_total > Decimal::ZERO && amount_toward_order + tol < immediate_sale_total {
         return Err(CheckoutError::InvalidPayload(
-            "Takeaway merchandise and tax must be fully covered before leaving a balance on special-order lines."
+            "Take Now and Pick Up Later merchandise and tax must be fully covered before leaving a balance on order lines."
                 .to_string(),
         ));
     }
@@ -4493,8 +4496,7 @@ async fn execute_checkout_internal(
     let has_deferred_current_lines = payload.items.iter().any(|i| {
         matches!(
             i.fulfillment,
-            DbFulfillmentType::PickupLater
-                | DbFulfillmentType::SpecialOrder
+            DbFulfillmentType::SpecialOrder
                 | DbFulfillmentType::Custom
                 | DbFulfillmentType::WeddingOrder
                 | DbFulfillmentType::Layaway
@@ -4569,12 +4571,14 @@ async fn execute_checkout_internal(
                 .to_string(),
         ));
     }
-    let all_takeaway = payload
-        .items
-        .iter()
-        .all(|i| i.fulfillment == DbFulfillmentType::Takeaway);
+    let all_immediate_sale = payload.items.iter().all(|i| {
+        matches!(
+            i.fulfillment,
+            DbFulfillmentType::Takeaway | DbFulfillmentType::PickupLater
+        )
+    });
     let current_transaction_deposit_allocation = if !refund_checkout && has_deferred_current_lines {
-        (amount_toward_order - takeaway_total)
+        (amount_toward_order - immediate_sale_total)
             .round_dp(2)
             .max(Decimal::ZERO)
     } else {
@@ -4583,7 +4587,7 @@ async fn execute_checkout_internal(
 
     let ship_order = shipping_quote_id.is_some() && !shipping_fee_only;
 
-    let order_status = if is_fully_paid && all_takeaway && !ship_order {
+    let order_status = if is_fully_paid && all_immediate_sale && !ship_order {
         DbOrderStatus::Fulfilled
     } else {
         DbOrderStatus::Open
@@ -5000,7 +5004,7 @@ async fn execute_checkout_internal(
             SET status = $1::order_status,
                 amount_paid = $2,
                 balance_due = $3,
-                fulfilled_at = CASE WHEN $1::order_status = 'fulfilled'::order_status THEN CURRENT_TIMESTAMP ELSE NULL END,
+                fulfilled_at = CASE WHEN $1::order_status = 'fulfilled'::order_status THEN booked_at ELSE NULL END,
                 checkout_request_fingerprint = $5,
                 checkout_payment_fingerprint = $6
             WHERE id = $4
@@ -5046,7 +5050,14 @@ async fn execute_checkout_internal(
                 $15, $16, $17, $18, $19, $20,
                 $21, $22, $23,
                 $24::order_status,
-                CASE WHEN $24::order_status = 'fulfilled'::order_status THEN CURRENT_TIMESTAMP ELSE NULL END,
+                CASE
+                    WHEN $24::order_status = 'fulfilled'::order_status
+                    THEN COALESCE(
+                        ($8::timestamp AT TIME ZONE reporting.effective_store_timezone()),
+                        CURRENT_TIMESTAMP
+                    )
+                    ELSE NULL
+                END,
                 $25, $26, $27
             )
             RETURNING id, display_id
@@ -5326,11 +5337,19 @@ async fn execute_checkout_internal(
 
         let mut fulfillment_line_counter = 0;
         let mut transaction_line_by_client_id: HashMap<String, Uuid> = HashMap::new();
+        let checkout_recognition_at: DateTime<Utc> =
+            sqlx::query_scalar("SELECT booked_at FROM transactions WHERE id = $1")
+                .bind(transaction_id)
+                .fetch_one(&mut *tx)
+                .await?;
 
         for (idx, item) in payload.items.iter().enumerate() {
             let fulfillment = persist_fulfillment(payload.wedding_member_id, item.fulfillment)
                 .map_err(|m| CheckoutError::InvalidPayload(m.to_string()))?;
-            let line_fulfilled = fulfillment == DbFulfillmentType::Takeaway;
+            let line_fulfilled = matches!(
+                fulfillment,
+                DbFulfillmentType::Takeaway | DbFulfillmentType::PickupLater
+            );
 
             let (target_fulfillment_id, line_display_id, fulfilled_at) =
                 if creates_fulfillment_order(fulfillment) {
@@ -5352,12 +5371,13 @@ async fn execute_checkout_internal(
                     (
                         Some(target_id),
                         Some(format!("{parent_id}-{fulfillment_line_counter}")),
-                        None,
+                        (fulfillment == DbFulfillmentType::PickupLater)
+                            .then_some(checkout_recognition_at),
                     )
                 } else if !line_fulfilled {
                     (None, None, None)
                 } else {
-                    (None, None, Some(Utc::now()))
+                    (None, None, Some(checkout_recognition_at))
                 };
 
             let override_reason = item
@@ -5724,8 +5744,8 @@ async fn execute_checkout_internal(
                 })?;
             }
 
-            // Takeaway leaves the store now. Pick Up Later stays physically on hand but
-            // becomes unavailable to another sale until pickup or cancellation.
+            // Take Now and Pick Up Later are sold inventory at checkout. Pick Up Later
+            // remains physically in Riverside custody, tracked by its Order lifecycle.
             // Special / wedding lines remain pending vendor fulfillment.
             let skip_stock = matches!(
                 pos_kind.as_deref(),
@@ -6007,7 +6027,7 @@ async fn execute_checkout_internal(
             let reserved_sku: Option<String> = sqlx::query_scalar(
                 r#"
                 UPDATE product_variants
-                SET reserved_stock = reserved_stock + $1
+                SET stock_on_hand = stock_on_hand - $1
                 WHERE id = $2
                   AND stock_on_hand - reserved_stock - on_layaway - $3 >= $1
                 RETURNING sku
@@ -6041,14 +6061,30 @@ async fn execute_checkout_internal(
                     "Pick Up Later requires available on-hand stock for {sku} (need {qty}, have {available}). Use Order instead when the item is not available to hold."
                 )));
             }
+            sqlx::query(
+                r#"
+                INSERT INTO inventory_transactions (
+                    variant_id, tx_type, quantity_delta, reference_table, reference_id, notes
+                )
+                VALUES ($1, 'sale', $2, 'transactions', $3, $4)
+                "#,
+            )
+            .bind(variant_id)
+            .bind(-qty)
+            .bind(transaction_id)
+            .bind(format!(
+                "Pick Up Later checkout stock decrement for transaction {transaction_id}"
+            ))
+            .execute(&mut *tx)
+            .await?;
         }
 
         for (variant_id, qty) in takeaway_stock_by_variant {
             if qty <= 0 {
                 continue;
             }
-            // Allow stock_on_hand to go negative: shortage must not block retail checkout.
-            // (Pick Up Later / special / wedding lines never reach this map.)
+            // Allow stock_on_hand to go negative: shortage must not block Take Now checkout.
+            // Pick Up Later is validated and decremented separately above.
             let after_row: Option<(i32, String)> = sqlx::query_as(
                 r#"
             UPDATE product_variants

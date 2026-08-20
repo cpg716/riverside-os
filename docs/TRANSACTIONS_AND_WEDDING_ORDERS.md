@@ -76,10 +76,11 @@ Special and Custom stay separate operational contracts. Custom is not just anoth
 **Pick Up Later** is an additional fulfillment path, not a procurement type. It is used when the exact variation is physically in stock, sold on the current Transaction, but retained by Riverside for customer pickup.
 
 - Checkout requires a linked Customer and authoritative available stock.
+- The Pick Up Later merchandise and tax must be fully paid at checkout; it cannot remain as a deposit-funded open balance.
 - The line creates a Fulfillment Order and starts **Ready for Pickup**; it never enters NTBO, vendor ordering, or receiving.
-- Checkout keeps `stock_on_hand` unchanged, increments `reserved_stock`, and therefore reduces available stock immediately.
-- Pickup uses the normal Register completion path, decrements both `stock_on_hand` and `reserved_stock`, records recognition/commission/audit evidence, and moves the line to **Picked Up**.
-- Cancellation keeps the physical item on hand and releases the exact reservation. Item or quantity changes require cancellation and a new Register sale so the hold cannot drift.
+- Checkout transfers ownership: it decrements `stock_on_hand`, marks the line financially fulfilled on the sale date, recognizes revenue, and earns commission. The physical item remains in Riverside custody but is no longer store inventory.
+- Pickup uses the normal Register completion path only to record custody release and move the line to **Picked Up**. It must not decrement inventory, recognize revenue, or earn commission again.
+- Because the item is already sold, reversing it uses the normal Void or Return / Exchange workflow. An accepted reversal restores the held unit to inventory and records the matching financial and commission adjustment.
 
 ## Operational Workflow
 
@@ -98,13 +99,13 @@ Every Pick Up Later, Special, Custom, and Wedding item is tracked at the `transa
 5. **Ready for Pickup** — verified ready for customer release.
 6. **Picked Up** — fulfilled through the existing pickup path.
 
-Pick Up Later lines enter directly at **Ready for Pickup** because the exact item is already in store and reserved. They do not pass through Needs Measurements, NTBO, Ordered, or Received.
+Pick Up Later lines enter directly at **Ready for Pickup** because the exact item is already in store, fully sold, and held in Riverside custody. They do not pass through Needs Measurements, NTBO, Ordered, or Received.
 
 The lifecycle belongs to each ordered item, not only to the Transaction Record or Fulfillment Order. A single Transaction Record may therefore contain a takeaway accessory plus a jacket that is **Received**, pants that are still **Ordered**, and a wedding line that is **Ready for Pickup**. Orders list rows, order detail, lifecycle queues, wedding readiness, Operations Center counts, and printable Open Orders reports should read Pick Up Later, Special, Custom, and Wedding order lines instead of treating every non-takeaway line as an Order.
 
 Lifecycle changes write audit events in `transaction_line_lifecycle_events`. Manual lifecycle repair paths require `orders.lifecycle_manage`; risky transitions must continue through receiving and pickup workflows so inventory, revenue, commission, and reporting contracts stay intact.
 
-Customer History must keep the Transaction Record booked date, each payment date, and the pickup or shipment date as separate events. For Pick Up Later, Special, Custom, Wedding, and shipped order lines, the return/exchange timing starts on pickup or shipment, not on the original booked date.
+Customer History must keep the Transaction Record booked date, each payment date, and the pickup or shipment date as separate events. Pick Up Later ownership and return/exchange timing start on its sale date; Special, Custom, Wedding, and shipped order timing starts on pickup or shipment.
 
 ### Mid-Season Wedding Cutover
 
@@ -122,7 +123,7 @@ When a customer attached to the Register belongs to a current or unresolved wedd
 - After acceptance, linked sellable wedding items appear in the **Wedding Checklist** and can be added as **Take now**, **Pick Up Later**, **Order**, or **Measure**.
 - Parent products always require staff to resolve the exact member variation. Search/scan additions default to `wedding_order` while the member context is active, but staff can add exceptions and alterations.
 - **Take now** keeps the line as normal takeaway when stock is available.
-- **Pick Up Later** reserves the exact in-stock variation for later release.
+- **Pick Up Later** sells the exact in-stock variation now and tracks its later custody release.
 - **Order** creates a `wedding_order` fulfillment line.
 - **Measure** creates a `wedding_order` line with `needs_measurements`.
 - Non-inventory wedding checklist entries are shown as checklist-only notes until a manager links the exact ROS product variation.
@@ -160,7 +161,7 @@ Revenue recognition is strictly tied to the `fulfilled_at` timestamp on individu
 
 API request and response status values use lowercase snake_case (`open`, `pending_measurement`, `processing`, `fulfilled`, `cancelled`). During mixed-version upgrades the server also accepts the former PascalCase request values, but it always emits the canonical lowercase form. UI eligibility and action guards must use the shared status normalizer instead of comparing raw response casing.
 
-`fulfilled` status must be produced by the checkout, pickup / release, or shipment recognition workflow that also updates `transaction_lines.is_fulfilled`, `transaction_lines.fulfilled_at`, loyalty accrual, commission evidence, reporting views, and QBO staging inputs. Do not use a generic status edit to force a Transaction to `fulfilled`.
+`fulfilled` status must be produced by checkout for Take Now and Pick Up Later sales, or by the pickup / release or shipment recognition workflow for deferred merchandise. Those workflows update `transaction_lines.is_fulfilled`, `transaction_lines.fulfilled_at`, loyalty accrual, commission evidence, reporting views, and QBO staging inputs. Pick Up Later then retains a separate Ready-for-Pickup custody lifecycle until physical release. Do not use a generic status edit to force a Transaction to `fulfilled`.
 
 Admin / IT can use `reporting.transaction_status_integrity` to find Transactions whose aggregate status, line fulfillment evidence, or recognition timestamps disagree.
 

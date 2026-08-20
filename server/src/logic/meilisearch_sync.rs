@@ -967,7 +967,10 @@ pub async fn upsert_order_document(client: &Client, pool: &PgPool, transaction_i
             string_agg(DISTINCT o.display_id, ' ') AS transaction_display_ids,
             string_agg(DISTINCT TRIM(CONCAT_WS(' ', p.name, pv.sku, pv.variation_label)), ' ') AS item_blob
             ,(o.counterpoint_doc_ref IS NOT NULL OR COALESCE(BOOL_OR(tl.fulfillment::text <> 'takeaway'), false)) AS is_order
-            ,(o.counterpoint_doc_ref IS NOT NULL OR COALESCE(BOOL_OR(tl.is_fulfilled = false), false)) AS status_open
+            ,(o.counterpoint_doc_ref IS NOT NULL OR COALESCE(BOOL_OR(
+                tl.is_fulfilled = false
+                OR (tl.fulfillment::text = 'pickup_later' AND tl.order_lifecycle_status <> 'picked_up')
+            ), false)) AS status_open
         FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
@@ -2214,7 +2217,10 @@ async fn reindex_all_meilisearch_inner(client: &Client, pool: &PgPool) -> anyhow
             wp.party_name,
             string_agg(DISTINCT o.display_id, ' ') AS transaction_display_ids,
             string_agg(DISTINCT TRIM(CONCAT_WS(' ', p.name, pv.sku, pv.variation_label)), ' ') AS item_blob,
-            (o.counterpoint_doc_ref IS NOT NULL OR COALESCE(BOOL_OR(tl.is_fulfilled = false), false)) AS status_open
+            (o.counterpoint_doc_ref IS NOT NULL OR COALESCE(BOOL_OR(
+                tl.is_fulfilled = false
+                OR (tl.fulfillment::text = 'pickup_later' AND tl.order_lifecycle_status <> 'picked_up')
+            ), false)) AS status_open
         FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id

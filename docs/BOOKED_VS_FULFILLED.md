@@ -7,7 +7,7 @@ Riverside OS uses a "Fulfilled-Recognition" model for financial and tax liabilit
 | Term | Meaning |
 |---|---|
 | **Booked Date** (`booked_at`) | For an initial line, the date the Transaction was created in POS. For a later line addition or value amendment, the date that line value was added or changed. |
-| **Fulfilled Date** (`fulfilled_at`) | The date the items were physically taken by or delivered to the customer. This is when revenue is recognized and legal ownership transfers. |
+| **Fulfilled Date** (`fulfilled_at`) | The financial recognition date. Normally this is when merchandise is taken or delivered. **Pick Up Later is the explicit exception:** ownership, revenue, inventory relief, and commission occur on the sale date while Riverside retains physical custody. |
 
 ### Manager-approved backdated sales
 
@@ -67,7 +67,7 @@ In wedding and formalwear retail, customers often "book" a transaction months be
 - `transactions.status` is the aggregate Transaction state: `open`, `fulfilled`, `cancelled`, or `pending_measurement`.
 - `transaction_lines.is_fulfilled` and `transaction_lines.fulfilled_at` are the line-level recognition evidence.
 - A Transaction becomes `fulfilled` only through a workflow that updates all related evidence:
-    - completed checkout for fully paid takeaway sales;
+    - completed checkout for fully paid Take Now and Pick Up Later sales;
     - pickup / release for pickup transactions;
     - shipment recognition for shipped transactions.
 - Do not manually set a Transaction to `fulfilled` from a generic status edit. The correct workflow must update line timestamps, loyalty accrual, commission events, reporting, and QBO staging inputs together.
@@ -84,7 +84,7 @@ In wedding and formalwear retail, customers often "book" a transaction months be
 Strictly **Fulfilled-only**. Items are only taxed when they leave the store (Fulfillment).
 
 ### Commissions
-Strictly **Fulfilled-only**. Payouts are calculated based on the margin of lines fulfilled during the commission period.
+Strictly **Fulfilled-only**. Payouts are calculated based on the margin of lines financially fulfilled during the commission period. Pick Up Later lines are fulfilled and commissioned on their sale date, not their later custody-release date.
 
 ## Layaways & Orders
 - **Layaway**: Items are booked and moved to `on_layaway`. Revenue remains in liability until the final payment and pickup (Fulfillment).

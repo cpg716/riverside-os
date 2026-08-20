@@ -1,4 +1,4 @@
-//! Normalize POS fulfillment writes while preserving held-inventory and Order semantics.
+//! Normalize POS fulfillment writes while preserving Order and custody semantics.
 
 use uuid::Uuid;
 
@@ -62,7 +62,7 @@ mod tests {
     }
 
     #[test]
-    fn pickup_later_remains_a_held_inventory_line() {
+    fn pickup_later_remains_a_distinct_custody_line() {
         let persisted = persist_fulfillment(Some(Uuid::new_v4()), DbFulfillmentType::PickupLater)
             .expect("pickup-later fulfillment should persist");
         assert_eq!(persisted, DbFulfillmentType::PickupLater);

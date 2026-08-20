@@ -10,10 +10,10 @@ pub fn initial_status_for_line(
     fulfillment: DbFulfillmentType,
     is_fulfilled: bool,
 ) -> DbOrderItemLifecycleStatus {
-    if is_fulfilled || fulfillment == DbFulfillmentType::Takeaway {
-        DbOrderItemLifecycleStatus::PickedUp
-    } else if fulfillment == DbFulfillmentType::PickupLater {
+    if fulfillment == DbFulfillmentType::PickupLater {
         DbOrderItemLifecycleStatus::ReadyForPickup
+    } else if is_fulfilled || fulfillment == DbFulfillmentType::Takeaway {
+        DbOrderItemLifecycleStatus::PickedUp
     } else {
         DbOrderItemLifecycleStatus::Ntbo
     }
@@ -27,7 +27,7 @@ mod tests {
     #[test]
     fn pickup_later_starts_ready_for_pickup() {
         assert_eq!(
-            initial_status_for_line(DbFulfillmentType::PickupLater, false),
+            initial_status_for_line(DbFulfillmentType::PickupLater, true),
             DbOrderItemLifecycleStatus::ReadyForPickup
         );
     }
@@ -58,7 +58,7 @@ pub async fn initialize_line_tx(
                 received_by = CASE WHEN $2::text = 'received' THEN COALESCE(received_by, $3) ELSE received_by END,
                 ready_for_pickup_at = CASE WHEN $2::text = 'ready_for_pickup' THEN COALESCE(ready_for_pickup_at, CURRENT_TIMESTAMP) ELSE ready_for_pickup_at END,
                 ready_for_pickup_by = CASE WHEN $2::text = 'ready_for_pickup' THEN COALESCE(ready_for_pickup_by, $3) ELSE ready_for_pickup_by END,
-                picked_up_at = CASE WHEN $2::text = 'picked_up' THEN COALESCE(picked_up_at, fulfilled_at, CURRENT_TIMESTAMP) ELSE picked_up_at END,
+                picked_up_at = CASE WHEN $2::text = 'picked_up' THEN COALESCE(picked_up_at, CURRENT_TIMESTAMP) ELSE picked_up_at END,
                 picked_up_by = CASE WHEN $2::text = 'picked_up' THEN COALESCE(picked_up_by, $3) ELSE picked_up_by END
             WHERE id = $1
             RETURNING id
@@ -157,7 +157,7 @@ pub async fn apply_transition_tx(
                 received_by = CASE WHEN $2::text = 'received' THEN COALESCE(received_by, $3) ELSE received_by END,
                 ready_for_pickup_at = CASE WHEN $2::text = 'ready_for_pickup' THEN COALESCE(ready_for_pickup_at, CURRENT_TIMESTAMP) ELSE ready_for_pickup_at END,
                 ready_for_pickup_by = CASE WHEN $2::text = 'ready_for_pickup' THEN COALESCE(ready_for_pickup_by, $3) ELSE ready_for_pickup_by END,
-                picked_up_at = CASE WHEN $2::text = 'picked_up' THEN COALESCE(picked_up_at, fulfilled_at, CURRENT_TIMESTAMP) ELSE picked_up_at END,
+                picked_up_at = CASE WHEN $2::text = 'picked_up' THEN COALESCE(picked_up_at, CURRENT_TIMESTAMP) ELSE picked_up_at END,
                 picked_up_by = CASE WHEN $2::text = 'picked_up' THEN COALESCE(picked_up_by, $3) ELSE picked_up_by END
             WHERE id = $1
             "#,

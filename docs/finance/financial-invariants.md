@@ -22,7 +22,7 @@ This document is the source policy for release-gated financial checks. If a work
    - Discounts and comps must be visible in reporting and cannot be folded into tax, shipping, tender, or inventory cost.
 
 4. Booked and fulfilled activity are separate.
-   - Order-style, layaway, custom, and wedding-order lines do not recognize revenue/COGS until fulfillment/pickup or the configured shipment recognition event.
+   - Special Order, layaway, custom, and wedding-order lines do not recognize revenue/COGS until fulfillment/pickup or the configured shipment recognition event. Pick Up Later is fully sold and recognizes revenue/COGS on the sale day while its later pickup remains custody-only.
    - Deposits collected before fulfillment are liabilities until release.
 
 5. Tender and liability movement are separate from revenue.

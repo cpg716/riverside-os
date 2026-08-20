@@ -12,7 +12,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::logic::register_day_activity::{self, RegisterDayActivityError};
-use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
+use crate::logic::report_basis::{transaction_line_recognition_ts_sql, ORDER_RECOGNITION_TS_SQL};
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
@@ -265,7 +265,7 @@ pub async fn generate_report(
     activity_date: NaiveDate,
 ) -> Result<DailyReport, sqlx::Error> {
     let order_recognition_ts = ORDER_RECOGNITION_TS_SQL.trim();
-    let line_recognition_ts = format!("(COALESCE(({order_recognition_ts}), oi.fulfilled_at))");
+    let line_recognition_ts = transaction_line_recognition_ts_sql();
 
     let business_timezone: String =
         sqlx::query_scalar("SELECT reporting.effective_store_timezone()")

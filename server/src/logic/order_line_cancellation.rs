@@ -558,7 +558,7 @@ mod tests {
     }
 
     #[test]
-    fn pickup_later_always_releases_reserved_stock() {
+    fn legacy_unfulfilled_pickup_later_releases_its_reservation() {
         assert_eq!(
             cancellation_inventory_bucket(
                 DbFulfillmentType::PickupLater,

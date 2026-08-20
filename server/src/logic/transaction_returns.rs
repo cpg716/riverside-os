@@ -296,8 +296,12 @@ async fn apply_transaction_returns_in_tx_with_cancelled_policy(
         let restock = if workflow == LineRemovalWorkflow::OrderItemCancellation {
             false
         } else {
-            line.restock
-                .unwrap_or_else(|| fulfillment == DbFulfillmentType::Takeaway && is_fulfilled)
+            line.restock.unwrap_or_else(|| {
+                matches!(
+                    fulfillment,
+                    DbFulfillmentType::Takeaway | DbFulfillmentType::PickupLater
+                ) && is_fulfilled
+            })
         };
 
         let restock_affected = if restock {

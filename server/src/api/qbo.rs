@@ -35,7 +35,7 @@ use crate::logic::integration_credentials::{
     IntegrationCredentialError,
 };
 use crate::logic::qbo_journal;
-use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
+use crate::logic::report_basis::{transaction_line_recognition_ts_sql, ORDER_RECOGNITION_TS_SQL};
 use crate::middleware::require_staff_with_permission;
 
 const DEFAULT_QBO_TOKEN_KEY: &str = "riverside-dev-token-key-change-me";
@@ -2065,7 +2065,7 @@ async fn staging_drilldown(
         .cloned()
         .unwrap_or_else(|| json!({}));
     let order_recognition_ts = ORDER_RECOGNITION_TS_SQL.trim();
-    let line_recognition_ts = format!("(COALESCE(({order_recognition_ts}), oi.fulfilled_at))");
+    let line_recognition_ts = transaction_line_recognition_ts_sql();
     let mut contributors: Vec<DrilldownContributor> = Vec::new();
 
     if let Some(method) = detail0.get("payment_method").and_then(|v| v.as_str()) {

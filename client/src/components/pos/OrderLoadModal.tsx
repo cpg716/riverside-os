@@ -177,10 +177,16 @@ const isFullyCancelledOrderItem = (item: OrderItem) =>
   (item.quantity_cancelled ?? 0) > 0 &&
   (item.quantity_cancelled ?? 0) >= item.quantity;
 
+const isPickupLaterAwaitingRelease = (item: OrderItem) =>
+  item.fulfillment === "pickup_later" &&
+  item.order_lifecycle_status !== "picked_up" &&
+  remainingOrderItemQuantity(item) > 0;
+
 const isCompletedOrderItem = (item: OrderItem) =>
-  item.is_fulfilled ||
-  item.order_lifecycle_status === "picked_up" ||
-  remainingOrderItemQuantity(item) === 0;
+  !isPickupLaterAwaitingRelease(item) &&
+  (item.is_fulfilled ||
+    item.order_lifecycle_status === "picked_up" ||
+    remainingOrderItemQuantity(item) === 0);
 
 export default function OrderLoadModal({
   isOpen,
@@ -292,10 +298,7 @@ export default function OrderLoadModal({
       );
       const allCompleted =
         activeItems.length > 0 &&
-        activeItems.every(
-          (item) =>
-            item.is_fulfilled || item.order_lifecycle_status === "picked_up",
-        );
+        activeItems.every(isCompletedOrderItem);
       setOrders((previous) =>
         previous.map((order) =>
           order.id === orderId && allCompleted
@@ -1842,19 +1845,21 @@ export default function OrderLoadModal({
                             !isCompletedOrderItem(item) ? (
                               <>
                                 <span className="mt-2 max-w-64 text-right text-[10px] font-semibold text-app-text-muted">
-                                  This exact on-hand item is reserved. Cancel and
-                                  re-ring it to change the item or quantity.
+                                  Sold and removed from inventory. Riverside is
+                                  holding it for the customer until pickup.
                                 </span>
-                                <button
-                                  type="button"
-                                  data-testid={`pos-order-cancel-item-${item.transaction_line_id}`}
-                                  disabled={orderMutationBusy}
-                                  onClick={() => openCancelItem(item)}
-                                  className="mt-2 flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-app-danger/30 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger transition-colors hover:bg-app-danger/15 disabled:opacity-50"
-                                >
-                                  <Ban size={13} />
-                                  Cancel Item
-                                </button>
+                                {!item.is_fulfilled ? (
+                                  <button
+                                    type="button"
+                                    data-testid={`pos-order-cancel-item-${item.transaction_line_id}`}
+                                    disabled={orderMutationBusy}
+                                    onClick={() => openCancelItem(item)}
+                                    className="mt-2 flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-app-danger/30 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger transition-colors hover:bg-app-danger/15 disabled:opacity-50"
+                                  >
+                                    <Ban size={13} />
+                                    Cancel Item
+                                  </button>
+                                ) : null}
                               </>
                             ) : null}
                           </>
