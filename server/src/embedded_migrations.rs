@@ -210,4 +210,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("207_inventory_average_and_last_cost.sql", include_str!("../../migrations/207_inventory_average_and_last_cost.sql")),
     ("208_add_pickup_later_fulfillment.sql", include_str!("../../migrations/208_add_pickup_later_fulfillment.sql")),
     ("209_nys_sales_tax_ledger.sql", include_str!("../../migrations/209_nys_sales_tax_ledger.sql")),
+    ("210_restore_counterpoint_couple_names.sql", include_str!("../../migrations/210_restore_counterpoint_couple_names.sql")),
 ];

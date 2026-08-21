@@ -81,6 +81,9 @@ const podiumRecoveryMigration = repoFile(
 const podiumCustomerNameRepairMigration = repoFile(
   "migrations/205_preserve_customer_names_from_podium_display.sql",
 );
+const podiumCoupleNameRepairMigration = repoFile(
+  "migrations/210_restore_counterpoint_couple_names.sql",
+);
 const receiptSummary = repoFile(
   "client/src/components/pos/ReceiptSummaryModal.tsx",
 );
@@ -426,6 +429,18 @@ test("Podium contact reconciliation is backgrounded, observable, and avoids redu
   );
   expect(podiumCustomerNameRepairMigration).toContain(
     "COUNT(DISTINCT UPPER(rms_last_name)) = 1",
+  );
+  expect(podiumCoupleNameRepairMigration).toContain(
+    "IF candidate_count <> 72",
+  );
+  expect(podiumCoupleNameRepairMigration).toContain(
+    "restore_counterpoint_couple_name",
+  );
+  expect(podiumCoupleNameRepairMigration).toContain(
+    "counterpoint_couple_name_repair",
+  );
+  expect(podiumCoupleNameRepairMigration).toContain(
+    "BTRIM(customer.last_name) = '&'",
   );
   expect(podiumContacts).toContain(
     "state.customer_id IS NULL OR state.status = 'failed'",
