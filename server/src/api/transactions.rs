@@ -1023,6 +1023,22 @@ mod tests {
     }
 
     #[test]
+    fn release_financial_mismatch_cannot_be_overridden_by_manager_access() {
+        let snapshot = transaction_recalc::TransactionFinancialSnapshot {
+            total_price: Decimal::new(28_275, 2),
+            calculated_total_price: Decimal::new(34_775, 2),
+            balance_due: Decimal::ZERO,
+            calculated_balance_due: Decimal::new(6_500, 2),
+        };
+
+        assert!(matches!(
+            validate_release_financial_snapshot(snapshot, "Pickup"),
+            Err(TransactionError::InvalidPayload(message))
+                if message.contains("Manager Access cannot override")
+        ));
+    }
+
+    #[test]
     fn requested_release_lines_must_exactly_match_validated_lines() {
         let first = Uuid::new_v4();
         let second = Uuid::new_v4();
@@ -3800,6 +3816,35 @@ fn validate_pickup_transaction_status(status: DbOrderStatus) -> Result<(), Trans
     }
 }
 
+async fn require_release_financial_reconciliation(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+    action: &str,
+) -> Result<(), TransactionError> {
+    let snapshot = transaction_recalc::transaction_financial_snapshot(tx, transaction_id)
+        .await?
+        .ok_or(TransactionError::NotFound)?;
+    validate_release_financial_snapshot(snapshot, action)
+}
+
+fn validate_release_financial_snapshot(
+    snapshot: transaction_recalc::TransactionFinancialSnapshot,
+    action: &str,
+) -> Result<(), TransactionError> {
+    if transaction_recalc::transaction_financials_reconcile(
+        snapshot.total_price,
+        snapshot.calculated_total_price,
+        snapshot.balance_due,
+        snapshot.calculated_balance_due,
+    ) {
+        return Ok(());
+    }
+
+    Err(TransactionError::InvalidPayload(format!(
+        "{action} blocked: charged item prices and tax do not match the Transaction total or balance. Manager Access cannot override a financial mismatch; repair the Transaction Record before releasing merchandise."
+    )))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TransactionReadQuery {
     #[serde(default)]
@@ -5669,7 +5714,6 @@ async fn order_payment_preflight(
             Decimal,
             Decimal,
             Decimal,
-            bool,
             i64,
         )> = sqlx::query_as(
             r#"
@@ -5721,31 +5765,6 @@ async fn order_payment_preflight(
                     - COALESCE(t.amount_paid, 0),
                     2
                 )::numeric AS calculated_balance_due,
-                (
-                    COALESCE(t.is_counterpoint_import, FALSE)
-                    AND t.counterpoint_doc_ref IS NOT NULL
-                    AND NULLIF(
-                        BTRIM(COALESCE(t.metadata->>'counterpoint_financial_repair', '')),
-                        ''
-                    ) IS NOT NULL
-                    AND ROUND(COALESCE(t.balance_due, 0), 2) = ROUND(
-                        COALESCE(t.total_price, 0)
-                        + COALESCE(t.rounding_adjustment, 0)
-                        - COALESCE(t.amount_paid, 0),
-                        2
-                    )
-                    AND ROUND(COALESCE(t.amount_paid, 0), 2) = ROUND(
-                        COALESCE(
-                            (
-                                SELECT SUM(pa.amount_allocated)
-                                FROM payment_allocations pa
-                                WHERE pa.target_transaction_id = t.id
-                            ),
-                            0
-                        ),
-                        2
-                    )
-                ) AS counterpoint_header_authoritative,
                 COALESCE(charged_lines.line_count, 0)::bigint AS line_count
             FROM transactions t
             LEFT JOIN charged_lines ON charged_lines.transaction_id = t.id
@@ -5763,7 +5782,6 @@ async fn order_payment_preflight(
             calculated_total_price,
             balance_due,
             calculated_balance_due,
-            counterpoint_header_authoritative,
             line_count,
         )) = snapshot
         else {
@@ -5785,12 +5803,11 @@ async fn order_payment_preflight(
                 "order-payment target has no order lines".to_string(),
             ));
         }
-        if !crate::logic::transaction_checkout::order_payment_financials_reconcile(
+        if !transaction_recalc::transaction_financials_reconcile(
             total_price,
             calculated_total_price,
             balance_due,
             calculated_balance_due,
-            counterpoint_header_authoritative,
         ) {
             return Err(TransactionError::InvalidPayload(
                 "Payment blocked before tender: charged item prices and tax do not match the Transaction total or balance. Do not collect payment until this Transaction Record is repaired."
@@ -6379,6 +6396,7 @@ async fn mark_transaction_pickup(
                 .to_string(),
         ));
     }
+    require_release_financial_reconciliation(&mut tx, transaction_id, "Pickup").await?;
 
     let unready_lines = pickup_guard_lines
         .iter()
@@ -6437,12 +6455,9 @@ async fn mark_transaction_pickup(
 
     let (
         amount_paid,
-        balance_due,
-        is_counterpoint_import,
         already_released_value,
         selected_pickup_value,
-        remaining_open_value,
-    ): (Decimal, Decimal, bool, Decimal, Decimal, Decimal) = sqlx::query_as(
+    ): (Decimal, Decimal, Decimal) = sqlx::query_as(
         r#"
         WITH line_values AS (
             SELECT
@@ -6463,17 +6478,11 @@ async fn mark_transaction_pickup(
         )
         SELECT
             COALESCE(MAX(o.amount_paid), 0)::numeric(14,2) AS amount_paid,
-            COALESCE(MAX(o.balance_due), 0)::numeric(14,2) AS balance_due,
-            BOOL_OR(COALESCE(o.is_counterpoint_import, false)) AS is_counterpoint_import,
             COALESCE(SUM(line_total) FILTER (WHERE line_values.is_fulfilled), 0)::numeric(14,2) AS already_released_value,
             COALESCE(SUM(line_total) FILTER (
                 WHERE line_values.is_fulfilled = false
                   AND ($2::boolean OR line_values.id = ANY($3))
-            ), 0)::numeric(14,2) AS selected_pickup_value,
-            COALESCE(SUM(line_total) FILTER (
-                WHERE line_values.is_fulfilled = false
-                  AND NOT ($2::boolean OR line_values.id = ANY($3))
-            ), 0)::numeric(14,2) AS remaining_open_value
+            ), 0)::numeric(14,2) AS selected_pickup_value
         FROM transactions o
         LEFT JOIN line_values ON TRUE
         WHERE o.id = $1
@@ -6487,10 +6496,7 @@ async fn mark_transaction_pickup(
     .await?;
 
     let required_after_pickup = already_released_value + selected_pickup_value;
-    let imported_paid_in_full_release = is_counterpoint_import
-        && balance_due <= Decimal::ZERO
-        && remaining_open_value <= Decimal::ZERO;
-    if !imported_paid_in_full_release && amount_paid < required_after_pickup {
+    if amount_paid < required_after_pickup {
         let shortage = required_after_pickup - amount_paid;
         let payment_override_reason = body
             .payment_override_reason
@@ -6988,6 +6994,7 @@ async fn mark_transaction_ship(
                 .to_string(),
         ));
     }
+    require_release_financial_reconciliation(&mut tx, transaction_id, "Shipping").await?;
 
     if ship_guard_lines.is_empty() {
         return Err(TransactionError::InvalidPayload(
@@ -7047,12 +7054,10 @@ async fn mark_transaction_ship(
 
     let (
         amount_paid,
-        balance_due,
-        is_counterpoint_import,
         already_released_value,
         selected_ship_value,
         remaining_open_value,
-    ): (Decimal, Decimal, bool, Decimal, Decimal, Decimal) = sqlx::query_as(
+    ): (Decimal, Decimal, Decimal, Decimal) = sqlx::query_as(
         r#"
         WITH line_values AS (
             SELECT
@@ -7073,8 +7078,6 @@ async fn mark_transaction_ship(
         )
         SELECT
             COALESCE(MAX(o.amount_paid), 0)::numeric(14,2) AS amount_paid,
-            COALESCE(MAX(o.balance_due), 0)::numeric(14,2) AS balance_due,
-            BOOL_OR(COALESCE(o.is_counterpoint_import, false)) AS is_counterpoint_import,
             COALESCE(SUM(line_total) FILTER (WHERE line_values.is_fulfilled), 0)::numeric(14,2) AS already_released_value,
             COALESCE(SUM(line_total) FILTER (
                 WHERE line_values.is_fulfilled = false
@@ -7097,10 +7100,7 @@ async fn mark_transaction_ship(
     .await?;
 
     let required_after_ship = already_released_value + selected_ship_value;
-    let imported_paid_in_full_release = is_counterpoint_import
-        && balance_due <= Decimal::ZERO
-        && remaining_open_value <= Decimal::ZERO;
-    if !imported_paid_in_full_release && amount_paid < required_after_ship {
+    if amount_paid < required_after_ship {
         let shortage = required_after_ship - amount_paid;
         return Err(TransactionError::InvalidPayload(format!(
             "Shipping blocked: selected item value exceeds payments by ${shortage}. Collect payment before release."
@@ -7108,11 +7108,7 @@ async fn mark_transaction_ship(
     }
 
     let remaining_deposit_required = (remaining_open_value * Decimal::new(50, 2)).round_dp(2);
-    let remaining_paid_credit = if imported_paid_in_full_release {
-        Decimal::ZERO
-    } else {
-        amount_paid - required_after_ship
-    };
+    let remaining_paid_credit = amount_paid - required_after_ship;
     if remaining_open_value > Decimal::ZERO && remaining_paid_credit < remaining_deposit_required {
         let shortage = remaining_deposit_required - remaining_paid_credit;
         return Err(TransactionError::InvalidPayload(format!(

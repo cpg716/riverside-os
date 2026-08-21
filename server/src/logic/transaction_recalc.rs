@@ -7,6 +7,95 @@ use uuid::Uuid;
 use crate::logic::checkout_validate::is_shipping_charge_sku;
 use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd, TaxCategory};
 
+#[derive(Debug, Clone, Copy)]
+pub struct TransactionFinancialSnapshot {
+    pub total_price: Decimal,
+    pub calculated_total_price: Decimal,
+    pub balance_due: Decimal,
+    pub calculated_balance_due: Decimal,
+}
+
+pub fn transaction_financials_reconcile(
+    total_price: Decimal,
+    calculated_total_price: Decimal,
+    balance_due: Decimal,
+    calculated_balance_due: Decimal,
+) -> bool {
+    total_price.round_dp(2) == calculated_total_price.round_dp(2)
+        && balance_due.round_dp(2) == calculated_balance_due.round_dp(2)
+}
+
+pub async fn transaction_financial_snapshot(
+    tx: &mut Transaction<'_, Postgres>,
+    transaction_id: Uuid,
+) -> Result<Option<TransactionFinancialSnapshot>, sqlx::Error> {
+    let snapshot: Option<(Decimal, Decimal, Decimal, Decimal)> = sqlx::query_as(
+        r#"
+        WITH returned AS (
+            SELECT
+                transaction_line_id,
+                SUM(quantity_returned)::int AS quantity_returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ),
+        charged_lines AS (
+            SELECT
+                tl.transaction_id,
+                COALESCE(
+                    SUM(
+                        (
+                            tl.unit_price
+                            + COALESCE(tl.state_tax, 0)
+                            + COALESCE(tl.local_tax, 0)
+                        ) * GREATEST(
+                            tl.quantity - COALESCE(returned.quantity_returned, 0),
+                            0
+                        )::numeric
+                    ),
+                    0
+                )::numeric AS charged_line_total
+            FROM transaction_lines tl
+            LEFT JOIN returned ON returned.transaction_line_id = tl.id
+            WHERE tl.transaction_id = $1
+            GROUP BY tl.transaction_id
+        )
+        SELECT
+            ROUND(COALESCE(t.total_price, 0), 2)::numeric AS total_price,
+            ROUND(
+                COALESCE(charged_lines.charged_line_total, 0)
+                + COALESCE(t.shipping_amount_usd, 0),
+                2
+            )::numeric AS calculated_total_price,
+            ROUND(COALESCE(t.balance_due, 0), 2)::numeric AS balance_due,
+            ROUND(
+                COALESCE(charged_lines.charged_line_total, 0)
+                + COALESCE(t.shipping_amount_usd, 0)
+                + COALESCE(t.rounding_adjustment, 0)
+                - COALESCE(t.amount_paid, 0),
+                2
+            )::numeric AS calculated_balance_due
+        FROM transactions t
+        LEFT JOIN charged_lines ON charged_lines.transaction_id = t.id
+        WHERE t.id = $1
+        FOR UPDATE OF t
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    Ok(snapshot.map(
+        |(total_price, calculated_total_price, balance_due, calculated_balance_due)| {
+            TransactionFinancialSnapshot {
+                total_price,
+                calculated_total_price,
+                balance_due,
+                calculated_balance_due,
+            }
+        },
+    ))
+}
+
 fn recalculated_balance_due(
     is_cancelled_or_fully_refunded: bool,
     total_price: Decimal,
@@ -217,7 +306,10 @@ pub async fn recalc_transaction_totals(
 
 #[cfg(test)]
 mod tests {
-    use super::{amended_order_line_tax, open_refund_amount_due, recalculated_balance_due};
+    use super::{
+        amended_order_line_tax, open_refund_amount_due, recalculated_balance_due,
+        transaction_financials_reconcile,
+    };
     use crate::logic::tax::TaxCategory;
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
@@ -240,6 +332,16 @@ mod tests {
             recalculated_balance_due(true, dec!(316.00), Decimal::ZERO, Decimal::ZERO),
             Decimal::ZERO,
         );
+    }
+
+    #[test]
+    fn line_total_mismatch_never_accepts_a_counterpoint_header_balance() {
+        assert!(!transaction_financials_reconcile(
+            dec!(282.75),
+            dec!(347.75),
+            Decimal::ZERO,
+            dec!(65.00),
+        ));
     }
 
     #[test]

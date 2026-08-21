@@ -45,6 +45,16 @@ now. A skipped payment does not bypass release coverage: if recorded payments
 do not cover merchandise already released plus the selected pickup, the pickup
 API requires audited Manager Access before completion.
 
+Payment, pickup, and shipping also enforce a non-overridable financial
+reconciliation gate. The saved Transaction total and balance must equal the
+current customer-charged line prices, saved line taxes, shipping, rounding, and
+recorded payments. Imported Counterpoint header metadata is not an exception.
+If the header and lines disagree, ROS blocks payment before tender and blocks
+physical release before any inventory, revenue, commission, loyalty, or status
+mutation. Manager Access may approve an intentional payment-coverage exception;
+it cannot approve an internally inconsistent Transaction Record. Repair the
+record from retained source evidence first.
+
 Sale Complete and receipts separate the current checkout from lifetime
 Transaction history. A previously paid pickup reports zero collected now,
 the amount paid before this checkout, and the post-pickup remaining balance.

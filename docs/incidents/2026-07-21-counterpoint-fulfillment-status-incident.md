@@ -401,6 +401,75 @@ insert, update, delete, and reassignment path. Until that work is complete and
 the normal writers are contract-tested, the held design must not be represented
 as satisfying the “any path” requirement or deployed to production.
 
+## August 21 follow-up — false $65 balance on TXN-566054
+
+The July 21 repair also changed at least four retained Counterpoint line
+quantities from source quantity `0` to Riverside quantity `1`. This was a
+separate financial-line mutation from the already documented header-status
+incident. For `TXN-566054` / `O-117945`, retained raw Counterpoint record
+`ed383cb6-014a-4745-afb0-d268faa71208` proves:
+
+- suit `B-1449396`: quantity `1`, price `$260.00`;
+- shirt `B-1471092`: quantity `0`, price `$65.00`;
+- source Transaction total: `$282.75`; and
+- source balance before the August payment: `$167.22`.
+
+The Riverside booking audit proves that at
+`2026-07-21 16:49:17.273017-04:00`, the repair changed the shirt quantity from
+`0` to `1`, added `$65.00` of merchandise, and moved `$4.55` of tax from the
+suit to the shirt. The Transaction header remained the authoritative
+Counterpoint `$282.75`, so its header and charged lines no longer agreed.
+
+Commit `f40ec2bf` (`fix: accept reconciled legacy order balances`) was added on
+August 20 to allow a repaired Counterpoint header to bypass the existing
+header-versus-line payment integrity check. Its regression test used the exact
+`$282.75` header and `$347.75` calculated-line values later observed on
+`TXN-566054`. That exception allowed the valid `$167.22` payment on August 21.
+The pickup coverage check then calculated `$347.75`, recorded an audited
+Manager payment override for the apparent `$65.00` shortage, released both
+rows, and recalculated the header from the false line. The result was the
+printed `$65.00` balance even though allocations correctly totaled `$282.75`.
+
+The exact zero-to-positive source-quantity cohort found in the August 21
+read-only production audit contains four Transaction Records:
+
+| Transaction | Current audit disposition before repair |
+|---|---|
+| `TXN-566054` | Picked up; false `$65.00` balance created |
+| `TXN-566114` | Picked up; no current false balance |
+| `TXN-565933` | Open and Ready for Pickup |
+| `TXN-565944` | Open and Ready for Pickup |
+
+Separately, four currently open Counterpoint Transaction Records had a saved
+header that did not equal their active charged lines: `TXN-565944` (`$65.00`),
+`TXN-565969` (`$1,340.00`), `TXN-566301` (`$0.02`), and `TXN-566526`
+(`$0.06`). These two lists overlap at `TXN-565944` and must not be added
+together as eight affected orders. Broad historical mismatch queries include
+completed and returned records and are not evidence that every historical row
+was affected.
+
+The corrective boundary removes the Counterpoint-header exception from both
+order-payment preflight and atomic checkout validation. Pickup and shipping now
+repeat the same exact header-versus-lines-versus-balance check before any
+release mutation. A financial mismatch is not Manager-overridable. Migration
+`211_repair_txn_566054_counterpoint_quantity.sql` is source-locked to the raw
+record, exact line IDs, exact payment allocations, and exact pickup inventory
+movement. It preserves the valid payment and suit pickup, restores the suit's
+saved tax, returns the false shirt quantity to zero, clears the false balance,
+and posts an auditable inventory reversal. It refuses to run if later return,
+commission, loyalty, QBO, payment, line, or inventory evidence requires a
+different repair.
+
+After a full production rollback rehearsal, the exact migration body was
+applied to the Main Hub at `2026-08-21 10:33:50.033309-04:00`; its SHA-256 was
+`c8559700b3b399887df1d2739176e45cdf26e2263e45448fd13bc343f98b6db5`.
+The immediate read-only verification showed total `$282.75`, allocations and
+amount paid `$282.75`, balance `$0.00`, status `fulfilled`, source shirt
+quantity `0`, suit tax `$10.40` state plus `$12.35` local, one `+1` inventory
+adjustment reversing only the false shirt pickup decrement, and zero shirt
+commission, Transaction loyalty, or per-Transaction QBO rows requiring a
+downstream reversal.
+
 ## Evidence artifacts
 
 These internal audit artifacts contain masked card last-four values, provider
