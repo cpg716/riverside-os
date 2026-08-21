@@ -191,6 +191,7 @@ pub async fn merge_customers(
     pool: &PgPool,
     master: Uuid,
     slave: Uuid,
+    actor_id: Uuid,
 ) -> Result<(), CustomerMergeError> {
     if master == slave {
         return Err(CustomerMergeError::BadRequest(
@@ -407,8 +408,93 @@ pub async fn merge_customers(
         .execute(&mut *tx)
         .await?;
 
+    record_customer_merge_history(&mut tx, master, slave, actor_id).await?;
+
     tx.commit().await?;
     Ok(())
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct MergeHistoryCustomer {
+    customer_code: String,
+    display_name: String,
+}
+
+async fn record_customer_merge_history(
+    tx: &mut Transaction<'_, Postgres>,
+    master: Uuid,
+    slave: Uuid,
+    actor_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    let customer_identity_sql = r#"
+        SELECT
+            customer_code,
+            COALESCE(
+                NULLIF(BTRIM(CONCAT_WS(' ', first_name, last_name)), ''),
+                NULLIF(BTRIM(company_name), ''),
+                customer_code
+            ) AS display_name
+        FROM customers
+        WHERE id = $1
+    "#;
+    let master_identity = sqlx::query_as::<_, MergeHistoryCustomer>(customer_identity_sql)
+        .bind(master)
+        .fetch_one(&mut **tx)
+        .await?;
+    let slave_identity = sqlx::query_as::<_, MergeHistoryCustomer>(customer_identity_sql)
+        .bind(slave)
+        .fetch_one(&mut **tx)
+        .await?;
+    let actor_name: String = sqlx::query_scalar(
+        "SELECT COALESCE(NULLIF(BTRIM(full_name), ''), 'Staff') FROM staff WHERE id = $1",
+    )
+    .bind(actor_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    let (master_note, slave_note) =
+        customer_merge_history_notes(&master_identity, &slave_identity, &actor_name);
+
+    sqlx::query(
+        r#"
+        INSERT INTO customer_timeline_notes (customer_id, body, created_by)
+        VALUES ($1, $2, $3), ($4, $5, $3)
+        "#,
+    )
+    .bind(master)
+    .bind(master_note)
+    .bind(actor_id)
+    .bind(slave)
+    .bind(slave_note)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+fn customer_merge_history_notes(
+    master: &MergeHistoryCustomer,
+    slave: &MergeHistoryCustomer,
+    actor_name: &str,
+) -> (String, String) {
+    (
+        format!(
+            "Customer merge: {} ({}) was merged into this surviving account, {} ({}). Completed by {}.",
+            slave.display_name,
+            slave.customer_code,
+            master.display_name,
+            master.customer_code,
+            actor_name,
+        ),
+        format!(
+            "Customer merge: this inactive account, {} ({}), was merged into {} ({}). Completed by {}.",
+            slave.display_name,
+            slave.customer_code,
+            master.display_name,
+            master.customer_code,
+            actor_name,
+        ),
+    )
 }
 
 async fn merge_missing_customer_profile(
@@ -581,6 +667,29 @@ async fn repoint_customer_fk(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_history_names_both_accounts_and_the_staff_actor() {
+        let master = MergeHistoryCustomer {
+            customer_code: "C-100".to_string(),
+            display_name: "Alex Survivor".to_string(),
+        };
+        let slave = MergeHistoryCustomer {
+            customer_code: "C-200".to_string(),
+            display_name: "Alex Duplicate".to_string(),
+        };
+
+        let (master_note, slave_note) = customer_merge_history_notes(&master, &slave, "Chris G");
+
+        for note in [&master_note, &slave_note] {
+            assert!(note.starts_with("Customer merge:"));
+            assert!(note.contains("Alex Survivor (C-100)"));
+            assert!(note.contains("Alex Duplicate (C-200)"));
+            assert!(note.contains("Completed by Chris G."));
+        }
+        assert!(master_note.contains("surviving account"));
+        assert!(slave_note.contains("this inactive account"));
+    }
 
     #[tokio::test]
     async fn merge_risk_query_matches_current_schema() {

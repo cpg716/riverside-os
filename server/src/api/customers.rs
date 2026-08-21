@@ -4205,12 +4205,17 @@ async fn post_merge_customers(
         return Ok(Json(json!({ "dry_run": true, "preview": preview })));
     }
 
-    customer_merge::merge_customers(&state.db, body.master_customer_id, body.slave_customer_id)
-        .await
-        .map_err(|e| match e {
-            customer_merge::CustomerMergeError::Db(d) => CustomerError::Database(d),
-            customer_merge::CustomerMergeError::BadRequest(m) => CustomerError::BadRequest(m),
-        })?;
+    customer_merge::merge_customers(
+        &state.db,
+        body.master_customer_id,
+        body.slave_customer_id,
+        staff.id,
+    )
+    .await
+    .map_err(|e| match e {
+        customer_merge::CustomerMergeError::Db(d) => CustomerError::Database(d),
+        customer_merge::CustomerMergeError::BadRequest(m) => CustomerError::BadRequest(m),
+    })?;
 
     let pool = state.db.clone();
     let actor_id = staff.id;
@@ -8773,7 +8778,11 @@ pub(crate) async fn build_customer_timeline(
     for n in notes {
         events.push(CustomerTimelineEvent {
             at: n.created_at,
-            kind: "note".to_string(),
+            kind: if n.body.starts_with("Customer merge:") {
+                "customer_merge".to_string()
+            } else {
+                "note".to_string()
+            },
             summary: n.body,
             reference_id: Some(n.id),
             reference_type: Some("note".to_string()),

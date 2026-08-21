@@ -366,6 +366,8 @@ function customerTimelineKindLabel(kind: string): string {
       return "Wedding activity";
     case "note":
       return "Note";
+    case "customer_merge":
+      return "Account merge";
     case "measurement":
       return "Measurements";
     case "appointment":
@@ -2669,6 +2671,7 @@ export function CustomerRelationshipHubDrawer({
         payment: "bg-sky-500",
         wedding: "bg-app-accent",
         note: "bg-amber-500",
+        customer_merge: "bg-orange-500",
         measurement: "bg-violet-500",
         appointment: "bg-indigo-500",
         call: "bg-blue-500",

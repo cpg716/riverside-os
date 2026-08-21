@@ -43,6 +43,25 @@ test("Customer History groups activity that happened in the same second", () => 
   );
 });
 
+test("customer merges create staff-attributed events in Customer History", () => {
+  const drawer = repoFile(
+    "client/src/components/customers/CustomerRelationshipHubDrawer.tsx",
+  );
+  const customerApi = repoFile("server/src/api/customers.rs");
+  const customerMerge = repoFile("server/src/logic/customer_merge.rs");
+
+  expect(customerMerge).toContain("record_customer_merge_history");
+  expect(customerMerge).toContain(
+    "INSERT INTO customer_timeline_notes (customer_id, body, created_by)",
+  );
+  expect(customerMerge).toContain("Customer merge:");
+  expect(customerMerge).toContain(".bind(actor_id)");
+  expect(customerApi).toContain("staff.id,");
+  expect(customerApi).toContain('n.body.starts_with("Customer merge:")');
+  expect(drawer).toContain('case "customer_merge":');
+  expect(drawer).toContain('return "Account merge";');
+});
+
 test("Customer Hub presents linked Podium calls with messages and in History", () => {
   const drawer = repoFile(
     "client/src/components/customers/CustomerRelationshipHubDrawer.tsx",
