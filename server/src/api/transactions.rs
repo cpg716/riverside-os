@@ -6908,6 +6908,8 @@ async fn mark_transaction_ship(
                     pv.sku,
                     'Unknown item'
                 ) AS product_name,
+                oi.fulfillment,
+                oi.is_fulfilled,
                 oi.order_lifecycle_status,
                 oi.variant_id,
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::int AS quantity,
@@ -6955,6 +6957,8 @@ async fn mark_transaction_ship(
                     pv.sku,
                     'Unknown item'
                 ) AS product_name,
+                oi.fulfillment,
+                oi.is_fulfilled,
                 oi.order_lifecycle_status,
                 oi.variant_id,
                 GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::int AS quantity,
