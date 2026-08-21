@@ -49,6 +49,7 @@ type CommissionLedgerRow = {
   staff_id?: string | null;
   unpaid_commission: string;
   realized_pending_payout: string;
+  commissionable_sales_amount: string;
 };
 
 function uniqueSuffix(label: string): string {
@@ -275,6 +276,7 @@ async function checkoutProducts(
     salespersonId: string;
     products: CreatedCommissionProduct[];
     fulfillment: "takeaway" | "special_order";
+    amountPaid?: string;
   },
 ) {
   const totalCents = options.products.reduce(
@@ -282,6 +284,7 @@ async function checkoutProducts(
     0,
   );
   const total = centsToFixed2(totalCents);
+  const amountPaid = options.amountPaid ?? total;
   const items = options.products.map((product) => {
     const tax = calculateNysErieTaxStringsForUnit("other", parseMoneyToCents(product.unitPrice));
     return {
@@ -311,15 +314,18 @@ async function checkoutProducts(
       customer_id: null,
       payment_method: "cash",
       total_price: total,
-      amount_paid: total,
+      amount_paid: amountPaid,
       checkout_client_id: crypto.randomUUID(),
       items,
-      payment_splits: [
-        {
-          payment_method: "cash",
-          amount: total,
-        },
-      ],
+      payment_splits:
+        parseMoneyToCents(amountPaid) === 0
+          ? []
+          : [
+              {
+                payment_method: "cash",
+                amount: amountPaid,
+              },
+            ],
     },
     failOnStatusCode: false,
   });
@@ -517,6 +523,72 @@ test.describe("commission audit contract", () => {
 
     const ledger = await fetchCommissionLedgerRow(request, salespersonId);
     expectMoney(ledger?.realized_pending_payout ?? "0.00", "0.00");
+    expectMoney(ledger?.commissionable_sales_amount ?? "0.00", "0.00");
+  });
+
+  test("fulfilled Transactions with a balance due are excluded from earned commission", async ({
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const salespersonId = await createCommissionStaff(request, "Paid Gate", "0.1000");
+    const product = await createCommissionProduct(request, operatorStaffId, {
+      label: "paid-gate",
+      unitPrice: "100.00",
+    });
+
+    const checkoutRes = await checkoutProducts(request, {
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      salespersonId,
+      products: [product],
+      fulfillment: "special_order",
+      amountPaid: "50.00",
+    });
+    expect(checkoutRes.status()).toBe(200);
+    const checkout = (await checkoutRes.json()) as CheckoutResponse;
+    const detail = await fetchTransactionDetail(request, checkout.transaction_id);
+    const line = detail.items.find((item) => item.sku === product.sku);
+    expect(line?.transaction_line_id).toBeTruthy();
+
+    const pickupRes = await request.post(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/pickup`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+          "Content-Type": "application/json",
+          "x-riverside-station-key": "station-e2e",
+        },
+        data: {
+          delivered_item_ids: [line!.transaction_line_id],
+          register_cart_completion: true,
+          actor: "E2E Commission Paid Gate",
+          override_readiness: true,
+          override_reason: "Commission paid-gate fixture controls readiness explicitly.",
+          readiness_override_manager_staff_id: operatorStaffId,
+          readiness_override_manager_pin: staffCode(),
+          payment_override_manager_staff_id: operatorStaffId,
+          payment_override_manager_pin: staffCode(),
+          payment_override_reason: "Commission paid-gate fixture intentionally leaves a balance due.",
+          register_session_id: sessionId,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    const pickupText = await pickupRes.text();
+    expect(pickupRes.status(), pickupText.slice(0, 1_000)).toBe(200);
+
+    const lines = await fetchCommissionLines(request, salespersonId);
+    expect(
+      lines.some((candidate) => candidate.transaction_id === checkout.transaction_id),
+    ).toBe(false);
+    const ledger = await fetchCommissionLedgerRow(request, salespersonId);
+    expectMoney(ledger?.realized_pending_payout ?? "0.00", "0.00");
+    expectMoney(ledger?.commissionable_sales_amount ?? "0.00", "0.00");
   });
 
   test("fulfillment timing uses recognition date and staff rate snapshots report immutably", async ({
@@ -600,6 +672,7 @@ test.describe("commission audit contract", () => {
     ledger = await fetchCommissionLedgerRow(request, salespersonA);
     expectMoney(ledger?.unpaid_commission, "0.00");
     expectMoney(ledger?.realized_pending_payout, "20.00");
+    expectMoney(ledger?.commissionable_sales_amount, "100.00");
 
     await patchStaffRate(request, salespersonA, "0.5000", true);
     commissionLine = await fetchCommissionLine(

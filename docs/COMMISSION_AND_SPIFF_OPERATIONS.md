@@ -32,15 +32,17 @@ Commissions follow the fulfillment / recognition clock:
 
 - Takeaway and pickup lines count when fulfilled.
 - Shipped lines count when the shipment recognition event occurs.
+- The financial Transaction must be fully paid before its recognized lines enter earned commission reporting.
 - Booked-but-unfulfilled lines are visible as pipeline only; they are not earned commission.
 
 The commission report is earned-only for payroll review. It intentionally excludes booked-but-unfulfilled pipeline from the main report.
+Selected periods use store-local business dates and include the full chosen end date.
 
 The report screen shows:
 
 - **Rate** — the staff member's current base commission rate.
 - **Rate since** — the effective start date for the current rate when known.
-- **Sales** — count of earned sales in the selected recognition period.
+- **Commissionable sales** — paid, recognized merchandise sales volume used as the commission base, net of return-period sales reversals. The Transaction count is shown beneath it.
 - **By rate** — commission earned from the staff member's base rate.
 - **SPIFF $** — fixed SPIFF and combo incentive dollars earned in the period.
 - **Earned commission** — the final payroll-facing earned commission amount.

@@ -28,7 +28,7 @@ The screen supports all-staff reporting, individual staff drilldown, and printab
 ## Before You Start
 
 - You need **insights.view** to read commission reports.
-- Commission follows the **fulfillment / recognition** date, not the original booking date.
+- Commission follows the **fulfillment / recognition** date, not the original booking date, and is earned only after the financial Transaction is fully paid.
 - Staff base rates are managed on the Staff Profile.
 - Fixed SPIFF and combo incentives are managed under **SPIFFs & Combos**.
 
@@ -36,15 +36,17 @@ The screen supports all-staff reporting, individual staff drilldown, and printab
 
 1. Open **Staff → Commissions** and stay on **Reports**.
 2. Choose a date window. Use **Prior month payroll** when reviewing the previous calendar month for the first payday of the new month.
+   The window uses Riverside's store-local business dates, including the full selected **To** date.
 3. Optional: pick a **Staff** member to run an individual report.
-4. Review each staff row: **Rate**, **Rate since**, **Sales**, **By rate**, **SPIFF / Combo $**, and the final **Earned commission** amount.
+4. Review each staff row: **Rate**, **Rate since**, **Commissionable sales**, **By rate**, **SPIFF / Combo $**, and the final **Earned commission** amount.
 5. Use **Print report** for payroll review.
 6. Expand a staff row to review line-level detail.
 7. Use **Trace** on a line when you need the calculation explainer.
 
 ## What To Watch For
 
-- The commission report is earned-only. Booked-but-unfulfilled pipeline is intentionally excluded from the report totals.
+- The commission report is earned-only. Booked-but-unfulfilled pipeline and fulfilled Transactions with a balance due are intentionally excluded from the report totals.
+- **Commissionable sales** is the paid, recognized merchandise sales volume used as the base for commission; returns reduce that volume in the return period. The smaller text below it is the Transaction count.
 - Alteration charges are commissionable sales. Shipping charges never increase commissionable sales or earned commission.
 - **Earned commission** is the payroll-facing total for the selected recognition window.
 - **By rate** is the earned amount from the staff member's base commission rate.

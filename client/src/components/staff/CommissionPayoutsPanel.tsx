@@ -21,6 +21,7 @@ interface CommissionLedgerRow {
   realized_pending_payout: string;
   base_commission_amount: string;
   spiff_commission_amount: string;
+  commissionable_sales_amount: string;
   earned_sale_count: number;
   current_commission_rate: string;
   current_commission_rate_since: string | null;
@@ -219,14 +220,16 @@ export default function CommissionPayoutsPanel() {
         const earned = parseMoneyToCents(row.realized_pending_payout || "0");
         const baseEarned = parseMoneyToCents(row.base_commission_amount || "0");
         const spiffEarned = parseMoneyToCents(row.spiff_commission_amount || "0");
+        const salesVolume = parseMoneyToCents(row.commissionable_sales_amount || "0");
         return {
           earned: totals.earned + earned,
           baseEarned: totals.baseEarned + baseEarned,
           spiffEarned: totals.spiffEarned + spiffEarned,
+          salesVolume: totals.salesVolume + salesVolume,
           saleCount: totals.saleCount + (row.earned_sale_count ?? 0),
         };
       },
-      { earned: 0, baseEarned: 0, spiffEarned: 0, saleCount: 0 },
+      { earned: 0, baseEarned: 0, spiffEarned: 0, salesVolume: 0, saleCount: 0 },
     );
   }, [filteredRows]);
 
@@ -250,6 +253,7 @@ export default function CommissionPayoutsPanel() {
         const earned = parseMoneyToCents(row.realized_pending_payout || "0");
         const baseEarned = parseMoneyToCents(row.base_commission_amount || "0");
         const spiffEarned = parseMoneyToCents(row.spiff_commission_amount || "0");
+        const salesVolume = parseMoneyToCents(row.commissionable_sales_amount || "0");
         const saleCount = row.earned_sale_count ?? 0;
         const role = row.staff_id ? roleByStaffId.get(row.staff_id) ?? "staff" : "unassigned";
         return `
@@ -260,7 +264,7 @@ export default function CommissionPayoutsPanel() {
             </td>
             <td>${escapeHtml(percent(row.current_commission_rate))}</td>
             <td>${escapeHtml(row.current_commission_rate_since || "Unknown")}</td>
-            <td class="num">${saleCount}</td>
+            <td class="num">${escapeHtml(formatUsdFromCents(salesVolume))}<span>${saleCount} transactions</span></td>
             <td class="num">${escapeHtml(formatUsdFromCents(baseEarned))}</td>
             <td class="num">${escapeHtml(formatUsdFromCents(spiffEarned))}</td>
             <td class="num total">${escapeHtml(formatUsdFromCents(earned))}</td>
@@ -300,7 +304,7 @@ export default function CommissionPayoutsPanel() {
           </header>
           <section class="summary">
             <div class="tile"><span>Total commissions paid</span><strong>${escapeHtml(formatUsdFromCents(visibleTotals.earned))}</strong></div>
-            <div class="tile"><span>Earned sale count</span><strong>${visibleTotals.saleCount}</strong></div>
+            <div class="tile"><span>Commissionable sales</span><strong>${escapeHtml(formatUsdFromCents(visibleTotals.salesVolume))}</strong></div>
             <div class="tile"><span>Staff included</span><strong>${filteredRows.length}</strong></div>
           </section>
           <table>
@@ -309,7 +313,7 @@ export default function CommissionPayoutsPanel() {
                 <th>Staff</th>
                 <th>Rate</th>
                 <th>Rate since</th>
-                <th class="num">Sales</th>
+                <th class="num">Commissionable sales</th>
                 <th class="num">By rate</th>
                 <th class="num">SPIFF / Combo</th>
                 <th class="num">Earned commission</th>
@@ -319,14 +323,14 @@ export default function CommissionPayoutsPanel() {
             <tfoot>
               <tr>
                 <td colspan="3">Total commissions paid for period</td>
-                <td class="num">${visibleTotals.saleCount}</td>
+                <td class="num">${escapeHtml(formatUsdFromCents(visibleTotals.salesVolume))}<span>${visibleTotals.saleCount} transactions</span></td>
                 <td class="num">${escapeHtml(formatUsdFromCents(visibleTotals.baseEarned))}</td>
                 <td class="num">${escapeHtml(formatUsdFromCents(visibleTotals.spiffEarned))}</td>
                 <td class="num total">${escapeHtml(formatUsdFromCents(visibleTotals.earned))}</td>
               </tr>
             </tfoot>
           </table>
-          <footer>Commission report: earned commission follows the recognition window for fulfilled/picked up/shipped work plus approved manual adjustments.</footer>
+          <footer>Commission report: earned commission includes only fully paid Transactions recognized in the selected fulfillment window, plus approved manual adjustments.</footer>
         </body>
       </html>
     `;
@@ -436,9 +440,10 @@ export default function CommissionPayoutsPanel() {
               <span className="font-bold text-app-text">Commission report:</span>{" "}
               earned commission uses the <strong>recognition</strong> window:
               pickup / takeaway when fulfilled, shipped orders when the label
-              ships or shipment moves to in transit / delivered, plus approved
-              manual adjustments. Open booked pipeline is intentionally not
-              included in this commission report.
+              ships or shipment moves to in transit / delivered, and only when
+              the financial Transaction is fully paid. Approved manual
+              adjustments are included. Open booked pipeline and fulfilled
+              Transactions with a balance due are intentionally excluded.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -561,7 +566,7 @@ export default function CommissionPayoutsPanel() {
               <th className="px-4 py-3">Staff</th>
               <th className="px-4 py-3">Rate</th>
               <th className="px-4 py-3">Rate since</th>
-              <th className="px-4 py-3 text-right">Sales</th>
+              <th className="px-4 py-3 text-right">Commissionable sales</th>
               <th className="px-4 py-3 text-right">By rate</th>
               <th className="px-4 py-3 text-right">SPIFF / Combo $</th>
               <th className="px-4 py-3 text-right text-emerald-900/80">
@@ -577,6 +582,7 @@ export default function CommissionPayoutsPanel() {
                 parseMoneyToCents(r.realized_pending_payout || "0") / 100;
               const baseEarned = parseMoneyToCents(r.base_commission_amount || "0") / 100;
               const spiffEarned = parseMoneyToCents(r.spiff_commission_amount || "0") / 100;
+              const salesVolume = parseMoneyToCents(r.commissionable_sales_amount || "0") / 100;
               const saleCount = r.earned_sale_count ?? 0;
               const staffRole = r.staff_id ? roleByStaffId.get(r.staff_id) ?? "staff" : "unassigned";
               const reportStatus = staffReportStatus(r, saleCount);
@@ -619,7 +625,10 @@ export default function CommissionPayoutsPanel() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-mono font-black text-app-text tabular-nums">
-                      {saleCount}
+                      {money(salesVolume)}
+                      <span className="mt-1 block font-sans text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        {saleCount} transactions
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-app-text tabular-nums">
                       {money(baseEarned)}
@@ -669,7 +678,10 @@ export default function CommissionPayoutsPanel() {
                   Total commissions paid for period
                 </td>
                 <td className="px-4 py-4 text-right font-mono font-black tabular-nums">
-                  {visibleTotals.saleCount}
+                  {formatUsdFromCents(visibleTotals.salesVolume)}
+                  <span className="mt-1 block font-sans text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    {visibleTotals.saleCount} transactions
+                  </span>
                 </td>
                 <td className="px-4 py-4 text-right font-mono font-black tabular-nums">
                   {formatUsdFromCents(visibleTotals.baseEarned)}
@@ -779,7 +791,8 @@ function CommissionDrillDown({
             <th className="px-3 py-2">Product</th>
             <th className="px-3 py-2 text-right">Qty</th>
             <th className="px-3 py-2 text-right">Gross</th>
-            <th className="px-3 py-2 text-right text-emerald-800">Earned</th>
+            <th className="px-3 py-2 text-right text-emerald-800">Commission</th>
+            <th className="px-3 py-2 text-center">Status</th>
             <th className="px-3 py-2 text-center w-12">Trace</th>
           </tr>
         </thead>
@@ -787,6 +800,16 @@ function CommissionDrillDown({
           {lines.map((ln, index) => {
             const hasPayableCommission =
               parseMoneyToCents(ln.calculated_commission) !== 0;
+            const statusLabel =
+              ln.event_type === "booked_not_fulfilled"
+                ? "Open pipeline"
+                : ln.event_type === "fulfilled_pending_event"
+                  ? "Earned · event pending"
+                  : ln.event_type === "return_adjustment"
+                    ? "Return adjustment"
+                    : ln.event_type === "manual_adjustment"
+                      ? "Manual adjustment"
+                      : "Earned";
             return (
               <tr
                 key={ln.event_id ?? ln.transaction_line_id ?? `${ln.event_type}-${index}`}
@@ -810,6 +833,9 @@ function CommissionDrillDown({
                 <td className="px-3 py-2 text-right font-mono font-black text-emerald-700">
                   {money(ln.calculated_commission)}
                 </td>
+                <td className="px-3 py-2 text-center text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  {statusLabel}
+                </td>
                 <td className="px-3 py-2 text-center">
                   {ln.event_id ? (
                     <button
@@ -824,12 +850,18 @@ function CommissionDrillDown({
                     <span
                       className="text-[9px] font-bold uppercase tracking-widest text-app-text-muted/50"
                       title={
-                        hasPayableCommission
+                        ln.event_type === "fulfilled_pending_event" && hasPayableCommission
                           ? "Fulfilled line has payable commission but no event row yet."
-                          : "Fulfilled line has no payable commission because no rate or active rule applied."
+                          : ln.event_type === "booked_not_fulfilled"
+                            ? "Open pipeline lines are not earned commission."
+                            : "Line has no payable commission because no rate or active rule applied."
                       }
                     >
-                      {hasPayableCommission ? "Pending" : "No rate"}
+                      {ln.event_type === "fulfilled_pending_event" && hasPayableCommission
+                        ? "Pending"
+                        : ln.event_type === "booked_not_fulfilled"
+                          ? "—"
+                          : "No rate"}
                     </span>
                   )}
                 </td>

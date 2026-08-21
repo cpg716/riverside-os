@@ -195,6 +195,14 @@ fn range_bounds(q: &DateRangeQuery) -> (DateTime<Utc>, DateTime<Utc>) {
     (start, end)
 }
 
+fn local_date_range_bounds(q: &DateRangeQuery) -> (NaiveDate, NaiveDate) {
+    let end =
+        q.to.map(|date| date + Duration::days(1))
+            .unwrap_or_else(|| Utc::now().date_naive() + Duration::days(1));
+    let start = q.from.unwrap_or_else(|| end - Duration::days(90));
+    (start, end)
+}
+
 fn default_insights_report_basis() -> String {
     "booked".to_string()
 }
@@ -612,6 +620,8 @@ pub struct CommissionLedgerRow {
     pub base_commission_amount: Decimal,
     /// Fixed SPIFF/combo incentive dollars in the selected recognition period.
     pub spiff_commission_amount: Decimal,
+    /// Paid, recognized merchandise sales used as the commission base.
+    pub commissionable_sales_amount: Decimal,
     /// Earned sale count in the selected recognition period.
     pub earned_sale_count: i64,
     /// Current staff commission rate for payroll review context.
@@ -638,7 +648,7 @@ async fn commission_ledger(
             }
         })?;
 
-    let (start, end) = range_bounds(&q);
+    let (start, end) = local_date_range_bounds(&q);
     let line_rec = transaction_line_recognition_ts_sql();
     let sql = format!(
         r#"
@@ -649,13 +659,20 @@ async fn commission_ledger(
             COALESCE(
               SUM(oi.calculated_commission) FILTER (
                 WHERE NOT oi.is_fulfilled
-                  AND o.booked_at >= $1
-                  AND o.booked_at < $2
+                  AND COALESCE(
+                    o.business_date,
+                    (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  ) >= $1
+                  AND COALESCE(
+                    o.business_date,
+                    (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  ) < $2
               ), 0
             )::numeric(14, 2) AS unpaid_commission,
             0::numeric(14, 2) AS realized_pending_payout,
             0::numeric(14, 2) AS base_commission_amount,
             0::numeric(14, 2) AS spiff_commission_amount,
+            0::numeric(14, 2) AS commissionable_sales_amount,
             0::bigint AS earned_sale_count
           FROM transaction_lines oi
           INNER JOIN transactions o ON o.id = oi.transaction_id
@@ -673,6 +690,21 @@ async fn commission_ledger(
             COALESCE(SUM(ce.total_commission_amount), 0)::numeric(14, 2) AS realized_pending_payout,
             COALESCE(SUM(ce.base_commission_amount), 0)::numeric(14, 2) AS base_commission_amount,
             COALESCE(SUM(ce.incentive_amount), 0)::numeric(14, 2) AS spiff_commission_amount,
+            COALESCE(SUM(
+              CASE
+                WHEN ce.event_type = 'return_adjustment' THEN
+                  CASE
+                    WHEN ce.commissionable_amount <> 0 THEN ce.commissionable_amount
+                    ELSE -ROUND(
+                      COALESCE(oi.unit_price, 0)
+                      * COALESCE(NULLIF(ce.snapshot_json->>'returned_quantity', '')::numeric, 0),
+                      2
+                    )
+                  END
+                WHEN ce.event_type = 'sale_commission' THEN ce.commissionable_amount
+                ELSE 0
+              END
+            ), 0)::numeric(14, 2) AS commissionable_sales_amount,
             COUNT(DISTINCT ce.transaction_id) FILTER (
               WHERE ce.transaction_id IS NOT NULL
                 AND ce.total_commission_amount <> 0
@@ -680,9 +712,29 @@ async fn commission_ledger(
             )::bigint AS earned_sale_count
           FROM commission_events ce
           LEFT JOIN transaction_lines oi ON oi.id = ce.transaction_line_id
+          LEFT JOIN transactions o ON o.id = ce.transaction_id
           LEFT JOIN product_variants pv ON pv.id = oi.variant_id
           LEFT JOIN staff st ON st.id = ce.staff_id
-          WHERE ce.event_at >= $1 AND ce.event_at < $2
+          WHERE (
+              CASE
+                WHEN ce.event_type = 'manual_adjustment' THEN ce.reporting_date
+                ELSE (ce.event_at AT TIME ZONE reporting.effective_store_timezone())::date
+              END
+            ) >= $1
+            AND (
+              CASE
+                WHEN ce.event_type = 'manual_adjustment' THEN ce.reporting_date
+                ELSE (ce.event_at AT TIME ZONE reporting.effective_store_timezone())::date
+              END
+            ) < $2
+            AND (
+              ce.transaction_id IS NULL
+              OR (
+                o.id IS NOT NULL
+                AND o.balance_due IS NOT NULL
+                AND ROUND(o.balance_due, 2) <= 0
+              )
+            )
             AND (
               ce.transaction_line_id IS NULL
               OR UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
@@ -702,7 +754,10 @@ async fn commission_ledger(
                   SELECT h.base_commission_rate
                   FROM staff_commission_rate_history h
                   WHERE h.staff_id = oi.salesperson_id
-                    AND h.effective_start_date <= COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)::date
+                    AND h.effective_start_date <= (
+                      COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)
+                      AT TIME ZONE reporting.effective_store_timezone()
+                    )::date
                   ORDER BY h.effective_start_date DESC, h.created_at DESC
                   LIMIT 1
                 ), st.base_commission_rate, 0), 2)
@@ -715,12 +770,21 @@ async fn commission_ledger(
                   SELECT h.base_commission_rate
                   FROM staff_commission_rate_history h
                   WHERE h.staff_id = oi.salesperson_id
-                    AND h.effective_start_date <= COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)::date
+                    AND h.effective_start_date <= (
+                      COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)
+                      AT TIME ZONE reporting.effective_store_timezone()
+                    )::date
                   ORDER BY h.effective_start_date DESC, h.created_at DESC
                   LIMIT 1
                 ), st.base_commission_rate, 0), 2)
               END
             ), 0)::numeric(14, 2) AS spiff_commission_amount,
+            COALESCE(SUM(
+              CASE
+                WHEN COALESCE(oi.is_internal, FALSE) THEN 0
+                ELSE oi.unit_price * oi.quantity
+              END
+            ), 0)::numeric(14, 2) AS commissionable_sales_amount,
             COUNT(DISTINCT o.id)::bigint AS earned_sale_count
           FROM transaction_lines oi
           INNER JOIN transactions o ON o.id = oi.transaction_id
@@ -730,9 +794,17 @@ async fn commission_ledger(
             AND oi.is_fulfilled = TRUE
             AND oi.salesperson_id IS NOT NULL
             AND oi.calculated_commission <> 0
+            AND o.balance_due IS NOT NULL
+            AND ROUND(o.balance_due, 2) <= 0
             AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-            AND COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) >= $1
-            AND COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) < $2
+            AND (
+              COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)
+              AT TIME ZONE reporting.effective_store_timezone()
+            )::date >= $1
+            AND (
+              COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)
+              AT TIME ZONE reporting.effective_store_timezone()
+            )::date < $2
             AND NOT EXISTS (
               SELECT 1
               FROM commission_events ce
@@ -749,6 +821,7 @@ async fn commission_ledger(
           SUM(realized_pending_payout)::numeric(14, 2) AS realized_pending_payout,
           SUM(base_commission_amount)::numeric(14, 2) AS base_commission_amount,
           SUM(spiff_commission_amount)::numeric(14, 2) AS spiff_commission_amount,
+          SUM(commissionable_sales_amount)::numeric(14, 2) AS commissionable_sales_amount,
           SUM(earned_sale_count)::bigint AS earned_sale_count
         FROM (
           SELECT * FROM pipeline
@@ -767,6 +840,7 @@ async fn commission_ledger(
           g.realized_pending_payout,
           g.base_commission_amount,
           g.spiff_commission_amount,
+          g.commissionable_sales_amount,
           g.earned_sale_count,
           COALESCE(current_rate.base_commission_rate, st.base_commission_rate, 0)::numeric(8, 4) AS current_commission_rate,
           COALESCE(current_rate.effective_start_date, st.employment_start_date) AS current_commission_rate_since
@@ -834,7 +908,7 @@ async fn commission_lines(
             }
         })?;
 
-    let (start, end) = range_bounds(&q.range);
+    let (start, end) = local_date_range_bounds(&q.range);
     let line_rec = transaction_line_recognition_ts_sql();
     let sql = format!(
         r#"
@@ -849,7 +923,15 @@ async fn commission_lines(
             COALESCE(p.name, ce.snapshot_json->>'product_name', 'Manual adjustment') AS product_name,
             0::numeric(14, 2) AS unit_price,
             1::numeric(14, 2) AS quantity,
-            ce.commissionable_amount AS line_gross,
+            CASE
+              WHEN ce.event_type = 'return_adjustment' AND ce.commissionable_amount = 0
+                THEN -ROUND(
+                  COALESCE(oi.unit_price, 0)
+                  * COALESCE(NULLIF(ce.snapshot_json->>'returned_quantity', '')::numeric, 0),
+                  2
+                )
+              ELSE ce.commissionable_amount
+            END::numeric(14, 2) AS line_gross,
             ce.total_commission_amount AS calculated_commission,
             TRUE AS is_fulfilled,
             ce.event_at AS fulfilled_at,
@@ -860,8 +942,26 @@ async fn commission_lines(
           LEFT JOIN products p ON p.id = oi.product_id
           LEFT JOIN product_variants pv ON pv.id = oi.variant_id
           WHERE ($1 IS NULL OR ce.staff_id = $1)
-            AND ce.event_at >= $2
-            AND ce.event_at < $3
+            AND (
+              CASE
+                WHEN ce.event_type = 'manual_adjustment' THEN ce.reporting_date
+                ELSE (ce.event_at AT TIME ZONE reporting.effective_store_timezone())::date
+              END
+            ) >= $2
+            AND (
+              CASE
+                WHEN ce.event_type = 'manual_adjustment' THEN ce.reporting_date
+                ELSE (ce.event_at AT TIME ZONE reporting.effective_store_timezone())::date
+              END
+            ) < $3
+            AND (
+              ce.transaction_id IS NULL
+              OR (
+                o.id IS NOT NULL
+                AND o.balance_due IS NOT NULL
+                AND ROUND(o.balance_due, 2) <= 0
+              )
+            )
             AND (
               ce.transaction_line_id IS NULL
               OR UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
@@ -892,9 +992,17 @@ async fn commission_lines(
             AND oi.salesperson_id IS NOT NULL
             AND ($1 IS NULL OR oi.salesperson_id = $1)
             AND oi.calculated_commission <> 0
+            AND o.balance_due IS NOT NULL
+            AND ROUND(o.balance_due, 2) <= 0
             AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-            AND COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) >= $2
-            AND COALESCE(({line_rec}), o.fulfilled_at, o.booked_at) < $3
+            AND (
+              COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)
+              AT TIME ZONE reporting.effective_store_timezone()
+            )::date >= $2
+            AND (
+              COALESCE(({line_rec}), o.fulfilled_at, o.booked_at)
+              AT TIME ZONE reporting.effective_store_timezone()
+            )::date < $3
             AND NOT EXISTS (
               SELECT 1
               FROM commission_events ce
@@ -930,8 +1038,14 @@ async fn commission_lines(
             )
             AND oi.calculated_commission <> 0
             AND UPPER(TRIM(COALESCE(pv.sku, ''))) NOT IN ('SHIPPING', 'ROS-SHIPPING-FEE')
-            AND o.booked_at >= $2
-            AND o.booked_at < $3
+            AND COALESCE(
+              o.business_date,
+              (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+            ) >= $2
+            AND COALESCE(
+              o.business_date,
+              (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+            ) < $3
         )
         SELECT * FROM event_rows
         UNION ALL
@@ -4722,6 +4836,21 @@ mod tests {
     use sqlx::PgPool;
     use std::sync::Arc;
     use tokio::sync::Mutex;
+
+    #[test]
+    fn local_date_range_includes_the_selected_end_day() {
+        let selected = NaiveDate::from_ymd_opt(2026, 7, 31).expect("valid date");
+        let (start, end) = local_date_range_bounds(&DateRangeQuery {
+            from: Some(selected),
+            to: Some(selected),
+        });
+
+        assert_eq!(start, selected);
+        assert_eq!(
+            end,
+            NaiveDate::from_ymd_opt(2026, 8, 1).expect("valid date")
+        );
+    }
 
     async fn connect_test_db() -> PgPool {
         let _ =
