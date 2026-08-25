@@ -271,6 +271,16 @@ test("Podium inbox keeps unknown senders in the regular conversation flow", () =
   expect(podiumInbox).toContain(
     'return row.contact_identifier?.trim() || "Unknown sender"',
   );
+  expect(podiumMessaging).toContain("pub customer_phone: Option<String>");
+  expect(podiumMessaging).toContain("AS customer_phone");
+  expect(podiumInbox).toContain("function customerContactDetails");
+  expect(podiumInbox).toContain("formatPhone(row.customer_phone)");
+  expect(podiumInbox).toContain("{customerContactDetails(r)}");
+  expect(podiumInbox).toContain("{customerContactDetails(selectedRow)}");
+  expect(podiumInbox).toContain(
+    "https://app.podium.com/inbox/redirect-messages/",
+  );
+  expect(podiumInbox).toContain("Open in Podium");
   expect(podiumInbox).toContain("Match Customer");
   expect(podiumInbox).toContain("Add Customer");
   expect(podiumInbox).toContain("<AddCustomerDrawer");
@@ -367,6 +377,7 @@ test("Podium call webhooks appear as durable conversation activity", () => {
     "call.voicemail_left",
   ]) {
     expect(podiumLogic).toContain(`"${eventType}"`);
+    expect(podiumCalls).toContain(`"${eventType}"`);
     expect(podiumCallMigration).toContain(`'${eventType}'`);
   }
   expect(podiumWebhook).toContain("podium_calls::apply_call_webhook");

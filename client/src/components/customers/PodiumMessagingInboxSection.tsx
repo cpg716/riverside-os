@@ -29,6 +29,7 @@ import {
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useNotificationCenterOptional } from "../../context/NotificationCenterContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { formatPhone } from "../../lib/utils";
 import type { Customer } from "../pos/CustomerSelector";
 import { AddCustomerDrawer } from "./CustomersWorkspace";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
@@ -57,6 +58,7 @@ type InboxRow = {
   customer_code: string | null;
   first_name: string | null;
   last_name: string | null;
+  customer_phone: string | null;
   unmatched_id: string | null;
   contact_identifier: string | null;
   channel: string;
@@ -186,6 +188,15 @@ type DirectSmsCustomerResult = {
 function customerName(row: InboxRow) {
   if (!row.customer_id) return row.contact_identifier?.trim() || "Unknown sender";
   return `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Customer";
+}
+
+function customerContactDetails(row: InboxRow) {
+  if (!row.customer_id) {
+    return formatPhone(row.contact_identifier)?.trim() || "Podium sender";
+  }
+  const phone = formatPhone(row.customer_phone)?.trim() || "not on file";
+  const customerNumber = row.customer_code?.trim() || "not assigned";
+  return `Phone ${phone} · Customer # ${customerNumber}`;
 }
 
 function initials(row: InboxRow) {
@@ -489,6 +500,7 @@ export default function PodiumMessagingInboxSection({
         row.first_name,
         row.last_name,
         row.customer_code,
+        row.customer_phone,
         row.contact_identifier,
         row.channel,
         row.snippet,
@@ -1298,6 +1310,10 @@ export default function PodiumMessagingInboxSection({
   ].sort(
     (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime(),
   );
+  const selectedPodiumConversationUid = selectedRow?.podium_conversation_uid?.trim();
+  const selectedPodiumConversationHref = selectedPodiumConversationUid
+    ? `https://app.podium.com/inbox/redirect-messages/${encodeURIComponent(selectedPodiumConversationUid)}`
+    : null;
   const SelectedActivityIcon = selectedRow ? activityIcon(selectedRow) : MessageCircle;
   const callEventsMissing = health !== null && health.local_call_event_count === 0;
   const historyNeedsAttention = !syncBusy && Boolean(syncIssue);
@@ -1707,9 +1723,13 @@ export default function PodiumMessagingInboxSection({
                           return <Icon size={12} aria-hidden />;
                         })()}
                         <span>{activityLabel(r)}</span>
-                        <span>·</span>
-                        <span>{r.customer_code ?? r.contact_identifier ?? "Podium sender"}</span>
                       </div>
+                      <p
+                        className="mt-0.5 truncate text-[10px] font-semibold text-app-text-muted"
+                        title={customerContactDetails(r)}
+                      >
+                        {customerContactDetails(r)}
+                      </p>
                       {r.snippet ? (
                         <p className="mt-1 line-clamp-2 text-xs font-semibold leading-relaxed text-app-text-muted">
                           {r.snippet}
@@ -1745,6 +1765,12 @@ export default function PodiumMessagingInboxSection({
                       <h2 className="truncate text-lg font-black text-app-text">
                         {customerName(selectedRow)}
                       </h2>
+                      <p
+                        className="truncate text-xs font-semibold text-app-text-muted"
+                        title={customerContactDetails(selectedRow)}
+                      >
+                        {customerContactDetails(selectedRow)}
+                      </p>
                       <p className="flex items-center gap-2 text-xs font-semibold text-app-text-muted">
                         <SelectedActivityIcon size={13} aria-hidden />
                         {activityLabel(selectedRow)} · Last activity {relativeTime(selectedRow.last_message_at)}
@@ -1860,6 +1886,17 @@ export default function PodiumMessagingInboxSection({
                         <UserCircle size={14} aria-hidden />
                         Open Customer
                       </button>
+                    ) : null}
+                    {selectedPodiumConversationHref ? (
+                      <a
+                        href={selectedPodiumConversationHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                      >
+                        <ExternalLink size={14} aria-hidden />
+                        Open in Podium
+                      </a>
                     ) : null}
                   </div>
                 </div>

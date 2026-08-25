@@ -29,8 +29,8 @@ In Operations and POS, this surface is for communications follow-up only. It is 
 ## How to use it
 
 1. Open **Operations** → **Podium Inbox** or **POS** → **Podium Inbox**.
-2. Use the conversation search and the **Open**, **Needs reply**, **Unread**, or **Closed** filter to find the conversation. When a phone number is not linked to a Riverside customer, that number is the conversation's main label. **Unknown sender** appears only when Podium supplies no usable identifier.
-3. Open a row to read the chronological thread. Calls appear as call cards, and reviews attributed to that customer's Riverside review invitation appear as review cards. Review cards show the rating, comment, provider, response status, and Riverside's latest response when Podium supplies it. Opening the row marks that conversation read.
+2. Use the conversation search and the **Open**, **Needs reply**, **Unread**, or **Closed** filter to find the conversation. A linked customer row shows the customer's name, formatted phone number, and Riverside customer number. When a phone number is not linked to a Riverside customer, that number is the conversation's main label. **Unknown sender** appears only when Podium supplies no usable identifier.
+3. Open a row to read the chronological thread. The conversation header repeats the linked customer's name, phone number, and Riverside customer number so staff can verify the recipient before replying. Calls appear as call cards, and reviews attributed to that customer's Riverside review invitation appear as review cards. Review cards show the rating, comment, provider, response status, and Riverside's latest response when Podium supplies it. Opening the row marks that conversation read.
 4. Use **Assigned to** in the conversation header to assign the thread to a staff member or choose **Unassigned**. The list includes only active Riverside staff profiles with a **Linked Podium Staff Member**. The assignment saves in Podium immediately and does not send a reply.
 5. Check **Replying as** above the composer. Riverside remembers that staff member for this conversation, so ordinary replies need no additional PIN or confirmation.
 6. To change the responder, choose another active staff member with a **Linked Podium Staff Member**. The selected person enters their own **Access PIN** once; future replies keep that name until someone changes it again.
@@ -38,7 +38,7 @@ In Operations and POS, this surface is for communications follow-up only. It is 
 8. Use **Mark unread** when another staff member still needs to review the conversation. Use row checkboxes to mark several conversations read or unread together.
 9. Use **Close** to move a conversation into Podium's closed/archive state. Find it under **Closed** and choose **Reopen** when follow-up resumes. Group Close/Reopen reports partial provider failures.
 10. Choose **New message** only when starting a separate text; the customer/phone form stays hidden during normal inbox work.
-11. Use **Open Customer** when the conversation changes an order, pickup, alteration, shipment, or wedding party plan.
+11. Use **Open Customer** when the conversation changes an order, pickup, alteration, shipment, or wedding party plan. Use **Open in Podium** to open the exact provider conversation in a new browser tab when Podium has supplied its conversation ID.
 12. For an unmatched phone number, reply in the existing conversation when immediate follow-up is appropriate. Riverside uses the destination stored on that exact conversation and keeps the reply in its history. Choose **Match Customer** or **Add Customer** only after staff can verify identity; linking is optional for replying.
 
 ## Operational detail
@@ -64,6 +64,7 @@ The sidebar badge counts the same open unread conversations shown here, rather t
 - A Podium `403 Invalid scopes for the given event types` response concerns the Riverside OAuth developer app token, not the signed-in person's Riverside permissions or Podium Owner/Admin role. Call events require the app's **Read phones** (`read_phones`) scope. After that scope is enabled for the Riverside developer app, reconnect Riverside once so the new OAuth token receives it, then update the webhook again. The new grant takes effect immediately; a Main Hub restart is not required.
 - **History current** means the stored provider-backed conversation histories are marked complete. **Historical gap recorded** is retained evidence that one or more stored histories are not marked complete; Status shows the exact count without implying that current messages are failing. **History pull failed** is actionable and raises the needs-attention warning.
 - When search returns more than one plausible customer, verify the phone or email owner; do not select a record solely because it is newest.
+- A **Podium Contact** profile with a **Conflict** status remains unchanged when more than one customer matches the provider identity. An outgoing greeting is not enough evidence to rename or merge the linked customer; resolve the duplicate phone/email ownership first, then sync again.
 
 ## What happens next
 

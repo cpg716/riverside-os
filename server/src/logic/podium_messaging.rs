@@ -41,6 +41,7 @@ pub struct PodiumInboxRow {
     pub customer_code: Option<String>,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
+    pub customer_phone: Option<String>,
     pub unmatched_id: Option<Uuid>,
     pub contact_identifier: Option<String>,
     pub channel: String,
@@ -354,6 +355,7 @@ pub async fn list_messaging_inbox(
             c.customer_code,
             c.first_name,
             c.last_name,
+            COALESCE(NULLIF(BTRIM(c.phone), ''), pc.contact_phone_e164) AS customer_phone,
             unmatched.id AS unmatched_id,
             COALESCE(
                 unmatched.identifier,
