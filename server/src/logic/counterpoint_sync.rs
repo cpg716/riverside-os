@@ -3338,10 +3338,49 @@ fn parse_dob(raw: &str) -> Option<NaiveDate> {
         .or_else(|| NaiveDate::parse_from_str(t, "%m/%d/%Y").ok())
 }
 
+fn parse_counterpoint_joint_name(raw: &str) -> Option<(String, String, String)> {
+    let normalized = collapse_whitespace(raw);
+    if normalized.contains(',') || normalized.matches('&').count() != 1 {
+        return None;
+    }
+
+    let (primary_first, partner_and_last) = normalized.split_once(" & ")?;
+    let (partner_first, shared_last) = partner_and_last.split_once(' ')?;
+    if primary_first.is_empty() || partner_first.is_empty() || shared_last.is_empty() {
+        return None;
+    }
+
+    Some((
+        format!("{primary_first} & {partner_first}"),
+        shared_last.to_string(),
+        primary_first.to_string(),
+    ))
+}
+
 fn resolve_names(row: &CounterpointCustomerRow, code: &str) -> (String, String, Option<String>) {
     let company = trim_opt(&row.company_name);
     let mut first = trim_opt(&row.first_name).unwrap_or_default();
     let mut last = trim_opt(&row.last_name).unwrap_or_default();
+
+    let explicit_name = collapse_whitespace(&format!("{first} {last}"));
+    if let Some((joint_first, joint_last, _)) = parse_counterpoint_joint_name(&explicit_name) {
+        first = joint_first;
+        last = joint_last;
+    } else if let Some(full_name) = trim_opt(&row.full_name) {
+        if let Some((joint_first, joint_last, primary_first)) =
+            parse_counterpoint_joint_name(&full_name)
+        {
+            let first_matches = first.is_empty() || first.eq_ignore_ascii_case(&primary_first);
+            let last_matches = last.is_empty()
+                || last.eq_ignore_ascii_case(&joint_last)
+                || explicit_name.eq_ignore_ascii_case(&collapse_whitespace(&full_name));
+            if first_matches && last_matches {
+                first = joint_first;
+                last = joint_last;
+            }
+        }
+    }
+
     if first.is_empty() && last.is_empty() {
         if let Some(ref nam) = trim_opt(&row.full_name) {
             if let Some((a, b)) = nam.split_once(',') {
@@ -17685,6 +17724,65 @@ mod tests {
         tokio::sync::Mutex::const_new(());
     static COUNTERPOINT_HEALTH_TEST_LOCK: tokio::sync::Mutex<()> =
         tokio::sync::Mutex::const_new(());
+
+    fn counterpoint_name_row(
+        first_name: Option<&str>,
+        last_name: Option<&str>,
+        full_name: Option<&str>,
+    ) -> CounterpointCustomerRow {
+        serde_json::from_value(serde_json::json!({
+            "cust_no": "CP-JOINT-NAME",
+            "first_name": first_name,
+            "last_name": last_name,
+            "full_name": full_name
+        }))
+        .expect("deserialize Counterpoint customer name fixture")
+    }
+
+    #[test]
+    fn counterpoint_customer_name_resolver_normalizes_split_joint_household_name() {
+        let row = counterpoint_name_row(
+            Some("Sam"),
+            Some("& Renee Smith"),
+            Some("Sam & Renee Smith"),
+        );
+
+        assert_eq!(
+            resolve_names(&row, "CP-JOINT-NAME"),
+            ("Sam & Renee".into(), "Smith".into(), None)
+        );
+    }
+
+    #[test]
+    fn counterpoint_customer_name_resolver_uses_joint_full_name_when_fields_omit_partner() {
+        let row =
+            counterpoint_name_row(Some("Sam"), Some("Van Dyke"), Some("Sam & Renee Van Dyke"));
+
+        assert_eq!(
+            resolve_names(&row, "CP-JOINT-NAME"),
+            ("Sam & Renee".into(), "Van Dyke".into(), None)
+        );
+    }
+
+    #[test]
+    fn counterpoint_customer_name_resolver_normalizes_joint_full_name_only() {
+        let row = counterpoint_name_row(None, None, Some("Sam & Renee Smith"));
+
+        assert_eq!(
+            resolve_names(&row, "CP-JOINT-NAME"),
+            ("Sam & Renee".into(), "Smith".into(), None)
+        );
+    }
+
+    #[test]
+    fn counterpoint_customer_name_resolver_does_not_invent_joint_surname() {
+        let row = counterpoint_name_row(None, None, Some("Sam & Renee"));
+
+        assert_eq!(
+            resolve_names(&row, "CP-JOINT-NAME"),
+            ("Sam".into(), "& Renee".into(), None)
+        );
+    }
 
     #[test]
     fn counterpoint_category_tax_classifier_defaults_to_clothing_footwear() {

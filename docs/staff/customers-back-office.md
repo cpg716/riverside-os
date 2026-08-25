@@ -54,6 +54,8 @@ In **History**, activity recorded in the same second appears as one dated card w
 
 The same Add Customer intake is used from POS when staff search by a name, phone, or email that does not exist. The same address behavior is used in the Relationship hub **Profile** tab: suggested addresses are a helper only, and manual entry remains valid.
 
+For one shared household account such as **Sam & Renee Smith**, keep both given names together in **First name** (`Sam & Renee`) and the shared surname in **Last name** (`Smith`). Counterpoint household accounts are corrected to this same shape. Do not merge profiles or use **Link a Partner** only to represent the second name; use linked profiles when each person needs separate contact details, messaging consent, measurements, or notes.
+
 ## RMS Charge (linked accounts and reporting)
 
 1. **Customers** → **RMS Charge**.

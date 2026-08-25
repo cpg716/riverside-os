@@ -69,6 +69,8 @@ Wedding split deposits are visible on the beneficiary member's customer profile.
 
 ## Linked profiles
 
+A shared household account such as **Sam & Renee Smith** can remain one profile: **First name** is `Sam & Renee` and **Last name** is `Smith`. Counterpoint household accounts use this same shape. Do not merge profiles or link a partner only to represent the second name.
+
 Use **Link a Partner** to search for an existing Riverside customer first. If the partner does not already have a customer profile, use **Add new customer instead** to create and link the new record.
 
 When two profiles are linked, use **Person view** to switch between each person. Profile details, measurements, Podium SMS, mailbox email, and contact preferences stay tied to the selected person. Transaction Records, purchase history, and loyalty are shared while the profiles remain linked.

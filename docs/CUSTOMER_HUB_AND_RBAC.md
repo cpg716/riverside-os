@@ -37,6 +37,12 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
 
 ---
 
+## Household names versus linked profiles
+
+A shared legacy customer name such as `Sam & Renee Smith` can remain one household profile. Its ROS field shape is `first_name = 'Sam & Renee'` and `last_name = 'Smith'`; this preserves the complete searchable/display name without creating or merging another customer.
+
+Use **Link a Partner** only when each person needs an individual profile for contact details, messaging consent, measurements, notes, or profile switching. Linking is a relationship between two customer records and is not required merely because a single Counterpoint account names both people.
+
 ## Joint Couple Accounts (migration **110**)
 
 - **Linking Strategy**: Two customers can be linked to form a **Couple Account**. One member is designated as the `couple_primary_id` (effectively the root financial record).

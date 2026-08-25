@@ -307,7 +307,8 @@ Imported staff have **no PIN** (`pin_hash = NULL`) and cannot log in to the Back
 | Counterpoint column | ROS column | Notes |
 |---------------------|------------|-------|
 | `CUST_NO` | `customer_code` | Primary match key; supports fuzzy prefix matching (e.g. `C-`) |
-| `NAM` | — | Primary visual anchor; parsed into first/last |
+| `FST_NAM`, `LST_NAM` | `first_name`, `last_name` | Preferred structured name fields |
+| `NAM` | — | Full-name evidence and fallback when structured fields are incomplete |
 | **Lifetime Sales** | — | **Calculated via Aggregation**: ROS computes lifetime spend by summing all imported tickets since Jan 1, 2018 |
 | `EMAIL_ADRS_1` | `email` | Unique constraint; skipped on conflict (logged as `email_conflicts`) |
 | `PHONE_1` | `phone` | Clamped to 20 chars |
@@ -318,6 +319,8 @@ Imported staff have **no PIN** (`pin_hash = NULL`) and cannot log in to the Back
 | `SLS_REP` | `preferred_salesperson_id` | Resolved via `counterpoint_staff_map` (sync staff first) |
 
 **Provenance & Lifetime Value:** New customers created by this sync get `customer_created_source = 'counterpoint'`. Riverside OS does **not** use a static `lifetime_sales` column from Counterpoint. It derives spend from imported ticket history that actually lands in ROS.
+
+**Joint household names:** A single Counterpoint customer written as `Sam & Renee Smith` remains one ROS household profile. ROS stores `Sam & Renee` in `first_name` and `Smith` in `last_name`, whether the bridge receives the pattern through `FST_NAM` / `LST_NAM` or unsplit `NAM`. This is not the Customer Hub **Link a Partner** feature: no second customer is created, no profiles are merged, and the Counterpoint `CUST_NO` remains the one authoritative customer key. Migration `212_normalize_counterpoint_joint_customer_names.sql` repairs only active Counterpoint-created rows whose current name exactly matches the latest completed, landed raw source row and records the before/after source proof in `counterpoint_customer_name_repair_audit`.
 
 **Current bridge default:** the supported bridge setup keeps `.env` to `ROS_BASE_URL`, `COUNTERPOINT_SYNC_TOKEN`, and `SQL_CONNECTION_STRING`. For Riverside's NCR Counterpoint POS v8.4 environment, the bridge probes `INFORMATION_SCHEMA` and builds runtime extraction SQL for the live company database.
 **Open Documents:** Runtime mappings for open documents pull the active backlog (Layaways, Quotes, Special Orders) when the `PS_DOC*` tables are visible.
