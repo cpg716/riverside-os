@@ -74,6 +74,8 @@ The Product Hub panel is a visibility surface. It uses current server-computed v
   The vendor or supplier identifier used for NuORDER, purchase orders, catalog import, and receiving paperwork.
 - `Counterpoint item #`
   A Counterpoint-assigned internal item number such as `I-103067`. Do not treat this as the vendor style/catalog number.
+- `Main item / style #`
+  The parent identifier shown with Name, Brand, and Category. Riverside shows the vendor/catalog style when one exists; otherwise it shows the Counterpoint parent item number.
 
 Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Product Hub shows sales and open-order context for those items instead of on-hand and available quantities.
 
@@ -95,7 +97,7 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 14. Open **Stock Report** to review every variation's current quantity, last sold date, average monthly unit sales, and average yearly unit sales, then select **Print Report**.
 15. Select **Analyze product** only when you want the optional read-only ROSIE catalog review. Product Hub does not run that analysis automatically when the drawer opens.
 16. In **Item Setup** and **SKUs & Stock**, read `Average cost` as the financial basis and `Last cost` as purchasing reference only.
-17. On a variation card, leave tag quantity at `1` and select **Print tag x 1** for one tag. Enter a larger quantity and select the same button, or press Enter in the quantity field, to print that many identical tags. Repeated button presses remain separate print jobs.
+17. On a variation card, leave **Tag copies** at `1` and select **Print 1 tag** for one tag. Enter a larger copy count and select the same button, or press Enter in the copy field, to print that many identical tags. Repeated button presses remain separate print jobs.
 
 ## Parent stock and sales report
 

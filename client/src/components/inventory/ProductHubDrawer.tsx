@@ -1468,6 +1468,12 @@ export default function ProductHubDrawer({
                     </dd>
                   </div>
                   <div>
+                    <dt className="text-app-text-muted">Main item / style #</dt>
+                    <dd className="font-mono font-bold text-app-text">
+                      {productCatalogNumber ?? counterpointItemNumber ?? "—"}
+                    </dd>
+                  </div>
+                  <div>
                     <dt className="text-app-text-muted">Category</dt>
                     <dd className="font-bold text-app-text">
                       {hub.product.category_name ?? "—"}

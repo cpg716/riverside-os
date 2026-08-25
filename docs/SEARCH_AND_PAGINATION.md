@@ -101,11 +101,12 @@ Meilisearch client and count/freshness verification behavior.
 
 **Semantics:** Filters (`search`, `category_id`, `vendor_id`, `product_id`, `brand`, OOS/low, clothing-only, unlabeled, `min_line_value`, etc.) are applied **in SQL** (`WHERE` / `JOIN`), then **`LIMIT` / `OFFSET`**.
 
-- **Browse / no text `search`:** rows are ordered **`ORDER BY p.name ASC, pv.sku ASC, pv.id ASC`** (stable grid behavior with a unique final tie-breaker).
-- **Text `search` non-empty:** rows are ordered by **parent-product popularity** first, then name/SKU:
+- **Browse / no text `search`:** rows are interleaved by parent product, then ordered by **`p.name ASC, pv.sku ASC, pv.id ASC`** within each pass (stable grid behavior with a unique final tie-breaker).
+- **Text `search` non-empty:** rows are interleaved by parent product, then ordered by **parent-product popularity** and name/SKU:
   - **`units_sold_trailing` DESC** — gross units sold in the trailing window (**45 days** of `orders.booked_at`), summed **`GROUP BY order_items.product_id`** (all variants of the product share one score). **Cancelled** orders (`status = cancelled`) are excluded. Constant: `CONTROL_BOARD_SEARCH_SALES_WINDOW_DAYS` in `server/src/api/products.rs`.
   - Tie-break: **`p.name ASC, pv.sku ASC, pv.id ASC`**.
-- **Meilisearch:** when enabled and **`search`** is set, the server resolves matching **variant ids** in Meilisearch (with safe filter facets), then restricts SQL to **`pv.id = ANY(...)`** and applies the **same sort** as the SQL-only path (popularity when searching, so typo-tolerant matches still surface best-moving **styles** higher). The response JSON does not expose `units_sold_trailing` (`#[serde(skip_serializing)]`).
+- **Meilisearch:** when enabled and **`search`** is set, the server resolves matching **variant ids** in Meilisearch (with safe filter facets) for typo-tolerant ranking, then unions those candidates with the complete escaped-literal PostgreSQL match before applying authoritative vendor/category/stock filters. A fixed candidate window can therefore improve order but cannot hide a matching product family. PostgreSQL matching includes primary vendor and category names in addition to identifiers and product/variation fields. The response JSON does not expose `units_sold_trailing` (`#[serde(skip_serializing)]`).
+- **Parent paging and totals:** results are interleaved by product family before later variations from the same family. Each returned row also carries authoritative parent-wide stock, availability, cost value, price ranges, label state, web state, and hidden-variation totals, so the parent card does not change merely because only part of a large variation matrix is loaded.
 
 The **`oos_low_only`** / low-stock **filter** here is independent of **notification** opt-in: admin morning low-stock alerts use **`products.track_low_stock`** and **`product_variants.track_low_stock`** (product hub) plus **`reorder_point`** — see **`docs/PLAN_NOTIFICATION_CENTER.md`**.  
 Older builds applied a fixed row cap **before** substring filtering, which hid most SKUs in very large catalogs from Back Office search and POS (**Register** cart) Meilisearch; that pattern is removed.
@@ -120,7 +121,7 @@ Older builds applied a fixed row cap **before** substring filtering, which hid m
 | `product_id` | Restrict to variants of a single **product** (used by POS **cart line** variant swap: load all SKUs for the line’s template) |
 | `limit` | Default **25_000** when `search` empty; **5_000** when `search` set; hard cap **50_000** |
 | `offset` | Pagination into the ordered variant list |
-| … | Same filter flags as the Inventory UI (`oos_low_only`, `clothing_only`, `category_id`, `vendor_id`, `brand`, …) |
+| … | Same filter flags as the Inventory UI (`in_stock_only`, `oos_low_only`, `clothing_only`, `category_id`, `vendor_id`, `brand`, …); filters are applied in PostgreSQL before paging |
 
 **Clients (non-exhaustive):**
 

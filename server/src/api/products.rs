@@ -507,12 +507,15 @@ pub struct InventoryBoardQuery {
     pub clothing_only: Option<bool>,
     /// Max variant rows (default: 25_000 unfiltered, 5_000 when `search` is non-empty; hard cap 50_000).
     pub limit: Option<i64>,
-    /// Pagination offset into `ORDER BY p.name, pv.sku, pv.id`.
+    /// Pagination offset into the product-interleaved variant order. The first matching
+    /// variation from each product is returned before a second variation from one product.
     pub offset: Option<i64>,
     /// Only variants marked `web_published` (online storefront).
     pub web_published_only: Option<bool>,
     /// Only variants with stock_on_hand <= 0.
     pub oos_only: Option<bool>,
+    /// Only variants with positive stock on hand.
+    pub in_stock_only: Option<bool>,
     /// Only variants with stock_on_hand < 0.
     pub negative_stock_only: Option<bool>,
     /// Text search only: rank rows where the **product** (name / brand / handle) matches the query
@@ -858,6 +861,14 @@ pub struct InventoryControlRow {
     pub variant_id: Uuid,
     pub product_id: Uuid,
     pub total_variant_count: i64,
+    pub product_stock_on_hand: i64,
+    pub product_available_stock: i64,
+    pub product_cost_extended: Decimal,
+    pub cost_price_min: Decimal,
+    pub cost_price_max: Decimal,
+    pub product_unlabeled_count: i64,
+    pub product_web_published_count: i64,
+    pub product_hidden_variant_count: i64,
     pub retail_price_min: Decimal,
     pub retail_price_max: Decimal,
     pub sku: String,
@@ -1820,6 +1831,14 @@ pub async fn list_control_board(
             pv.id AS variant_id,
             p.id AS product_id,
             variant_totals.total_variant_count,
+            variant_totals.product_stock_on_hand,
+            variant_totals.product_available_stock,
+            variant_totals.product_cost_extended,
+            variant_totals.cost_price_min,
+            variant_totals.cost_price_max,
+            variant_totals.product_unlabeled_count,
+            variant_totals.product_web_published_count,
+            variant_totals.product_hidden_variant_count,
             variant_totals.retail_price_min,
             variant_totals.retail_price_max,
             pv.sku,
@@ -1865,6 +1884,14 @@ pub async fn list_control_board(
         LEFT JOIN LATERAL (
             SELECT
                 COUNT(*)::bigint AS total_variant_count,
+                COALESCE(SUM(pv_total.stock_on_hand), 0)::bigint AS product_stock_on_hand,
+                COALESCE(SUM(GREATEST(0, pv_total.stock_on_hand - pv_total.reserved_stock - pv_total.on_layaway)), 0)::bigint AS product_available_stock,
+                COALESCE(SUM(pv_total.stock_on_hand::numeric * COALESCE(pv_total.cost_override, p.base_cost)), 0)::numeric AS product_cost_extended,
+                MIN(COALESCE(pv_total.cost_override, p.base_cost)) AS cost_price_min,
+                MAX(COALESCE(pv_total.cost_override, p.base_cost)) AS cost_price_max,
+                COUNT(*) FILTER (WHERE pv_total.shelf_labeled_at IS NULL)::bigint AS product_unlabeled_count,
+                COUNT(*) FILTER (WHERE COALESCE(pv_total.web_published, false))::bigint AS product_web_published_count,
+                COUNT(*) FILTER (WHERE COALESCE(pv_total.hidden_from_inventory, false))::bigint AS product_hidden_variant_count,
                 MIN(COALESCE(pv_total.retail_price_override, p.base_retail_price)) AS retail_price_min,
                 MAX(COALESCE(pv_total.retail_price_override, p.base_retail_price)) AS retail_price_max
             FROM product_variants pv_total
@@ -1934,33 +1961,7 @@ pub async fn list_control_board(
         qb.push(" AND COALESCE(pv.hidden_from_inventory, false) = false ");
     }
 
-    if let Some(ids) = &meili_variant_ids {
-        if ids.is_empty() {
-            qb.push(" AND FALSE ");
-        } else {
-            if expand_parent_matches {
-                let parent_pat = control_board_ilike_pattern(search_raw);
-                qb.push(" AND (pv.id = ANY(");
-                qb.push_bind(ids.clone());
-                qb.push(") OR pv.product_id IN (");
-                qb.push(
-                    "SELECT pv_match.product_id FROM product_variants pv_match WHERE pv_match.id = ANY(",
-                );
-                qb.push_bind(ids.clone());
-                qb.push(")) OR p.name ILIKE ");
-                qb.push_bind(parent_pat.clone());
-                qb.push(" ESCAPE '\\' OR COALESCE(p.brand, '') ILIKE ");
-                qb.push_bind(parent_pat.clone());
-                qb.push(" ESCAPE '\\' OR COALESCE(p.catalog_handle, '') ILIKE ");
-                qb.push_bind(parent_pat);
-                qb.push(" ESCAPE '\\')");
-            } else {
-                qb.push(" AND pv.id = ANY(");
-                qb.push_bind(ids.clone());
-                qb.push(")");
-            }
-        }
-    } else if has_search {
+    if has_search {
         let pat = control_board_ilike_pattern(search_raw);
         let token_patterns = crate::logic::meilisearch_search::product_query_tokens(search_raw)
             .map(|tokens| {
@@ -1969,7 +1970,13 @@ pub async fn list_control_board(
                     .map(control_board_ilike_pattern)
                     .collect::<Vec<_>>()
             });
-        qb.push(" AND (pv.sku ILIKE ");
+        qb.push(" AND (");
+        if let Some(ids) = &meili_variant_ids {
+            qb.push("pv.id = ANY(");
+            qb.push_bind(ids.clone());
+            qb.push(") OR ");
+        }
+        qb.push("pv.sku ILIKE ");
         qb.push_bind(pat.clone());
         qb.push(" ESCAPE '\\' OR COALESCE(pv.barcode, '') ILIKE ");
         qb.push_bind(pat.clone());
@@ -1980,6 +1987,10 @@ pub async fn list_control_board(
         qb.push(" ESCAPE '\\' OR COALESCE(p.catalog_handle, '') ILIKE ");
         qb.push_bind(pat.clone());
         qb.push(" ESCAPE '\\' OR COALESCE(p.brand, '') ILIKE ");
+        qb.push_bind(pat.clone());
+        qb.push(" ESCAPE '\\' OR COALESCE(c.name, '') ILIKE ");
+        qb.push_bind(pat.clone());
+        qb.push(" ESCAPE '\\' OR COALESCE(pvendor.name, '') ILIKE ");
         qb.push_bind(pat.clone());
         qb.push(" ESCAPE '\\' OR COALESCE(pv.variation_label, '') ILIKE ");
         qb.push_bind(pat.clone());
@@ -2051,6 +2062,9 @@ pub async fn list_control_board(
     if query.oos_only.unwrap_or(false) || filter == "oos" {
         qb.push(" AND pv.stock_on_hand <= 0");
     }
+    if query.in_stock_only.unwrap_or(false) || filter == "in_stock" {
+        qb.push(" AND pv.stock_on_hand > 0");
+    }
     if query.negative_stock_only.unwrap_or(false) || filter == "negative" {
         qb.push(" AND pv.stock_on_hand < 0");
     }
@@ -2058,7 +2072,7 @@ pub async fn list_control_board(
     if has_search {
         if parent_rank_first {
             let pr_pat = control_board_ilike_pattern(search_raw);
-            qb.push(" ORDER BY CASE WHEN (p.name ILIKE ");
+            qb.push(" ORDER BY ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY pv.sku ASC, pv.id ASC), CASE WHEN (p.name ILIKE ");
             qb.push_bind(pr_pat.clone());
             qb.push(" ESCAPE '\\' OR COALESCE(p.brand, '') ILIKE ");
             qb.push_bind(pr_pat.clone());
@@ -2074,10 +2088,10 @@ pub async fn list_control_board(
             }
             qb.push("units_sold_trailing DESC, p.name ASC, pv.sku ASC, pv.id ASC LIMIT ");
         } else {
-            qb.push(" ORDER BY units_sold_trailing DESC, p.name ASC, pv.sku ASC, pv.id ASC LIMIT ");
+            qb.push(" ORDER BY ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY pv.sku ASC, pv.id ASC), units_sold_trailing DESC, p.name ASC, pv.sku ASC, pv.id ASC LIMIT ");
         }
     } else {
-        qb.push(" ORDER BY p.name ASC, pv.sku ASC, pv.id ASC LIMIT ");
+        qb.push(" ORDER BY ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY pv.sku ASC, pv.id ASC), p.name ASC, pv.sku ASC, pv.id ASC LIMIT ");
     }
     qb.push_bind(limit);
     qb.push(" OFFSET ");

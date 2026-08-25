@@ -143,40 +143,48 @@ function VariantTagPrintControl({
     <div
       role="group"
       aria-label={`Print tags for ${sku}`}
-      className="grid min-w-0 grid-cols-[3.25rem_minmax(0,1fr)] gap-1.5"
+      className="min-w-0 space-y-1.5"
     >
-      <input
-        type="number"
-        min={1}
-        max={MAX_TAG_PRINT_QUANTITY}
-        step={1}
-        inputMode="numeric"
-        aria-label={`Tag quantity for ${sku}`}
-        aria-invalid={quantity == null}
-        value={quantityDraft}
-        onChange={(event) => setQuantityDraft(event.target.value)}
-        onBlur={() => {
-          if (quantity == null) setQuantityDraft("1");
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            print();
-          }
-        }}
-        className="min-w-0 rounded-xl border border-app-border bg-app-surface px-1.5 py-2 text-center text-xs font-black tabular-nums text-app-text outline-none focus:border-app-accent"
-        title={`Tag quantity (1-${MAX_TAG_PRINT_QUANTITY})`}
-      />
-      <button
-        type="button"
-        onClick={print}
-        disabled={quantity == null}
-        className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-accent disabled:cursor-not-allowed disabled:opacity-50`}
-        title="Print inventory tags"
-      >
-        <Printer size={14} className="shrink-0" />
-        Print tag x {quantity ?? "-"}
-      </button>
+      <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+        Tag copies
+      </label>
+      <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-1.5">
+        <input
+          type="number"
+          min={1}
+          max={MAX_TAG_PRINT_QUANTITY}
+          step={1}
+          inputMode="numeric"
+          aria-label={`Tag copies for ${sku}`}
+          aria-invalid={quantity == null}
+          value={quantityDraft}
+          onChange={(event) => setQuantityDraft(event.target.value)}
+          onBlur={() => {
+            if (quantity == null) setQuantityDraft("1");
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              print();
+            }
+          }}
+          className="min-w-0 rounded-xl border border-app-border bg-app-surface px-1.5 py-2 text-center text-xs font-black tabular-nums text-app-text outline-none focus:border-app-accent"
+          title={`Tag copies (1-${MAX_TAG_PRINT_QUANTITY})`}
+        />
+        <button
+          type="button"
+          onClick={print}
+          disabled={quantity == null}
+          className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-accent disabled:cursor-not-allowed disabled:opacity-50`}
+          title="Print inventory tags"
+        >
+          <Printer size={14} className="shrink-0" />
+          Print {quantity ?? "-"} {quantity === 1 ? "tag" : "tags"}
+        </button>
+      </div>
+      <p className="text-[9px] leading-tight text-app-text-muted">
+        Leave at 1 for one tag. Change copies for a batch; press again for another job.
+      </p>
     </div>
   );
 }

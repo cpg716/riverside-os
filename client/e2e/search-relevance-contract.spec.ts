@@ -33,6 +33,38 @@ test("product search intersects partial name and number terms in every search pa
   expect(universal).toContain("FROM unnest($2::text[]) AS wanted(pattern)");
 });
 
+test("inventory paging keeps parent totals stable and large families from crowding out results", async () => {
+  const [products, inventory] = await Promise.all([
+    repoSource("server/src/api/products.rs"),
+    repoSource("client/src/components/inventory/InventoryControlBoard.tsx"),
+  ]);
+
+  expect(products).toContain("variant_totals.product_stock_on_hand");
+  expect(products).toContain("variant_totals.product_available_stock");
+  expect(products).toContain(
+    "ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY pv.sku ASC, pv.id ASC)",
+  );
+  expect(inventory).toContain("first.product_stock_on_hand ?? stock");
+  expect(inventory).toContain("first.product_available_stock ?? availSum");
+});
+
+test("inventory vendor searches keep PostgreSQL matches alongside lexical ranking", async () => {
+  const [products, inventory] = await Promise.all([
+    repoSource("server/src/api/products.rs"),
+    repoSource("client/src/components/inventory/InventoryControlBoard.tsx"),
+  ]);
+
+  expect(products).toContain('qb.push("pv.id = ANY(")');
+  expect(products).toContain("COALESCE(pvendor.name, '') ILIKE");
+  expect(products).toContain("COALESCE(c.name, '') ILIKE");
+  expect(products).toContain('filter == "in_stock"');
+  expect(products).toContain('qb.push(" AND pv.stock_on_hand > 0")');
+  expect(inventory).toContain('params.set("in_stock_only", "true")');
+  expect(inventory).toContain("setInStockOnly(false)");
+  expect(inventory).toContain("setNegativeStockOnly(false)");
+  expect(products).toContain("array_position(");
+});
+
 test("empty lexical candidate sets use broader authoritative SQL matching", async () => {
   const [customers, products, universal] = await Promise.all([
     repoSource("server/src/api/customers.rs"),

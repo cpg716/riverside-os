@@ -96,6 +96,16 @@ interface BoardRow {
   variant_id: string;
   product_id: string;
   total_variant_count: number;
+  product_stock_on_hand?: number;
+  product_available_stock?: number;
+  product_cost_extended?: string;
+  retail_price_min?: string;
+  retail_price_max?: string;
+  cost_price_min?: string;
+  cost_price_max?: string;
+  product_unlabeled_count?: number;
+  product_web_published_count?: number;
+  product_hidden_variant_count?: number;
   sku: string;
   product_name: string;
   brand: string | null;
@@ -582,6 +592,7 @@ export default function InventoryControlBoard({
     }
     if (oosLowOnly) params.set("oos_low_only", "true");
     if (oosOnly) params.set("oos_only", "true");
+    if (inStockOnly) params.set("in_stock_only", "true");
     if (negativeStockOnly) params.set("negative_stock_only", "true");
     if (clothingOnly) params.set("clothing_only", "true");
     if (unlabeledOnly) params.set("unlabeled_only", "true");
@@ -628,6 +639,7 @@ export default function InventoryControlBoard({
     debouncedSearch,
     oosLowOnly,
     oosOnly,
+    inStockOnly,
     negativeStockOnly,
     clothingOnly,
     unlabeledOnly,
@@ -674,6 +686,7 @@ export default function InventoryControlBoard({
     }
     if (oosLowOnly) params.set("oos_low_only", "true");
     if (oosOnly) params.set("oos_only", "true");
+    if (inStockOnly) params.set("in_stock_only", "true");
     if (negativeStockOnly) params.set("negative_stock_only", "true");
     if (clothingOnly) params.set("clothing_only", "true");
     if (unlabeledOnly) params.set("unlabeled_only", "true");
@@ -724,6 +737,7 @@ export default function InventoryControlBoard({
     debouncedSearch,
     oosLowOnly,
     oosOnly,
+    inStockOnly,
     negativeStockOnly,
     clothingOnly,
     unlabeledOnly,
@@ -793,19 +807,34 @@ export default function InventoryControlBoard({
         base_retail_price: first.base_retail_price,
         base_cost: first.base_cost,
         primary_vendor_name: first.primary_vendor_name,
-        stock_on_hand: stock,
-        cost_extended: extCents / 100,
-        retail_min: Number.isFinite(rMinC) ? rMinC / 100 : 0,
-        retail_max: Number.isFinite(rMaxC) ? rMaxC / 100 : 0,
-        cost_min: Number.isFinite(cMinC) ? cMinC / 100 : 0,
-        cost_max: Number.isFinite(cMaxC) ? cMaxC / 100 : 0,
+        stock_on_hand: first.product_stock_on_hand ?? stock,
+        cost_extended:
+          first.product_cost_extended != null
+            ? parseMoneyToCents(first.product_cost_extended) / 100
+            : extCents / 100,
+        retail_min:
+          first.retail_price_min != null
+            ? parseMoneyToCents(first.retail_price_min) / 100
+            : Number.isFinite(rMinC) ? rMinC / 100 : 0,
+        retail_max:
+          first.retail_price_max != null
+            ? parseMoneyToCents(first.retail_price_max) / 100
+            : Number.isFinite(rMaxC) ? rMaxC / 100 : 0,
+        cost_min:
+          first.cost_price_min != null
+            ? parseMoneyToCents(first.cost_price_min) / 100
+            : Number.isFinite(cMinC) ? cMinC / 100 : 0,
+        cost_max:
+          first.cost_price_max != null
+            ? parseMoneyToCents(first.cost_price_max) / 100
+            : Number.isFinite(cMaxC) ? cMaxC / 100 : 0,
         variant_count: Math.max(first.total_variant_count ?? variants.length, variants.length),
         loaded_variant_count: variants.length,
-        unlabeled_count: unlabeled,
+        unlabeled_count: first.product_unlabeled_count ?? unlabeled,
         variant_rows: orderedVariants,
-        available_stock_total: availSum,
-        web_published_count: webPub,
-        hidden_variant_count: hiddenCount,
+        available_stock_total: first.product_available_stock ?? availSum,
+        web_published_count: first.product_web_published_count ?? webPub,
+        hidden_variant_count: first.product_hidden_variant_count ?? hiddenCount,
         is_non_stock_sale_item: isNonStockSaleItem,
       };
     });
@@ -1678,18 +1707,42 @@ export default function InventoryControlBoard({
               </option>
             ))}
           </select>
-          {discoveryBtn(inStockOnly, "In Stock", () =>
-            setInStockOnly(!inStockOnly),
-          )}
-          {discoveryBtn(oosLowOnly, "Low Stock (≤2)", () =>
-            setOosLowOnly(!oosLowOnly),
-          )}
-          {discoveryBtn(oosOnly, "Out of Stock", () =>
-            setOosOnly(!oosOnly),
-          )}
-          {discoveryBtn(negativeStockOnly, "Negative Stock", () =>
-            setNegativeStockOnly(!negativeStockOnly),
-          )}
+          {discoveryBtn(inStockOnly, "In Stock", () => {
+            const next = !inStockOnly;
+            setInStockOnly(next);
+            if (next) {
+              setOosLowOnly(false);
+              setOosOnly(false);
+              setNegativeStockOnly(false);
+            }
+          })}
+          {discoveryBtn(oosLowOnly, "Low Stock (≤2)", () => {
+            const next = !oosLowOnly;
+            setOosLowOnly(next);
+            if (next) {
+              setInStockOnly(false);
+              setOosOnly(false);
+              setNegativeStockOnly(false);
+            }
+          })}
+          {discoveryBtn(oosOnly, "Out of Stock", () => {
+            const next = !oosOnly;
+            setOosOnly(next);
+            if (next) {
+              setInStockOnly(false);
+              setOosLowOnly(false);
+              setNegativeStockOnly(false);
+            }
+          })}
+          {discoveryBtn(negativeStockOnly, "Negative Stock", () => {
+            const next = !negativeStockOnly;
+            setNegativeStockOnly(next);
+            if (next) {
+              setInStockOnly(false);
+              setOosLowOnly(false);
+              setOosOnly(false);
+            }
+          })}
           {discoveryBtn(clothingOnly, "Clothing & Footwear", () =>
             setClothingOnly(!clothingOnly),
           )}

@@ -33,11 +33,15 @@ The product list is primary. Item Readiness and Inventory Cleanup Review sit bel
 
 ## Search and filters
 
-Use the main search field for product name, SKU, product UPC, catalog/vendor style number, or variation text. You can combine partial fragments from different fields—for example, part of the product or brand name plus the beginning of its style/SKU number—and Riverside requires every fragment somewhere on the matching item. The list is product-centered and shows each product's variation count; direct SKU or exact variation searches show the matched SKU/variation on that product row. Use vendor, category, stock, label, high value, web, and department filters to narrow the list.
+Use the main search field for product name, SKU, product UPC, catalog/vendor style number, primary vendor, category, or variation text. You can combine partial fragments from different fields—for example, part of the product or brand name plus the beginning of its style/SKU number—and Riverside requires every fragment somewhere on the matching item. The list is product-centered and shows each product's variation count; direct SKU or exact variation searches show the matched SKU/variation on that product row. Use vendor, category, stock, label, high value, web, and department filters to narrow the list. Stock and vendor filters are applied before paging, so matching items are not dropped merely because they were outside the first loaded page.
+
+Choose one stock-state filter at a time: **In Stock**, **Low Stock**, **Out of Stock**, or **Negative Stock**. Selecting a different stock state replaces the previous one so contradictory filters cannot produce a misleading empty result.
 
 Riverside keeps the full variation matrix visible for qualifying parent products. Zero stock on hand does not hide a size, color, or style option; staff should use the stock count on the variation row to decide whether it can be sold immediately, ordered, or handled as a special order.
 
 Select **Load More Inventory** to keep paging through results without losing the current filters.
+
+The parent row always shows complete parent totals for on hand, available, variation count, and inventory value even when only part of a very large variation family is loaded. Paging interleaves products so one large family cannot crowd every other matching product out of a vendor or text search.
 
 Riverside waits for a short pause in typing before it searches. While the new result is loading, the current rows stay visible in a dimmed updating state instead of disappearing and reappearing. Wait for the updating message to clear before treating the visible list as the result for the latest text.
 

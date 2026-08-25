@@ -49,6 +49,7 @@ Use this workspace when you need to:
 6. Use `Catalog # / vendor style #` for the supplier item/style number used by buying and receiving paperwork.
 7. Review the shared retail price-tag dialog and adjust quantities for each variation.
 8. Confirm the print batch when the dialog matches the physical tags you need.
+9. For a single variation card, leave **Tag copies** at `1` and select **Print 1 tag**. Enter a larger copy count to print a batch; pressing the button again creates another print job.
 
 ## What to watch for
 
