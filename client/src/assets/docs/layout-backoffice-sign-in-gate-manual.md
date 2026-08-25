@@ -48,6 +48,7 @@ Example values:
 ## Notes
 
 - The last selected staff member is remembered on that device.
+- Access PIN attempt protection is isolated to the current workstation. A successful sign-in clears that workstation's failed-attempt counter, so normal staff changes elsewhere in the store cannot temporarily block your PIN.
 - Before sign-in and while Riverside remains open, the station verifies its exact build against the Main Hub. If **Update Riverside to continue** appears, Register and Payment are blocked. Use **Install update** in the Windows desktop app or **Resync and reopen** in a PWA/browser; the dialog cannot be dismissed.
 - On the Main Hub, if the app is pointed at `localhost` or `127.0.0.1` and the staff roster cannot load, Riverside tries to start the installed **Riverside OS Server** Windows scheduled task and then retries the roster check.
 - If your name does not appear, the device may be pointed at the wrong host URL for its current role or location.
@@ -56,7 +57,7 @@ Example values:
 
 ## Recovery and escalation
 
-If sign-in fails, confirm the selected staff member before re-entering the Access PIN. Repeated failures should be treated as an access issue, not a reason to share another person's PIN. If the station cannot reach the API, follow the offline or server-start recovery path before attempting normal Back Office work.
+If sign-in fails, confirm the selected staff member before re-entering the Access PIN. After repeated incorrect attempts, Riverside tells you to wait 60 seconds before trying again; this protection applies only to that workstation. Repeated failures should be treated as an access issue, not a reason to share another person's PIN. If the station cannot reach the API, follow the offline or server-start recovery path before attempting normal Back Office work.
 
 
 ## What to watch for

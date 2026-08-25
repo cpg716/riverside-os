@@ -68,6 +68,10 @@ pub fn verify_pin(pin: &str, stored: &str) -> bool {
         .is_ok()
 }
 
+fn configured_pin_hash(stored: Option<&str>) -> Option<&str> {
+    stored.map(str::trim).filter(|value| !value.is_empty())
+}
+
 /// POS / register: lookup by `cashier_code`. If `pin_hash` is set, the same code must be provided as `pin` and verified.
 #[allow(clippy::type_complexity)]
 pub async fn authenticate_pos_staff(
@@ -105,7 +109,7 @@ pub async fn authenticate_pos_staff(
     // If this staff member has a PIN set, require the credential to match.
     // The user says "Each Staff has a 4 digit code... Not a Cashier Code and Login Pin."
     // So we treat the provided cashier_code and pin as the same secret.
-    if let Some(stored) = &pin_hash {
+    if let Some(stored) = configured_pin_hash(pin_hash.as_deref()) {
         let provided = pin
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
@@ -185,7 +189,7 @@ pub async fn authenticate_staff_by_id(
         return Err(PinAuthError::InvalidCredentials);
     };
 
-    if let Some(stored) = &pin_hash {
+    if let Some(stored) = configured_pin_hash(pin_hash.as_deref()) {
         let provided = pin.ok_or(PinAuthError::InvalidCredentials)?;
         if !verify_pin(provided, stored) {
             return Err(PinAuthError::InvalidCredentials);
@@ -323,8 +327,27 @@ fn strip_sensitive_audit_metadata(value: &mut serde_json::Value) {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_sensitive_pin_metadata_key, strip_sensitive_audit_metadata};
+    use super::{
+        configured_pin_hash, hash_pin, is_sensitive_pin_metadata_key,
+        strip_sensitive_audit_metadata, verify_pin,
+    };
     use serde_json::json;
+
+    #[test]
+    fn blank_pin_hash_is_treated_as_legacy_unset() {
+        assert_eq!(configured_pin_hash(None), None);
+        assert_eq!(configured_pin_hash(Some("")), None);
+        assert_eq!(configured_pin_hash(Some("   ")), None);
+    }
+
+    #[test]
+    fn configured_pin_hash_is_trimmed_and_verified() {
+        let hash = hash_pin("1234").expect("hash staff PIN");
+        let padded = format!("  {hash}  ");
+        let configured = configured_pin_hash(Some(&padded)).expect("configured hash");
+        assert!(verify_pin("1234", configured));
+        assert!(!verify_pin("4321", configured));
+    }
 
     #[test]
     fn sensitive_pin_metadata_keys_include_normalized_authority_suffixes() {

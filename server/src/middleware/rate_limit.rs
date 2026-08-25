@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
+    Json,
 };
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -120,6 +121,26 @@ impl RateLimitState {
             }
         }
     }
+
+    fn clear_limit(&mut self, bucket_key: &str, scope: RateLimitScope) {
+        match scope {
+            RateLimitScope::Anonymous => {
+                self.ip_buckets.remove(bucket_key);
+            }
+            RateLimitScope::RosAppAuthenticated => {
+                self.authenticated_buckets.remove(bucket_key);
+            }
+            RateLimitScope::StaffSignIn => {
+                self.staff_sign_in_buckets.remove(bucket_key);
+            }
+            RateLimitScope::TransactionDetail => {
+                self.transaction_detail_buckets.remove(bucket_key);
+            }
+            RateLimitScope::ErrorTelemetry => {
+                self.error_telemetry_buckets.remove(bucket_key);
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -230,6 +251,7 @@ pub async fn rate_limit_handler(
     let bucket_key = if matches!(
         scope,
         RateLimitScope::RosAppAuthenticated
+            | RateLimitScope::StaffSignIn
             | RateLimitScope::TransactionDetail
             | RateLimitScope::ErrorTelemetry
     ) {
@@ -253,16 +275,33 @@ pub async fn rate_limit_handler(
             );
         }
 
-        let mut response = StatusCode::TOO_MANY_REQUESTS.into_response();
+        let message = if scope == RateLimitScope::StaffSignIn {
+            "Too many Access PIN attempts on this workstation. Wait 60 seconds, then try again."
+        } else {
+            "Too many requests. Wait 60 seconds, then try again."
+        };
+        let mut response = (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({ "error": message })),
+        )
+            .into_response();
         let headers = response.headers_mut();
         headers.insert("X-RateLimit-Limit", limit.to_string().parse().unwrap());
         headers.insert("X-RateLimit-Window", "60".parse().unwrap());
         headers.insert("X-RateLimit-Remaining", "0".parse().unwrap());
+        headers.insert("Retry-After", "60".parse().unwrap());
         return response;
     }
 
     // Add rate limit headers
     let mut response = next.run(request).await;
+
+    if scope == RateLimitScope::StaffSignIn && response.status().is_success() {
+        rate_limit
+            .write()
+            .await
+            .clear_limit(&bucket_key, RateLimitScope::StaffSignIn);
+    }
 
     let headers = response.headers_mut();
     headers.insert("X-RateLimit-Limit", limit.to_string().parse().unwrap());
@@ -501,6 +540,54 @@ mod tests {
         assert!(!is_staff_sign_in_request(&request_for(
             "/api/staff/effective-permissions"
         )));
+    }
+
+    #[test]
+    fn staff_sign_in_bucket_is_isolated_by_station() {
+        let first = request_with_headers(
+            "/api/staff/session",
+            &[("x-riverside-station-key", "register-one")],
+        );
+        let second = request_with_headers(
+            "/api/staff/session",
+            &[("x-riverside-station-key", "register-two")],
+        );
+        assert_ne!(
+            authenticated_bucket_key(&first, "10.64.70.117"),
+            authenticated_bucket_key(&second, "10.64.70.117")
+        );
+    }
+
+    #[test]
+    fn successful_staff_sign_in_can_clear_its_failure_bucket() {
+        let mut state = RateLimitState::new();
+        let now = Instant::now();
+        let key = "10.64.70.117:register-one";
+
+        assert_eq!(
+            state.check_ip_limit(key, 1, RateLimitScope::StaffSignIn, now),
+            RateLimitCheck::Allowed
+        );
+        assert_eq!(
+            state.check_ip_limit(
+                key,
+                1,
+                RateLimitScope::StaffSignIn,
+                now + Duration::from_secs(1)
+            ),
+            RateLimitCheck::Exceeded { should_log: true }
+        );
+
+        state.clear_limit(key, RateLimitScope::StaffSignIn);
+        assert_eq!(
+            state.check_ip_limit(
+                key,
+                1,
+                RateLimitScope::StaffSignIn,
+                now + Duration::from_secs(2)
+            ),
+            RateLimitCheck::Allowed
+        );
     }
 
     #[test]

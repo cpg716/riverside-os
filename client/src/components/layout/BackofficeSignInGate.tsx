@@ -373,6 +373,7 @@ export default function BackofficeSignInGate({
     setError(null);
     try {
       const tauri = isTauri();
+      const stationKey = getStableStationKey();
       const standalonePwa =
         !tauri &&
         (window.matchMedia?.("(display-mode: standalone)").matches ||
@@ -381,11 +382,14 @@ export default function BackofficeSignInGate({
         `${serverUrl}/api/staff/session`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-riverside-station-key": stationKey,
+          },
           body: JSON.stringify({
             staff_id: selectedStaffId,
             pin: code,
-            station_key: getStableStationKey(),
+            station_key: stationKey,
             connection_key: getConnectionKey(),
             runtime_surface: tauri
               ? "tauri_desktop"
