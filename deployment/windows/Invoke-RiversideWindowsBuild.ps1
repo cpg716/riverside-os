@@ -21,6 +21,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+Add-Type -AssemblyName System.Security
 
 function Resolve-FullPath([string]$Path) {
   return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
@@ -263,10 +264,10 @@ function Get-InternalUpdaterSigningMaterial(
         throw "Tauri did not create the expected internal updater signing key pair."
       }
       $privateKey = [IO.File]::ReadAllText($temporaryPrivateKey)
-      $protected = [Security.Cryptography.ProtectedData]::Protect(
+      $protected = [System.Security.Cryptography.ProtectedData]::Protect(
         [Text.Encoding]::UTF8.GetBytes($privateKey),
         $entropy,
-        [Security.Cryptography.DataProtectionScope]::CurrentUser
+        [System.Security.Cryptography.DataProtectionScope]::CurrentUser
       )
       [IO.File]::WriteAllBytes($encryptedPrivateKeyPath, $protected)
       Copy-Item $temporaryPublicKey $publicKeyPath -Force
@@ -277,10 +278,10 @@ function Get-InternalUpdaterSigningMaterial(
   }
 
   $protectedPrivateKey = [IO.File]::ReadAllBytes($encryptedPrivateKeyPath)
-  $privateKeyBytes = [Security.Cryptography.ProtectedData]::Unprotect(
+  $privateKeyBytes = [System.Security.Cryptography.ProtectedData]::Unprotect(
     $protectedPrivateKey,
     $entropy,
-    [Security.Cryptography.DataProtectionScope]::CurrentUser
+    [System.Security.Cryptography.DataProtectionScope]::CurrentUser
   )
   $privateKey = [Text.Encoding]::UTF8.GetString($privateKeyBytes).Trim()
   $publicKey = [IO.File]::ReadAllText($publicKeyPath).Trim()
