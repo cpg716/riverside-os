@@ -219,6 +219,7 @@ interface ProductModelPriceChangeVariant {
 interface ProductModelPatchResponse {
   status?: string;
   base_retail_price_changed?: boolean;
+  retail_overrides_cleared?: number;
   price_change_reprint_variants?: ProductModelPriceChangeVariant[];
 }
 
@@ -470,6 +471,10 @@ export default function ProductHubDrawer({
   const secondaryVendorPickerRef = useRef<HTMLDivElement>(null);
   const [baseRetailDraft, setBaseRetailDraft] = useState("");
   const [baseRetailSaving, setBaseRetailSaving] = useState(false);
+  const [applyBaseRetailToAll, setApplyBaseRetailToAll] = useState(false);
+  const [pendingBaseRetailCents, setPendingBaseRetailCents] = useState<number | null>(null);
+  const [parentNameDraft, setParentNameDraft] = useState("");
+  const [parentNameSaving, setParentNameSaving] = useState(false);
   const [baseSaleDraft, setBaseSaleDraft] = useState("");
   const [baseSaleSaving, setBaseSaleSaving] = useState(false);
   const [employeeMarkupDraft, setEmployeeMarkupDraft] = useState("");
@@ -786,14 +791,19 @@ export default function ProductHubDrawer({
           body: JSON.stringify(body),
         });
         if (!res.ok) {
-          await res.json().catch(() => ({}));
-          throw new Error("Product update failed. Check the product details and try again.");
+          const errorPayload = (await res.json().catch(() => null)) as
+            | { error?: string }
+            | null;
+          throw new Error(
+            errorPayload?.error ??
+              "Product update failed. Check the product details and try again.",
+          );
         }
         const payload = (await res.json().catch(() => null)) as
           | ProductModelPatchResponse
           | null;
-        if (payload?.base_retail_price_changed) {
-          const affectedWithStock = (payload.price_change_reprint_variants ?? []).filter(
+        if ((payload?.price_change_reprint_variants?.length ?? 0) > 0) {
+          const affectedWithStock = (payload?.price_change_reprint_variants ?? []).filter(
             (variant) => variant.stock_on_hand > 0,
           );
           if (affectedWithStock.length > 0) {
@@ -806,7 +816,9 @@ export default function ProductHubDrawer({
       } catch (e) {
         console.error("Could not update product model", e);
         toast(
-          "Product update failed. Check the product details and try again.",
+          e instanceof Error
+            ? e.message
+            : "Product update failed. Check the product details and try again.",
           "error",
         );
         return false;
@@ -954,6 +966,7 @@ export default function ProductHubDrawer({
 
   useEffect(() => {
     if (!hub) return;
+    setParentNameDraft(hub.product.name);
     setBaseRetailDraft(formatMoney(parseMoney(hub.product.base_retail_price)));
     setBaseSaleDraft(
       hub.product.base_sale_price == null
@@ -971,6 +984,71 @@ export default function ProductHubDrawer({
     );
   }, [hub]);
 
+  useEffect(() => {
+    setApplyBaseRetailToAll(false);
+    setPendingBaseRetailCents(null);
+  }, [productId]);
+
+  const saveParentName = async () => {
+    if (!hub) return;
+    const nextName = parentNameDraft.trim();
+    if (!nextName) {
+      toast("Parent item name is required.", "error");
+      return;
+    }
+    if (nextName.length > 240) {
+      toast("Parent item name must be 240 characters or fewer.", "error");
+      return;
+    }
+    if (nextName === hub.product.name) {
+      toast("Parent item name is already set to that value.", "info");
+      return;
+    }
+
+    setParentNameSaving(true);
+    try {
+      const ok = await patchProductModel({
+        name: nextName,
+        audit_note: `Updated parent item name: ${hub.product.name} -> ${nextName}`,
+      });
+      if (ok) toast("Parent item name updated and added to Timeline.", "success");
+    } finally {
+      setParentNameSaving(false);
+    }
+  };
+
+  const performBaseRetailSave = async (
+    nextPriceCents: number,
+    applyToAllVariations: boolean,
+  ) => {
+    if (!hub) return;
+    const overrideCount = hub.variants.filter(
+      (variant) => variant.retail_price_override != null,
+    ).length;
+    const inheritingCount = hub.variants.length - overrideCount;
+    setBaseRetailSaving(true);
+    try {
+      const ok = await patchProductModel({
+        base_retail_price: formatMoney(nextPriceCents / 100),
+        apply_base_retail_to_all_variants: applyToAllVariations,
+        audit_note: applyToAllVariations
+          ? "Updated parent retail price and made all variations inherit it"
+          : "Updated parent retail price and preserved SKU retail overrides",
+      });
+      if (ok) {
+        toast(
+          applyToAllVariations
+            ? `Parent retail updated for all variations; ${overrideCount} SKU override${overrideCount === 1 ? "" : "s"} cleared.`
+            : `Parent retail updated for ${inheritingCount} inheriting variation${inheritingCount === 1 ? "" : "s"}; ${overrideCount} SKU override${overrideCount === 1 ? "" : "s"} preserved.`,
+          "success",
+        );
+        setApplyBaseRetailToAll(false);
+      }
+    } finally {
+      setBaseRetailSaving(false);
+    }
+  };
+
   const saveBaseRetail = async () => {
     if (!hub) return;
     const trimmed = baseRetailDraft.trim();
@@ -984,20 +1062,21 @@ export default function ProductHubDrawer({
 
     const nextPriceCents = parseMoneyToCents(trimmed);
     const currentPriceCents = parseMoneyToCents(hub.product.base_retail_price);
-    if (nextPriceCents === currentPriceCents) {
+    const overrideCount = hub.variants.filter(
+      (variant) => variant.retail_price_override != null,
+    ).length;
+    if (
+      nextPriceCents === currentPriceCents &&
+      (!applyBaseRetailToAll || overrideCount === 0)
+    ) {
       toast("Base retail is already set to that amount.", "info");
       return;
     }
-
-    setBaseRetailSaving(true);
-    try {
-      const ok = await patchProductModel({
-        base_retail_price: formatMoney(nextPriceCents / 100),
-      });
-      if (ok) toast("Parent retail price updated.", "success");
-    } finally {
-      setBaseRetailSaving(false);
+    if (applyBaseRetailToAll && overrideCount > 0) {
+      setPendingBaseRetailCents(nextPriceCents);
+      return;
     }
+    await performBaseRetailSave(nextPriceCents, false);
   };
 
   const saveBaseSale = async () => {
@@ -1336,6 +1415,10 @@ export default function ProductHubDrawer({
     normalizationReview?.comparisons
       .filter((comparison) => comparison.differences.length > 0)
       .slice(0, 6) ?? [];
+  const retailOverrideCount = orderedVariants.filter(
+    (variant) => variant.retail_price_override != null,
+  ).length;
+  const inheritingRetailCount = orderedVariants.length - retailOverrideCount;
 
   const hubVariants: HubVariant[] =
     orderedVariants.map((v) => ({
@@ -1459,7 +1542,36 @@ export default function ProductHubDrawer({
                 <dl className="grid gap-3 text-sm sm:grid-cols-2">
                   <div>
                     <dt className="text-app-text-muted">Name</dt>
-                    <dd className="font-bold text-app-text">{hub.product.name}</dd>
+                    <dd className="mt-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <input
+                          aria-label="Parent item name"
+                          value={parentNameDraft}
+                          maxLength={240}
+                          disabled={parentNameSaving}
+                          onChange={(event) => setParentNameDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") void saveParentName();
+                          }}
+                          className="ui-input h-10 min-w-0 flex-1 font-bold"
+                        />
+                        <button
+                          type="button"
+                          disabled={
+                            parentNameSaving ||
+                            !parentNameDraft.trim() ||
+                            parentNameDraft.trim() === hub.product.name
+                          }
+                          onClick={() => void saveParentName()}
+                          className="ui-btn-primary h-10 rounded-xl px-4 text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
+                        >
+                          {parentNameSaving ? "Saving…" : "Save name"}
+                        </button>
+                      </div>
+                      <p className="mt-1 text-[10px] leading-relaxed text-app-text-muted">
+                        Updates current catalog, search, POS selection, and future item use. The before/after name is retained in Timeline.
+                      </p>
+                    </dd>
                   </div>
                   <div>
                     <dt className="text-app-text-muted">Brand</dt>
@@ -1518,9 +1630,23 @@ export default function ProductHubDrawer({
                         </button>
                       </div>
                       <p className="mt-1 text-[10px] leading-relaxed text-app-text-muted">
-                        Updates every SKU inheriting the parent price. Existing
-                        SKU price overrides stay unchanged.
+                        {inheritingRetailCount} variation{inheritingRetailCount === 1 ? "" : "s"} currently inherit this price; {retailOverrideCount} use SKU overrides.
                       </p>
+                      <label className="mt-2 flex items-start gap-2 rounded-xl border border-app-border bg-app-surface-2/70 p-3 text-xs font-semibold text-app-text">
+                        <input
+                          type="checkbox"
+                          checked={applyBaseRetailToAll}
+                          disabled={baseRetailSaving || retailOverrideCount === 0}
+                          onChange={(event) => setApplyBaseRetailToAll(event.target.checked)}
+                          className="mt-0.5 h-4 w-4 accent-app-accent"
+                        />
+                        <span>
+                          Apply to all variations
+                          <span className="mt-0.5 block text-[10px] font-medium leading-relaxed text-app-text-muted">
+                            Clears {retailOverrideCount} SKU retail override{retailOverrideCount === 1 ? "" : "s"} so every variation inherits the parent price. Sale overrides remain separate.
+                          </span>
+                        </span>
+                      </label>
                     </dd>
                   </div>
                   <div>
@@ -2905,6 +3031,26 @@ export default function ProductHubDrawer({
           </>
         )}
       </DetailDrawer>
+      <ConfirmationModal
+        isOpen={pendingBaseRetailCents != null}
+        title="Apply Parent Price to All Variations?"
+        message={
+          pendingBaseRetailCents == null
+            ? ""
+            : `This sets the parent retail price to ${formatUsdFromCents(pendingBaseRetailCents)} and clears ${retailOverrideCount} SKU retail override${retailOverrideCount === 1 ? "" : "s"}. Every variation will inherit the parent price. The change is atomic and recorded in Product Timeline.`
+        }
+        confirmLabel="Apply to All"
+        loading={baseRetailSaving}
+        onClose={() => {
+          if (!baseRetailSaving) setPendingBaseRetailCents(null);
+        }}
+        onConfirm={() => {
+          if (pendingBaseRetailCents == null) return;
+          const nextPriceCents = pendingBaseRetailCents;
+          setPendingBaseRetailCents(null);
+          void performBaseRetailSave(nextPriceCents, true);
+        }}
+      />
       <ConfirmationModal
         isOpen={reprintPrompt != null && reprintPrompt.length > 0}
         title="Print Updated Price Tags?"

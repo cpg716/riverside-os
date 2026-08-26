@@ -956,6 +956,8 @@ pub struct BulkUpdateRequest {
 pub struct PatchProductModelRequest {
     pub name: Option<String>,
     pub base_retail_price: Option<Decimal>,
+    #[serde(default)]
+    pub apply_base_retail_to_all_variants: bool,
     pub base_sale_price: Option<Decimal>,
     #[serde(default)]
     pub clear_base_sale_price: bool,
@@ -1020,6 +1022,12 @@ pub struct AdjustVariantStockRequest {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct VariantPricingPatch {
+    /// Updated option values for an existing variation. Keys must match the parent axes.
+    #[serde(default)]
+    pub variation_values: Option<Value>,
+    /// Display name for a variation on a parent without configured axes.
+    #[serde(default)]
+    pub variation_label: Option<String>,
     /// Toggle online storefront visibility for this SKU.
     #[serde(default)]
     pub web_published: Option<bool>,
@@ -2487,6 +2495,12 @@ async fn patch_product_model(
             "cannot set base_sale_price and clear_base_sale_price together".to_string(),
         ));
     }
+    if body.apply_base_retail_to_all_variants && body.base_retail_price.is_none() {
+        return Err(ProductError::InvalidPayload(
+            "base_retail_price is required when applying the parent price to all variations"
+                .to_string(),
+        ));
+    }
 
     let audit_source = normalize_audit_source(body.audit_source.as_deref())?;
 
@@ -2522,6 +2536,11 @@ async fn patch_product_model(
         let trimmed = name.trim();
         if trimmed.is_empty() {
             return Err(ProductError::InvalidPayload("name is required".to_string()));
+        }
+        if trimmed.chars().count() > 240 {
+            return Err(ProductError::InvalidPayload(
+                "name must be 240 characters or fewer".to_string(),
+            ));
         }
         set_name = true;
         name_value = Some(trimmed.to_string());
@@ -2604,13 +2623,17 @@ async fn patch_product_model(
                 WHERE product_id = $1
                   AND COALESCE(sale_price_override, $2::numeric) IS NOT NULL
                   AND COALESCE(sale_price_override, $2::numeric)
-                      > COALESCE(retail_price_override, $3::numeric)
+                      > CASE
+                          WHEN $4 THEN $3::numeric
+                          ELSE COALESCE(retail_price_override, $3::numeric)
+                        END
             )
             "#,
         )
         .bind(product_id)
         .bind(next_base_sale)
         .bind(next_base_retail)
+        .bind(body.apply_base_retail_to_all_variants)
         .fetch_one(&state.db)
         .await?;
         if has_invalid_variant_price {
@@ -2866,6 +2889,16 @@ async fn patch_product_model(
         .base_retail_price
         .map(|next| next != current.base_retail_price)
         .unwrap_or(false);
+    let apply_base_retail_to_all_variants = body.apply_base_retail_to_all_variants;
+
+    #[derive(Debug, Serialize, FromRow)]
+    struct PriceChangeAffectedVariant {
+        id: Uuid,
+        sku: String,
+        variation_label: Option<String>,
+        stock_on_hand: i32,
+        effective_retail: Decimal,
+    }
 
     let mut tx = state.db.begin().await?;
     if set_base_retail || set_base_sale {
@@ -2875,6 +2908,43 @@ async fn patch_product_model(
             &audit_source,
             body.audit_note.as_deref(),
         )
+        .await?;
+    }
+    let mut price_change_reprint_variants: Vec<PriceChangeAffectedVariant> = Vec::new();
+    if let Some(next_base_retail) = body
+        .base_retail_price
+        .filter(|_| base_retail_price_changed || apply_base_retail_to_all_variants)
+    {
+        price_change_reprint_variants = sqlx::query_as::<_, PriceChangeAffectedVariant>(
+            r#"
+            SELECT
+                pv.id,
+                pv.sku,
+                pv.variation_label,
+                pv.stock_on_hand,
+                $2::numeric AS effective_retail
+            FROM product_variants pv
+            WHERE pv.product_id = $1
+              AND (
+                    (
+                        $4::boolean
+                        AND COALESCE(pv.retail_price_override, $3::numeric)
+                            IS DISTINCT FROM $2::numeric
+                    )
+                    OR (
+                        NOT $4::boolean
+                        AND pv.retail_price_override IS NULL
+                        AND $3::numeric IS DISTINCT FROM $2::numeric
+                    )
+              )
+            ORDER BY pv.sku ASC
+            "#,
+        )
+        .bind(product_id)
+        .bind(next_base_retail)
+        .bind(current.base_retail_price)
+        .bind(apply_base_retail_to_all_variants)
+        .fetch_all(&mut *tx)
         .await?;
     }
     sqlx::query(
@@ -2957,6 +3027,40 @@ async fn patch_product_model(
     .execute(&mut *tx)
     .await?;
 
+    let retail_overrides_cleared = if apply_base_retail_to_all_variants {
+        sqlx::query(
+            r#"
+            UPDATE product_variants
+            SET retail_price_override = NULL
+            WHERE product_id = $1
+              AND retail_price_override IS NOT NULL
+            "#,
+        )
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+    } else {
+        0
+    };
+
+    let affected_variant_ids = price_change_reprint_variants
+        .iter()
+        .map(|variant| variant.id)
+        .collect::<Vec<_>>();
+    if !affected_variant_ids.is_empty() {
+        sqlx::query(
+            r#"
+            UPDATE product_variants
+            SET shelf_labeled_at = NULL
+            WHERE id = ANY($1)
+            "#,
+        )
+        .bind(&affected_variant_ids)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     if let Some(ids) = secondary_vendor_values {
         sqlx::query("DELETE FROM product_secondary_vendors WHERE product_id = $1")
             .bind(product_id)
@@ -2975,33 +3079,6 @@ async fn patch_product_model(
             .execute(&mut *tx)
             .await?;
         }
-    }
-
-    #[derive(Debug, Serialize, FromRow)]
-    struct PriceChangeAffectedVariant {
-        id: Uuid,
-        sku: String,
-        variation_label: Option<String>,
-        stock_on_hand: i32,
-        effective_retail: Decimal,
-    }
-
-    let mut price_change_reprint_variants: Vec<PriceChangeAffectedVariant> = Vec::new();
-    if base_retail_price_changed {
-        let next_base_retail = body.base_retail_price.unwrap_or(current.base_retail_price);
-        price_change_reprint_variants = sqlx::query_as::<_, PriceChangeAffectedVariant>(
-            r#"
-            UPDATE product_variants
-            SET shelf_labeled_at = NULL
-            WHERE product_id = $1
-              AND retail_price_override IS NULL
-            RETURNING id, sku, variation_label, stock_on_hand, $2::numeric AS effective_retail
-            "#,
-        )
-        .bind(product_id)
-        .bind(next_base_retail)
-        .fetch_all(&mut *tx)
-        .await?;
     }
 
     if !before_values.is_empty() {
@@ -3048,6 +3125,7 @@ async fn patch_product_model(
     Ok(Json(json!({
         "status": "updated",
         "base_retail_price_changed": base_retail_price_changed,
+        "retail_overrides_cleared": retail_overrides_cleared,
         "price_change_reprint_variants": price_change_reprint_variants
     })))
 }
@@ -4536,8 +4614,11 @@ async fn patch_variant_pricing(
     let actor = require_catalog_staff(&state, &headers, CATALOG_EDIT).await?;
     #[derive(Debug, FromRow)]
     struct VariantPricingBefore {
+        product_id: Uuid,
         sku: String,
+        variation_values: Value,
         variation_label: Option<String>,
+        variation_axes: Vec<String>,
         stock_on_hand: i32,
         retail_price_override: Option<Decimal>,
         sale_price_override: Option<Decimal>,
@@ -4548,8 +4629,11 @@ async fn patch_variant_pricing(
     let current = sqlx::query_as::<_, VariantPricingBefore>(
         r#"
         SELECT
+            pv.product_id,
             pv.sku,
+            pv.variation_values,
             pv.variation_label,
+            p.variation_axes,
             pv.stock_on_hand,
             pv.retail_price_override,
             pv.sale_price_override,
@@ -4567,6 +4651,222 @@ async fn patch_variant_pricing(
     let Some(current) = current else {
         return Err(ProductError::VariantNotFound);
     };
+
+    let identity_requested = body.variation_values.is_some() || body.variation_label.is_some();
+    if body.variation_values.is_some() && body.variation_label.is_some() {
+        return Err(ProductError::InvalidPayload(
+            "update variation_values or variation_label, not both".to_string(),
+        ));
+    }
+    let other_update_requested = body.web_published.is_some()
+        || body.web_price_override.is_some()
+        || body.clear_web_price_override
+        || body.web_gallery_order.is_some()
+        || body.clear_retail_override
+        || body.retail_price_override.is_some()
+        || body.clear_sale_override
+        || body.sale_price_override.is_some()
+        || body.clear_cost_override
+        || body.cost_override.is_some()
+        || body.track_low_stock.is_some()
+        || body.barcode.is_some()
+        || body.clear_barcode
+        || body.vendor_upc.is_some()
+        || body.clear_vendor_upc;
+    if identity_requested && other_update_requested {
+        return Err(ProductError::InvalidPayload(
+            "update variation identity separately from pricing and stock settings".to_string(),
+        ));
+    }
+    if identity_requested {
+        let (next_values, next_label) = if let Some(values) = body.variation_values.as_ref() {
+            if current.variation_axes.is_empty() {
+                return Err(ProductError::InvalidPayload(
+                    "this parent has no variation axes; update variation_label instead".to_string(),
+                ));
+            }
+            let Some(values_object) = values.as_object() else {
+                return Err(ProductError::InvalidPayload(
+                    "variation_values must be an object".to_string(),
+                ));
+            };
+            let expected_axes = current
+                .variation_axes
+                .iter()
+                .map(String::as_str)
+                .collect::<HashSet<_>>();
+            let supplied_axes = values_object
+                .keys()
+                .map(String::as_str)
+                .collect::<HashSet<_>>();
+            if expected_axes != supplied_axes {
+                return Err(ProductError::InvalidPayload(
+                    "variation_values must match the parent variation axes exactly".to_string(),
+                ));
+            }
+
+            let mut normalized_values = serde_json::Map::new();
+            let mut label_parts = Vec::with_capacity(current.variation_axes.len());
+            for axis in &current.variation_axes {
+                let value = values_object
+                    .get(axis)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| {
+                        ProductError::InvalidPayload(format!(
+                            "variation value for {axis} is required"
+                        ))
+                    })?;
+                if value.chars().count() > 120 {
+                    return Err(ProductError::InvalidPayload(format!(
+                        "variation value for {axis} must be 120 characters or fewer"
+                    )));
+                }
+                normalized_values.insert(axis.clone(), Value::String(value.to_string()));
+                label_parts.push(value.to_string());
+            }
+            let normalized = Value::Object(normalized_values);
+            let next_key = current
+                .variation_axes
+                .iter()
+                .map(|axis| {
+                    normalized
+                        .get(axis)
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .trim()
+                        .to_ascii_lowercase()
+                })
+                .collect::<Vec<_>>();
+            let sibling_values = sqlx::query_scalar::<_, Value>(
+                r#"
+                SELECT variation_values
+                FROM product_variants
+                WHERE product_id = $1
+                  AND id <> $2
+                "#,
+            )
+            .bind(current.product_id)
+            .bind(variant_id)
+            .fetch_all(&state.db)
+            .await?;
+            let duplicate = sibling_values.iter().any(|sibling| {
+                current
+                    .variation_axes
+                    .iter()
+                    .map(|axis| {
+                        sibling
+                            .get(axis)
+                            .and_then(Value::as_str)
+                            .unwrap_or_default()
+                            .trim()
+                            .to_ascii_lowercase()
+                    })
+                    .collect::<Vec<_>>()
+                    == next_key
+            });
+            if duplicate {
+                return Err(ProductError::InvalidPayload(
+                    "another SKU already uses those variation values".to_string(),
+                ));
+            }
+            (normalized, label_parts.join(" / "))
+        } else {
+            if !current.variation_axes.is_empty() {
+                return Err(ProductError::InvalidPayload(
+                    "edit the variation option values for this parent".to_string(),
+                ));
+            }
+            let label = body
+                .variation_label
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    ProductError::InvalidPayload("variation name is required".to_string())
+                })?;
+            if label.chars().count() > 240 {
+                return Err(ProductError::InvalidPayload(
+                    "variation name must be 240 characters or fewer".to_string(),
+                ));
+            }
+            (current.variation_values.clone(), label.to_string())
+        };
+
+        let identity_changed = current.variation_values != next_values
+            || current.variation_label.as_deref() != Some(next_label.as_str());
+        if identity_changed {
+            let before_values = json!({
+                "variant_id": variant_id,
+                "sku": current.sku.clone(),
+                "variation_values": current.variation_values.clone(),
+                "variation_label": current.variation_label.clone(),
+            });
+            let after_values = json!({
+                "variant_id": variant_id,
+                "sku": current.sku.clone(),
+                "variation_values": next_values.clone(),
+                "variation_label": next_label.clone(),
+            });
+            let note = format!(
+                "Updated variation {}: {} -> {}",
+                current.sku,
+                current.variation_label.as_deref().unwrap_or("Standard"),
+                next_label
+            );
+            let mut tx = state.db.begin().await?;
+            sqlx::query(
+                r#"
+                UPDATE product_variants
+                SET variation_values = $1,
+                    variation_label = $2
+                WHERE id = $3
+                "#,
+            )
+            .bind(&next_values)
+            .bind(&next_label)
+            .bind(variant_id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                r#"
+                INSERT INTO product_catalog_audit_log (
+                    product_id,
+                    changed_by,
+                    change_source,
+                    before_values,
+                    after_values,
+                    change_note
+                )
+                VALUES ($1, $2, 'manual', $3, $4, $5)
+                "#,
+            )
+            .bind(current.product_id)
+            .bind(actor.id)
+            .bind(before_values)
+            .bind(after_values)
+            .bind(note)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            spawn_meilisearch_variant_resync(&state, variant_id);
+        }
+
+        return Ok(Json(json!({
+            "status": if identity_changed { "updated" } else { "unchanged" },
+            "identity_changed": identity_changed,
+            "price_changed": false,
+            "stock_on_hand": current.stock_on_hand,
+            "sku": current.sku,
+            "variation_values": next_values,
+            "variation_label": next_label,
+            "retail_price_override": current.retail_price_override,
+            "sale_price_override": current.sale_price_override,
+            "effective_retail": current.retail_price_override.unwrap_or(current.base_retail_price),
+            "effective_sale": effective_sale_usd(current.base_sale_price, current.sale_price_override)
+        })));
+    }
 
     let mut did = false;
     let old_effective_retail = current
@@ -5694,7 +5994,7 @@ mod tests {
     use axum::http::{HeaderMap, HeaderValue};
     use axum::Json;
     use rust_decimal::Decimal;
-    use serde_json::json;
+    use serde_json::{json, Value};
     use sqlx::PgPool;
     use std::sync::Arc;
     use uuid::Uuid;
@@ -6288,6 +6588,7 @@ mod tests {
             Json(PatchProductModelRequest {
                 name: Some(format!("Michael Kors Suit {suggested_code}")),
                 base_retail_price: None,
+                apply_base_retail_to_all_variants: false,
                 base_sale_price: None,
                 clear_base_sale_price: false,
                 base_cost: None,
@@ -6396,6 +6697,7 @@ mod tests {
             Json(PatchProductModelRequest {
                 name: None,
                 base_retail_price: Some(Decimal::new(12000, 2)),
+                apply_base_retail_to_all_variants: false,
                 base_sale_price: None,
                 clear_base_sale_price: false,
                 base_cost: None,
@@ -6455,6 +6757,117 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn patch_product_model_can_apply_parent_price_to_all_variants_atomically() {
+        let pool = connect_test_db().await;
+        let product_id = insert_patchable_product(&pool).await;
+        let (staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[CATALOG_EDIT]).await;
+        let state = build_test_state(pool.clone());
+
+        let base_variant = Uuid::new_v4();
+        let override_variant = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, stock_on_hand,
+                retail_price_override, shelf_labeled_at
+            )
+            VALUES
+                ($1, $3, $4, '{}'::jsonb, 2, NULL, NOW()),
+                ($2, $3, $5, '{}'::jsonb, 3, 150.00, NOW())
+            "#,
+        )
+        .bind(base_variant)
+        .bind(override_variant)
+        .bind(product_id)
+        .bind(format!("BASE-{}", &base_variant.simple().to_string()[..8]))
+        .bind(format!(
+            "OVERRIDE-{}",
+            &override_variant.simple().to_string()[..8]
+        ))
+        .execute(&pool)
+        .await
+        .expect("insert price scope variants");
+
+        let Json(response) = patch_product_model(
+            State(state),
+            Path(product_id),
+            auth_headers(&code),
+            Json(PatchProductModelRequest {
+                name: None,
+                base_retail_price: Some(Decimal::new(12000, 2)),
+                apply_base_retail_to_all_variants: true,
+                base_sale_price: None,
+                clear_base_sale_price: false,
+                base_cost: None,
+                category_id: None,
+                clear_category_id: false,
+                brand: None,
+                catalog_handle: None,
+                clear_catalog_handle: false,
+                is_bundle: None,
+                track_low_stock: None,
+                tax_category_override: None,
+                clear_tax_category_override: false,
+                employee_markup_percent: None,
+                clear_employee_markup_percent: false,
+                employee_extra_amount: None,
+                primary_vendor_id: None,
+                clear_primary_vendor_id: false,
+                secondary_vendor_ids: None,
+                audit_source: None,
+                audit_note: Some(
+                    "Updated parent retail price and made all variations inherit it".to_string(),
+                ),
+                audit_confidence: None,
+            }),
+        )
+        .await
+        .expect("apply-all parent price should succeed");
+
+        assert_eq!(response["base_retail_price_changed"], true);
+        assert_eq!(response["retail_overrides_cleared"], 1);
+        let affected = response["price_change_reprint_variants"]
+            .as_array()
+            .expect("affected variants array");
+        assert_eq!(affected.len(), 2);
+
+        let product_price: Decimal =
+            sqlx::query_scalar("SELECT base_retail_price FROM products WHERE id = $1")
+                .bind(product_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load parent price");
+        assert_eq!(product_price, Decimal::new(12000, 2));
+
+        let overrides: Vec<Option<Decimal>> = sqlx::query_scalar(
+            "SELECT retail_price_override FROM product_variants WHERE product_id = $1 ORDER BY id",
+        )
+        .bind(product_id)
+        .fetch_all(&pool)
+        .await
+        .expect("load cleared overrides");
+        assert!(overrides.iter().all(Option::is_none));
+
+        let attributed_history: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM catalog_price_change_history
+            WHERE product_id = $1
+              AND changed_by = $2
+              AND change_note =
+                  'Updated parent retail price and made all variations inherit it'
+            "#,
+        )
+        .bind(product_id)
+        .bind(staff_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load attributed price history");
+        assert_eq!(attributed_history, 2);
+    }
+
+    #[tokio::test]
     async fn patch_product_model_base_price_returns_out_of_stock_variants() {
         let pool = connect_test_db().await;
         let product_id = insert_patchable_product(&pool).await;
@@ -6484,6 +6897,7 @@ mod tests {
             Json(PatchProductModelRequest {
                 name: None,
                 base_retail_price: Some(Decimal::new(9999, 2)),
+                apply_base_retail_to_all_variants: false,
                 base_sale_price: None,
                 clear_base_sale_price: false,
                 base_cost: None,
@@ -6520,6 +6934,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn patch_variant_identity_updates_options_label_and_catalog_audit() {
+        let pool = connect_test_db().await;
+        let product_id = insert_patchable_product(&pool).await;
+        let variant_id = Uuid::new_v4();
+        let (staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[CATALOG_EDIT]).await;
+        let state = build_test_state(pool.clone());
+        let sku = format!("IDENTITY-{}", &variant_id.simple().to_string()[..8]);
+
+        sqlx::query("UPDATE products SET variation_axes = ARRAY['Color', 'Size'] WHERE id = $1")
+            .bind(product_id)
+            .execute(&pool)
+            .await
+            .expect("set variation axes");
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                id, product_id, sku, variation_values, variation_label,
+                stock_on_hand, retail_price_override
+            )
+            VALUES (
+                $1, $2, $3, '{"Color":"Black","Size":"42R"}'::jsonb,
+                'Black / 42R', 4, 149.99
+            )
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .execute(&pool)
+        .await
+        .expect("insert identity variant");
+
+        let Json(response) = patch_variant_pricing(
+            State(state),
+            Path(variant_id),
+            auth_headers(&code),
+            Json(VariantPricingPatch {
+                variation_values: Some(json!({ "Color": "Navy", "Size": "44R" })),
+                ..VariantPricingPatch::default()
+            }),
+        )
+        .await
+        .expect("variation identity update should succeed");
+
+        assert_eq!(response["identity_changed"], true);
+        assert_eq!(response["variation_label"], "Navy / 44R");
+        assert_eq!(response["effective_retail"], "149.99");
+
+        let stored: (Value, Option<String>, Option<Decimal>) = sqlx::query_as(
+            r#"
+            SELECT variation_values, variation_label, retail_price_override
+            FROM product_variants
+            WHERE id = $1
+            "#,
+        )
+        .bind(variant_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load updated variation");
+        assert_eq!(stored.0, json!({ "Color": "Navy", "Size": "44R" }));
+        assert_eq!(stored.1.as_deref(), Some("Navy / 44R"));
+        assert_eq!(stored.2, Some(Decimal::new(14999, 2)));
+
+        let audit: (Uuid, Value, Value, String) = sqlx::query_as(
+            r#"
+            SELECT changed_by, before_values, after_values, change_note
+            FROM product_catalog_audit_log
+            WHERE product_id = $1
+              AND before_values ->> 'variant_id' = $2
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(product_id)
+        .bind(variant_id.to_string())
+        .fetch_one(&pool)
+        .await
+        .expect("load variation identity audit");
+        assert_eq!(audit.0, staff_id);
+        assert_eq!(audit.1["variation_label"], "Black / 42R");
+        assert_eq!(audit.2["variation_label"], "Navy / 44R");
+        assert!(audit.3.contains(&sku));
+    }
+
+    #[tokio::test]
     async fn patch_variant_pricing_detects_real_price_change() {
         let pool = connect_test_db().await;
         let product_id = insert_patchable_product(&pool).await;
@@ -6547,6 +7047,8 @@ mod tests {
             Path(variant_id),
             auth_headers(&code),
             Json(VariantPricingPatch {
+                variation_values: None,
+                variation_label: None,
                 web_published: None,
                 clear_web_price_override: false,
                 web_price_override: None,
@@ -6613,6 +7115,8 @@ mod tests {
             Path(variant_id),
             auth_headers(&code),
             Json(VariantPricingPatch {
+                variation_values: None,
+                variation_label: None,
                 web_published: None,
                 clear_web_price_override: false,
                 web_price_override: None,
@@ -6677,6 +7181,8 @@ mod tests {
             Path(variant_id),
             auth_headers(&code),
             Json(VariantPricingPatch {
+                variation_values: None,
+                variation_label: None,
                 web_published: None,
                 clear_web_price_override: false,
                 web_price_override: None,

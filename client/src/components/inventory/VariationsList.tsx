@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Search,
   Globe,
@@ -8,7 +8,6 @@ import {
   Check,
   Package,
   Activity,
-  Info,
 } from "lucide-react";
 import { List, RowComponentProps } from "react-window";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
@@ -40,7 +39,7 @@ export interface VariationsListProps {
   onShowCountCorrection: (id: string, sku: string, delta: number) => void;
 }
 
-const ROW_HEIGHT = 84;
+const ROW_HEIGHT = 100;
 
 interface RowData {
   variants: HubVariant[];
@@ -53,6 +52,112 @@ interface RowData {
     type: "damaged" | "return_to_vendor",
   ) => void;
   onShowCountCorrection: (id: string, sku: string, delta: number) => void;
+}
+
+function ListRetailControl({
+  variant,
+  onUpdate,
+}: {
+  variant: HubVariant;
+  onUpdate: (patch: VariantPatch) => Promise<unknown>;
+}) {
+  const inheritsParent = variant.retail_price_override == null;
+  const [useParent, setUseParent] = useState(inheritsParent);
+  const [draft, setDraft] = useState(
+    variant.retail_price_override ?? variant.effective_retail,
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setUseParent(inheritsParent);
+    setDraft(variant.retail_price_override ?? variant.effective_retail);
+    setError(null);
+  }, [inheritsParent, variant.effective_retail, variant.id, variant.retail_price_override]);
+
+  const toggleParent = async (checked: boolean) => {
+    setUseParent(checked);
+    setError(null);
+    if (!checked || inheritsParent) return;
+    setSaving(true);
+    try {
+      await onUpdate({ clear_retail_override: true });
+    } catch (updateError) {
+      setUseParent(false);
+      setError(updateError instanceof Error ? updateError.message : "Price update failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveOverride = async () => {
+    const trimmed = draft.trim();
+    if (!/^(?:\d+|\d*\.\d{1,2})$/.test(trimmed)) {
+      setError("Enter a valid retail price.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onUpdate({
+        retail_price_override: centsToFixed2(parseMoneyToCents(trimmed)),
+      });
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Price update failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <label className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+        <input
+          type="checkbox"
+          checked={useParent}
+          disabled={saving}
+          onChange={(event) => void toggleParent(event.target.checked)}
+          className="h-3.5 w-3.5 accent-app-accent"
+        />
+        Parent price
+      </label>
+      {useParent ? (
+        <span className="text-sm font-black tabular-nums tracking-tight text-app-text">
+          ${centsToFixed2(parseMoneyToCents(variant.effective_retail))}
+        </span>
+      ) : (
+        <div className="flex items-center justify-end gap-1">
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            aria-label={`Retail override for ${variant.sku}`}
+            value={draft}
+            disabled={saving}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void saveOverride();
+            }}
+            className="h-7 w-20 rounded-lg border border-app-border bg-app-surface px-2 text-right text-[11px] font-black tabular-nums"
+          />
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void saveOverride()}
+            className="rounded-md bg-app-accent px-2 py-1 text-[9px] font-black uppercase text-white disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      )}
+      {error ? (
+        <span className="max-w-48 text-right text-[9px] font-bold text-app-danger" role="alert">
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
@@ -135,21 +240,12 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
         </div>
       </div>
 
-      <div className="w-40 shrink-0 pr-4">
+      <div className="w-56 shrink-0 pr-4">
         <div className="flex flex-col gap-1 text-right">
-          <div className="flex items-center justify-end gap-1">
-            <span className="text-sm font-black tabular-nums tracking-tight text-app-text">
-              ${centsToFixed2(parseMoneyToCents(v.effective_retail))}
-            </span>
-            {v.retail_price_override && (
-              <div
-                className="animate-pulse text-app-accent"
-                title="Price Override Active"
-              >
-                <Info size={10} />
-              </div>
-            )}
-          </div>
+          <ListRetailControl
+            variant={v}
+            onUpdate={(patch) => rowProps.onUpdateVariant(v.id, patch)}
+          />
           <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-50">
             Retail
           </span>

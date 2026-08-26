@@ -2460,6 +2460,7 @@ export default function InventoryControlBoard({
           productId={hubProductId}
           seedTitle={hubSeedTitle}
           baseUrl={baseUrl}
+          onHubMutated={() => void refresh()}
           onClose={() => {
              setHubProductId(null);
              void refresh();

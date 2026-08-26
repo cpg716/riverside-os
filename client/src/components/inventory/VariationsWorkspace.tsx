@@ -66,9 +66,11 @@ interface VariationsWorkspaceProps {
 
 interface VariantPricingPatchResponse {
   status?: string;
+  identity_changed?: boolean;
   price_changed?: boolean;
   stock_on_hand?: number;
   sku?: string;
+  variation_values?: Record<string, unknown>;
   variation_label?: string | null;
   effective_retail?: string;
   effective_sale?: string | null;
@@ -89,6 +91,8 @@ type VariantPatch =
       notes: string;
       tx_type?: "damaged" | "return_to_vendor";
     }
+  | { variation_values: Record<string, string> }
+  | { variation_label: string }
   | { retail_price_override: string }
   | { clear_retail_override: boolean }
   | { sale_price_override: string }
@@ -190,6 +194,130 @@ function VariantTagPrintControl({
   );
 }
 
+function VariantIdentityEditor({
+  variant,
+  variationAxes,
+  onSave,
+}: {
+  variant: HubVariant;
+  variationAxes: string[];
+  onSave: (patch: VariantPatch) => Promise<VariantPricingPatchResponse | null>;
+}) {
+  const [valueDrafts, setValueDrafts] = useState<Record<string, string>>({});
+  const [labelDraft, setLabelDraft] = useState(variant.variation_label ?? "");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextDrafts: Record<string, string> = {};
+    for (const axis of variationAxes) {
+      nextDrafts[axis] = strVal(variant.variation_values[axis]) ?? "";
+    }
+    setValueDrafts(nextDrafts);
+    setLabelDraft(variant.variation_label ?? "");
+    setMessage(null);
+  }, [variant.variation_label, variant.variation_values, variationAxes]);
+
+  const hasAxes = variationAxes.length > 0;
+  const valuesChanged = variationAxes.some(
+    (axis) =>
+      (valueDrafts[axis] ?? "").trim() !==
+      (strVal(variant.variation_values[axis]) ?? "").trim(),
+  );
+  const labelChanged = labelDraft.trim() !== (variant.variation_label ?? "").trim();
+  const canSave = hasAxes
+    ? valuesChanged && variationAxes.every((axis) => (valueDrafts[axis] ?? "").trim())
+    : labelChanged && Boolean(labelDraft.trim());
+
+  const saveIdentity = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const payload = hasAxes
+        ? {
+            variation_values: Object.fromEntries(
+              variationAxes.map((axis) => [axis, (valueDrafts[axis] ?? "").trim()]),
+            ),
+          }
+        : { variation_label: labelDraft.trim() };
+      const response = await onSave(payload);
+      setMessage(
+        response?.identity_changed === false
+          ? "Variation name is already set to those values."
+          : "Variation name updated and added to Timeline.",
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Variation name update failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-2 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
+      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+        Variation name
+      </p>
+      <div className="grid gap-2">
+        {hasAxes ? (
+          variationAxes.map((axis) => (
+            <label key={axis} className="grid gap-1">
+              <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                {axis}
+              </span>
+              <input
+                aria-label={`Variation ${axis}`}
+                value={valueDrafts[axis] ?? ""}
+                maxLength={120}
+                disabled={saving}
+                onChange={(event) =>
+                  setValueDrafts((current) => ({
+                    ...current,
+                    [axis]: event.target.value,
+                  }))
+                }
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void saveIdentity();
+                }}
+                className="ui-input h-9 min-w-0 text-sm font-bold"
+              />
+            </label>
+          ))
+        ) : (
+          <input
+            aria-label="Variation name"
+            value={labelDraft}
+            maxLength={240}
+            disabled={saving}
+            onChange={(event) => setLabelDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void saveIdentity();
+            }}
+            className="ui-input h-9 min-w-0 text-sm font-bold"
+          />
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[9px] leading-relaxed text-app-text-muted">
+          Updates catalog, matrix, search, POS selection, and future tags without changing SKU or financial history.
+        </p>
+        <button
+          type="button"
+          disabled={!canSave || saving}
+          onClick={() => void saveIdentity()}
+          className="shrink-0 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-40"
+        >
+          {saving ? "Saving…" : "Save name"}
+        </button>
+      </div>
+      {message ? (
+        <p className="text-[10px] font-semibold text-app-text-muted">{message}</p>
+      ) : null}
+    </div>
+  );
+}
+
 function VariantIdentifierEditor({
   variant,
   onSave,
@@ -287,10 +415,119 @@ function VariantIdentifierEditor({
   );
 }
 
+function VariantRetailInheritanceEditor({
+  variant,
+  parentRetail,
+  onSave,
+}: {
+  variant: HubVariant;
+  parentRetail: string;
+  onSave: (patch: VariantPatch) => Promise<VariantPricingPatchResponse | null>;
+}) {
+  const inheritsParent = variant.retail_price_override == null;
+  const [useParent, setUseParent] = useState(inheritsParent);
+  const [overrideDraft, setOverrideDraft] = useState(
+    variant.retail_price_override ?? variant.effective_retail,
+  );
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setUseParent(inheritsParent);
+    setOverrideDraft(variant.retail_price_override ?? variant.effective_retail);
+    setMessage(null);
+  }, [inheritsParent, variant.effective_retail, variant.retail_price_override]);
+
+  const saveOverride = async () => {
+    const trimmed = overrideDraft.trim();
+    if (!/^(?:\d+|\d*\.\d{1,2})$/.test(trimmed)) {
+      setMessage("Enter a non-negative retail price with no more than two decimals.");
+      return;
+    }
+    setSaving(true);
+    setMessage(null);
+    try {
+      await onSave({
+        retail_price_override: centsToFixed2(parseMoneyToCents(trimmed)),
+      });
+      setMessage("SKU retail override saved and added to Timeline.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Retail override update failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const selectUseParent = async (checked: boolean) => {
+    setUseParent(checked);
+    setMessage(null);
+    if (!checked || inheritsParent) return;
+    setSaving(true);
+    try {
+      await onSave({ clear_retail_override: true });
+      setMessage("SKU now inherits the parent retail price.");
+    } catch (error) {
+      setUseParent(false);
+      setMessage(error instanceof Error ? error.message : "Could not restore parent pricing.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-2 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
+      <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text">
+        <input
+          type="checkbox"
+          checked={useParent}
+          disabled={saving}
+          onChange={(event) => void selectUseParent(event.target.checked)}
+          className="h-4 w-4 accent-app-accent"
+        />
+        Use parent retail price ({`$${centsToFixed2(parseMoneyToCents(parentRetail))}`})
+      </label>
+      {!useParent ? (
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <label className="relative min-w-0">
+            <span className="sr-only">Retail override for {variant.sku}</span>
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted">
+              $
+            </span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={overrideDraft}
+              disabled={saving}
+              onChange={(event) => setOverrideDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveOverride();
+              }}
+              className="ui-input h-9 w-full pl-7 text-sm font-bold tabular-nums"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void saveOverride()}
+            className="rounded-lg border border-app-border bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text disabled:opacity-40"
+          >
+            {saving ? "Saving…" : "Save override"}
+          </button>
+        </div>
+      ) : null}
+      {message ? (
+        <p className="text-[10px] font-semibold text-app-text-muted">{message}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   productId,
   productTrackLowStock,
-
+  templateBaseRetail = "0",
   productName,
   categoryName,
   variationAxes,
@@ -794,6 +1031,16 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                   </span>
                 ) : null}
               </div>
+              <VariantRetailInheritanceEditor
+                variant={v}
+                parentRetail={templateBaseRetail}
+                onSave={(patch) => patchVariant(v.id, patch)}
+              />
+              <VariantIdentityEditor
+                variant={v}
+                variationAxes={variationAxes}
+                onSave={(patch) => patchVariant(v.id, patch)}
+              />
               <VariantIdentifierEditor
                 variant={v}
                 onSave={(patch) => patchVariant(v.id, patch)}
@@ -805,13 +1052,6 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                   className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-emerald-300 hover:text-emerald-700`}
                 >
                   Count Fix
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void patchVariant(v.id, { clear_retail_override: true })}
-                  className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:text-app-accent`}
-                >
-                  Clear Price
                 </button>
                 <button
                   type="button"

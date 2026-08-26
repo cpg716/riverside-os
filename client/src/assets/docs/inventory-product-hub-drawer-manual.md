@@ -88,16 +88,18 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 5. Use `Print retail price tags` from the General section when you want to print from the product detail view.
 6. In the Variations tab, use `Print all tags` or select specific variations first and then use `Print selected tags`.
 7. Record variation-level `Product UPC` for manufacturer barcodes and `Catalog # / vendor style #` for supplier buying/receiving identifiers.
-8. To change the inherited retail price for the parent product, enter the amount in **Base retail** and select **Save price**. Existing SKU-specific retail overrides remain unchanged.
-9. To set an exact promotional price, enter it in **Base sale** and select **Save sale**. The sale price stays dormant until an eligible active discount event is applied; leave it blank to keep using the event's percentage discount.
-10. In **SKUs & Stock**, select a matrix retail or sale amount to edit that specific SKU. The editor starts with the current effective price. Clear a SKU override to inherit the parent value again.
-11. Review the shared retail price-tag dialog, adjust quantities, and confirm the final print batch.
-12. Open **Timeline** after a price edit to review the parent or SKU, Retail or Sale price, exact before/after amount, and the staff member or automated source that changed it. Price history is append-only and cannot be rewritten.
-13. Use recent inventory events when you need to confirm why an inventory number changed.
-14. Open **Stock Report** to review every variation's current quantity, last sold date, average monthly unit sales, and average yearly unit sales, then select **Print Report**.
-15. Select **Analyze product** only when you want the optional read-only ROSIE catalog review. Product Hub does not run that analysis automatically when the drawer opens.
-16. In **Item Setup** and **SKUs & Stock**, read `Average cost` as the financial basis and `Last cost` as purchasing reference only.
-17. On a variation card, leave **Tag copies** at `1` and select **Print 1 tag** for one tag. Enter a larger copy count and select the same button, or press Enter in the copy field, to print that many identical tags. Repeated button presses remain separate print jobs.
+8. To rename the parent item, edit **Name** and select **Save name**. Riverside refreshes current catalog/search surfaces and records the exact before/after name and staff member in **Timeline**.
+9. To change the inherited retail price, enter the amount in **Base retail** and select **Save price**. Riverside shows how many variations inherit the parent and how many use SKU overrides. Leave **Apply to all variations** unchecked to preserve those exceptions; check it and confirm only when every variation should inherit the new parent price.
+10. To set an exact promotional price, enter it in **Base sale** and select **Save sale**. The sale price stays dormant until an eligible active discount event is applied; leave it blank to keep using the event's percentage discount.
+11. In **SKUs & Stock**, every variation has a **Use parent retail price** checkbox. Keep it checked to inherit the parent price. Uncheck it, enter the exact amount, and save to create a SKU override; check it again to clear that override.
+12. To rename a variation, edit its displayed option fields such as Color and Size, then select **Save name**. Riverside updates the underlying variation values and derived display label together so the matrix, search, POS selection, and future tags stay aligned. The SKU does not change.
+13. Review the shared retail price-tag dialog, adjust quantities, and confirm the final print batch.
+14. Open **Timeline** after a name or price edit to review the parent or SKU, exact before/after value, and the staff member or automated source that changed it. Price history is append-only and cannot be rewritten.
+15. Use recent inventory events when you need to confirm why an inventory number changed.
+16. Open **Stock Report** to review every variation's current quantity, last sold date, average monthly unit sales, and average yearly unit sales, then select **Print Report**.
+17. Select **Analyze product** only when you want the optional read-only ROSIE catalog review. Product Hub does not run that analysis automatically when the drawer opens.
+18. In **Item Setup** and **SKUs & Stock**, read `Average cost` as the financial basis and `Last cost` as purchasing reference only.
+19. On a variation card, leave **Tag copies** at `1` and select **Print 1 tag** for one tag. Enter a larger copy count and select the same button, or press Enter in the copy field, to print that many identical tags. Repeated button presses remain separate print jobs.
 
 ## Parent stock and sales report
 
@@ -130,7 +132,8 @@ Variations stay grouped by their leading attributes, such as color or style, and
 - Available quantity follows the current server rule, not a manual floor estimate.
 - Incoming PO units only count after receiving posts the inventory movement.
 - `Print all tags` includes every variation shown in the workspace. Use selection first if you only need a smaller subset.
-- **Base retail** changes only SKUs that inherit the parent price. Review SKU-specific overrides separately in **SKUs & Stock** when every SKU must use the same amount.
+- **Base retail** changes only variations that inherit the parent price unless you explicitly check and confirm **Apply to all variations**. That apply-all action atomically clears SKU retail overrides and records the parent/SKU changes before the new effective prices are used.
+- Variation name edits do not change SKU identity, inventory quantities, cost, recorded Transaction prices, tax, or payment history. They update current catalog presentation and are retained in Product Timeline.
 - **Base sale** must not exceed retail. A SKU sale override inherits from the parent when cleared and is used only with an eligible active promotion.
 - Every parent and SKU Retail/Sale change is saved to immutable history. If a sync or import changes a price, Timeline identifies it as an automated source instead of assigning it to a staff member.
 - Sales averages describe recorded Riverside history. If older sales were never imported, the report cannot infer them.

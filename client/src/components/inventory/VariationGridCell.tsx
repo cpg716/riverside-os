@@ -92,6 +92,27 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
     }
   };
 
+  const handleParentPriceToggle = async (checked: boolean) => {
+    setPriceError(null);
+    if (!checked) {
+      setPriceDraft(currentRetail);
+      setEditingPrice(true);
+      return;
+    }
+    setEditingPrice(false);
+    if (!hasPriceOverride) return;
+    setIsUpdating(true);
+    try {
+      await onUpdatePrice(null);
+    } catch (error) {
+      setPriceError(
+        error instanceof Error ? error.message : "Parent price could not be restored.",
+      );
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleSaleSubmit = async () => {
     const trimmed = saleDraft.trim();
     if (trimmed && !/^(?:\d+|\d*\.\d{1,2})$/.test(trimmed)) {
@@ -140,6 +161,16 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
       }`}
     >
       {/* Price Section */}
+      <label className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+        <input
+          type="checkbox"
+          checked={!hasPriceOverride && !editingPrice}
+          disabled={isUpdating}
+          onChange={(event) => void handleParentPriceToggle(event.target.checked)}
+          className="h-3.5 w-3.5 accent-app-accent"
+        />
+        Use parent price
+      </label>
       <div className="flex items-center justify-between">
         {editingPrice ? (
           <div className="flex items-center gap-1">
