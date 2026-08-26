@@ -239,7 +239,16 @@ test.describe("register state stability", () => {
     });
 
     await page.goto("/pos", { waitUntil: "domcontentloaded" });
-    await page.getByRole("button", { name: /go to register/i }).click();
+    const saleAccessDialog = page.getByRole("dialog", {
+      name: "Staff Access for this sale",
+    });
+    await expect(saleAccessDialog).toBeVisible({ timeout: 20_000 });
+    await saleAccessDialog.getByTestId("staff-selector-button").click();
+    await saleAccessDialog.getByTestId("staff-identity-selector-1").click();
+    for (const digit of ["1", "2", "3", "4"]) {
+      await saleAccessDialog.getByTestId(`pin-key-${digit}`).click();
+    }
+    await expect(saleAccessDialog).toHaveCount(0);
 
     const registerPanel = page.getByTestId("pos-register-panel");
     await expect(registerPanel).toHaveAttribute(
