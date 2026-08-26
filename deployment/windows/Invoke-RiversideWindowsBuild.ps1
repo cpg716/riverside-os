@@ -466,11 +466,16 @@ try {
     }
     $updaterConfigPath = Join-Path $SourceRoot "client\src-tauri\tauri.internal-updater.conf.json"
     Write-Utf8NoBomJson $updaterConfig $updaterConfigPath 8
+    $tauriCli = Join-Path $SourceRoot "client\node_modules\@tauri-apps\cli\tauri.js"
+    if (-not (Test-Path $tauriCli)) {
+      throw "The installed Tauri CLI entrypoint is missing: $tauriCli"
+    }
+    $tauriNodeWrapper = "process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''; const { spawnSync } = require('node:child_process'); const result = spawnSync(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: process.env }); process.exit(result.status ?? 1);"
     try {
       Invoke-NativeStep `
         "Build signed internal Windows Tauri bundle" `
-        $npx `
-        @("tauri", "build", "--config", $updaterConfigPath) `
+        $node `
+        @("-e", $tauriNodeWrapper, $tauriCli, "build", "--config", $updaterConfigPath) `
         (Join-Path $SourceRoot "client")
     } finally {
       Remove-Item Env:\TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue

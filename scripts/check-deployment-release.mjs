@@ -584,6 +584,7 @@ for (const copy of [
   "Another Riverside Windows build is already active.",
   "The Main Hub was not ready before the build.",
   "The Main Hub was ready before the build but was not ready afterward.",
+  "process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''",
   "productionReady = $false",
 ]) {
   assertIncludes(
