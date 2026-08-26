@@ -34,6 +34,50 @@ function Assert-Command([string]$CommandName, [string]$InstallHint) {
   return $command.Source
 }
 
+function Initialize-MsvcEnvironment {
+  $programFilesX86 = ${env:ProgramFiles(x86)}
+  $vswhere = Join-Path $programFilesX86 "Microsoft Visual Studio\Installer\vswhere.exe"
+  if (-not (Test-Path $vswhere)) {
+    throw "Visual Studio Installer could not be found. Install Visual Studio 2022 Build Tools with the Desktop development with C++ workload."
+  }
+
+  $installationCandidates = @(
+    & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+  )
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not query the Visual Studio 2022 C++ build environment."
+  }
+  $installationPath = $installationCandidates |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+    Select-Object -First 1
+  if ([string]::IsNullOrWhiteSpace($installationPath)) {
+    throw "Visual Studio 2022 Build Tools is missing the Desktop development with C++ workload."
+  }
+
+  $vsDevCmd = Join-Path $installationPath "Common7\Tools\VsDevCmd.bat"
+  if (-not (Test-Path $vsDevCmd)) {
+    throw "Visual Studio 2022 developer environment was not found: $vsDevCmd"
+  }
+  $environmentCommand = "`"$vsDevCmd`" -no_logo -arch=x64 -host_arch=x64 >nul && set"
+  $environmentLines = @(& $env:ComSpec /d /s /c $environmentCommand)
+  if ($LASTEXITCODE -ne 0) {
+    throw "Visual Studio 2022 developer environment initialization failed."
+  }
+  foreach ($line in $environmentLines) {
+    $separator = $line.IndexOf("=")
+    if ($separator -le 0) {
+      continue
+    }
+    [Environment]::SetEnvironmentVariable(
+      $line.Substring(0, $separator),
+      $line.Substring($separator + 1),
+      [EnvironmentVariableTarget]::Process
+    )
+  }
+  Assert-Command "link.exe" "Repair the Visual Studio 2022 Desktop development with C++ workload." | Out-Null
+  return $installationPath
+}
+
 function Invoke-NativeStep(
   [string]$Label,
   [string]$Command,
@@ -340,6 +384,7 @@ try {
   if ($LASTEXITCODE -ne 0 -or $rustVersion -notmatch '^rustc 1\.91\.') {
     throw "Rust 1.91 is required; found '$rustVersion'."
   }
+  $msvcInstallPath = Initialize-MsvcEnvironment
 
   Write-Host "Riverside Windows build worker"
   Write-Host "Computer: $env:COMPUTERNAME"
@@ -348,6 +393,7 @@ try {
   Write-Host "Source root: $SourceRoot"
   Write-Host "Node: $nodeVersion"
   Write-Host "Rust: $rustVersion"
+  Write-Host "MSVC: $msvcInstallPath"
 
   if (-not $healthBefore.ready) {
     throw "The Main Hub was not ready before the build. Restore http://127.0.0.1:3000/api/ready before using production capacity for Windows builds."
