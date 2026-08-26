@@ -64,6 +64,7 @@ pub mod health;
 pub mod help;
 pub mod insights;
 pub mod integrations_cc;
+pub mod internal_updates;
 pub mod inventory;
 pub mod loyalty;
 pub mod mailbox;
@@ -271,6 +272,7 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
         .nest("/api/ai", ai::router())
         .nest("/api/inventory", inventory::router())
         .nest("/api/inventory/physical", physical_inventory::router())
+        .nest("/api/internal-updates", internal_updates::router())
         .nest("/api/alterations", alterations::router())
         .nest(
             "/api/insights",
@@ -345,6 +347,14 @@ pub fn build_router(app_state: AppState) -> Router<AppState> {
             "/api/settings/constant-contact",
             integrations_cc::router().merge(integrations_cc::auth_router()),
         );
+
+    if let Some(release_dir) = crate::logic::internal_updates::current_release_dir() {
+        router = router.nest_service(
+            "/api/internal-updates/files",
+            tower_http::services::ServeDir::new(release_dir)
+                .append_index_html_on_directories(false),
+        );
+    }
 
     if matches!(
         std::env::var("RIVERSIDE_ENABLE_E2E_TEST_SUPPORT")

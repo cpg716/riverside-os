@@ -502,6 +502,18 @@ assertIncludes(
 
 const deploymentPackageBuilder =
   "deployment/windows/build-deployment-package.ps1";
+for (const copy of [
+  '[string]$SourceGitSha = ""',
+  "A 40-character SourceGitSha is required when packaging outside a Git checkout.",
+  "function Get-CachedRuntimeAsset",
+  '[switch]$DisallowRuntimeDownloads',
+]) {
+  assertIncludes(
+    deploymentPackageBuilder,
+    copy,
+    "Windows packages built from transferred source must retain exact identity and verified runtime caching",
+  );
+}
 assertIncludes(
   deploymentPackageBuilder,
   "counterpoint-bridge-gui",
@@ -517,6 +529,78 @@ for (const copy of [
     deploymentPackageBuilder,
     copy,
     "Windows deployment package must include the local Meilisearch runtime used by Main Hub search",
+  );
+}
+
+const internalWindowsBuildRequester =
+  "scripts/run-main-hub-windows-build.ps1";
+for (const copy of [
+  "git -C $RepoRoot archive",
+  "The Windows build worker accepts committed source only",
+  'Assert-Command "ssh"',
+  'Assert-Command "scp"',
+  "This command does not install or deploy the result.",
+  'if ($Promote)',
+  "releaseCandidateReady",
+  "Start-ScheduledTask -TaskName $taskName",
+]) {
+  assertIncludes(
+    internalWindowsBuildRequester,
+    copy,
+    "Mac-to-Main-Hub builds must transfer committed source directly and require an explicit guarded promotion mode",
+  );
+}
+for (const forbidden of ["git push", "gh ", "Read-Host"]) {
+  assertNotIncludes(
+    internalWindowsBuildRequester,
+    forbidden,
+    "The internal Windows build requester must not use public hosting or password prompts",
+  );
+}
+
+const internalReleasePromotion =
+  "deployment/windows/Invoke-RiversideInternalReleasePromotion.ps1";
+for (const copy of [
+  "Assert-Sha256",
+  "install-server.ps1",
+  "install-register.ps1",
+  "$ready.database.connected -ne $true",
+  "$ready.search.authoritative -ne $true",
+  "The internal feed was not promoted",
+  'Write-PromotionStatus "READY"',
+]) {
+  assertIncludes(
+    internalReleasePromotion,
+    copy,
+    "Internal release promotion must verify the candidate, reuse guarded installers, require exact readiness, and publish last",
+  );
+}
+
+const internalWindowsBuildWorker =
+  "deployment/windows/Invoke-RiversideWindowsBuild.ps1";
+for (const copy of [
+  "Build source must not be placed inside the live C:\\RiversideOS installation.",
+  "Main Hub builds are blocked from 10 AM through 6 PM by default.",
+  "Another Riverside Windows build is already active.",
+  "The Main Hub was not ready before the build.",
+  "The Main Hub was ready before the build but was not ready afterward.",
+  "productionReady = $false",
+]) {
+  assertIncludes(
+    internalWindowsBuildWorker,
+    copy,
+    "The Windows build worker must isolate production and fail closed around store load and readiness",
+  );
+}
+for (const forbidden of [
+  "install-server.ps1",
+  "Apply-RiversideLanFleetUpdate.ps1",
+  "Start-ScheduledTask",
+]) {
+  assertNotIncludes(
+    internalWindowsBuildWorker,
+    forbidden,
+    "The Windows build worker must never apply its candidate",
   );
 }
 for (const copy of [

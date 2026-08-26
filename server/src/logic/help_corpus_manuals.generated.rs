@@ -74,6 +74,7 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
     ("staff-workspace", "client/src/assets/docs/staff-workspace-manual.md"),
     ("settings-ros-dev-center-panel", "client/src/assets/docs/settings-ros-dev-center-panel-manual.md"),
     ("settings-rosie-settings-panel", "client/src/assets/docs/settings-rosie-settings-panel-manual.md"),
+    ("settings-updates", "client/src/assets/docs/settings-updates-manual.md"),
     ("staff-weekly-grid-view", "client/src/assets/docs/staff-weekly-grid-view-manual.md"),
 ];
 
@@ -151,6 +152,7 @@ pub const HELP_MANUAL_BUNDLED_MARKDOWN: &[(&str, &str, &str)] = &[
     ("staff-workspace", "client/src/assets/docs/staff-workspace-manual.md", include_str!("../../../client/src/assets/docs/staff-workspace-manual.md")),
     ("settings-ros-dev-center-panel", "client/src/assets/docs/settings-ros-dev-center-panel-manual.md", include_str!("../../../client/src/assets/docs/settings-ros-dev-center-panel-manual.md")),
     ("settings-rosie-settings-panel", "client/src/assets/docs/settings-rosie-settings-panel-manual.md", include_str!("../../../client/src/assets/docs/settings-rosie-settings-panel-manual.md")),
+    ("settings-updates", "client/src/assets/docs/settings-updates-manual.md", include_str!("../../../client/src/assets/docs/settings-updates-manual.md")),
     ("staff-weekly-grid-view", "client/src/assets/docs/staff-weekly-grid-view-manual.md", include_str!("../../../client/src/assets/docs/staff-weekly-grid-view-manual.md")),
 ];
 

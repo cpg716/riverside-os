@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$Version = "",
+  [string]$SourceGitSha = "",
   [string]$OutputDir = "$PSScriptRoot\..\..\dist\deployment",
   [string]$ServerBinaryPath = "$PSScriptRoot\..\..\target\release\riverside-server.exe",
   [string]$ClientDistPath = "$PSScriptRoot\..\..\client\dist",
@@ -9,12 +10,14 @@ param(
   [string]$ServerManagerBinaryPath = "$PSScriptRoot\..\..\target\release\ros-server-manager.exe",
   [string]$ManagerBundlePath = "$PSScriptRoot\..\..\target\release\deployment-manager-bundle",
   [string]$ServerManagerBundlePath = "$PSScriptRoot\..\..\target\release\server-manager-bundle",
+  [string]$RuntimeCacheRoot = "",
   [ValidateSet("Windows-Deployment", "MainHub-Update")]
   [string]$PackageFlavor = "Windows-Deployment",
   [switch]$AllowMissingRegisterBundle,
   [switch]$AllowMissingManagerBinary,
   [switch]$AllowMissingServerManagerBinary,
-  [switch]$SkipRosieVoiceModels
+  [switch]$SkipRosieVoiceModels,
+  [switch]$DisallowRuntimeDownloads
 )
 
 $ErrorActionPreference = "Stop"
@@ -195,6 +198,29 @@ function Assert-FileSha256([string]$Path, [string]$Expected) {
   }
 }
 
+function Get-CachedRuntimeAsset(
+  [string]$CacheRoot,
+  [string]$AssetName,
+  [string]$Url,
+  [string]$ExpectedSha256,
+  [string]$Label,
+  [bool]$DownloadsDisallowed
+) {
+  New-Item -ItemType Directory -Force -Path $CacheRoot | Out-Null
+  $cachePath = Join-Path $CacheRoot $AssetName
+  if (Test-Path $cachePath) {
+    Assert-FileSha256 $cachePath $ExpectedSha256
+    Write-Host "Using cached $Label"
+    return $cachePath
+  }
+  if ($DownloadsDisallowed) {
+    throw "$Label is not cached at $cachePath and runtime downloads are disabled."
+  }
+  Invoke-DownloadFile $Url $cachePath $Label
+  Assert-FileSha256 $cachePath $ExpectedSha256
+  return $cachePath
+}
+
 function Add-RosieHfFiles(
   [string]$PackageRoot,
   [string]$Repo,
@@ -271,14 +297,23 @@ function Add-RosieVoiceModels([string]$PackageRoot) {
   Write-Host "Packaged ROSIE STT/TTS model files"
 }
 
-function Add-RosieSherpaBinaries([string]$PackageRoot) {
+function Add-RosieSherpaBinaries(
+  [string]$PackageRoot,
+  [string]$RuntimeCacheRoot,
+  [bool]$DownloadsDisallowed
+) {
   $sherpaVersion = "1.13.4"
   $sherpaArchiveName = "sherpa-onnx-v$sherpaVersion-win-x64-shared-MD-Release.tar.bz2"
   $sherpaUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$sherpaVersion/$sherpaArchiveName"
   $rosieBinDest = Join-Path $PackageRoot "rosie\bin"
-  $cacheDir = Join-Path ([IO.Path]::GetTempPath()) "riverside-rosie-package"
-  $archivePath = Join-Path $cacheDir $sherpaArchiveName
-  $extractDir = Join-Path $cacheDir "sherpa-onnx-v$sherpaVersion"
+  $archivePath = Get-CachedRuntimeAsset `
+    -CacheRoot $RuntimeCacheRoot `
+    -AssetName $sherpaArchiveName `
+    -Url $sherpaUrl `
+    -ExpectedSha256 "d4dacc8be5afe03f22ade4d50cfd587c03a625eaca8c41f2d99a24d3db463eab" `
+    -Label "ROSIE sherpa-onnx runtime $sherpaVersion" `
+    -DownloadsDisallowed $DownloadsDisallowed
+  $extractDir = Join-Path ([IO.Path]::GetTempPath()) "riverside-rosie-package\sherpa-onnx-v$sherpaVersion"
   $requiredBinaries = @("sherpa-onnx-offline.exe", "sherpa-onnx-offline-tts.exe")
 
   New-Item -ItemType Directory -Force -Path $rosieBinDest | Out-Null
@@ -287,10 +322,6 @@ function Add-RosieSherpaBinaries([string]$PackageRoot) {
     Write-Host "Packaged ROSIE sherpa-onnx binaries already present"
     return
   }
-
-  New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
-  Invoke-DownloadFile $sherpaUrl $archivePath $sherpaArchiveName
-  Assert-FileSha256 $archivePath "d4dacc8be5afe03f22ade4d50cfd587c03a625eaca8c41f2d99a24d3db463eab"
 
   if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }
   New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
@@ -322,16 +353,26 @@ function Add-RosieSherpaBinaries([string]$PackageRoot) {
   Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-function Add-MeilisearchBinary([string]$PackageRoot) {
+function Add-MeilisearchBinary(
+  [string]$PackageRoot,
+  [string]$RuntimeCacheRoot,
+  [bool]$DownloadsDisallowed
+) {
   $meiliVersion = "1.49.0"
   $assetName = "meilisearch-windows-amd64.exe"
   $meiliUrl = "https://github.com/meilisearch/meilisearch/releases/download/v$meiliVersion/$assetName"
   $meiliDest = Join-Path $PackageRoot "meilisearch"
   $meiliExe = Join-Path $meiliDest "meilisearch.exe"
 
+  $cachedMeili = Get-CachedRuntimeAsset `
+    -CacheRoot $RuntimeCacheRoot `
+    -AssetName $assetName `
+    -Url $meiliUrl `
+    -ExpectedSha256 "db63bea71776371a6675d95034439dfbb58deaab694ca4dfb89e61d761afbf5f" `
+    -Label "Meilisearch $meiliVersion Windows runtime" `
+    -DownloadsDisallowed $DownloadsDisallowed
   New-Item -ItemType Directory -Force -Path $meiliDest | Out-Null
-  Invoke-DownloadFile $meiliUrl $meiliExe "Meilisearch $meiliVersion Windows runtime"
-  Assert-FileSha256 $meiliExe "db63bea71776371a6675d95034439dfbb58deaab694ca4dfb89e61d761afbf5f"
+  Copy-Item $cachedMeili $meiliExe -Force
   Write-Host "Packaged meilisearch/meilisearch.exe"
 }
 
@@ -434,8 +475,19 @@ function Set-PackagedMigrationLineEndings([string]$MigrationDir) {
 }
 
 $repoRoot = Resolve-FullPath "$PSScriptRoot\..\.."
-$gitShort = Get-GitShort $repoRoot
-$gitFull = Get-GitFull $repoRoot
+if ([string]::IsNullOrWhiteSpace($RuntimeCacheRoot)) {
+  $RuntimeCacheRoot = Join-Path ([IO.Path]::GetTempPath()) "riverside-deployment-runtime-cache"
+}
+$RuntimeCacheRoot = Resolve-FullPath $RuntimeCacheRoot
+$gitFull = if ([string]::IsNullOrWhiteSpace($SourceGitSha)) {
+  Get-GitFull $repoRoot
+} else {
+  $SourceGitSha.Trim().ToLowerInvariant()
+}
+if ($gitFull -notmatch '^[0-9a-f]{40}$') {
+  throw "A 40-character SourceGitSha is required when packaging outside a Git checkout."
+}
+$gitShort = $gitFull.Substring(0, 8)
 $packageLabel = if ($gitShort -and $gitShort -ne "unknown") {
   "RiversideOS-v$Version-$gitShort-$PackageFlavor"
 } else {
@@ -554,13 +606,13 @@ if (Test-Path $llamaSourceExe) {
 } else {
   Write-Warning "client/src-tauri/binaries/llama-server-x86_64-pc-windows-msvc.exe not found; Install-RosieAiStack.ps1 will download the pinned llama.cpp runtime during online install."
 }
-Add-RosieSherpaBinaries $packageRoot
+Add-RosieSherpaBinaries $packageRoot $RuntimeCacheRoot ([bool]$DisallowRuntimeDownloads)
 if ($SkipRosieVoiceModels) {
   Write-Host "Skipping bundled ROSIE voice models; existing installs retain their verified models and fresh installs use the pinned ROSIE installer."
 } else {
   Add-RosieVoiceModels $packageRoot
 }
-Add-MeilisearchBinary $packageRoot
+Add-MeilisearchBinary $packageRoot $RuntimeCacheRoot ([bool]$DisallowRuntimeDownloads)
 Add-CubeRuntime $packageRoot $repoRoot
 
 Copy-Item "$PSScriptRoot\start-riverside-llama.ps1" $packageRoot -Force

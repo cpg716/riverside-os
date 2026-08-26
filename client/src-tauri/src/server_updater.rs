@@ -7,6 +7,8 @@ use tauri::{command, AppHandle};
 
 use crate::install_contract::contract;
 
+const UPDATER_CHANNEL: Option<&str> = option_env!("RIVERSIDE_UPDATER_CHANNEL");
+
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -37,6 +39,130 @@ struct GithubAsset {
 #[derive(Deserialize, Debug)]
 struct GithubRelease {
     assets: Vec<GithubAsset>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct InternalMainHubAsset {
+    file_name: String,
+    url: String,
+    sha256: String,
+    bytes: u64,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct InternalRelease {
+    contract_version: u8,
+    version: String,
+    source_git_sha: String,
+    main_hub_package: InternalMainHubAsset,
+}
+
+fn internal_release_url() -> Result<reqwest::Url, String> {
+    let station = crate::station_config::read_station_config_value()?
+        .ok_or_else(|| "Internal Main Hub update requires station-config.json.".to_string())?;
+    let api_base = station
+        .get("register")
+        .and_then(|register| register.get("apiBase"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "Internal Main Hub update requires register.apiBase.".to_string())?;
+    let mut url = reqwest::Url::parse(api_base)
+        .map_err(|error| format!("Internal Main Hub API address is invalid: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !matches!(url.path(), "" | "/")
+    {
+        return Err("Internal Main Hub API address must be an HTTP(S) server origin without credentials, query parameters, fragments, or a path.".to_string());
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| "Internal Main Hub API address does not contain a host.".to_string())?;
+    if url.scheme() == "http" && !crate::station_config::is_allowed_internal_update_host(host) {
+        return Err("Plain HTTP Main Hub updates are restricted to loopback, private LAN, and Tailscale addresses.".to_string());
+    }
+    url.set_path("/api/internal-updates/release.json");
+    Ok(url)
+}
+
+fn version_core(value: &str) -> &str {
+    value
+        .trim()
+        .trim_start_matches('v')
+        .split('+')
+        .next()
+        .unwrap_or_default()
+}
+
+async fn resolve_internal_deployment_asset(
+    client: &reqwest::Client,
+    version: &str,
+    target_build_sha: &str,
+) -> Result<GithubAsset, String> {
+    let metadata_url = internal_release_url()?;
+    let response = client
+        .get(metadata_url.clone())
+        .header("Cache-Control", "no-cache")
+        .send()
+        .await
+        .map_err(|error| format!("Failed to request internal release metadata: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Internal release metadata returned HTTP {}.",
+            response.status()
+        ));
+    }
+    let release: InternalRelease = response
+        .json()
+        .await
+        .map_err(|error| format!("Failed to parse internal release metadata: {error}"))?;
+    if release.contract_version != 1 {
+        return Err(format!(
+            "Unsupported internal release contract version: {}",
+            release.contract_version
+        ));
+    }
+    if version_core(&release.version) != version_core(version) {
+        return Err(format!(
+            "Internal release version mismatch. Expected {}, metadata contains {}.",
+            version_core(version),
+            version_core(&release.version)
+        ));
+    }
+    if !release
+        .source_git_sha
+        .eq_ignore_ascii_case(target_build_sha)
+    {
+        return Err(format!(
+            "Internal release build mismatch. Expected {target_build_sha}, metadata contains {}.",
+            release.source_git_sha
+        ));
+    }
+    if release.main_hub_package.bytes == 0 {
+        return Err("Internal Main Hub package has an invalid byte count.".to_string());
+    }
+    let asset_url = reqwest::Url::parse(&release.main_hub_package.url)
+        .map_err(|error| format!("Internal Main Hub package URL is invalid: {error}"))?;
+    if asset_url.scheme() != metadata_url.scheme()
+        || asset_url.host_str() != metadata_url.host_str()
+        || asset_url.port_or_known_default() != metadata_url.port_or_known_default()
+        || !asset_url.path().starts_with("/api/internal-updates/files/")
+    {
+        return Err(
+            "Internal Main Hub package URL did not resolve to the configured Main Hub update service."
+                .to_string(),
+        );
+    }
+    Ok(GithubAsset {
+        name: release.main_hub_package.file_name,
+        browser_download_url: asset_url.to_string(),
+        digest: Some(format!("sha256:{}", release.main_hub_package.sha256)),
+    })
 }
 
 fn normalized_build_short(value: &str) -> Option<String> {
@@ -252,7 +378,10 @@ fn verify_deployment_package_build(
         )
     })?;
 
-    if !build_ids_match(&actual_build_short, &target_build_short) {
+    let exact_builds_mismatch = target_build_sha.is_some_and(|target| {
+        target.len() == 40 && actual_build.len() == 40 && !actual_build.eq_ignore_ascii_case(target)
+    });
+    if exact_builds_mismatch || !build_ids_match(&actual_build_short, &target_build_short) {
         return Err(format!(
             "Deployment package build mismatch. Expected {target_build_short}, package contains {actual_build_short}. Refusing to run the Main Hub update."
         ));
@@ -518,49 +647,53 @@ pub async fn download_and_run_server_installer(
 
     #[cfg(windows)]
     {
-        let target_build_short = build_sha
+        let target_build_sha = build_sha
             .as_deref()
-            .and_then(normalized_build_short)
+            .map(str::trim)
+            .filter(|sha| sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .map(str::to_ascii_lowercase)
             .ok_or_else(|| {
                 "Exact build SHA is required for a Main Hub update. Refresh the update check before trying again."
                     .to_string()
             })?;
+        let target_build_short = target_build_sha[..8].to_string();
 
-        // 1. Fetch release assets from GitHub API to find the deployment zip
+        // 1. Resolve the exact deployment asset from the configured release channel.
         let tag_name = format!("v{}", version);
-        let url = format!(
-            "https://api.github.com/repos/cpg716/riverside-os/releases/tags/{}",
-            tag_name
-        );
-
         let client = reqwest::Client::builder()
             .user_agent("riverside-pos")
             .build()
             .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
-
-        let res = client
-            .get(&url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .send()
-            .await
-            .map_err(|e| format!("Failed to request release metadata from GitHub: {e}"))?;
-
-        if !res.status().is_success() {
-            return Err(format!(
-                "GitHub API returned error status: {} for release tag {}",
-                res.status(),
+        let asset = if UPDATER_CHANNEL
+            .is_some_and(|channel| channel.eq_ignore_ascii_case("internal"))
+        {
+            resolve_internal_deployment_asset(&client, &version, &target_build_sha).await?
+        } else {
+            let url = format!(
+                "https://api.github.com/repos/cpg716/riverside-os/releases/tags/{}",
                 tag_name
-            ));
-        }
+            );
+            let res = client
+                .get(&url)
+                .header("Accept", "application/vnd.github+json")
+                .header("X-GitHub-Api-Version", "2022-11-28")
+                .send()
+                .await
+                .map_err(|e| format!("Failed to request release metadata from GitHub: {e}"))?;
 
-        let release: GithubRelease = res
-            .json()
-            .await
-            .map_err(|e| format!("Failed to parse GitHub release JSON: {e}"))?;
-
-        let asset =
-            select_deployment_asset(release.assets, &tag_name, Some(target_build_short.as_str()))?;
+            if !res.status().is_success() {
+                return Err(format!(
+                    "GitHub API returned error status: {} for release tag {}",
+                    res.status(),
+                    tag_name
+                ));
+            }
+            let release: GithubRelease = res
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse GitHub release JSON: {e}"))?;
+            select_deployment_asset(release.assets, &tag_name, Some(target_build_short.as_str()))?
+        };
         let asset_name = asset.name.clone();
         let asset_digest = asset.digest.clone();
 
@@ -697,7 +830,7 @@ pub async fn download_and_run_server_installer(
         let verified_build = verify_deployment_package_build(
             &script_dir,
             &extraction_dir,
-            Some(target_build_short.as_str()),
+            Some(target_build_sha.as_str()),
         )?;
 
         let runner_script_path = temp_dir.join("update-runner.ps1");
@@ -781,8 +914,10 @@ function Test-RiversideReady {{
         $response = Invoke-WebRequest -Uri "http://127.0.0.1:$serverPort{ready_ep}" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
         if ($response.StatusCode -ne 200) {{ return $false }}
         $payload = $response.Content | ConvertFrom-Json -ErrorAction Stop
+        $observedBuild = "$($payload.build_sha)".Trim().ToLowerInvariant()
         return $payload.database.connected -eq $true -and
-            -not [string]::IsNullOrWhiteSpace("$($payload.build_sha)")
+            $payload.search.authoritative -eq $true -and
+            $observedBuild -eq '{target_build_sha}'
     }} catch {{
         return $false
     }}
@@ -922,6 +1057,7 @@ Read-Host 'Press Enter to close this window'
             ready_ep = contract::READY_ENDPOINT,
             target_version = version.replace('\'', "''"),
             target_build_short = target_build_short.replace('\'', "''"),
+            target_build_sha = target_build_sha.replace('\'', "''"),
         );
 
         std::fs::write(&runner_script_path, runner_content)

@@ -20,6 +20,8 @@ const RELEASE_BUILD_MARKER: &str = env!("RIVERSIDE_RELEASE_BUILD");
 
 #[derive(Debug, Clone, Serialize)]
 pub struct UpdateCheckResult {
+    /// Release source used for this check: `internal` on the Main Hub or `github` for legacy builds.
+    pub source: String,
     pub current_version: String,
     pub current_build_sha: String,
     pub latest_version: String,
@@ -231,23 +233,36 @@ mod tests {
 pub async fn check_for_update(client: &reqwest::Client) -> Result<UpdateCheckResult, String> {
     let current = env!("CARGO_PKG_VERSION").to_string();
     let current_sha = CURRENT_BUILD_SHA.to_string();
+    let (source, manifest) =
+        if let Some(release) = crate::logic::internal_updates::load_current_release()? {
+            (
+                "internal".to_string(),
+                LatestManifest {
+                    version: release.version,
+                    build_sha: Some(release.source_git_sha),
+                    pub_date: Some(release.published_at),
+                    notes: release.notes,
+                },
+            )
+        } else {
+            let res = client
+                .get(LATEST_JSON_URL)
+                .header("User-Agent", "RiversideOS-UpdateCheck")
+                .header("Cache-Control", "no-cache")
+                .send()
+                .await
+                .map_err(|e| format!("Failed to fetch latest.json: {e}"))?;
 
-    let res = client
-        .get(LATEST_JSON_URL)
-        .header("User-Agent", "RiversideOS-UpdateCheck")
-        .header("Cache-Control", "no-cache")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to fetch latest.json: {e}"))?;
+            if !res.status().is_success() {
+                return Err(format!("latest.json returned HTTP {}", res.status()));
+            }
 
-    if !res.status().is_success() {
-        return Err(format!("latest.json returned HTTP {}", res.status()));
-    }
-
-    let manifest: LatestManifest = res
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse latest.json: {e}"))?;
+            let manifest: LatestManifest = res
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse latest.json: {e}"))?;
+            ("github".to_string(), manifest)
+        };
 
     let latest_ver = version_core(&manifest.version);
     let current_ver = version_core(&current);
@@ -262,6 +277,7 @@ pub async fn check_for_update(client: &reqwest::Client) -> Result<UpdateCheckRes
     let (safe_window, safe_window_hint) = is_safe_update_window();
 
     Ok(UpdateCheckResult {
+        source,
         current_version: current,
         current_build_sha: current_sha,
         latest_version: latest_ver,

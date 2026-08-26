@@ -377,6 +377,8 @@ cd client
 npm run tauri:dev
 ```
 
+For Windows-native validation, signed packaging, and explicit guarded promotion while developing on macOS, use the private Main Hub release lane documented in [`docs/INTERNAL_WINDOWS_BUILD_WORKER.md`](docs/INTERNAL_WINDOWS_BUILD_WORKER.md). It transfers only committed source over LAN or Tailscale, preserves exact commit identity, keeps normal build requests non-deploying, and requires `-Promote` before the Main Hub installer or private workstation feed can change.
+
 **ROSIE local/runtime stack:** The canonical source of truth is **[`docs/ROSIE_HOST_STACK.md`](docs/ROSIE_HOST_STACK.md)**. That file defines:
 
 - the Host deployment model

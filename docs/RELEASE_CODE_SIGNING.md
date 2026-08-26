@@ -18,3 +18,9 @@ Recommended secret names are `WINDOWS_CODE_SIGNING_PFX_BASE64`, `WINDOWS_CODE_SI
 After signing is configured, set the repository variable `RIVERSIDE_REQUIRE_AUTHENTICODE=true` and the macOS variable `RIVERSIDE_REQUIRE_APPLE_SIGNING=true`. The release workflows then fail before publishing if Windows signatures, Apple signatures, or Apple trust assessment are invalid.
 
 Once the certificates are available, import them into an ephemeral runner key store, pass the selected identity to Tauri, verify every generated executable/installer, notarize the macOS bundle, and remove the key store before the job ends.
+
+## Private Main Hub updater lane
+
+The internal Windows build worker creates its Tauri updater key pair on the Main Hub during the first package build. The private key is encrypted with Windows DPAPI for the existing build account under `C:\ProgramData\RiversideOS\build-worker\signing`; it is decrypted only into the build process environment and is never transferred to the Mac or published by the update service. The public key is embedded in the internal-channel Tauri build and may be retained with build evidence.
+
+This protects update integrity without GitHub. It does not make Windows display a verified publisher. When a real OV/EV Authenticode certificate is available in the Main Hub certificate store, rerun `Initialize-RiversideWindowsBuildWorker.ps1` with `-AuthenticodeCertificateThumbprint`. Package builds then pass that certificate to Tauri and fail if generated Windows installers do not verify against the configured thumbprint. Never configure a self-signed certificate as production publisher trust.

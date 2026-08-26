@@ -39,6 +39,7 @@ type ServerVersionStatus = {
 };
 
 type ServerUpdateCheck = {
+  source: "internal" | "github";
   current_version: string;
   current_build_sha: string;
   latest_version: string;
@@ -188,7 +189,12 @@ export default function UpdateManagerPanel() {
     setUpdateStep("downloading");
     setUpdateLog([`Starting update to v${targetVersion}...`]);
     try {
-      setUpdateLog(l => [...l, "Downloading deployment package from GitHub..."]);
+      setUpdateLog(l => [
+        ...l,
+        serverUpdateCheck?.source === "internal"
+          ? "Downloading the signed deployment package from this Main Hub's private release feed..."
+          : "Downloading deployment package from GitHub...",
+      ]);
       setUpdateStep("extracting");
       const msg = await downloadAndRunServerInstaller(
         targetVersion,
@@ -615,6 +621,11 @@ export default function UpdateManagerPanel() {
                     ? `v${serverUpdateCheck.latest_version} is available (you are on v${serverUpdateCheck.current_version})`
                     : `You are on the latest version (v${serverUpdateCheck.current_version})`}
               </div>
+              <div className="mt-1 text-[10px] font-black uppercase tracking-wider opacity-75">
+                {serverUpdateCheck.source === "internal"
+                  ? "Private Main Hub release"
+                  : "GitHub release"}
+              </div>
               {serverUpdateCheck.update_available && serverUpdateCheck.rebuild_available && (
                 <div className="mt-1 text-[10px] font-mono text-amber-700 opacity-80">
                   current build: {serverUpdateCheck.current_build_sha.slice(0, 8)}
@@ -741,9 +752,10 @@ export default function UpdateManagerPanel() {
         <div className="flex items-start gap-3">
           <RefreshCw className="mt-0.5 h-5 w-5 shrink-0 text-app-accent" aria-hidden />
           <p className="text-sm font-medium leading-relaxed text-app-text-muted">
-            Mac development still produces the source change. Windows desktop
-            updates require a signed Windows release artifact. PWA updates come
-            from the web files served by the store server.
+            Mac development produces the committed source change. The Main Hub
+            builds and signs the private Windows release, installs its own guarded
+            package first, then serves the verified workstation update to the other
+            Windows PCs over the Riverside connection.
           </p>
         </div>
       </section>

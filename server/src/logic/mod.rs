@@ -38,6 +38,7 @@ pub mod importer;
 pub mod insights_config;
 pub mod integration_alerts;
 pub mod integration_credentials;
+pub mod internal_updates;
 pub mod inventory;
 pub mod inventory_velocity;
 pub mod lightspeed_customers;

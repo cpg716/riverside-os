@@ -73,7 +73,8 @@ import manual_68_raw from "../../assets/docs/staff-commission-manager-workspace-
 import manual_69_raw from "../../assets/docs/staff-workspace-manual.md?raw";
 import manual_70_raw from "../../assets/docs/settings-ros-dev-center-panel-manual.md?raw";
 import manual_71_raw from "../../assets/docs/settings-rosie-settings-panel-manual.md?raw";
-import manual_72_raw from "../../assets/docs/staff-weekly-grid-view-manual.md?raw";
+import manual_72_raw from "../../assets/docs/settings-updates-manual.md?raw";
+import manual_73_raw from "../../assets/docs/staff-weekly-grid-view-manual.md?raw";
 
 export const HELP_MANUALS: HelpManual[] = [
   {
@@ -581,10 +582,17 @@ export const HELP_MANUALS: HelpManual[] = [
     tags: ["settings-rosie-settings-panel","rosie","help","voice"],
   },
   {
+    id: "settings-updates",
+    title: "Riverside Updates",
+    summary: "Check and install the correct private Riverside update on Main Hub, Register, or Back Office PCs.",
+    markdown: manual_72_raw,
+    tags: ["settings","updates","main-hub","register","windows"],
+  },
+  {
     id: "staff-weekly-grid-view",
     title: "Staff Weekly Grid View",
     summary: "Professional printing, store event management, and unified badge reference for the weekly schedule.",
-    markdown: manual_72_raw,
+    markdown: manual_73_raw,
     tags: ["staff","schedule","grid","printing","events"],
   },
 ];

@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::path::PathBuf;
 use tauri::command;
 
@@ -21,15 +22,33 @@ fn station_config_path() -> PathBuf {
 
 #[command]
 pub async fn load_station_config() -> Result<Option<serde_json::Value>, String> {
+    read_station_config_value()
+}
+
+pub(crate) fn read_station_config_value() -> Result<Option<serde_json::Value>, String> {
     let path = station_config_path();
     if !path.exists() {
         return Ok(None);
     }
 
-    let raw = tokio::fs::read_to_string(&path)
-        .await
+    let raw = std::fs::read_to_string(&path)
         .map_err(|e| format!("Could not read station setup file: {e}"))?;
     let value = serde_json::from_str(&raw)
         .map_err(|e| format!("Could not read station setup values: {e}"))?;
     Ok(Some(value))
+}
+
+pub(crate) fn is_allowed_internal_update_host(host: &str) -> bool {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return match ip {
+            IpAddr::V4(ip) => {
+                ip.is_private()
+                    || ip.is_loopback()
+                    || (ip.octets()[0] == 100 && (64..=127).contains(&ip.octets()[1]))
+            }
+            IpAddr::V6(ip) => ip.is_loopback() || (ip.segments()[0] & 0xfe00) == 0xfc00,
+        };
+    }
+
+    !host.contains('.') || host.ends_with(".local") || host.ends_with(".ts.net")
 }

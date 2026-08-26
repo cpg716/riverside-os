@@ -70,6 +70,7 @@ riverside-os-secure-deployment-bundles/
 # --- Tools / Output ---
 client/test-results/
 client/playwright-report/
+/dist/internal-windows-builds/
 repomix-output.xml
 output/pdf/*.pdf
 venv/

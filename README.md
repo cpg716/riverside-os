@@ -296,6 +296,7 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | **Production & Operations** |
 | `docs/PRODUCTION_HARDENING_GUIDE.md` | Complete production hardening features, monitoring, security | DevOps / System Admins |
 | `docs/DEPLOYMENT_GUIDE.md` | Production deployment procedures, load balancer, monitoring setup | DevOps / System Admins |
+| `docs/INTERNAL_WINDOWS_BUILD_WORKER.md` | Private Mac-to-Main-Hub Windows build, signing, guarded promotion, and update feed | Developers / DevOps |
 | `docs/REDIS_INTEGRATION_GUIDE.md` | Redis caching, distributed locking, performance optimization | Developers / DevOps |
 | `docs/JOB_QUEUE_GUIDE.md` | Background job processing, queue management, worker configuration | Developers / DevOps |
 | `docs/METRICS_SYSTEM_GUIDE.md` | Business KPIs, technical metrics, monitoring, alerting | Developers / DevOps |

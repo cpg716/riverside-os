@@ -323,6 +323,12 @@ const BASE_HELP_SCREENSHOT_SPECS = [
     output: "client/src/assets/images/help/settings-ros-dev-center-panel/main.png",
   },
   {
+    id: "settings-updates",
+    kind: "settings-panel",
+    sectionButton: /^updates$/i,
+    output: "client/src/assets/images/help/settings-updates/main.png",
+  },
+  {
     id: "bug-report-flow-help-drawer",
     kind: "bug-report-dialog",
     output: "client/src/assets/images/help/bug-report-flow/help-drawer.png",
@@ -666,6 +672,7 @@ const DEDICATED_MANUAL_SCREENSHOT_BASE_IDS = {
   "settings-meilisearch-settings-panel": ["settings-meilisearch", "settings-help-center-library", "settings-remote-access-panel"],
   "settings-receipt-builder-panel": ["settings-receipt-builder", "settings-printers-scanners", "settings-tag-designer"],
   "settings-ros-dev-center-panel": ["settings-ros-dev-center", "settings-help-center-library", "settings-remote-access-panel"],
+  "settings-updates": ["settings-updates", "settings-backups", "settings-remote-access-panel"],
   "settings-rosie-settings-panel": ["settings-rosie-panel", "settings-help-center-library", "settings-remote-access-panel"],
   "staff-schedule-panel": ["staff-schedule-panel", "staff-workspace-team", "operations-operational-home"],
   "customers-workspace": ["customers-workspace", "customers-add-customer", "customers-relationship-hub-wedding-lookup"],

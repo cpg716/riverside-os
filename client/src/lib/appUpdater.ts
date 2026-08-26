@@ -102,6 +102,7 @@ export async function readAppUpdateTelemetry(): Promise<AppUpdateTelemetry> {
 }
 
 export interface UpdateCheckResult {
+  source: string;
   enabled: boolean;
   available: boolean;
   version: string | null;
@@ -125,6 +126,7 @@ export async function checkForAppUpdate(): Promise<UpdateCheckResult> {
   if (!isTauri()) {
     return {
       enabled: false,
+      source: "unavailable",
       available: false,
       version: null,
       date: null,

@@ -101,7 +101,7 @@ Use the full source-build mode only when the server binary must change and no pr
 ROS_MAIN_HUB_HOST="MAIN-HUB-NAME-OR-IP" npm run push:main-hub:fast -- -Mode Full
 ```
 
-Full mode may install or require Rust and can take substantially longer on the Main Hub. For routine backend/server changes, prefer the GitHub `main-hub-update` or `full-deployment` package path and push that package over LAN with `npm run push:main-hub`.
+Full mode may install or require Rust and can take substantially longer on the Main Hub. For routine backend/server changes, use the private signed release lane in [`INTERNAL_WINDOWS_BUILD_WORKER.md`](INTERNAL_WINDOWS_BUILD_WORKER.md). The older prebuilt-package push remains a recovery/fallback path.
 
 If you already have a prebuilt package, use the package push path instead:
 
@@ -127,24 +127,29 @@ The package push script:
 
 Use `-SkipBackup` only when a separate current backup has already been verified. Use `-SkipMigrations`, `-SkipRosieSetup`, or `-NoStart` only for narrow support cases.
 
-### 5.1 In-App Update (GitHub release path — requires internet access)
+### 5.1 Private in-app update (Main Hub feed — no GitHub required)
 
-This is the standard update path for all production stores:
+The Main Hub can now be the private build, signing, installation, and workstation update host. See [`INTERNAL_WINDOWS_BUILD_WORKER.md`](INTERNAL_WINDOWS_BUILD_WORKER.md) for initial setup and the Mac command.
 
-1. **Admin notification**: The server checks GitHub for new releases daily and sends an `update_available` in-app notification to all `settings.admin` staff when a newer version is found.
-2. **Timing**: Updates should be performed **before 10 AM or after 6 PM** (outside store hours). The update UI warns if the store may be open.
-3. **On the Main Hub (Backoffice / Server PC)**:
+1. **Create and promote from the Mac**: Commit the intended source, then run `npm run release:internal:windows`. The Main Hub performs the Windows build and updater signing. The elevated promotion task verifies hashes, uses the normal pre-migration backup/rollback installer, requires the exact expected `/api/ready` build with database and authoritative search, and publishes the private feed only after those checks pass.
+2. **Admin notification**: The server reads the promoted local `release.json` first and sends the existing `update_available` notification when the promoted version or exact build differs. GitHub is only the legacy fallback when no internal release is present.
+3. **Timing**: Updates should be performed **before 10 AM or after 6 PM** (outside store hours). The update UI warns if the store may be open.
+4. **On the Main Hub (Backoffice / Server PC)**:
    - Open **Settings → Updates → Server update**.
-   - Confirm the version banner shows the available update.
+   - Confirm the version banner identifies **Private Main Hub release** and shows the expected version/build.
    - Click **"Update server to vX.X.X"** and monitor the progress steps.
-   - The system automatically: downloads the deployment ZIP, runs `install-server.ps1` + migrations elevated, **restarts the `Riverside OS Server` scheduled task**, and polls `/api/ready` until the server and database are confirmed ready.
+   - This button is primarily the self-service path for a previously published internal candidate. The Mac `release:internal:windows` command performs build plus first promotion in one guarded operation.
    - When the PowerShell window prints "Update Complete", verify `C:\ProgramData\RiversideOS\deployment.status` reports `READY` for the expected version/build, then relaunch Riverside on all stations. The `READY` result is written only after the final restarted server passes `/api/ready`.
-4. **On Register / Back Office satellite stations**:
+5. **On Register / Back Office satellite stations**:
    - The next time staff launch the app, the `BackofficeSignInGate` checks `GET /api/version`.
    - If the server is ahead of the client, the sign-in screen is **replaced with a blocking update prompt**.
-   - Windows Tauri stations: click **"Update to vX.X.X"** to pull the signed MSI via the Tauri updater.
+   - Windows Tauri stations: click **"Update to vX.X.X"** to pull the Tauri-signed updater artifact from the Main Hub address in `station-config.json`.
    - PWA / browser stations: reload after the server admin has pushed updated web files.
    - Staff cannot sign in until client and server versions match.
+
+The read-only artifact URLs do not contain credentials. Authenticity is established by the updater public key embedded in the installed app; modified artifacts are rejected. Plain HTTP is limited in the desktop app to loopback, private LAN, Tailscale, and approved internal hostnames. A real Authenticode certificate is a separate Windows publisher-trust layer.
+
+The GitHub release path remains available to older/public-channel builds when the Main Hub has no promoted internal release. It is no longer required for this store's private update lane.
 
 ### 5.2 Backup (mandatory — in-app and manual paths)
 

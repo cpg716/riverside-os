@@ -9,6 +9,7 @@ use tauri_plugin_updater::{RemoteRelease, Updater, UpdaterExt};
 
 const UPDATER_ENDPOINT: Option<&str> = option_env!("RIVERSIDE_UPDATER_ENDPOINT");
 const UPDATER_PUBLIC_KEY: Option<&str> = option_env!("RIVERSIDE_UPDATER_PUBLIC_KEY");
+const UPDATER_CHANNEL: Option<&str> = option_env!("RIVERSIDE_UPDATER_CHANNEL");
 const BUILD_SHA: Option<&str> = option_env!("RIVERSIDE_BUILD_SHA");
 const GITHUB_SHA: Option<&str> = option_env!("GITHUB_SHA");
 const UPDATE_TELEMETRY_FILE: &str = "app-update-install-state.json";
@@ -19,6 +20,7 @@ static LAUNCH_ID: OnceLock<String> = OnceLock::new();
 
 #[derive(Debug, Serialize)]
 pub struct UpdateCheckResult {
+    pub source: String,
     pub enabled: bool,
     pub available: bool,
     pub version: Option<String>,
@@ -110,14 +112,58 @@ fn configured_value(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-fn updater_config() -> Result<(String, String), String> {
-    let endpoint = configured_value(UPDATER_ENDPOINT).ok_or_else(|| {
-        "Updater is not configured (missing RIVERSIDE_UPDATER_ENDPOINT at build time)".to_string()
+fn internal_updater_endpoint() -> Result<String, String> {
+    let station = crate::station_config::read_station_config_value()?.ok_or_else(|| {
+        "Internal updater requires an installed Riverside station configuration.".to_string()
     })?;
+    let api_base = station
+        .get("register")
+        .and_then(|register| register.get("apiBase"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            "Internal updater requires register.apiBase in station-config.json.".to_string()
+        })?;
+    let mut url = reqwest::Url::parse(api_base)
+        .map_err(|error| format!("Internal updater API address is invalid: {error}"))?;
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !matches!(url.path(), "" | "/")
+    {
+        return Err("Internal updater API address must be a server origin without credentials, query parameters, fragments, or a path.".to_string());
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| "Internal updater API address does not contain a host.".to_string())?;
+    match url.scheme() {
+        "https" => {}
+        "http" if crate::station_config::is_allowed_internal_update_host(host) => {}
+        "http" => {
+            return Err("Plain HTTP internal updates are restricted to loopback, private LAN, and Tailscale addresses.".to_string())
+        }
+        _ => return Err("Internal updater API address must use HTTP or HTTPS.".to_string()),
+    }
+    url.set_path("/api/internal-updates/windows/latest.json");
+    Ok(url.to_string())
+}
+
+fn updater_config() -> Result<(String, String, String), String> {
+    let source = configured_value(UPDATER_CHANNEL).unwrap_or_else(|| "github".to_string());
+    let endpoint = if source.eq_ignore_ascii_case("internal") {
+        internal_updater_endpoint()?
+    } else {
+        configured_value(UPDATER_ENDPOINT).ok_or_else(|| {
+            "Updater is not configured (missing RIVERSIDE_UPDATER_ENDPOINT at build time)"
+                .to_string()
+        })?
+    };
     let pubkey = configured_value(UPDATER_PUBLIC_KEY).ok_or_else(|| {
         "Updater is not configured (missing RIVERSIDE_UPDATER_PUBLIC_KEY at build time)".to_string()
     })?;
-    Ok((endpoint, pubkey))
+    Ok((endpoint, pubkey, source))
 }
 
 fn normalize_build_id(value: &str) -> Option<String> {
@@ -456,10 +502,11 @@ fn build_updater(app: &AppHandle, endpoint: String, pubkey: String) -> Result<Up
 #[tauri::command]
 pub async fn check_app_update(app: AppHandle) -> Result<UpdateCheckResult, String> {
     let current_build = current_build_id();
-    let (endpoint, pubkey) = match updater_config() {
+    let (endpoint, pubkey, source) = match updater_config() {
         Ok(cfg) => cfg,
         Err(msg) => {
             return Ok(UpdateCheckResult {
+                source: configured_value(UPDATER_CHANNEL).unwrap_or_else(|| "github".to_string()),
                 enabled: false,
                 available: false,
                 version: None,
@@ -479,6 +526,7 @@ pub async fn check_app_update(app: AppHandle) -> Result<UpdateCheckResult, Strin
 
     if let Some(update) = update {
         return Ok(UpdateCheckResult {
+            source,
             enabled: true,
             available: true,
             version: Some(update.version.clone()),
@@ -493,6 +541,7 @@ pub async fn check_app_update(app: AppHandle) -> Result<UpdateCheckResult, Strin
     }
 
     Ok(UpdateCheckResult {
+        source,
         enabled: true,
         available: false,
         version: None,
@@ -567,7 +616,7 @@ pub fn read_app_update_telemetry(app: AppHandle) -> Result<AppUpdateTelemetryRes
 #[tauri::command]
 pub async fn install_app_update(app: AppHandle) -> Result<InstallUpdateResult, String> {
     let current_build = current_build_id();
-    let (endpoint, pubkey) = match updater_config() {
+    let (endpoint, pubkey, _source) = match updater_config() {
         Ok(cfg) => cfg,
         Err(msg) => {
             return Ok(InstallUpdateResult {
@@ -672,6 +721,31 @@ mod tests {
     #[test]
     fn same_version_rebuild_requires_published_build_metadata() {
         assert!(!same_version_rebuild_available(Some("aaaa1111"), None));
+    }
+
+    #[test]
+    fn insecure_internal_updater_transport_is_limited_to_private_routes() {
+        assert!(crate::station_config::is_allowed_internal_update_host(
+            "127.0.0.1"
+        ));
+        assert!(crate::station_config::is_allowed_internal_update_host(
+            "10.64.70.196"
+        ));
+        assert!(crate::station_config::is_allowed_internal_update_host(
+            "100.74.244.84"
+        ));
+        assert!(crate::station_config::is_allowed_internal_update_host(
+            "riverside-main-hub"
+        ));
+        assert!(crate::station_config::is_allowed_internal_update_host(
+            "main-hub.example.ts.net"
+        ));
+        assert!(!crate::station_config::is_allowed_internal_update_host(
+            "downloads.example.com"
+        ));
+        assert!(!crate::station_config::is_allowed_internal_update_host(
+            "8.8.8.8"
+        ));
     }
 
     #[test]

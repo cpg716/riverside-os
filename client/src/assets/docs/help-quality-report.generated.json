@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-08-25T14:37:57.873Z",
+  "generated_at": "2026-08-26T15:47:03.902Z",
   "standard_version": "help-manual-standard-v3",
-  "published_manual_count": 73,
+  "published_manual_count": 74,
   "draft_manual_count": 0,
   "screenshot_standard": {
     "approved_unique_local_minimum": 2,
@@ -15,6 +15,15 @@
       "source_path": "client/src/assets/docs/loyalty-redeem-dialog-manual.md",
       "dedicated_unique_local": 0,
       "unique_local": 3,
+      "priority": "high",
+      "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
+    },
+    {
+      "id": "settings-updates",
+      "title": "Riverside Updates",
+      "source_path": "client/src/assets/docs/settings-updates-manual.md",
+      "dedicated_unique_local": 0,
+      "unique_local": 2,
       "priority": "high",
       "next_action": "Add 3-4 dedicated Playwright screenshot specs for this manual."
     },
@@ -4788,6 +4797,68 @@
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
+    },
+    {
+      "id": "settings-updates",
+      "title": "Riverside Updates",
+      "status": "approved",
+      "source_path": "client/src/assets/docs/settings-updates-manual.md",
+      "screenshots": {
+        "local_refs": 2,
+        "unique_local": 2,
+        "content_unique_local": 2,
+        "dedicated_unique_local": 0,
+        "manual_folder_unique_local": 0,
+        "reused_unique_local": 1,
+        "target_unique_local_minimum": 2,
+        "target_dedicated_unique_local": 3,
+        "major_workflow_target_unique_local": 4,
+        "dedicated_paths": [],
+        "manual_folder_paths": [],
+        "reused_paths": [
+          "client/src/assets/images/help/settings-remote-access-panel/workflow-1.png"
+        ]
+      },
+      "required_buckets": [
+        {
+          "key": "purpose",
+          "label": "Purpose / what this is",
+          "present": true
+        },
+        {
+          "key": "steps",
+          "label": "Numbered steps / how to use it",
+          "present": true
+        },
+        {
+          "key": "guardrails",
+          "label": "What to watch for / common mistakes / tips",
+          "present": true
+        }
+      ],
+      "optional_buckets": [
+        {
+          "key": "when",
+          "label": "When to use it / prerequisites / permissions",
+          "present": false
+        },
+        {
+          "key": "outcome",
+          "label": "What happens next / expected result",
+          "present": true
+        },
+        {
+          "key": "related",
+          "label": "Related workflows",
+          "present": false
+        }
+      ],
+      "numbered_steps": 12,
+      "placeholder_hits": [],
+      "errors": [],
+      "warnings": [
+        "Add dedicated workflow screenshots under client/src/assets/images/help/settings-updates/; target 3-4."
+      ]
     },
     {
       "id": "staff-weekly-grid-view",
