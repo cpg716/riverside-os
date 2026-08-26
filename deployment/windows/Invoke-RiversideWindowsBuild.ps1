@@ -74,8 +74,12 @@ function Initialize-MsvcEnvironment {
       [EnvironmentVariableTarget]::Process
     )
   }
-  Assert-Command "link.exe" "Repair the Visual Studio 2022 Desktop development with C++ workload." | Out-Null
-  return $installationPath
+  $linker = Assert-Command "link.exe" "Repair the Visual Studio 2022 Desktop development with C++ workload."
+  $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = $linker
+  return [pscustomobject]@{
+    installationPath = $installationPath
+    linker = $linker
+  }
 }
 
 function Invoke-NativeStep(
@@ -384,7 +388,7 @@ try {
   if ($LASTEXITCODE -ne 0 -or $rustVersion -notmatch '^rustc 1\.91\.') {
     throw "Rust 1.91 is required; found '$rustVersion'."
   }
-  $msvcInstallPath = Initialize-MsvcEnvironment
+  $msvc = Initialize-MsvcEnvironment
 
   Write-Host "Riverside Windows build worker"
   Write-Host "Computer: $env:COMPUTERNAME"
@@ -393,7 +397,8 @@ try {
   Write-Host "Source root: $SourceRoot"
   Write-Host "Node: $nodeVersion"
   Write-Host "Rust: $rustVersion"
-  Write-Host "MSVC: $msvcInstallPath"
+  Write-Host "MSVC: $($msvc.installationPath)"
+  Write-Host "MSVC linker: $($msvc.linker)"
 
   if (-not $healthBefore.ready) {
     throw "The Main Hub was not ready before the build. Restore http://127.0.0.1:3000/api/ready before using production capacity for Windows builds."
