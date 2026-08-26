@@ -67,7 +67,7 @@ function Extract-RustConst {
 # ---------------------------------------------------------------------------
 Write-Host ""
 Write-Host "========================================================"
-Write-Host " Riverside OS — Install Contract Validator"
+Write-Host " Riverside OS - Install Contract Validator"
 Write-Host "========================================================"
 Write-Host ""
 
@@ -163,7 +163,7 @@ if ((Test-Path $serverHealthRs) -and ($installerSrc -match '/api/health')) {
     }
     Assert-Contract "HEALTH_ENDPOINT (vs server/src/api/health.rs)" $rustHealth $serverHealthPath
 } else {
-    Write-Host "  [SKIP] HEALTH_ENDPOINT — health.rs not found at expected path" -ForegroundColor Yellow
+    Write-Host "  [SKIP] HEALTH_ENDPOINT - health.rs not found at expected path" -ForegroundColor Yellow
 }
 
 # ---- 8. Database readiness endpoint ----
@@ -178,7 +178,7 @@ if ((Test-Path $serverHealthRs) -and ($installerSrc -match '/api/ready')) {
     }
     Assert-Contract "READY_ENDPOINT (vs server/src/api/mod.rs)" $rustReady $serverReadyPath
 } else {
-    Write-Host "  [SKIP] READY_ENDPOINT — health.rs not found at expected path" -ForegroundColor Yellow
+    Write-Host "  [SKIP] READY_ENDPOINT - health.rs not found at expected path" -ForegroundColor Yellow
 }
 
 # ---- Summary ----
