@@ -2923,6 +2923,8 @@ export default function ProductHubDrawer({
                 const quantity = Math.max(0, variant.stock_on_hand);
                 return Array.from({ length: quantity }, () => ({
                   sku: variant.sku,
+                  barcode:
+                    orderedVariants.find((candidate) => candidate.id === variant.id)?.barcode ?? null,
                   productName: hub?.product.name ?? seedTitle,
                   variation: variant.variation_label ?? "Standard",
                   price: money(variant.effective_retail),

@@ -56,6 +56,7 @@ Use this workspace when you need to:
 - The print button changes meaning based on selection. Check whether it says `Print selected tags` or `Print all tags` before confirming.
 - A quantity of `0` skips a variation even if it was selected.
 - Printing from this workspace uses the same configured tag station, saved tag language, and saved tag layout as Inventory List.
+- The printed barcode uses `Product UPC` when one is recorded. If it is blank, Riverside prints the variation SKU and automatically uses the narrow physical barcode width required for longer `CP-…` recovery SKUs.
 - If a variation’s price or label looks wrong, correct the product data before printing floor tags.
 - A Counterpoint item number such as `I-103067` is not the vendor style/catalog number.
 

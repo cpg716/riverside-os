@@ -61,6 +61,7 @@ If a printer test fails, do not keep retrying sale completion from the cart. Con
 - **Save & print test tag** saves the builder layout first, then uses the same direct tag route as inventory tag buttons. It does not fall back to preview when the selected printer path fails.
 - Use **LP 2844 retail tag** in Tag Designer when the Zebra is loaded with Riverside's standard 2.25 in x 1.25 in clothing tags. A taller saved height can feed blank extra tag stock.
 - On Zebra LP 2844 EPL2 retail tags, Riverside uses the saved Tag Builder field positions and configured fields. **Save & print test tag** uses a normal `B-XXXXXX` barcode sample so the physical barcode footprint matches regular Riverside item tags.
+- Inventory tags encode the variation's `Product UPC` when available and otherwise encode its ROS SKU. Riverside reduces the EPL2 bar width for longer recovery SKUs so the physical barcode stays inside the saved Barcode field.
 - Browser/PWA mode can save the same receipt settings. Tag printing still routes through the Main Hub saved Tag Station target when the API host is the Windows Main Hub. Receipt checks in PWA/browser mode verify the server-to-printer TCP path; installed-printer dropdowns and Windows printer checks run in the desktop app.
 - USB scanner hardware on PC and Bluetooth scanner hardware on iPad/phone should be configured as HID keyboard input with an Enter suffix.
 

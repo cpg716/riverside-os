@@ -77,6 +77,7 @@ interface VariantPricingPatchResponse {
 interface VariantReprintPrompt {
   variantId: string;
   sku: string;
+  barcode: string | null;
   variationLabel: string;
   effectiveRetail: string;
   stockOnHand: number;
@@ -470,6 +471,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         setReprintPrompt({
           variantId,
           sku: payload.sku ?? currentVariant?.sku ?? "Unknown SKU",
+          barcode: currentVariant?.barcode ?? null,
           variationLabel:
             payload.variation_label ??
             currentVariant?.variation_label ??
@@ -586,6 +588,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
       const tagItems = variantsToPrint.flatMap((variant) =>
         Array.from({ length: copiesPerVariant }, () => ({
           sku: variant.sku,
+          barcode: variant.barcode,
           productName,
           variation: variant.variation_label ?? "Standard",
           price: `$${centsToFixed2(parseMoneyToCents(variant.effective_retail))}`,
@@ -1268,6 +1271,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                         return {
                           variantId: v?.id ?? "",
                           sku: r.sku ?? v?.sku ?? "Unknown SKU",
+                          barcode: v?.barcode ?? null,
                           variationLabel:
                             r.variation_label ?? v?.variation_label ?? "Standard",
                           effectiveRetail:
@@ -1328,6 +1332,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 ...(v ?? ({} as HubVariant)),
                 id: item.variantId,
                 sku: item.sku,
+                barcode: item.barcode,
                 variation_label: item.variationLabel,
                 effective_retail: item.effectiveRetail,
                 stock_on_hand: item.stockOnHand,
@@ -1358,6 +1363,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 { length: Math.max(0, reprintPrompt.stockOnHand) },
                 () => ({
                   sku: reprintPrompt.sku,
+                  barcode: reprintPrompt.barcode,
                   productName,
                   variation: reprintPrompt.variationLabel,
                   price: `$${centsToFixed2(parseMoneyToCents(reprintPrompt.effectiveRetail))}`,

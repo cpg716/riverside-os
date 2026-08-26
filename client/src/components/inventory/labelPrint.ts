@@ -12,6 +12,8 @@ import { printExistingWindowAsync } from "../../lib/browserPrint";
 
 export interface InventoryTagItem {
   sku: string;
+  /** Manufacturer/Counterpoint barcode preferred for the scannable tag symbol. */
+  barcode?: string | null;
   productName: string;
   variation: string;
   brand?: string | null;
@@ -228,6 +230,19 @@ function escapeEplField(value: string): string {
     .trim();
 }
 
+function inventoryTagBarcodeValue(item: InventoryTagItem): string {
+  return item.barcode?.trim() || item.sku.trim();
+}
+
+function code128ModuleCount(value: string): number {
+  // Start + one Code 128B symbol per character + checksum + stop.
+  return value.length * 11 + 35;
+}
+
+function eplBarcodeNarrowBar(value: string, printableWidth: number): 1 | 2 {
+  return code128ModuleCount(value) * 2 <= printableWidth ? 2 : 1;
+}
+
 function wrapText(value: string, maxChars: number, maxLines: number): string[] {
   const words = escapeZplField(value).split(" ").filter(Boolean);
   const lines: string[] = [];
@@ -285,7 +300,7 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
   const width = Math.round(clampDimension(config.widthInches, 2, 6, 4) * ZEBRA_2844_DPI);
   const height = Math.round(clampDimension(config.heightInches, 1.25, 4, 2.5) * ZEBRA_2844_DPI);
   const m = Math.max(16, Math.round(width * 0.03));
-  const sku = escapeZplField(item.sku);
+  const barcode = escapeZplField(inventoryTagBarcodeValue(item));
   const footer = buildInventoryTagFooterLine(config.footerText);
   const layout = config.tagLayout || "standard";
 
@@ -298,11 +313,11 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     const chars = Math.max(14, Math.floor(bodyW / 20));
     const y = zplTextBlock(parts, textX, m, item, config, chars);
     zplPriceBlock(parts, textX, y, height - 32, item, config);
-    if (config.showBarcode && sku) {
-      parts.push(`^FO${m},${m}^A0R,20,18^FD${sku}^FS`);
+    if (config.showBarcode && barcode) {
+      parts.push(`^FO${m},${m}^A0R,20,18^FD${barcode}^FS`);
       // Match HTML preview barcode height of 22px ≈ 44 dots at 203 DPI
       const bcH = 44;
-      parts.push(`^FO${m + 22},${m}^BY2^BCR,${bcH},N,N,N^FD${sku}^FS`);
+      parts.push(`^FO${m + 22},${m}^BY2^BCR,${bcH},N,N,N^FD${barcode}^FS`);
     }
   } else if (layout === "barcode-right") {
     const bcZone = config.showBarcode ? Math.round(width * 0.15) : 0;
@@ -310,13 +325,13 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     const chars = Math.max(14, Math.floor(bodyW / 20));
     const y = zplTextBlock(parts, m, m, item, config, chars);
     zplPriceBlock(parts, m, y, height - 32, item, config);
-    if (config.showBarcode && sku) {
+    if (config.showBarcode && barcode) {
       const lblX = width - bcZone - 4;
-      parts.push(`^FO${lblX},${m}^A0R,20,18^FD${sku}^FS`);
+      parts.push(`^FO${lblX},${m}^A0R,20,18^FD${barcode}^FS`);
       // Match HTML preview barcode height of 22px ≈ 44 dots at 203 DPI
       const bcH = 44;
       const bcX = lblX + 22;
-      parts.push(`^FO${bcX},${m}^BY2^BCR,${bcH},N,N,N^FD${sku}^FS`);
+      parts.push(`^FO${bcX},${m}^BY2^BCR,${bcH},N,N,N^FD${barcode}^FS`);
     }
   } else if (layout === "price-hero") {
     const pH = 48;
@@ -335,10 +350,10 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     }
     const chars = Math.max(14, Math.floor((width - m * 2) / 20));
     zplTextBlock(parts, m, y, item, config, chars);
-    if (config.showBarcode && sku) {
+    if (config.showBarcode && barcode) {
       // Match HTML preview barcode height of 22px ≈ 44 dots at 203 DPI
       const bcH = 44;
-      parts.push(`^FO${m},${height - bcH - 24}^BY2^BCN,${bcH},Y,N,N^FD${sku}^FS`);
+      parts.push(`^FO${m},${height - bcH - 24}^BY2^BCN,${bcH},Y,N,N^FD${barcode}^FS`);
     }
   } else if (layout === "compact") {
     const halfW = Math.round(width * 0.55);
@@ -346,10 +361,10 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     const y = zplTextBlock(parts, m, m, item, config, chars);
     const rightX = halfW + 8;
     zplPriceBlock(parts, rightX, m, height - 32, item, config);
-    if (config.showBarcode && sku) {
+    if (config.showBarcode && barcode) {
       // Match HTML preview barcode height of 22px ≈ 44 dots at 203 DPI
       const bcH = 44;
-      parts.push(`^FO${rightX},${height - bcH - 24}^BY2^BCN,${bcH},Y,N,N^FD${sku}^FS`);
+      parts.push(`^FO${rightX},${height - bcH - 24}^BY2^BCN,${bcH},Y,N,N^FD${barcode}^FS`);
     }
     void y;
   } else {
@@ -359,8 +374,8 @@ function renderZplTag(item: InventoryTagItem, config: InventoryTagPrintConfig): 
     const bcH = config.showBarcode ? 44 : 0;
     const bcReserve = config.showBarcode ? bcH + 28 : 0;
     zplPriceBlock(parts, m, y, height - bcReserve - 24, item, config);
-    if (config.showBarcode && sku) {
-      parts.push(`^FO${m},${height - bcH - 22}^BY2^BCN,${bcH},Y,N,N^FD${sku}^FS`);
+    if (config.showBarcode && barcode) {
+      parts.push(`^FO${m},${height - bcH - 22}^BY2^BCN,${bcH},Y,N,N^FD${barcode}^FS`);
     }
   }
 
@@ -553,7 +568,7 @@ function customTextValue(id: TagElementId, item: InventoryTagItem, config: Inven
     case "footer":
       return footer;
     case "barcode":
-      return config.showBarcode ? item.sku : "";
+      return config.showBarcode ? inventoryTagBarcodeValue(item) : "";
   }
 }
 
@@ -593,8 +608,10 @@ function renderCustomEplTag(item: InventoryTagItem, config: InventoryTagPrintCon
     const rotation = eplRotation(element.direction);
     if (id === "barcode") {
       const barcodeHeight = Math.max(18, Math.min(rotation === 0 ? h : w, 80));
-      const narrowBar = Math.max(1, Math.min(2, Math.floor(w / 150) + 1));
-      parts.push(`B${x},${y},${rotation},1,${narrowBar},2,${barcodeHeight},N,"${escapeEplField(value)}"`);
+      const barcodeValue = escapeEplField(value);
+      const barcodeWidth = rotation === 0 ? w : h;
+      const narrowBar = eplBarcodeNarrowBar(barcodeValue, barcodeWidth);
+      parts.push(`B${x},${y},${rotation},1,${narrowBar},2,${barcodeHeight},N,"${barcodeValue}"`);
       continue;
     }
     if (id === "productName") {

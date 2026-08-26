@@ -1125,6 +1125,7 @@ export default function InventoryControlBoard({
       printResult = await openInventoryTagsWindow(
         chosenVariants.map((r) => ({
           sku: r.sku,
+          barcode: r.barcode,
           productName: r.product_name,
           variation: r.variation_label ?? "Standard",
           brand: r.brand,
@@ -1175,6 +1176,7 @@ export default function InventoryControlBoard({
         const qty = Math.max(0, quantities?.[row.variant_id] ?? 1);
         return Array.from({ length: qty }, () => ({
           sku: row.sku,
+          barcode: row.barcode,
           productName: row.product_name,
           variation: row.variation_label ?? "Standard",
           brand: row.brand,
