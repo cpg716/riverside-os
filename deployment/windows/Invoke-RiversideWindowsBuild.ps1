@@ -526,7 +526,7 @@ try {
 
     $serverBinary = Join-Path $env:CARGO_TARGET_DIR "release\riverside-server.exe"
     $registerBundle = Join-Path $env:CARGO_TARGET_DIR "release\bundle"
-    $packageOutput = Join-Path $SourceRoot "dist\deployment"
+    $packageOutput = Join-Path $WorkerRoot "o"
     $packageScript = Join-Path $SourceRoot "deployment\windows\build-deployment-package.ps1"
     $version = (Get-Content (Join-Path $SourceRoot "package.json") -Raw | ConvertFrom-Json).version
     $packageArgs = @(

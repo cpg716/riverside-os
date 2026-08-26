@@ -585,6 +585,7 @@ for (const copy of [
   "The Main Hub was not ready before the build.",
   "The Main Hub was ready before the build but was not ready afterward.",
   "process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''",
+  'Join-Path $WorkerRoot "o"',
   "productionReady = $false",
 ]) {
   assertIncludes(
