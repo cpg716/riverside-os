@@ -418,12 +418,13 @@ try {
   Invoke-NativeStep "Client lint" $npm @("run", "lint") $SourceRoot
   Invoke-NativeStep "Client typecheck" $npm @("run", "typecheck") $SourceRoot
   Invoke-NativeStep "Rust formatting" $rustup @("run", "1.91", "cargo", "fmt", "--all", "--", "--check") $SourceRoot
+  if ($Task -eq "Package") {
+    Prepare-TauriWindowsInputs $SourceRoot $cacheRoot ([bool]$AllowExternalDownloads)
+  }
   Invoke-NativeStep "Rust workspace check" $rustup @("run", "1.91", "cargo", "check", "--workspace") $SourceRoot
 
   if ($Task -eq "Package") {
     Invoke-NativeStep "Install Cube Core dependencies" $npm @("ci") (Join-Path $SourceRoot "cube")
-
-    Prepare-TauriWindowsInputs $SourceRoot $cacheRoot ([bool]$AllowExternalDownloads)
     Invoke-NativeStep `
       "Build Windows server binary" `
       $rustup `
