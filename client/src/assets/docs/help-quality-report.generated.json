@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-26T15:47:03.902Z",
+  "generated_at": "2026-08-26T17:37:05.787Z",
   "standard_version": "help-manual-standard-v3",
   "published_manual_count": 74,
   "draft_manual_count": 0,
@@ -1687,7 +1687,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 25,
+      "numbered_steps": 27,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -2149,7 +2149,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 12,
+      "numbered_steps": 13,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -4281,7 +4281,7 @@
         "content_unique_local": 3,
         "dedicated_unique_local": 3,
         "manual_folder_unique_local": 3,
-        "reused_unique_local": 0,
+        "reused_unique_local": 1,
         "target_unique_local_minimum": 2,
         "target_dedicated_unique_local": 3,
         "major_workflow_target_unique_local": 4,
@@ -4295,7 +4295,9 @@
           "client/src/assets/images/help/settings-remote-access-panel/workflow-2.png",
           "client/src/assets/images/help/settings-remote-access-panel/workflow-3.png"
         ],
-        "reused_paths": []
+        "reused_paths": [
+          "client/src/assets/images/help/settings-remote-access-panel/workflow-1.png"
+        ]
       },
       "required_buckets": [
         {
