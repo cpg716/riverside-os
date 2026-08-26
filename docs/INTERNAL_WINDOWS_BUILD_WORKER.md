@@ -52,6 +52,140 @@ This is optional for the private updater integrity contract. It is required for 
 
 The first `Package` request may also need network access for pinned Windows build inputs and ordinary npm/Cargo dependencies. Pass `-AllowExternalDownloads` for that bootstrap build. The worker verifies the pinned llama.cpp, WiX, ROSIE speech-runtime, and Meilisearch downloads by SHA-256 and retains them under its private cache. Later package builds reuse those verified copies. A fully offline npm/Cargo mirror is a separate hardening step.
 
+## Preferred candidate-only procedure
+
+Use this sequence whenever the goal is to create a new Windows candidate without changing the live Main Hub or any workstation. GitHub, a push, a tag, and a hosted release are not required.
+
+### 1. Prepare one exact source commit on the Mac
+
+From the Riverside OS repository:
+
+```bash
+cd /Users/cpg/riverside-os
+git status --short
+git rev-parse HEAD
+```
+
+`git status --short` must print nothing. Validate, document, stage, and commit only the intended work before continuing. The build lane transfers `git archive HEAD`; uncommitted and untracked files are deliberately excluded. A GitHub push is not required.
+
+Record the 40-character SHA printed by `git rev-parse HEAD`. That is the source identity the Windows worker must report.
+
+### 2. Select the Main Hub route
+
+Use direct LAN while connected to the store network:
+
+```bash
+export ROS_MAIN_HUB_HOST="riverside-main-hub"
+```
+
+Use Tailscale only when building remotely:
+
+```bash
+export ROS_MAIN_HUB_HOST="riverside-main-hub-tailscale"
+```
+
+The SSH alias selects the dedicated key. Do not put a Windows password, signing key, token, or other secret in the command, repository, logs, or documentation.
+
+### 3. Request the candidate
+
+For an initialized worker with populated caches, this is the normal command:
+
+```bash
+npm run build:windows:remote -- -Task Package
+```
+
+Add only the exception switches that are actually required:
+
+```bash
+# Permit the bootstrap build to retrieve missing pinned/runtime inputs.
+npm run build:windows:remote -- -Task Package -AllowExternalDownloads
+
+# Permit a build during the protected 10 AM through 6 PM window, but only
+# after confirming that compilation load will not disrupt store operations.
+npm run build:windows:remote -- -Task Package -AllowStoreHours
+
+# Bootstrap during the protected window when both exceptions are intentional.
+npm run build:windows:remote -- -Task Package -AllowStoreHours -AllowExternalDownloads
+```
+
+Do **not** add `-Promote` when the request is only to build a candidate. Keep the command attached until it exits. Optimized Rust linking, Tauri bundling, copying Cube Core, verifying the package manifest, and ZIP compression can each be silent for several minutes; silence alone is not a hung build. Do not start a second build while the first job is still running.
+
+### 4. Require successful completion evidence
+
+A successful command ends with both messages:
+
+```text
+Windows build evidence copied to: <local-candidate-directory>
+Windows Package task completed for <40-character-source-sha>.
+```
+
+Use the exact local directory printed by the command for the remaining checks. It will normally be:
+
+```text
+dist/internal-windows-builds/<timestamp>-<8-character-sha>-package/
+```
+
+If the command exits nonzero, the candidate is not acceptable. Inspect the copied `windows-build.log` and `windows-build-summary.json`; do not install partial artifacts. The worker retains its evidence under `C:\ProgramData\RiversideOS\build-worker\artifacts\<job-id>\` even though normal jobs remove their temporary source tree.
+
+### 5. Verify the exact candidate on the Mac
+
+Set `candidate_dir` to the exact directory printed by the build, then require the candidate gate and unchanged live Main Hub:
+
+```bash
+candidate_dir="dist/internal-windows-builds/<job-id>"
+head_sha="$(git rev-parse HEAD)"
+
+jq -e --arg sha "$head_sha" '
+  .status == "succeeded" and
+  .sourceGitSha == $sha and
+  .releaseCandidateReady == true and
+  .internalUpdaterSigned == true and
+  .productionReady == false and
+  .mainHubBefore.reachable == true and
+  .mainHubBefore.ready == true and
+  .mainHubAfter.reachable == true and
+  .mainHubAfter.ready == true and
+  .mainHubBefore.buildSha == .mainHubAfter.buildSha
+' "$candidate_dir/windows-build-summary.json"
+
+jq -e --arg sha "$head_sha" '
+  .sourceGitSha == $sha and
+  (.mainHubPackage.fileName | endswith("-MainHub-Update.zip")) and
+  (.windowsUpdater.fileName | endswith("-setup.exe")) and
+  (.windowsUpdater.signature | length > 0)
+' "$candidate_dir/release.json"
+```
+
+Then verify every copied artifact against the worker summary:
+
+```bash
+jq -r '.artifacts[] | [.name, .sha256] | @tsv' \
+  "$candidate_dir/windows-build-summary.json" |
+while IFS=$'\t' read -r name expected; do
+  actual="$(shasum -a 256 "$candidate_dir/$name" | awk '{print $1}')"
+  if [ "$actual" != "$expected" ]; then
+    echo "SHA-256 mismatch: $name" >&2
+    exit 1
+  fi
+  echo "OK $name"
+done
+```
+
+All rows must print `OK`. Keep the entire candidate directory together: the installer, updater signature, Main Hub ZIP, public updater key, `release.json`, summary, and transcript are one evidence set. Do not add generated candidate artifacts under `dist/` to Git.
+
+### 6. Report the boundary accurately
+
+At candidate completion, report:
+
+- the exact 40-character source SHA and candidate directory;
+- `status: succeeded`, `releaseCandidateReady: true`, and `internalUpdaterSigned: true`;
+- the Main Hub ZIP and Windows updater filenames;
+- that all copied SHA-256 values matched;
+- that Main Hub readiness passed before and after and its live build SHA did not change;
+- that nothing was installed, promoted, pushed, tagged, or published.
+
+`productionReady: false` is correct for a candidate-only run. `authenticodeVerified: false` is also expected unless Riverside has configured a valid Windows code-signing certificate; the internal Tauri signature still protects updater integrity, but it does not provide Windows publisher reputation.
+
 ## Run from the Mac
 
 The Mac SSH configuration provides `riverside-main-hub` for direct LAN access and `riverside-main-hub-tailscale` for remote access. Select the route for the current connection:
@@ -79,6 +213,8 @@ Build, install on Main Hub, verify the exact release, and publish it to the priv
 ```bash
 npm run release:internal:windows
 ```
+
+This supported activation path starts a fresh exact-`HEAD` `Package` job and promotes it only after the candidate gate passes. It does not silently promote an older folder copied to the Mac. Keep building and activation as separate operator decisions.
 
 The release command requires a clean committed `HEAD`. During store hours it stops before building or installing unless `-- -AllowStoreHours` is explicitly added. Use the Tailscale route when away from the store:
 
