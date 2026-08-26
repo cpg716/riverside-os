@@ -415,7 +415,9 @@ function Add-CubeRuntime([string]$PackageRoot, [string]$RepoRoot) {
   $cubeServerJs = Join-Path $cubeDest "node_modules\@cubejs-backend\server\dist\src\server.js"
   $cubeServerSource = [IO.File]::ReadAllText($cubeServerJs)
   $listenAnchor = "await this.server.listen(PORT);"
-  if (($cubeServerSource.Split($listenAnchor).Count - 1) -ne 1) {
+  $firstListenAnchor = $cubeServerSource.IndexOf($listenAnchor, [StringComparison]::Ordinal)
+  $lastListenAnchor = $cubeServerSource.LastIndexOf($listenAnchor, [StringComparison]::Ordinal)
+  if ($firstListenAnchor -lt 0 -or $firstListenAnchor -ne $lastListenAnchor) {
     throw "Pinned Cube Core server listen contract changed; cannot enforce loopback-only binding."
   }
   $cubeServerSource = $cubeServerSource.Replace($listenAnchor, "await this.server.listen(PORT, '127.0.0.1');")
