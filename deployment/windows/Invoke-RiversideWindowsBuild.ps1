@@ -421,6 +421,7 @@ try {
   if ($Task -eq "Package") {
     Prepare-TauriWindowsInputs $SourceRoot $cacheRoot ([bool]$AllowExternalDownloads)
   }
+  New-Item -ItemType Directory -Force -Path (Join-Path $SourceRoot "client\dist") | Out-Null
   Invoke-NativeStep "Rust workspace check" $rustup @("run", "1.91", "cargo", "check", "--workspace") $SourceRoot
 
   if ($Task -eq "Package") {
