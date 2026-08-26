@@ -80,6 +80,7 @@ if ([string]::IsNullOrWhiteSpace($LocalOutputRoot)) {
 $localArtifactDir = Join-Path $LocalOutputRoot $jobId
 $requestFileName = "riverside-windows-build-request-$jobId.json"
 $resultArchiveName = "riverside-windows-build-results-$jobId.zip"
+$remoteRunnerFileName = "riverside-windows-build-runner-$jobId.ps1"
 $target = if ([string]::IsNullOrWhiteSpace($UserName)) { $MainHubHost } else { "$UserName@$MainHubHost" }
 
 if ($Promote -and $Task -ne "Package") {
@@ -117,6 +118,7 @@ if (-not [string]::IsNullOrWhiteSpace($IdentityFile)) {
 
 $archive = $null
 $requestPath = $null
+$remoteRunnerPath = $null
 $resultArchivePath = $null
 $remoteExitCode = 1
 try {
@@ -135,11 +137,6 @@ try {
     keepRemoteSource = [bool]$KeepRemoteSource
   }
   $request | ConvertTo-Json -Depth 4 | Set-Content -Path $requestPath -Encoding UTF8
-
-  & $scp @scpArgs $archive $requestPath "${target}:."
-  if ($LASTEXITCODE -ne 0) {
-    throw "Could not copy the committed source archive to the Main Hub over SSH."
-  }
 
   $remoteScript = @'
 $ErrorActionPreference = "Stop"
@@ -209,8 +206,15 @@ try {
 exit $buildExitCode
 '@
   $remoteScript = $remoteScript.Replace("__REQUEST_FILE__", $requestFileName)
-  $encodedRemoteScript = ConvertTo-EncodedPowerShell $remoteScript
-  & $ssh @sshArgs $target "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedRemoteScript"
+  $remoteRunnerPath = Join-Path ([IO.Path]::GetTempPath()) $remoteRunnerFileName
+  $remoteScript | Set-Content -Path $remoteRunnerPath -Encoding UTF8
+
+  & $scp @scpArgs $archive $requestPath $remoteRunnerPath "${target}:."
+  if ($LASTEXITCODE -ne 0) {
+    throw "Could not copy the committed source archive and worker launcher to the Main Hub over SSH."
+  }
+
+  & $ssh @sshArgs $target "powershell.exe -NoProfile -ExecutionPolicy Bypass -File $remoteRunnerFileName"
   $remoteExitCode = $LASTEXITCODE
 
   $resultArchivePath = Join-Path ([IO.Path]::GetTempPath()) $resultArchiveName
@@ -227,10 +231,12 @@ exit $buildExitCode
 Remove-Item (Join-Path $env:USERPROFILE "__RESULT_FILE__") -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $env:USERPROFILE "__REQUEST_FILE__") -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $env:USERPROFILE "__ARCHIVE_FILE__") -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $env:USERPROFILE "__RUNNER_FILE__") -Force -ErrorAction SilentlyContinue
 '@
   $cleanupScript = $cleanupScript.Replace("__RESULT_FILE__", $resultArchiveName)
   $cleanupScript = $cleanupScript.Replace("__REQUEST_FILE__", $requestFileName)
   $cleanupScript = $cleanupScript.Replace("__ARCHIVE_FILE__", (Split-Path $archive -Leaf))
+  $cleanupScript = $cleanupScript.Replace("__RUNNER_FILE__", $remoteRunnerFileName)
   $encodedCleanup = ConvertTo-EncodedPowerShell $cleanupScript
   & $ssh @sshArgs $target "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedCleanup" | Out-Null
 
@@ -310,7 +316,7 @@ throw "Timed out waiting for the guarded Main Hub promotion task. Inspect the pr
     Write-Host "Main Hub and private Windows update feed promoted to $fullHead."
   }
 } finally {
-  foreach ($temporaryPath in @($archive, $requestPath, $resultArchivePath)) {
+  foreach ($temporaryPath in @($archive, $requestPath, $remoteRunnerPath, $resultArchivePath)) {
     if ($temporaryPath -and (Test-Path $temporaryPath)) {
       Remove-Item $temporaryPath -Force -ErrorAction SilentlyContinue
     }
