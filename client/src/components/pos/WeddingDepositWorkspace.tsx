@@ -19,6 +19,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { splitWeddingPartyWithMembers } from "../../lib/weddingPartyApiShape";
+import { WEDDING_MEMBER_ROLE_OPTIONS } from "../../lib/weddingMemberRoles";
 import type { WeddingCollectBuildDraft } from "../../hooks/useParkedSales";
 import type { Customer, WeddingMember } from "./types";
 
@@ -86,16 +87,7 @@ type OpenTransactionTarget = {
 type Step = "start" | "party" | "members" | "review" | "history";
 type PostPaymentAction = "build_orders" | "deposit_only";
 
-const ROLE_OPTIONS = [
-  "Groom",
-  "Best Man",
-  "Groomsman",
-  "Father of Groom",
-  "Father of Bride",
-  "Usher",
-  "Ring Bearer",
-  "Other",
-];
+const ROLE_OPTIONS = WEDDING_MEMBER_ROLE_OPTIONS;
 
 function parseParty(value: unknown): DepositParty | null {
   const { party, members } = splitWeddingPartyWithMembers(value);
@@ -570,6 +562,7 @@ export default function WeddingDepositWorkspace({
         method: "POST",
         headers: headers(),
         body: JSON.stringify({
+          quick_create_customer: true,
           first_name: memberFirstName.trim(),
           last_name: memberLastName.trim(),
           phone: memberPhone.trim() || null,

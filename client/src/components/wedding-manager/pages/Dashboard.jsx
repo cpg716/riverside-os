@@ -300,28 +300,27 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
 
     const handleAddNewParty = async (newParty) => {
         try {
-            // Use importParties to save the new party (it handles insert/replace)
-            await api.importParties([newParty]);
+            const createdParty = await api.createParty(newParty);
             await fetchParties(); // REFRESH THE LIST SO THE NEW PARTY APPEARS
 
             // Onboarding Hook: If "Schedule Now" was checked, trigger the appointment modal for the Groom
             if (newParty.scheduleGroomMeasure) {
-                // Find the groom in the newParty.members list (should be ID 1)
-                const groom = newParty.members.find(m => m.role === 'Groom');
+                const groom = createdParty.members.find(m => m.role === 'Groom');
                 if (groom) {
                     setApptInitialData({
                         type: 'Measurement',
                         customerName: groom.name,
                         phone: groom.phone,
-                        partyId: newParty.id,
+                        partyId: createdParty.id,
                         memberId: groom.id
                     });
                     setIsApptModalOpen(true);
                 }
             }
+            return createdParty;
         } catch (err) {
             console.error("Failed to add party:", err);
-            showAlert("Failed to add party. Check console.", "Error", { variant: 'danger' });
+            throw err;
         }
     };
 

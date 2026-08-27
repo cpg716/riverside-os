@@ -49,7 +49,8 @@ const AppointmentList = ({ memberId, partyId }) => {
 };
 
 import { useModal } from '../hooks/useModal';
-import { dispatchOpenRegisterFromWeddingManager, dispatchOpenWeddingTransaction } from '../../../lib/weddingPosBridge';
+import { dispatchOpenWeddingTransaction, openWeddingMemberInRegister } from '../../../lib/weddingPosBridge';
+import { isPresetWeddingMemberRole, WEDDING_MEMBER_ROLE_OPTIONS } from '../../../lib/weddingMemberRoles';
 import { WEDDING_MEMBER_RETAIL_SIZE_FIELDS } from '../../customers/retailMeasurementLabels';
 import CustomerSearchInput from '../../ui/CustomerSearchInput';
 import VariantSearchInput from '../../ui/VariantSearchInput';
@@ -80,7 +81,7 @@ function buildWeddingWorkflow(member) {
 const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, onRefresh }) => {
 
 
-    const { showConfirm, selectSalesperson } = useModal();
+    const { showAlert, showConfirm, selectSalesperson } = useModal();
     const [localMember, setLocalMember] = useState(member);
     const [newLog, setNewLog] = useState({ date: new Date().toISOString().split('T')[0], note: '' });
     const [editingLogIndex, setEditingLogIndex] = useState(null);
@@ -90,6 +91,7 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
     const [financialBusy, setFinancialBusy] = useState(false);
     const [financialRow, setFinancialRow] = useState(null);
     const [financialLines, setFinancialLines] = useState([]);
+    const [saving, setSaving] = useState(false);
     const workflow = useMemo(() => buildWeddingWorkflow(localMember), [localMember]);
 
     // Find Party and Salesperson
@@ -198,34 +200,41 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
         return map[profile] || profile;
     };
 
-    const handleOpenInRegister = () => {
-        const cid = localMember.customerId;
-        if (!cid || member?.isNew) return;
-        dispatchOpenRegisterFromWeddingManager({
-            partyName: party?.name || party?.groomFirstName || "Wedding party",
-            member: {
-                id: localMember.id,
-                first_name: localMember.firstName ?? "",
-                last_name: localMember.lastName ?? "",
-                role: localMember.role ?? "Member",
-                status: localMember.status ?? "prospect",
-                measured: Boolean(localMember.measured),
-                suit_ordered: Boolean(localMember.ordered),
-                customer_id: cid,
-                customer_email: localMember.customerEmail || null,
-                customer_phone: localMember.phone || null,
-                suit_variant_id: localMember.suitVariantId || null,
-                is_free_suit_promo: Boolean(localMember.isFreeSuitPromo),
-            },
-        });
+    const handleOpenInRegister = (weddingMember = localMember) => {
+        if (!openWeddingMemberInRegister(party?.name || party?.groomFirstName || "Wedding party", weddingMember)) {
+            showAlert('Link or create the ROS Customer before opening this member in Register.', 'Customer Link Required', { variant: 'warning' });
+        }
     };
 
     const handleFieldChange = (field, value) => {
         setLocalMember({ ...localMember, [field]: value });
     };
 
-    const handleSave = async () => {
+    const handleNewCustomerFieldChange = (field, value) => {
+        setLocalMember((current) => {
+            const next = {
+                ...current,
+                [field]: value,
+                customerId: '',
+            };
+            next.name = `${next.firstName || ''} ${next.lastName || ''}`.trim();
+            return next;
+        });
+    };
+
+    const handleSave = async (openRegister = false) => {
         let finalMember = { ...localMember };
+
+        if (member.isNew && finalMember.role !== 'Info') {
+            if (!finalMember.firstName?.trim() || !finalMember.lastName?.trim()) {
+                showAlert('First Name and Last Name are required for a new Customer.', 'Member Name Required', { variant: 'warning' });
+                return;
+            }
+            if (!finalMember.role?.trim()) {
+                showAlert('Choose a party member role or enter an Other role.', 'Member Role Required', { variant: 'warning' });
+                return;
+            }
+        }
 
         // If there's a pending note that wasn't added, add it now
         if (newLog.note.trim()) {
@@ -261,12 +270,21 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
             finalMember.updatedBy = updatedBy; // For creation log
         }
 
-        if (member.isNew) {
-            if (onAdd) onAdd(member.partyId, finalMember);
-        } else {
-            onUpdate(member.id, finalMember);
+        setSaving(true);
+        try {
+            if (member.isNew) {
+                const createdMember = onAdd ? await onAdd(member.partyId, finalMember) : null;
+                if (openRegister && createdMember) handleOpenInRegister(createdMember);
+            } else {
+                await onUpdate(member.id, finalMember);
+                if (openRegister) handleOpenInRegister(finalMember);
+            }
+            onClose();
+        } catch (error) {
+            showAlert(error instanceof Error ? error.message : 'Wedding member could not be saved.', 'Unable to Save Member', { variant: 'danger' });
+        } finally {
+            setSaving(false);
         }
-        onClose();
     };
 
     const handleAddLog = async () => {
@@ -399,39 +417,83 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                         <div className="space-y-6">
                             {/* Contact Info */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="md:col-span-2 bg-app-surface-2 p-4 rounded-xl border border-app-border">
-                                    <label className="block text-xs font-bold text-app-text-muted uppercase mb-2">Link Existing Customer (Search by name or code)</label>
-                                    <CustomerSearchInput 
-                                        onSelect={(c) => {
-                                            setLocalMember(prev => ({
-                                                ...prev,
-                                                name: `${c.first_name} ${c.last_name}`.trim(),
-                                                firstName: c.first_name,
-                                                lastName: c.last_name,
-                                                phone: c.phone || '',
-                                                customerEmail: c.email || '',
-                                                customerId: c.id
-                                            }));
-                                        }}
-                                        placeholder="Search customers to link…"
-                                        className="w-full"
-                                    />
-                                    <p className="text-[10px] text-app-text-muted mt-2 italic">Linking a customer auto-fills name and contact details.</p>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">Name</label>
-                                    <input type="text" className="w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none transition-colors"
-                                        value={localMember.name || ''} onChange={(e) => handleFieldChange('name', e.target.value)} />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">Phone</label>
-                                    <input type="tel" className="w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none transition-colors"
-                                        value={localMember.phone || ''} onChange={(e) => handleFieldChange('phone', e.target.value)} />
-                                </div>
+                                {localMember.isNew ? (
+                                    <>
+                                        <div className="md:col-span-2 bg-app-surface-2 p-4 rounded-xl border border-app-border">
+                                            <label className="block text-xs font-bold text-app-text-muted uppercase mb-2">Find Existing ROS Customer</label>
+                                            <CustomerSearchInput
+                                                onSelect={(customer) => {
+                                                    setLocalMember((current) => ({
+                                                        ...current,
+                                                        name: `${customer.first_name} ${customer.last_name}`.trim(),
+                                                        firstName: customer.first_name,
+                                                        lastName: customer.last_name,
+                                                        phone: customer.phone || '',
+                                                        customerEmail: customer.email || '',
+                                                        customerId: customer.id,
+                                                        customerCode: customer.customer_code || ''
+                                                    }));
+                                                }}
+                                                onQueryChange={() => {
+                                                    if (localMember.customerId) setLocalMember((current) => ({ ...current, customerId: '', customerCode: '' }));
+                                                }}
+                                                placeholder="Search name, phone, email, or customer number…"
+                                                className="w-full"
+                                                showSelectedLabel
+                                            />
+                                            <p className="text-[10px] text-app-text-muted mt-2 font-semibold">
+                                                {localMember.customerId
+                                                    ? `Linked to Customer ${localMember.customerCode || localMember.customerId}.`
+                                                    : 'No match? Enter First Name and Last Name below to quick-add a new ROS Customer.'}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">First Name</label>
+                                            <input type="text" className="w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none transition-colors"
+                                                value={localMember.firstName || ''} onChange={(e) => handleNewCustomerFieldChange('firstName', e.target.value)} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">Last Name</label>
+                                            <input type="text" className="w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none transition-colors"
+                                                value={localMember.lastName || ''} onChange={(e) => handleNewCustomerFieldChange('lastName', e.target.value)} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">Phone</label>
+                                            <input type="tel" className="w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none transition-colors"
+                                                value={localMember.phone || ''} onChange={(e) => handleNewCustomerFieldChange('phone', e.target.value)} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">Email (optional)</label>
+                                            <input type="email" className="w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none transition-colors"
+                                                value={localMember.customerEmail || ''} onChange={(e) => handleNewCustomerFieldChange('customerEmail', e.target.value)} />
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="md:col-span-2 rounded-xl border border-app-success/25 bg-app-success/8 p-4">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-app-success">Linked ROS Customer</div>
+                                        <div className="mt-1 font-black text-app-text">{localMember.name}</div>
+                                        <div className="text-xs text-app-text-muted">{localMember.phone || 'No phone'}{localMember.customerEmail ? ` · ${localMember.customerEmail}` : ''}</div>
+                                        <p className="mt-2 text-[10px] font-semibold text-app-text-muted">Name and contact details come from the Customer account. Edit them in Customers so POS, Wedding Manager, and communication history stay aligned.</p>
+                                    </div>
+                                )}
                                 <div className="md:col-span-2">
-                                    <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">Role</label>
-                                    <input type="text" className="w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none transition-colors"
-                                        value={localMember.role || ''} onChange={(e) => handleFieldChange('role', e.target.value)} />
+                                    <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">Party Member Type</label>
+                                    <select
+                                        className="w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none transition-colors"
+                                        value={isPresetWeddingMemberRole(localMember.role) ? localMember.role : 'Other'}
+                                        onChange={(e) => handleFieldChange('role', e.target.value === 'Other' ? '' : e.target.value)}
+                                    >
+                                        {WEDDING_MEMBER_ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
+                                    </select>
+                                    {!isPresetWeddingMemberRole(localMember.role) ? (
+                                        <input
+                                            type="text"
+                                            className="mt-2 w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none transition-colors"
+                                            placeholder="Enter other role"
+                                            value={localMember.role || ''}
+                                            onChange={(e) => handleFieldChange('role', e.target.value)}
+                                        />
+                                    ) : null}
                                 </div>
                                 <div className="md:col-span-2 bg-gold-50/50 p-4 rounded-lg border border-gold-100 italic">
                                     <div className="flex justify-between items-center mb-2">
@@ -698,15 +760,6 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                             Keep deposit collection, remaining balance follow-up, and pickup release tied to this member record.
                                             A zero balance does not mean the order is ready until measurements, receiving, and pickup status are also complete.
                                         </div>
-                                        {!member?.isNew && localMember.customerId ? (
-                                            <button
-                                                type="button"
-                                                onClick={handleOpenInRegister}
-                                                className="w-full rounded-lg border-b-4 border-emerald-800 bg-emerald-600 px-3 py-2.5 text-center text-sm font-black uppercase tracking-wide text-white shadow-sm transition hover:bg-emerald-500"
-                                            >
-                                                Open in Register (wedding order)
-                                            </button>
-                                        ) : null}
                                         <div className="rounded border border-app-border bg-app-surface p-2">
                                             <div className="mb-2 text-[10px] font-bold uppercase text-app-text-muted">Recent Transactions</div>
                                             {financialLines.length === 0 ? (
@@ -925,16 +978,25 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                     </div>
 
                     <div className="flex justify-between items-center pt-4 border-t border-app-border ">
-                        <button type="button"
-                            onClick={handleDelete}
-                            className="px-4 py-2 text-red-500 font-bold hover:bg-red-50 rounded transition-colors flex items-center gap-2"
-                            title="Delete this member"
-                        >
-                            <Icon name="Trash" size={16} /> Delete Member
-                        </button>
+                        {!member.isNew ? (
+                            <button type="button"
+                                onClick={handleDelete}
+                                className="px-4 py-2 text-red-500 font-bold hover:bg-red-50 rounded transition-colors flex items-center gap-2"
+                                title="Delete this member"
+                            >
+                                <Icon name="Trash" size={16} /> Delete Member
+                            </button>
+                        ) : <span />}
                         <div className="flex gap-3">
-                            <button type="button" onClick={onClose} className="px-4 py-2 text-app-text  font-bold hover:bg-app-surface-2  rounded transition-colors">Cancel</button>
-                            <button type="button" onClick={handleSave} className="px-6 py-2 bg-navy-900 hover:bg-navy-800 text-white font-bold rounded shadow transition-colors">Save Changes</button>
+                            <button type="button" disabled={saving} onClick={onClose} className="px-4 py-2 text-app-text font-bold hover:bg-app-surface-2 rounded transition-colors disabled:opacity-50">Cancel</button>
+                            <button type="button" disabled={saving} onClick={() => void handleSave(false)} className="ui-btn-secondary min-h-11 px-6 disabled:opacity-50">
+                                {saving ? 'Saving…' : member.isNew ? 'Add Member' : 'Save Changes'}
+                            </button>
+                            {localMember.role !== 'Info' ? (
+                                <button type="button" disabled={saving} onClick={() => void handleSave(true)} className="min-h-11 rounded-lg bg-emerald-600 px-6 font-black text-white shadow transition hover:bg-emerald-500 disabled:opacity-50">
+                                    {saving ? 'Saving…' : member.isNew ? 'Add & Start Wedding Order' : 'Save & Start Wedding Order'}
+                                </button>
+                            ) : null}
                         </div>
                     </div>
                 </div>

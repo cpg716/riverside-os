@@ -221,6 +221,7 @@ export const api: {
   getPartyCutover: (id: string) => Promise<WmCutoverPartyDetail>;
   linkCutoverTransaction: (payload: Record<string, unknown>) => Promise<{ status: string; line_count: number }>;
   markCutoverReviewed: (partyId: string, payload: Record<string, unknown>) => Promise<{ status: string }>;
+  createParty: (partyData: Record<string, unknown>) => Promise<WmParty>;
   updateParty: (id: string, updates: Partial<WmParty>) => Promise<WmParty>;
   updateMember: (id: string, updates: Partial<WmMember>) => Promise<WmMember>;
   addMember: (partyId: string, memberData: Partial<WmMember>) => Promise<WmMember>;

@@ -349,6 +349,10 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
         const newMember = {
             partyId: partyId,
             name: '',
+            firstName: '',
+            lastName: '',
+            customerId: '',
+            customerEmail: '',
             role: 'Groomsman',
             phone: '',
             oot: false,
@@ -369,13 +373,14 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
     const handleAddNewMemberConfirm = useCallback(async (partyId, memberData) => {
         const { isNew, ...dataToSave } = memberData;
         try {
-            await api.addMember(partyId, dataToSave);
+            const createdMember = await api.addMember(partyId, dataToSave);
             onRefresh(); // Refresh to get the new member with ID
+            return createdMember;
         } catch (err) {
             console.error("Failed to add member:", err);
-            showAlert("Failed to add member.", "Error", { variant: 'danger' });
+            throw err;
         }
-    }, [onRefresh, showAlert]);
+    }, [onRefresh]);
 
     const handleSalespersonSave = useCallback(async (newName, updatedBy) => {
         if (newName && newName !== party.salesperson) {

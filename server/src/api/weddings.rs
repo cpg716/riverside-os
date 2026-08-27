@@ -129,10 +129,15 @@ async fn get_or_create_wedding_customer(
     first: &str,
     last: &str,
     phone: Option<&str>,
+    email: Option<&str>,
     customer_created_source: &str,
     created_is_verified: bool,
 ) -> Result<(Uuid, bool), sqlx::Error> {
     let phone = phone.map(str::trim).filter(|s| !s.is_empty());
+    let email = email
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_ascii_lowercase);
     let canonical_phone = phone.and_then(canonical_customer_phone);
     if let Some(phone) = phone {
         let phone_digits = digits_only(phone);
@@ -223,15 +228,16 @@ async fn get_or_create_wedding_customer(
     let inserted_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO customers (
-            id, first_name, last_name, phone, customer_code, customer_created_source, created_at
+            id, first_name, last_name, email, phone, customer_code, customer_created_source, created_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
         RETURNING id
         "#,
     )
     .bind(customer_id)
     .bind(first)
     .bind(last)
+    .bind(email)
     .bind(canonical_phone)
     .bind(customer_code)
     .bind(customer_created_source)
@@ -733,6 +739,7 @@ pub struct UpdatePartyRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct QuickCreateMemberBody {
+    quick_create_customer: bool,
     first_name: String,
     last_name: String,
     email: Option<String>,
@@ -1633,6 +1640,7 @@ async fn insert_party_and_respond(
             first,
             &last,
             Some(gp),
+            body.groom_email.as_deref(),
             simple_customer_source,
             !is_cutover_import,
         )
@@ -1679,6 +1687,7 @@ async fn insert_party_and_respond(
             first,
             &last,
             Some(bp),
+            body.bride_email.as_deref(),
             simple_customer_source,
             !is_cutover_import,
         )
@@ -2400,6 +2409,7 @@ async fn add_member(
                     first,
                     last,
                     phone.as_deref(),
+                    None,
                     source,
                     !is_import,
                 )
@@ -2429,6 +2439,7 @@ async fn add_member(
             }
             CreateMemberRequest::QuickCreateCustomer(boxed) => {
                 let QuickCreateMemberBody {
+                    quick_create_customer,
                     first_name,
                     last_name,
                     email,
@@ -2446,6 +2457,11 @@ async fn add_member(
                     notes,
                     actor_name,
                 } = *boxed;
+                if !quick_create_customer {
+                    return Err(WeddingError::BadRequest(
+                        "quick_create_customer must be true".into(),
+                    ));
+                }
                 let first = first_name.trim();
                 let last = last_name.trim();
                 if first.is_empty() || last.is_empty() {
@@ -5311,4 +5327,39 @@ async fn get_party_readiness(
         .await
         .map_err(WeddingError::Database)?;
     Ok(Json(readiness))
+}
+
+#[cfg(test)]
+mod request_contract_tests {
+    use super::CreateMemberRequest;
+    use serde_json::json;
+
+    #[test]
+    fn member_customer_modes_deserialize_without_overlap() {
+        let linked: CreateMemberRequest = serde_json::from_value(json!({
+            "customer_id": "f42639e8-a7af-4d17-92eb-7c592d8ad724",
+            "role": "Groom"
+        }))
+        .expect("linked customer payload");
+        assert!(matches!(linked, CreateMemberRequest::LinkExisting { .. }));
+
+        let quick: CreateMemberRequest = serde_json::from_value(json!({
+            "quick_create_customer": true,
+            "first_name": "Avery",
+            "last_name": "Rivers",
+            "email": "avery@example.com",
+            "role": "Groomsman"
+        }))
+        .expect("quick customer payload");
+        assert!(matches!(quick, CreateMemberRequest::QuickCreateCustomer(_)));
+
+        let imported: CreateMemberRequest = serde_json::from_value(json!({
+            "first_name": "Legacy",
+            "last_name": "Member",
+            "role": "Father",
+            "import_customer_name": "Legacy Member"
+        }))
+        .expect("import payload");
+        assert!(matches!(imported, CreateMemberRequest::SimpleCreate { .. }));
+    }
 }

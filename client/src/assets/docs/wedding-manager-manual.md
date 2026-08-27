@@ -63,20 +63,24 @@ The Order Review is also a tracker. **Ordered**, **In Stock**, and **Picked Up**
 1. Open **Weddings → Parties**.
 2. Search by party or member name and confirm the event date.
 3. Open the party, or select **New Party** when a new group is required.
-4. Enter the event details and assign the responsible salesperson.
-5. Add members with the correct role and Customer link.
-6. Review the saved party before adding appointments, outfit work, or orders.
+4. Search ROS Customers for the Groom. Select the matching Customer when one exists; otherwise enter separate **First Name** and **Last Name** fields to quick-add a new Customer account when the party saves.
+5. Enter the event details and assign the responsible salesperson.
+6. For each additional member, search and select the existing Customer or enter separate First and Last names. Choose the member type from the role list; use **Other** only when the listed roles do not fit.
+7. Choose **Save & Start Groom Wedding Order** when the Groom is ready to move directly into Register. This opens the linked Customer and wedding member; no financial Transaction is created until normal Register checkout succeeds.
+8. Review the saved party before adding appointments, outfit work, or orders.
 
 Use the party ID and event date when two families have similar names. Deleting a party or member with live financial or fulfillment links requires manager review.
 
 ## Manage members and outfit work
 
 1. Open the party and select the member.
-2. Confirm measurements, outfit requirements, and Customer linkage.
+2. Confirm measurements, outfit requirements, and Customer linkage. **Add Member** searches current ROS Customers first and quick-adds a new Customer only from separate First and Last names. Saved names and contact details remain owned by the linked Customer account.
 3. Leave placeholder outfits in **Needs measurements** until the exact sellable variation is known.
 4. Attach the correct Transaction Record or fulfillment line to the member.
 5. Move ordering and receiving work through **Orders**, purchase orders, and **Receive Stock**.
 6. Verify readiness again after measurements, ordering, receiving, alterations, or payment changes.
+
+For a new or existing member who is ready to sell, choose **Add & Start Wedding Order** or **Save & Start Wedding Order**. Riverside saves the Customer/member link first and then opens that exact member in Register with Wedding Order context.
 
 Do not mark a member ready merely to clear the board. Readiness must agree with the actual item, receiving, alteration, balance, and pickup state.
 

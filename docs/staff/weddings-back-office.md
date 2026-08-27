@@ -78,8 +78,12 @@ Common readiness labels:
 1. **Weddings** → **Parties**.
 2. **Search** by name, event date, or ID.
 3. **Create party** → add **event date**, **location**, **notes**, and assign the salesperson with the ROS staff mini selector.
-4. **Add members** (groom, groomsmen, etc.) with **roles** and **outfit** types.
-5. **Link order lines** when sales exist; balances flow from **Transaction Records**, not manual typing.
+4. Search current ROS Customers for the Groom and every additional member. Select the matching Customer account when it exists. If there is no match, enter separate **First Name** and **Last Name** fields to quick-add a new Customer account.
+5. Choose the member type from the role list (**Groom**, **Groomsman**, **Father**, **Child**, or another listed type). Choose **Other** and enter the role only when needed.
+6. Use **Save & Start Groom Wedding Order** from New Party, or **Add/Save & Start Wedding Order** from Party Management, to save the link and open that exact member in Register immediately. Checkout remains the only action that creates the financial Transaction Record.
+7. **Link order lines** when sales exist; balances flow from **Transaction Records**, not manual typing.
+
+Member names, phone numbers, and email addresses are owned by the linked Customer account. Edit those details in Customers so Wedding Manager, Register, history, and messaging continue to show the same identity.
 
 Party search waits for a short typing pause. The loaded party cards remain visible with an
 **Updating…** status while the newest results arrive, so a slow PWA connection does not make the

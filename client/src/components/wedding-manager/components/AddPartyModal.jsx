@@ -4,7 +4,11 @@ import { api } from '../lib/api';
 import { formatPhone } from '../lib/utils';
 import { useModal } from '../hooks/useModal';
 import StaffMiniSelector from '../../ui/StaffMiniSelector';
+import CustomerSearchInput from '../../ui/CustomerSearchInput';
+import { openWeddingMemberInRegister } from '../../../lib/weddingPosBridge';
+import { WEDDING_MEMBER_ROLE_OPTIONS } from '../../../lib/weddingMemberRoles';
 import WeddingBuilderItemSelector, { builderItemAudienceIsValid } from './WeddingBuilderItemSelector';
+import WeddingModalPortal from './WeddingModalPortal';
 
 const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
     const { showAlert, selectSalesperson } = useModal();
@@ -12,12 +16,18 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
     const [formData, setFormData] = useState({
         name: '',
         groomFirstName: '',
+        groomLastName: '',
+        groomCustomerId: '',
+        groomCustomerCode: '',
         date: '',
         signUpDate: new Date().toISOString().split('T')[0],
         salesperson: '',
         styleInfo: '',
         priceInfo: '',
-        brideName: '',
+        brideFirstName: '',
+        brideLastName: '',
+        brideCustomerId: '',
+        brideCustomerCode: '',
         bridePhone: '',
         brideEmail: '',
         groomPhone: '',
@@ -38,7 +48,19 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
     });
 
     const [initialMembers, setInitialMembers] = useState([]);
-    const [newMember, setNewMember] = useState({ name: '', role: 'Groomsman', phone: '', oot: false, suitOverride: '', customRole: '' });
+    const [newMember, setNewMember] = useState({
+        firstName: '',
+        lastName: '',
+        role: 'Groomsman',
+        phone: '',
+        email: '',
+        customerId: '',
+        customerCode: '',
+        oot: false,
+        suitOverride: '',
+        customRole: ''
+    });
+    const [submitting, setSubmitting] = useState(false);
 
     const [salespeople, setSalespeople] = useState([]);
 
@@ -70,8 +92,13 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
         }));
     };
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e, openRegister = false) => {
         e.preventDefault();
+
+        if (!formData.name.trim() || !formData.groomFirstName.trim() || !formData.groomLastName.trim() || !formData.date) {
+            showAlert('Party Name, Groom First Name, Groom Last Name, and Wedding Date are required.', 'Party Information Required', { variant: 'warning' });
+            return;
+        }
 
         const builderItems = Array.isArray(formData.accessories.builder_parent_items)
             ? formData.accessories.builder_parent_items
@@ -81,14 +108,15 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
             return;
         }
 
-        // Groom name construction: First + Last (Party Name)
-        const groomName = formData.groomFirstName
-            ? `${formData.groomFirstName} ${formData.name}`
-            : `${formData.name} (Groom)`;
+        const groomName = `${formData.groomFirstName} ${formData.groomLastName}`.trim();
 
         const groom = {
             id: 1,
             name: groomName,
+            firstName: formData.groomFirstName.trim(),
+            lastName: formData.groomLastName.trim(),
+            customerId: formData.groomCustomerId || '',
+            customerEmail: formData.groomEmail || '',
             role: 'Groom',
             phone: formData.groomPhone,
             oot: false, suit: '', waist: '', vest: '', shirt: '', shoe: '',
@@ -105,39 +133,71 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
         }));
 
         const fullMemberList = [groom, ...addedMembers];
-        // Improved unique ID: LASTNAME-FIRSTNAME-YYYY-MM-DD
-        const newPartyId = `${formData.name.toUpperCase()}-${formData.groomFirstName.toUpperCase()}-${formData.date}`;
-
         // Prompt for attribution (who is creating this party?)
         const createdBy = await selectSalesperson();
         if (!createdBy) return;
 
-        // Pass full data object to App component for saving
-        await onAdd({
-            ...formData,
-            id: newPartyId,
-            members: fullMemberList,
-            updatedBy: createdBy // Use updatedBy for backend logging
-        });
+        setSubmitting(true);
+        try {
+            const createdParty = await onAdd({
+                ...formData,
+                brideName: `${formData.brideFirstName} ${formData.brideLastName}`.trim(),
+                members: fullMemberList,
+                scheduleGroomMeasure: !openRegister && formData.scheduleGroomMeasure,
+                updatedBy: createdBy
+            });
 
-        onClose();
+            if (openRegister) {
+                const createdGroom = createdParty?.members?.find((member) =>
+                    member.role === 'Groom' && (
+                        !formData.groomCustomerId || member.customerId === formData.groomCustomerId
+                    )
+                );
+                if (!createdGroom || !openWeddingMemberInRegister(createdParty.name || formData.name, createdGroom)) {
+                    showAlert('The party was saved, but the Groom could not be opened in Register. Open the saved member and choose Start Wedding Order.', 'Party Saved', { variant: 'warning' });
+                }
+            }
+            onClose();
+        } catch (error) {
+            showAlert(error instanceof Error ? error.message : 'Wedding party could not be saved.', 'Unable to Save Party', { variant: 'danger' });
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     const handleAddInitialMember = () => {
-        if (!newMember.name) return;
-
-        // Validation: Duplicate Name Check
-        const isDuplicate = initialMembers.some(m => m.name.toUpperCase() === newMember.name.toUpperCase());
-        if (isDuplicate) {
-            showAlert(`A member named "${newMember.name}" is already in this party.`, "Duplicate Name", { variant: 'warning' });
+        const firstName = newMember.firstName.trim();
+        const lastName = newMember.lastName.trim();
+        if (!firstName || !lastName) {
+            showAlert('First Name and Last Name are required unless an existing Customer is selected.', 'Member Name Required', { variant: 'warning' });
             return;
         }
 
-        const roleToSave = newMember.role === 'Other' ? (newMember.customRole || 'Member') : newMember.role;
+        const roleToSave = newMember.role === 'Other' ? newMember.customRole.trim() : newMember.role;
+        if (!roleToSave) {
+            showAlert('Enter the member role for Other.', 'Member Role Required', { variant: 'warning' });
+            return;
+        }
+
+        const memberName = `${firstName} ${lastName}`;
+
+        const isDuplicate = initialMembers.some((member) =>
+            (newMember.customerId && member.customerId === newMember.customerId)
+            || member.name.toUpperCase() === memberName.toUpperCase()
+        ) || (newMember.customerId && newMember.customerId === formData.groomCustomerId);
+        if (isDuplicate) {
+            showAlert(`${memberName} is already in this party.`, 'Duplicate Member', { variant: 'warning' });
+            return;
+        }
+
         const notes = newMember.suitOverride ? `SUIT OPTION: ${newMember.suitOverride.toUpperCase()}` : '';
 
         setInitialMembers([...initialMembers, {
             ...newMember,
+            name: memberName,
+            firstName,
+            lastName,
+            customerEmail: newMember.email,
             role: roleToSave,
             suit: newMember.suitOverride.toUpperCase(), // Pre-fill suit field if override provided
             notes: notes,
@@ -145,7 +205,7 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
             waist: '', vest: '', shirt: '', shoe: '',
             measured: false, fitting: false, pickup: false, ordered: false, received: false
         }]);
-        setNewMember({ name: '', role: 'Groomsman', phone: '', oot: false, suitOverride: '', customRole: '' });
+        setNewMember({ firstName: '', lastName: '', role: 'Groomsman', phone: '', email: '', customerId: '', customerCode: '', oot: false, suitOverride: '', customRole: '' });
     };
 
     const handleRemoveInitialMember = (indexToRemove) => {
@@ -171,7 +231,7 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-app-text/40 backdrop-blur-[2px] animate-fade-in overflow-y-auto">
+        <WeddingModalPortal className="flex items-center justify-center p-4 bg-app-text/40 backdrop-blur-[2px] animate-fade-in overflow-y-auto">
             <div className="bg-app-surface rounded-lg shadow-2xl w-full max-w-3xl overflow-hidden my-8 border border-app-border flex flex-col max-h-[95vh] transition-colors">
                 <div className="bg-app-surface border-b border-app-border/80 p-4 flex justify-between items-center text-app-text sticky top-0 z-10 shrink-0">
                     <h3 className="font-extrabold text-lg flex items-center gap-2 uppercase tracking-tight">
@@ -186,16 +246,58 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
                     <div className="overflow-y-auto p-8 space-y-8 flex-1">
 
                         {/* Row 1: Basic Info */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="rounded-xl border border-app-accent/25 bg-app-accent/5 p-4">
+                            <label className="mb-2 block text-xs font-black uppercase tracking-widest text-app-text">Find Groom in ROS Customers</label>
+                            <CustomerSearchInput
+                                onSelect={(customer) => setFormData((current) => ({
+                                    ...current,
+                                    name: current.name || customer.last_name.toUpperCase(),
+                                    groomFirstName: customer.first_name.toUpperCase(),
+                                    groomLastName: customer.last_name.toUpperCase(),
+                                    groomPhone: customer.phone || '',
+                                    groomEmail: customer.email || '',
+                                    groomCustomerId: customer.id,
+                                    groomCustomerCode: customer.customer_code || ''
+                                }))}
+                                onQueryChange={() => {
+                                    if (formData.groomCustomerId) {
+                                        setFormData((current) => ({ ...current, groomCustomerId: '', groomCustomerCode: '' }));
+                                    }
+                                }}
+                                placeholder="Search name, phone, email, or customer number…"
+                                showSelectedLabel
+                            />
+                            <p className="mt-2 text-[11px] font-semibold text-app-text-muted">
+                                {formData.groomCustomerId
+                                    ? `Linked to Customer ${formData.groomCustomerCode || formData.groomCustomerId}.`
+                                    : 'No match? Enter First Name and Last Name below to create a new ROS Customer when the party is saved.'}
+                            </p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                             <div>
-                                <label className="block text-xs font-bold text-app-text uppercase tracking-wide mb-2">Party Last Name</label>
-                                <input required type="text" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded hover:border-navy-700 focus:border-navy-900 outline-none transition-colors" placeholder="e.g. SMITH"
+                                <label className="block text-xs font-bold text-app-text uppercase tracking-wide mb-2">Party Name</label>
+                                <input required type="text" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded hover:border-navy-700 focus:border-navy-900 outline-none transition-colors" placeholder="e.g. SMITH WEDDING"
                                     value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value.toUpperCase() })} />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-app-text uppercase tracking-wide mb-2">Groom First Name</label>
                                 <input required type="text" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded hover:border-navy-700 focus:border-navy-900 outline-none transition-colors" placeholder="e.g. JOHN"
-                                    value={formData.groomFirstName} onChange={(e) => setFormData({ ...formData, groomFirstName: e.target.value.toUpperCase() })} />
+                                    value={formData.groomFirstName} onChange={(e) => setFormData({ ...formData, groomFirstName: e.target.value.toUpperCase(), groomCustomerId: '', groomCustomerCode: '' })} />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-app-text uppercase tracking-wide mb-2">Groom Last Name</label>
+                                <input required type="text" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded hover:border-navy-700 focus:border-navy-900 outline-none transition-colors" placeholder="e.g. SMITH"
+                                    value={formData.groomLastName} onChange={(e) => {
+                                        const groomLastName = e.target.value.toUpperCase();
+                                        setFormData((current) => ({
+                                            ...current,
+                                            groomLastName,
+                                            name: !current.name || current.name === current.groomLastName ? groomLastName : current.name,
+                                            groomCustomerId: '',
+                                            groomCustomerCode: ''
+                                        }));
+                                    }} />
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-app-text uppercase tracking-wide mb-2">Wedding Date</label>
@@ -217,22 +319,46 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
                                 <h4 className="text-xs font-black text-app-text uppercase tracking-widest border-b border-app-border pb-2">Groom Contact</h4>
                                 <div className="grid grid-cols-1 gap-4">
                                     <input type="text" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded outline-none" placeholder="Groom Phone"
-                                        value={formData.groomPhone} onChange={(e) => handlePhoneChange('groomPhone', e.target.value)} />
+                                        value={formData.groomPhone} onChange={(e) => {
+                                            handlePhoneChange('groomPhone', e.target.value);
+                                            if (formData.groomCustomerId) setFormData((current) => ({ ...current, groomPhone: formatPhone(e.target.value), groomCustomerId: '', groomCustomerCode: '' }));
+                                        }} />
                                     <input type="email" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded outline-none" placeholder="Groom Email"
-                                        value={formData.groomEmail} onChange={(e) => setFormData({ ...formData, groomEmail: e.target.value })} />
+                                        value={formData.groomEmail} onChange={(e) => setFormData({ ...formData, groomEmail: e.target.value, groomCustomerId: '', groomCustomerCode: '' })} />
                                 </div>
                             </div>
                             <div className="space-y-4">
                                 <h4 className="text-xs font-black text-app-text uppercase tracking-widest border-b border-app-border pb-2">Bride Contact</h4>
                                 <div className="grid grid-cols-1 gap-4">
-                                    <input type="text" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded outline-none" placeholder="Bride Name"
-                                        value={formData.brideName} onChange={(e) => setFormData({ ...formData, brideName: e.target.value })} />
+                                    <CustomerSearchInput
+                                        onSelect={(customer) => setFormData((current) => ({
+                                            ...current,
+                                            brideFirstName: customer.first_name,
+                                            brideLastName: customer.last_name,
+                                            bridePhone: customer.phone || '',
+                                            brideEmail: customer.email || '',
+                                            brideCustomerId: customer.id,
+                                            brideCustomerCode: customer.customer_code || ''
+                                        }))}
+                                        onQueryChange={() => {
+                                            if (formData.brideCustomerId) setFormData((current) => ({ ...current, brideCustomerId: '', brideCustomerCode: '' }));
+                                        }}
+                                        placeholder="Find existing Customer (optional)…"
+                                        showSelectedLabel
+                                    />
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <input type="text" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded outline-none" placeholder="Bride First Name"
+                                            value={formData.brideFirstName} onChange={(e) => setFormData({ ...formData, brideFirstName: e.target.value, brideCustomerId: '', brideCustomerCode: '' })} />
+                                        <input type="text" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded outline-none" placeholder="Bride Last Name"
+                                            value={formData.brideLastName} onChange={(e) => setFormData({ ...formData, brideLastName: e.target.value, brideCustomerId: '', brideCustomerCode: '' })} />
+                                    </div>
                                     <div className="grid grid-cols-2 gap-2">
                                         <input type="text" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded outline-none text-sm" placeholder="Bride Phone"
-                                            value={formData.bridePhone} onChange={(e) => handlePhoneChange('bridePhone', e.target.value)} />
+                                            value={formData.bridePhone} onChange={(e) => setFormData({ ...formData, bridePhone: formatPhone(e.target.value), brideCustomerId: '', brideCustomerCode: '' })} />
                                         <input type="email" className="w-full px-4 py-2 border border-app-border bg-app-surface text-app-text rounded outline-none text-sm" placeholder="Bride Email"
-                                            value={formData.brideEmail} onChange={(e) => setFormData({ ...formData, brideEmail: e.target.value })} />
+                                            value={formData.brideEmail} onChange={(e) => setFormData({ ...formData, brideEmail: e.target.value, brideCustomerId: '', brideCustomerCode: '' })} />
                                     </div>
+                                    {formData.brideCustomerId ? <p className="text-[10px] font-bold text-app-success">Linked to Customer {formData.brideCustomerCode || formData.brideCustomerId}</p> : null}
                                 </div>
                             </div>
                         </div>
@@ -315,18 +441,39 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
                             </h4>
                             <div className="bg-app-surface-2 p-4 rounded-lg border border-app-border">
                                 <div className="space-y-4">
-                                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                                        <input type="text" className="sm:col-span-1 border border-app-border bg-app-surface text-app-text rounded px-3 py-2 text-sm" placeholder="Name"
-                                            value={newMember.name} onChange={(e) => setNewMember({ ...newMember, name: e.target.value.toUpperCase() })} />
+                                    <div className="rounded-lg border border-app-accent/20 bg-app-surface p-3">
+                                        <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">Find Existing ROS Customer</label>
+                                        <CustomerSearchInput
+                                            onSelect={(customer) => setNewMember((current) => ({
+                                                ...current,
+                                                firstName: customer.first_name,
+                                                lastName: customer.last_name,
+                                                phone: customer.phone || '',
+                                                email: customer.email || '',
+                                                customerId: customer.id,
+                                                customerCode: customer.customer_code || ''
+                                            }))}
+                                            onQueryChange={() => {
+                                                if (newMember.customerId) setNewMember((current) => ({ ...current, customerId: '', customerCode: '' }));
+                                            }}
+                                            placeholder="Search name, phone, email, or customer number…"
+                                            showSelectedLabel
+                                        />
+                                        <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
+                                            {newMember.customerId
+                                                ? `Linked to Customer ${newMember.customerCode || newMember.customerId}.`
+                                                : 'No match? Enter First Name and Last Name to quick-add a new Customer.'}
+                                        </p>
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                                        <input type="text" className="border border-app-border bg-app-surface text-app-text rounded px-3 py-2 text-sm" placeholder="First Name"
+                                            value={newMember.firstName} onChange={(e) => setNewMember({ ...newMember, firstName: e.target.value, customerId: '', customerCode: '' })} />
+                                        <input type="text" className="border border-app-border bg-app-surface text-app-text rounded px-3 py-2 text-sm" placeholder="Last Name"
+                                            value={newMember.lastName} onChange={(e) => setNewMember({ ...newMember, lastName: e.target.value, customerId: '', customerCode: '' })} />
                                         <div className="flex flex-col gap-2">
                                             <select className="border border-app-border bg-app-surface text-app-text rounded px-3 py-2 text-sm font-bold"
                                                 value={newMember.role} onChange={(e) => setNewMember({ ...newMember, role: e.target.value })}>
-                                                <option>Groomsman</option>
-                                                <option>Best Man</option>
-                                                <option>Father</option>
-                                                <option>Ring Bearer</option>
-                                                <option>Usher</option>
-                                                <option value="Other">Other...</option>
+                                                {WEDDING_MEMBER_ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
                                             </select>
                                             {newMember.role === 'Other' && (
                                                 <input
@@ -339,15 +486,17 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
                                             )}
                                         </div>
                                         <input type="text" className="border border-app-border bg-app-surface text-app-text rounded px-3 py-2 text-sm" placeholder="Phone"
-                                            value={newMember.phone} onChange={(e) => setNewMember({ ...newMember, phone: formatPhone(e.target.value) })} />
+                                            value={newMember.phone} onChange={(e) => setNewMember({ ...newMember, phone: formatPhone(e.target.value), customerId: '', customerCode: '' })} />
+                                        <input type="email" className="border border-app-border bg-app-surface text-app-text rounded px-3 py-2 text-sm" placeholder="Email (optional)"
+                                            value={newMember.email} onChange={(e) => setNewMember({ ...newMember, email: e.target.value, customerId: '', customerCode: '' })} />
+                                    </div>
+                                    <div className="flex items-center gap-3">
                                         <div className="flex items-center gap-2">
                                             <label className="text-xs text-app-text flex items-center gap-1 cursor-pointer flex-1">
                                                 <input type="checkbox" checked={newMember.oot} onChange={(e) => setNewMember({ ...newMember, oot: e.target.checked })} className="rounded text-app-text" />
                                                 OOT
                                             </label>
                                         </div>
-                                    </div>
-                                    <div className="flex items-center gap-3">
                                         <div className="flex-1 flex items-center gap-2">
                                             <Icon name="Tie" size={14} className="text-app-text-muted" />
                                             <input
@@ -372,6 +521,7 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
                                             <div className="flex items-center gap-3">
                                                 <span className="font-bold text-app-text">{m.name}</span>
                                                 <span className="text-[10px] text-app-text-muted font-bold uppercase py-0.5 px-2 bg-app-surface-2 rounded">{m.role}</span>
+                                                {m.customerId && <span className="text-[10px] font-black uppercase text-app-success">Customer {m.customerCode || 'linked'}</span>}
                                                 {m.oot && <span className="text-[10px] text-amber-600 font-black uppercase">OOT</span>}
                                             </div>
                                             <div className="flex items-center gap-4">
@@ -419,15 +569,18 @@ const AddPartyModal = ({ isOpen, onClose, onAdd }) => {
                     </div>
 
                     {/* Footer Buttons */}
-                    <div className="bg-app-surface-2 p-6 border-t border-app-border flex justify-end gap-4 shrink-0 transition-colors">
-                        <button type="button" onClick={onClose} className="px-6 py-2 text-app-text hover:text-app-text font-bold transition-colors">Cancel</button>
-                        <button type="submit" className="bg-navy-900 hover:bg-navy-800 text-white font-bold py-3 px-10 rounded-lg shadow-xl shadow-navy-900/20 transition-all hover:shadow-2xl hover:scale-105 active:scale-95 transform">
-                            Complete Party File
+                    <div className="bg-app-surface-2 p-6 border-t border-app-border flex flex-wrap justify-end gap-4 shrink-0 transition-colors">
+                        <button type="button" disabled={submitting} onClick={onClose} className="px-6 py-2 text-app-text hover:text-app-text font-bold transition-colors disabled:opacity-50">Cancel</button>
+                        <button type="submit" disabled={submitting} className="ui-btn-secondary min-h-12 px-8 disabled:opacity-50">
+                            {submitting ? 'Saving Party…' : 'Save Party'}
+                        </button>
+                        <button type="button" disabled={submitting} onClick={(event) => void handleSubmit(event, true)} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-8 rounded-lg shadow-xl transition-all active:scale-95 disabled:opacity-50">
+                            {submitting ? 'Saving Party…' : 'Save & Start Groom Wedding Order'}
                         </button>
                     </div>
                 </form>
             </div>
-        </div>
+        </WeddingModalPortal>
     );
 };
 

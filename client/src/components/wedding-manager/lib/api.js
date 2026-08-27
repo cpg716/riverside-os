@@ -307,6 +307,7 @@ function toWmMember(m) {
     measureDate: m.measure_date ?? null,
     orderedPO: m.ordered_po ?? null,
     alteration_status: m.alteration_status ?? null,
+    suitVariantId: m.suit_variant_id ?? null,
     isFreeSuitPromo: yn(m.is_free_suit_promo),
   };
 }
@@ -522,6 +523,54 @@ export const api = {
     return { created: created.length };
   },
 
+  createParty: async (partyData) => {
+    const groomName = [partyData.groomFirstName, partyData.groomLastName]
+      .map((part) => String(part || "").trim())
+      .filter(Boolean)
+      .join(" ");
+    const brideName = [partyData.brideFirstName, partyData.brideLastName]
+      .map((part) => String(part || "").trim())
+      .filter(Boolean)
+      .join(" ") || partyData.brideName || null;
+    const createdBody = await wmJson("POST", `${API_URL}/weddings/parties`, {
+      body: {
+        party_name: partyData.name || partyData.party_name || null,
+        groom_name: groomName,
+        event_date: partyData.date || partyData.event_date,
+        salesperson: partyData.salesperson || null,
+        sign_up_date: partyData.signUpDate || partyData.sign_up_date || null,
+        notes: partyData.notes || null,
+        party_type: partyData.type || partyData.party_type || "Wedding",
+        style_info: partyData.styleInfo || null,
+        price_info: partyData.priceInfo || null,
+        groom_phone: partyData.groomPhone || null,
+        groom_email: partyData.groomEmail || null,
+        groom_customer_id: partyData.groomCustomerId || null,
+        bride_name: brideName,
+        bride_phone: partyData.bridePhone || null,
+        bride_email: partyData.brideEmail || null,
+        bride_customer_id: partyData.brideCustomerId || null,
+        accessories: partyData.accessories || {},
+        actor_name: partyData.updatedBy || null,
+        start_empty: true,
+      },
+    });
+    const partyId = partyIdFromWeddingCreateResponse(createdBody);
+    if (!partyId) throw new Error("Create party response missing id");
+
+    for (const member of Array.isArray(partyData.members) ? partyData.members : []) {
+      if (String(member.role || "").toLowerCase() === "info") continue;
+      await api.addMember(partyId, {
+        ...member,
+        updatedBy: partyData.updatedBy || member.updatedBy,
+      });
+    }
+
+    const createdParty = await api.getParty(partyId);
+    if (!createdParty) throw new Error("Created wedding party could not be loaded");
+    return createdParty;
+  },
+
   updateParty: async (id, updates) => {
     const payload = {
       party_name: updates.name ?? updates.party_name,
@@ -590,14 +639,29 @@ export const api = {
 
   addMember: async (partyId, memberData) => {
     const name = parseLegacyName(memberData.name);
-    const payload = {
-      first_name: name.first_name,
-      last_name: name.last_name,
-      phone: memberData.phone || null,
-      role: memberData.role || "Member",
-      notes: memberData.notes || null,
-    };
-    return wmJson("POST", `${API_URL}/weddings/parties/${partyId}/members`, { body: payload });
+    const payload = memberData.customerId
+      ? {
+          customer_id: memberData.customerId,
+          role: memberData.role || "Member",
+          notes: memberData.notes || null,
+          actor_name: memberData.updatedBy || null,
+        }
+      : {
+          quick_create_customer: true,
+          first_name: memberData.firstName || name.first_name,
+          last_name: memberData.lastName || name.last_name,
+          email: memberData.customerEmail || null,
+          phone: memberData.phone || null,
+          role: memberData.role || "Member",
+          notes: memberData.notes || null,
+          marketing_email_opt_in: false,
+          marketing_sms_opt_in: false,
+          transactional_sms_opt_in: false,
+          transactional_email_opt_in: false,
+          actor_name: memberData.updatedBy || null,
+        };
+    const created = await wmJson("POST", `${API_URL}/weddings/parties/${partyId}/members`, { body: payload });
+    return toWmMember(created);
   },
   getMember: async (id) => {
     const json = await wmJson("GET", `${API_URL}/weddings/members/${id}`);
