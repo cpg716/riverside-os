@@ -35,9 +35,14 @@ test.describe("Pick Up Later UI contract", () => {
     const transactionDetail = repoSource(
       "client/src/components/orders/TransactionDetailDrawer.tsx",
     );
+    const receiptRenderer = repoSource(
+      "server/src/logic/receipt_escpos.rs",
+    );
 
     expect(orders).toContain('<option value="pickup_later">Pick Up Later</option>');
     expect(orderPicker).toContain('case "pickup_later":');
     expect(transactionDetail).toContain('return "Pick Up Later";');
+    expect(receiptRenderer).toContain('"Pick Up Later",');
+    expect(receiptRenderer).toContain("if !labels.contains(&section)");
   });
 });

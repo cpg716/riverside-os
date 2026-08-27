@@ -729,7 +729,7 @@ fn receiptline_item_lines(
         }
     }
 
-    let labels = [
+    let mut labels = vec![
         "PAYMENT",
         "Alterations",
         "Shipping",
@@ -738,11 +738,21 @@ fn receiptline_item_lines(
         "Taken Today",
         "PICKED UP",
         "SHIPPED",
+        "Pick Up Later",
         "Special Order",
         "Custom Order",
         "Wedding Order",
         "Layaway",
     ];
+
+    // A standard transaction receipt must never drop a merchandise line merely
+    // because a new section label was not added to the preferred display order.
+    for item in d.items.iter().filter(|item| !is_simple_fee_line(item)) {
+        let section = receipt_item_section_label(d, item);
+        if !labels.contains(&section) {
+            labels.push(section);
+        }
+    }
 
     for label in labels {
         let items: Vec<_> = d
@@ -1652,6 +1662,55 @@ mod tests {
             assert!(output.contains("Wedding Order"), "{output}");
             assert!(output.contains("Party: Adams Wedding"), "{output}");
             assert!(output.contains("Wedding Date: 09/19/2026"), "{output}");
+        }
+    }
+
+    #[test]
+    fn standard_receiptline_includes_every_mixed_fulfillment_item() {
+        let fulfillment_lines = [
+            ("Take-now shirt", "TAKE-NOW", DbFulfillmentType::Takeaway),
+            ("Held belt", "PICK-UP-LATER", DbFulfillmentType::PickupLater),
+            (
+                "Special-order suit",
+                "SPECIAL-ORDER",
+                DbFulfillmentType::SpecialOrder,
+            ),
+            ("Custom tuxedo", "CUSTOM", DbFulfillmentType::Custom),
+            (
+                "Wedding bow tie",
+                "WEDDING",
+                DbFulfillmentType::WeddingOrder,
+            ),
+            ("Layaway shoes", "LAYAWAY", DbFulfillmentType::Layaway),
+        ];
+        let items = fulfillment_lines
+            .into_iter()
+            .map(|(name, sku, fulfillment)| {
+                let mut line = receipt_line(name, sku, None);
+                line.fulfillment = fulfillment;
+                line.is_fulfilled = fulfillment == DbFulfillmentType::Takeaway;
+                line
+            })
+            .collect();
+        let order = receipt_order_with(items);
+
+        let receiptline = receiptline_item_lines(&order, &ReceiptConfig::default(), false, false);
+
+        for (name, _, _) in fulfillment_lines {
+            assert!(receiptline.contains(name), "missing {name}: {receiptline}");
+        }
+        for section in [
+            "Taken Today",
+            "Pick Up Later",
+            "Special Order",
+            "Custom Order",
+            "Wedding Order",
+            "Layaway",
+        ] {
+            assert!(
+                receiptline.contains(&format!("^^^{section}")),
+                "missing {section} section: {receiptline}"
+            );
         }
     }
 
