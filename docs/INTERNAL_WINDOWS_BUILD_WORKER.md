@@ -39,7 +39,7 @@ Initialize the current Windows account's build directories from an elevated Main
 .\deployment\windows\Initialize-RiversideWindowsBuildWorker.ps1
 ```
 
-The initializer defaults to `$env:USERDOMAIN\$env:USERNAME`. It does not create an account, install toolchains, enable OpenSSH Server, or broaden the firewall. It grants the existing account access to the isolated worker directory, installs the fixed elevated **Riverside OS Internal Release Promotion** scheduled task, then requires the Windows `sshd` service to already be running. Use the configured SSH key; no Riverside command accepts or stores the Windows account password.
+The initializer defaults to the existing machine-local `$env:COMPUTERNAME\$env:USERNAME` account. Pass `-BuildWorkerUser` explicitly only when Main Hub intentionally uses a domain account. It does not create an account, install toolchains, enable OpenSSH Server, or broaden the firewall. It grants the existing account access to the isolated worker directory, installs the fixed elevated **Riverside OS Internal Release Promotion** scheduled task, then requires the Windows `sshd` service to already be running. Use the configured SSH key; no Riverside command accepts or stores the Windows account password.
 
 Tauri updater signing is automatic on the first package build. If Riverside later obtains a real Windows code-signing certificate, configure its existing certificate-store thumbprint while rerunning the initializer:
 
@@ -83,6 +83,8 @@ Use Tailscale only when building remotely:
 ```bash
 export ROS_MAIN_HUB_HOST="riverside-main-hub-tailscale"
 ```
+
+Choose the route that will remain reachable for the complete build and promotion. If the Mac may leave the store network before the command finishes, select Tailscale before starting. An established LAN SSH connection cannot migrate to Tailscale mid-command; the isolated Windows build can still finish, but the Mac cannot retrieve its evidence or request promotion through the broken LAN socket.
 
 The SSH alias selects the dedicated key. Do not put a Windows password, signing key, token, or other secret in the command, repository, logs, or documentation.
 
@@ -303,6 +305,7 @@ The automated promotion proves source identity, package integrity, backup/rollba
 - **Store-hours refusal:** wait for the safe window or explicitly authorize `-AllowStoreHours` after checking live operations.
 - **Main Hub readiness refusal:** repair the live service first. The production host is not used for compilation while it is already degraded.
 - **Missing pinned runtime:** rerun the first package build with `-AllowExternalDownloads`; a checksum mismatch fails closed.
+- **Migration 207 historical checksum:** the deployment migration tools normalize only the exact known expanded `b160d740...` ledger to canonical `fd7dcd54...`, and only while the exact immutable migration 213 companion is present. Do not edit migration 207 or update the migration ledger manually; any other checksum pair remains a blocking drift error.
 - **Failed build:** inspect `windows-build.log` and `windows-build-summary.json` copied to the Mac. A failed job does not install its output.
 - **Promotion task missing:** rerun `Initialize-RiversideWindowsBuildWorker.ps1` from elevated Main Hub PowerShell once after installing this phase.
 - **Promotion failed:** inspect `promotion-status.json` and the job's `promotion-transcript.txt`; the previous workstation feed remains current.

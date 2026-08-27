@@ -427,6 +427,14 @@ const counterpointSquare093 =
   "migrations/093_counterpoint_square_tender_alias.sql";
 const expectedCounterpointTender092Sha =
   "def5b71eb0e7bcbb8bcf80341afc29dc0bfcbb6b46563a14b7e79ecc1eb968b4";
+const inventoryAverageCost207 =
+  "migrations/207_inventory_average_and_last_cost.sql";
+const expectedInventoryAverageCost207Sha =
+  "fd7dcd54ba0c8c1b9903f25cd8a529d6c6fad7e061f2ebe8e04640bb9f14f5b0";
+const inventoryAverageCostAudit213 =
+  "migrations/213_inventory_average_cost_line_repair_audit.sql";
+const expectedInventoryAverageCostAudit213Sha =
+  "6a6afe041f0fa36c71df8f6434fa32e9b8c1a95d05b3712bfce9622ebe19ba29";
 assertIncludes(
   ".gitattributes",
   "*.sql text eol=lf",
@@ -483,6 +491,33 @@ for (const migrationScript of [
       `${migrationScript} must ledger the immutable broken RMS repair only when its replacement is present`,
     );
   }
+  for (const copy of [
+    "function Test-KnownMigrationChecksumTransition",
+    "207_inventory_average_and_last_cost.sql",
+    "b160d740c49b061c432435982f265e45850b6d3f0b00949ab53b967e190849a2",
+    "213_inventory_average_cost_line_repair_audit.sql",
+    expectedInventoryAverageCostAudit213Sha,
+    "known historical checksum normalized; schema retained by migration 213",
+  ]) {
+    assertIncludes(
+      migrationScript,
+      copy,
+      `${migrationScript} must normalize only the exact historical migration 207 ledger when the immutable migration 213 replacement is present`,
+    );
+  }
+}
+if (sha256(inventoryAverageCost207) !== expectedInventoryAverageCost207Sha) {
+  fail(
+    `${inventoryAverageCost207}: applied migration checksum changed; keep the canonical migration immutable`,
+  );
+}
+if (
+  sha256(inventoryAverageCostAudit213) !==
+  expectedInventoryAverageCostAudit213Sha
+) {
+  fail(
+    `${inventoryAverageCostAudit213}: migration 207 compatibility proof changed; add a new numbered migration instead`,
+  );
 }
 if (sha256(counterpointTender092) !== expectedCounterpointTender092Sha) {
   fail(
@@ -575,6 +610,12 @@ for (const copy of [
     "Internal release promotion must verify the candidate, reuse guarded installers, require exact readiness, and publish last",
   );
 }
+
+assertIncludes(
+  "deployment/windows/Initialize-RiversideWindowsBuildWorker.ps1",
+  '$env:COMPUTERNAME\\$env:USERNAME',
+  "The private Windows worker must default to the existing machine-local account instead of the unresolved WORKGROUP pseudo-domain",
+);
 
 const internalWindowsBuildWorker =
   "deployment/windows/Invoke-RiversideWindowsBuild.ps1";

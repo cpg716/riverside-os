@@ -156,6 +156,40 @@ function Test-MigrationChecksumMatch([string]$StoredSha, [string[]]$AllowedShas)
   return ($AllowedShas -contains $normalizedStoredSha)
 }
 
+function Test-KnownMigrationChecksumTransition(
+  [string]$FileName,
+  [string]$StoredSha,
+  [string]$CurrentSha,
+  [string]$MigrationsDir
+) {
+  if ($FileName -ne "207_inventory_average_and_last_cost.sql" -or
+      $StoredSha.Trim().ToLower() -ne "b160d740c49b061c432435982f265e45850b6d3f0b00949ab53b967e190849a2" -or
+      $CurrentSha.Trim().ToLower() -ne "fd7dcd54ba0c8c1b9903f25cd8a529d6c6fad7e061f2ebe8e04640bb9f14f5b0") {
+    return $false
+  }
+
+  $followUpPath = Join-Path $MigrationsDir "213_inventory_average_cost_line_repair_audit.sql"
+  return (Test-Path $followUpPath) -and
+    ((Get-FileSha256 $followUpPath) -eq "6a6afe041f0fa36c71df8f6434fa32e9b8c1a95d05b3712bfce9622ebe19ba29")
+}
+
+function Repair-KnownMigrationChecksumTransition(
+  [string]$PsqlPath,
+  [string]$DatabaseUrl,
+  [string]$Version,
+  [string]$StoredSha,
+  [string]$CurrentSha
+) {
+  $migrationVersion = Escape-SqlLiteral $Version
+  $safeStoredSha = Escape-SqlLiteral $StoredSha.Trim().ToLower()
+  $safeCurrentSha = Escape-SqlLiteral $CurrentSha.Trim().ToLower()
+  Invoke-PsqlCommand $PsqlPath $DatabaseUrl "UPDATE ros_schema_migrations SET file_sha256 = '$safeCurrentSha' WHERE version = '$migrationVersion' AND lower(btrim(file_sha256)) = '$safeStoredSha';"
+  $updatedSha = Get-StoredChecksum $PsqlPath $DatabaseUrl $Version
+  if ($updatedSha.Trim().ToLower() -ne $safeCurrentSha) {
+    throw "Known migration checksum transition did not reach the canonical ledger SHA for $Version."
+  }
+}
+
 function Test-SupersededBrokenMigration([string]$FileName, [string]$FileSha256, [string]$MigrationsDir) {
   if ($FileName -ne "202_repair_verified_rms90_programs.sql") {
     return $false
@@ -243,6 +277,9 @@ function Apply-Migrations([string]$PsqlPath, [string]$DatabaseUrl, [string]$Dir)
         if ([string]::IsNullOrWhiteSpace($storedSha)) {
           Update-StoredChecksum $PsqlPath $DatabaseUrl $file.Name $currentSha
           Write-Host "Skip migration $($file.Name) (checksum recorded)"
+        } elseif (Test-KnownMigrationChecksumTransition $file.Name $storedSha $currentSha $Dir) {
+          Repair-KnownMigrationChecksumTransition $PsqlPath $DatabaseUrl $file.Name $storedSha $currentSha
+          Write-Host "Skip migration $($file.Name) (known historical checksum normalized; schema retained by migration 213)"
         } elseif (-not (Test-MigrationChecksumMatch $storedSha $currentShaVariants)) {
           Write-Warning "DRIFT: $($file.Name) has changed since it was applied! (stored=$storedSha current=$currentSha)"
           Write-Warning "  This file was modified after being applied. You may need a new migration to reconcile."

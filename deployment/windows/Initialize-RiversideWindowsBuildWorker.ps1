@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$BuildWorkerUser = "$env:USERDOMAIN\$env:USERNAME",
+  [string]$BuildWorkerUser = "$env:COMPUTERNAME\$env:USERNAME",
   [string]$WorkerRoot = "C:\ProgramData\RiversideOS\build-worker",
   [ValidatePattern('^[0-9A-Fa-f]{40}$')]
   [string]$AuthenticodeCertificateThumbprint = ""
