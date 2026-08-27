@@ -38,7 +38,14 @@ pub fn counterpoint_import_history_start() -> String {
         .unwrap_or_else(|| DEFAULT_COUNTERPOINT_IMPORT_HISTORY_START.to_string())
 }
 
-fn counterpoint_catalog_variant_sku(cp_key: &str, sku: &str) -> String {
+fn counterpoint_catalog_variant_sku(cp_key: &str, sku: &str, barcode: Option<&str>) -> String {
+    if let Some(counterpoint_b_sku) = barcode
+        .and_then(normalize_identity_key)
+        .filter(|value| is_valid_counterpoint_b_sku(value))
+    {
+        return counterpoint_b_sku;
+    }
+
     let sku = sku.trim();
     if known_custom_subtype_for_sku(sku).is_none() {
         return sku.to_string();
@@ -11709,7 +11716,7 @@ async fn upsert_variant(
         summary.skipped += 1;
         return Ok(());
     }
-    let import_sku = counterpoint_catalog_variant_sku(cp_key, sku);
+    let import_sku = counterpoint_catalog_variant_sku(cp_key, sku, barcode);
     let clean_variation_label = clean_counterpoint_variation_label(cp_key, variation_label);
 
     let mut existing: Option<(Uuid, String, Option<i32>)> = sqlx::query_as(
@@ -17853,11 +17860,24 @@ mod tests {
 
     #[test]
     fn counterpoint_catalog_variant_sku_preserves_ros_custom_order_skus() {
-        assert_eq!(counterpoint_catalog_variant_sku("100", "100"), "CP-000100");
-        assert_eq!(counterpoint_catalog_variant_sku("105", "105"), "CP-000105");
-        assert_eq!(counterpoint_catalog_variant_sku("110", "110"), "CP-000110");
-        assert_eq!(counterpoint_catalog_variant_sku("200", "200"), "CP-000200");
-        let matrix_generated = counterpoint_catalog_variant_sku("I-102119|40901/1|36 R|2BV", "100");
+        assert_eq!(
+            counterpoint_catalog_variant_sku("100", "100", None),
+            "CP-000100"
+        );
+        assert_eq!(
+            counterpoint_catalog_variant_sku("105", "105", None),
+            "CP-000105"
+        );
+        assert_eq!(
+            counterpoint_catalog_variant_sku("110", "110", None),
+            "CP-000110"
+        );
+        assert_eq!(
+            counterpoint_catalog_variant_sku("200", "200", None),
+            "CP-000200"
+        );
+        let matrix_generated =
+            counterpoint_catalog_variant_sku("I-102119|40901/1|36 R|2BV", "100", None);
         assert!(matrix_generated.starts_with("CP-"));
         let matrix_suffix = matrix_generated
             .strip_prefix("CP-")
@@ -17865,8 +17885,28 @@ mod tests {
         assert_eq!(matrix_suffix.len(), 13);
         assert!(matrix_suffix.bytes().all(|b| b.is_ascii_alphanumeric()));
         assert_eq!(
-            counterpoint_catalog_variant_sku("40901/1", "40901/1"),
+            counterpoint_catalog_variant_sku("40901/1", "40901/1", None),
             "40901/1"
+        );
+    }
+
+    #[test]
+    fn counterpoint_catalog_variant_sku_prefers_valid_b_barcode_over_recovery_sku() {
+        assert_eq!(
+            counterpoint_catalog_variant_sku(
+                "I-100216|5549 001|30R|SOHO",
+                "CP-1425F8JX7MHSZ",
+                Some(" b-1501641 "),
+            ),
+            "B-1501641"
+        );
+        assert_eq!(
+            counterpoint_catalog_variant_sku(
+                "I-100216|5549 001|30R|SOHO",
+                "CP-1425F8JX7MHSZ",
+                Some("012345678901"),
+            ),
+            "CP-1425F8JX7MHSZ"
         );
     }
 

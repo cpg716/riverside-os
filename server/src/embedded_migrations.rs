@@ -214,4 +214,5 @@ pub const EMBEDDED_MIGRATIONS: &[(&str, &str)] = &[
     ("211_repair_txn_566054_counterpoint_quantity.sql", include_str!("../../migrations/211_repair_txn_566054_counterpoint_quantity.sql")),
     ("212_normalize_counterpoint_joint_customer_names.sql", include_str!("../../migrations/212_normalize_counterpoint_joint_customer_names.sql")),
     ("213_inventory_average_cost_line_repair_audit.sql", include_str!("../../migrations/213_inventory_average_cost_line_repair_audit.sql")),
+    ("214_promote_ballin_counterpoint_b_skus.sql", include_str!("../../migrations/214_promote_ballin_counterpoint_b_skus.sql")),
 ];
