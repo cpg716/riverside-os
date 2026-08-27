@@ -653,7 +653,9 @@ $manifest = @{
     cube = @{ fingerprint = $cubeFingerprint }
   }
 } | ConvertTo-Json -Depth 4
-Set-Content -Path "$packageRoot\deployment-package.manifest.json" -Value $manifest -Encoding UTF8
+$manifestPath = Join-Path $packageRoot "deployment-package.manifest.json"
+$utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($manifestPath, $manifest, $utf8WithoutBom)
 
 foreach ($doc in @(
   "docs\STORE_DEPLOYMENT_GUIDE.md",

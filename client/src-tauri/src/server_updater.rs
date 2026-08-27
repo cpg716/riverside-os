@@ -327,6 +327,10 @@ fn find_deployment_manifest(script_dir: &Path, extraction_dir: &Path) -> Option<
     None
 }
 
+fn parse_deployment_package_manifest(raw: &str) -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::from_str(raw.trim_start_matches('\u{feff}'))
+}
+
 fn verify_deployment_package_build(
     script_dir: &Path,
     extraction_dir: &Path,
@@ -348,7 +352,7 @@ fn verify_deployment_package_build(
             manifest_path.display()
         )
     })?;
-    let manifest: serde_json::Value = serde_json::from_str(&raw).map_err(|e| {
+    let manifest = parse_deployment_package_manifest(&raw).map_err(|e| {
         format!(
             "Could not parse deployment package manifest {}: {e}",
             manifest_path.display()
@@ -471,8 +475,8 @@ fn resolve_existing_deployment_config(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_ids_match, candidate_deployment_config_paths, parse_sha256_digest,
-        select_deployment_asset, GithubAsset,
+        build_ids_match, candidate_deployment_config_paths, parse_deployment_package_manifest,
+        parse_sha256_digest, select_deployment_asset, GithubAsset,
     };
     use std::path::Path;
 
@@ -494,6 +498,19 @@ mod tests {
         assert!(parse_sha256_digest(None).is_err());
         assert!(parse_sha256_digest(Some("md5:abc")).is_err());
         assert!(parse_sha256_digest(Some("sha256:not-a-digest")).is_err());
+    }
+
+    #[test]
+    fn deployment_package_manifest_accepts_windows_utf8_bom() {
+        let value = parse_deployment_package_manifest(
+            "\u{feff}{\"sourceGitSha\":\"a1af8f2378d98a96857e3f2e616c3d2cfe48225d\"}",
+        )
+        .expect("deployment package manifest with a UTF-8 BOM should parse");
+
+        assert_eq!(
+            value["sourceGitSha"],
+            "a1af8f2378d98a96857e3f2e616c3d2cfe48225d"
+        );
     }
 
     #[test]

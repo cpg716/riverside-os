@@ -552,6 +552,9 @@ for (const copy of [
   "A 40-character SourceGitSha is required when packaging outside a Git checkout.",
   "function Get-CachedRuntimeAsset",
   '[switch]$DisallowRuntimeDownloads',
+  '$manifestPath = Join-Path $packageRoot "deployment-package.manifest.json"',
+  "$utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)",
+  "[System.IO.File]::WriteAllText($manifestPath, $manifest, $utf8WithoutBom)",
 ]) {
   assertIncludes(
     deploymentPackageBuilder,
