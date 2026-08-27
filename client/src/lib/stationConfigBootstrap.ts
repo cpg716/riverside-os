@@ -20,6 +20,7 @@ type RiversideStationConfig = {
 };
 
 const APPLIED_HASH_KEY = "ros.stationConfig.appliedHash";
+let hardwareSaveQueue = Promise.resolve();
 
 function setIfChanged(key: string, value: string | null | undefined) {
   const cleaned = value?.trim();
@@ -37,17 +38,67 @@ function setBoolIfChanged(key: string, value: boolean | null | undefined) {
   return true;
 }
 
+function setIfMissing(key: string, value: string | null | undefined) {
+  if (window.localStorage.getItem(key) !== null) return false;
+  return setIfChanged(key, value);
+}
+
+function setBoolIfMissing(key: string, value: boolean | null | undefined) {
+  if (window.localStorage.getItem(key) !== null) return false;
+  return setBoolIfChanged(key, value);
+}
+
 function applyPrinter(prefix: string, printer: PrinterStationConfig | undefined) {
   if (!printer) return false;
   let changed = false;
   const mode = printer.mode === "system" ? "system" : printer.mode === "network" ? "network" : "";
-  changed = setIfChanged(`${prefix}.mode`, mode) || changed;
-  changed = setIfChanged(`${prefix}.ip`, printer.ip) || changed;
-  changed = setIfChanged(`${prefix}.systemName`, printer.systemName) || changed;
-  changed = setIfChanged(`${prefix}.language`, printer.language) || changed;
+  changed = setIfMissing(`${prefix}.mode`, mode) || changed;
+  changed = setIfMissing(`${prefix}.ip`, printer.ip) || changed;
+  changed = setIfMissing(`${prefix}.systemName`, printer.systemName) || changed;
+  changed = setIfMissing(`${prefix}.language`, printer.language) || changed;
   if (printer.port !== undefined && printer.port !== null) {
-    changed = setIfChanged(`${prefix}.port`, String(printer.port)) || changed;
+    changed = setIfMissing(`${prefix}.port`, String(printer.port)) || changed;
   }
+  return changed;
+}
+
+function storedPrinter(type: "receipt" | "tag" | "report") {
+  const prefix = `ros.hardware.printer.${type}`;
+  const parsedPort = Number.parseInt(window.localStorage.getItem(`${prefix}.port`) ?? "9100", 10);
+  return {
+    mode: window.localStorage.getItem(`${prefix}.mode`) === "network" ? "network" : "system",
+    ip: window.localStorage.getItem(`${prefix}.ip`)?.trim() ?? "",
+    port: Number.isFinite(parsedPort) && parsedPort > 0 && parsedPort <= 65535 ? parsedPort : 9100,
+    systemName: window.localStorage.getItem(`${prefix}.systemName`)?.trim() ?? "",
+    language: window.localStorage.getItem(`${prefix}.language`)?.trim() ?? "",
+  };
+}
+
+export function persistInstallerStationHardwareConfig() {
+  if (!isTauri() || typeof window === "undefined") return Promise.resolve();
+  hardwareSaveQueue = hardwareSaveQueue.catch(() => undefined).then(() =>
+    invoke("save_station_hardware_config", {
+      hardware: {
+        cashDrawerEnabled:
+          window.localStorage.getItem("ros.hardware.cashDrawer.enabled") !== "false",
+        receiptPrinter: storedPrinter("receipt"),
+        tagPrinter: storedPrinter("tag"),
+        reportPrinter: storedPrinter("report"),
+      },
+    }).then(() => undefined),
+  );
+  return hardwareSaveQueue;
+}
+
+export function applyStationHardwareDefaults(
+  register: NonNullable<RiversideStationConfig["register"]>,
+) {
+  let changed = false;
+  changed =
+    setBoolIfMissing("ros.hardware.cashDrawer.enabled", register.cashDrawerEnabled) || changed;
+  changed = applyPrinter("ros.hardware.printer.receipt", register.receiptPrinter) || changed;
+  changed = applyPrinter("ros.hardware.printer.tag", register.tagPrinter) || changed;
+  changed = applyPrinter("ros.hardware.printer.report", register.reportPrinter) || changed;
   return changed;
 }
 
@@ -106,13 +157,7 @@ export async function applyInstallerStationConfig() {
     changed = setIfChanged("ros_api_base_override", apiBase) || changed;
   }
   changed = setIfChanged("ros.station.label", config.register.stationLabel) || changed;
-  changed =
-    setBoolIfChanged("ros.hardware.cashDrawer.enabled", config.register.cashDrawerEnabled) ||
-    changed;
-  changed =
-    applyPrinter("ros.hardware.printer.receipt", config.register.receiptPrinter) || changed;
-  changed = applyPrinter("ros.hardware.printer.tag", config.register.tagPrinter) || changed;
-  changed = applyPrinter("ros.hardware.printer.report", config.register.reportPrinter) || changed;
+  changed = applyStationHardwareDefaults(config.register) || changed;
 
   window.localStorage.setItem(APPLIED_HASH_KEY, hash);
 

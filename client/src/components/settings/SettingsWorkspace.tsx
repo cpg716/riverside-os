@@ -149,6 +149,7 @@ interface SettingsWorkspaceProps {
   // POS Specific
   posSessionId?: string | null;
   posCashierCode?: string | null;
+  posRegisterLane?: number | null;
   posLifecycleStatus?: string | null;
   onPosRefreshMeta?: () => Promise<void>;
   onNavigateToTab?: (tab: string) => void;
@@ -298,6 +299,7 @@ export default function SettingsWorkspace({
   onNavigateCustomers,
   posSessionId,
   posCashierCode,
+  posRegisterLane,
   posLifecycleStatus,
   onPosRefreshMeta,
   onNavigateToTab,
@@ -1385,6 +1387,7 @@ export default function SettingsWorkspace({
                   mode={mode}
                   posSessionId={posSessionId}
                   posCashierCode={posCashierCode}
+                  posRegisterLane={posRegisterLane}
                 />
               </Suspense>
             )}

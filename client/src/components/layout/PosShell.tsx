@@ -674,6 +674,7 @@ export default function PosShell({
                   activeSection={activeSubSection}
                   posSessionId={sessionId}
                   posCashierCode={cashierCode}
+                  posRegisterLane={registerLane}
                   posLifecycleStatus={lifecycleStatus}
                   onPosRefreshMeta={refreshOpenSessionMeta}
                 />

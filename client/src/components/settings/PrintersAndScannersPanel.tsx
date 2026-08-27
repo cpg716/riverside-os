@@ -27,6 +27,8 @@ import {
 import { isTauri } from "@tauri-apps/api/core";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { persistInstallerStationHardwareConfig } from "../../lib/stationConfigBootstrap";
+import { sessionPollAuthHeaders } from "../../lib/posRegisterAuth";
 
 type PrinterKey = "receipt" | "tag" | "report";
 
@@ -108,10 +110,12 @@ export default function PrintersAndScannersPanel({
   mode = "backoffice",
   posSessionId = null,
   posCashierCode = null,
+  posRegisterLane = null,
 }: {
   mode?: "backoffice" | "pos";
   posSessionId?: string | null;
   posCashierCode?: string | null;
+  posRegisterLane?: number | null;
 }) {
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
@@ -151,7 +155,17 @@ export default function PrintersAndScannersPanel({
   const [systemPrinters, setSystemPrinters] = useState<SystemPrinter[]>([]);
   const [loadingSystemPrinters, setLoadingSystemPrinters] = useState(false);
 
-  const syncMainHubPrinterConfig = () => {
+  const syncStationPrinterConfig = () => {
+    if (mode === "pos" && posSessionId && posRegisterLane) {
+      void syncPrinterConfigToServer(
+        getBaseUrl(),
+        sessionPollAuthHeaders(),
+        posRegisterLane,
+      ).catch((error) => {
+        console.warn("Register printer config sync failed", error);
+      });
+      return;
+    }
     const stationLabel = window.localStorage.getItem("ros.station.label")?.trim();
     if (stationLabel !== "Main Hub" && stationLabel !== "Backoffice / Server") {
       return;
@@ -168,12 +182,19 @@ export default function PrintersAndScannersPanel({
   const saveValue = (key: string, value: string) => {
     setValues((prev) => ({ ...prev, [key]: value }));
     window.localStorage.setItem(key, value);
-    syncMainHubPrinterConfig();
+    void persistInstallerStationHardwareConfig().catch((error) => {
+      console.warn("Could not persist workstation printer setup", error);
+    });
+    syncStationPrinterConfig();
   };
 
   const saveCashDrawerEnabled = (enabled: boolean) => {
     setCashDrawerEnabled(enabled);
     window.localStorage.setItem("ros.hardware.cashDrawer.enabled", enabled ? "true" : "false");
+    void persistInstallerStationHardwareConfig().catch((error) => {
+      console.warn("Could not persist workstation cash drawer setup", error);
+    });
+    syncStationPrinterConfig();
   };
 
   const refreshSystemPrinters = async () => {

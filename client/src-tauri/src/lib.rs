@@ -42,6 +42,7 @@ pub fn run() {
             desktop_files::write_temp_preview_file,
             desktop_files::open_temp_preview_file,
             station_config::load_station_config,
+            station_config::save_station_hardware_config,
             llama_server::rosie_llama_start,
             llama_server::rosie_llama_stop,
             llama_server::rosie_llama_status,

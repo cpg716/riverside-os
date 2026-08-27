@@ -599,7 +599,7 @@ export async function hydratePrinterConfigFromServer(
     if (typeof data !== "object" || data === null) return false;
     let applied = false;
     for (const [key, value] of Object.entries(data)) {
-      if (typeof value === "string") {
+      if (typeof value === "string" && window.localStorage.getItem(key) === null) {
         window.localStorage.setItem(key, value);
         applied = true;
       }

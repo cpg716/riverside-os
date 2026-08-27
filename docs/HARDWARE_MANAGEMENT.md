@@ -28,10 +28,10 @@ Riverside OS tracks three distinct printer stations per workstation. Receipts, r
 ## 2. Configuration & Isolation
 
 ### Station Isolation
-Hardware configurations are stored in the **local browser cache** (`localStorage`). This ensures that hardware settings are isolated to the specific physical lane or workstation where they are configured. If a staff member moves to a different register, the local settings for that hardware will apply.
+Hardware configurations are used from the station's local browser/WebView profile (`localStorage`). On Windows desktop stations, Riverside also mirrors every printer and cash-drawer change into `C:\ProgramData\RiversideOS\station-config.json`. Existing workstation choices take priority when installer defaults or the saved server lane are older, while missing values can still hydrate from those recovery sources. This keeps hardware isolated to the physical lane without losing staff changes during an app update or WebView refresh.
 
 ### Global Synchronization
-The **Printers & Scanners** panel in the Back Office and the **Terminal Overrides** in the POS share the same underlying configuration keys. Adjusting a printer target in one shell immediately updates the behavior for the entire workstation.
+The **Printers & Scanners** panel in the Back Office and the **Terminal Overrides** in the POS share the same underlying configuration keys. Adjusting a printer target in one shell immediately updates the behavior for the entire workstation. While a register session is open, the desktop also synchronizes those values to that register lane so a PWA or cleared profile can recover missing settings without replacing newer workstation choices.
 
 **POS Accessibility (v0.2.1+)**: The Printers & Scanners hub remains one of the two allowed Settings subsections in POS mode, ensuring floor staff can troubleshoot or reconfigure local hardware without requiring administrative Back Office access.
 

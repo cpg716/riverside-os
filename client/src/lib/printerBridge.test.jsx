@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   RIVERSIDE_TAG_PRINTER_NAME,
+  hydratePrinterConfigFromServer,
   resolvePrinterTarget,
 } from "./printerBridge";
 
@@ -17,11 +18,13 @@ function installLocalStorage(values = {}) {
       },
     },
   });
+  return data;
 }
 
 describe("printerBridge tag target resolution", () => {
   afterEach(() => {
     delete globalThis.window;
+    delete globalThis.fetch;
   });
 
   it("respects the configured tag system printer name", () => {
@@ -60,5 +63,28 @@ describe("printerBridge tag target resolution", () => {
       ip: "192.168.1.44",
       port: 9101,
     });
+  });
+
+  it("hydrates missing server values without replacing workstation choices", async () => {
+    const data = installLocalStorage({
+      "ros.hardware.printer.receipt.mode": "system",
+      "ros.hardware.printer.receipt.systemName": "Lightspeed Printer 1",
+    });
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        "ros.hardware.printer.receipt.mode": "network",
+        "ros.hardware.printer.receipt.systemName": "Old Receipt Printer",
+        "ros.hardware.printer.report.systemName": "RMS COUNTER",
+      }),
+    });
+
+    await hydratePrinterConfigFromServer("http://main-hub:3000", 1);
+
+    expect(data.get("ros.hardware.printer.receipt.mode")).toBe("system");
+    expect(data.get("ros.hardware.printer.receipt.systemName")).toBe(
+      "Lightspeed Printer 1",
+    );
+    expect(data.get("ros.hardware.printer.report.systemName")).toBe("RMS COUNTER");
   });
 });

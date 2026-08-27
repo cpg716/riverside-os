@@ -21,7 +21,7 @@ status: approved
 
 ## What this is
 
-This panel stores the current workstation's hardware targets. Back Office and POS use the same local settings, but POS opens a Register Hardware view with lane-focused readiness and test actions.
+This panel stores the current workstation's hardware targets. Back Office and POS use the same local settings, but POS opens a Register Hardware view with lane-focused readiness and test actions. In the Windows desktop app, printer and cash-drawer changes are also written to the durable station setup and synchronized to the active register lane. Existing workstation choices take priority over older installer or server defaults, so an update or WebView refresh does not replace them.
 
 Register Settings only controls register preferences such as receipt auto-print. Receipt, tag, and Reports printer targets must be set here so every print path uses the same station configuration.
 
@@ -46,6 +46,8 @@ Use this panel when opening a new lane, replacing a printer, checking scanner in
 
 If a printer test fails, do not keep retrying sale completion from the cart. Confirm the selected printer, printer power/network state, and whether the station is running the desktop app or browser/PWA mode. For cash drawer issues, record the manual-open reason and staff member before calling support so the Z-report remains auditable.
 
+If a saved installed-printer name no longer appears in the dropdown, Windows no longer has that printer queue available. Reconnect or reinstall that Windows printer queue before testing; Riverside preserves the saved name but cannot recreate a missing Windows driver.
+
 
 ## Tips
 
@@ -67,7 +69,7 @@ If a printer test fails, do not keep retrying sale completion from the cart. Con
 
 ## What happens next
 
-The workstation immediately uses the saved local printer targets for receipt, tag, and report actions. In the desktop app, Register Reports and Z-Reports dispatch through the saved Reports printer name for accountability instead of opening an external browser preview.
+The workstation immediately uses the saved local printer targets for receipt, tag, and report actions. The Windows desktop app preserves those targets in the durable station setup for future updates. Register Reports and Z-Reports dispatch through the saved Reports printer name for accountability instead of opening an external browser preview.
 
 ## Related workflows
 
