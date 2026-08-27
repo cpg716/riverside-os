@@ -192,7 +192,9 @@ function Write-StationConfig($Config) {
     register = $Config.register
   }
   $path = Join-Path $dir "station-config.json"
-  $stationConfig | ConvertTo-Json -Depth 10 | Set-Content -Path $path -Encoding UTF8
+  $stationConfigJson = $stationConfig | ConvertTo-Json -Depth 10
+  $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($path, $stationConfigJson, $utf8WithoutBom)
   return $path
 }
 

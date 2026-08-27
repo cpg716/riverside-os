@@ -407,6 +407,16 @@ assertIncludes(
   '$Config.register.tagPrinter | Add-Member -NotePropertyName "language" -NotePropertyValue "epl" -Force',
   "install-register.ps1 must preserve the Riverside LP 2844 EPL tag-printer default",
 );
+assertIncludes(
+  registerInstaller,
+  "$utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)",
+  "station-config.json must be written as UTF-8 without a byte-order mark",
+);
+assertIncludes(
+  registerInstaller,
+  "[System.IO.File]::WriteAllText($path, $stationConfigJson, $utf8WithoutBom)",
+  "station-config.json must use the BOM-free UTF-8 writer",
+);
 
 const deploymentConfigExample =
   "deployment/windows/riverside-deployment.config.example.json";
