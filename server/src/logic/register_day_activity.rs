@@ -2186,9 +2186,6 @@ async fn fetch_register_day_summary_page_on_connection(
                   AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
                   AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
                 GROUP BY e.transaction_id
-                HAVING SUM(e.subtotal_delta) <> 0
-                    OR SUM(e.tax_delta) <> 0
-                    OR BOOL_OR(e.event_kind <> 'initial_booking')
             ) be ON be.transaction_id = o.id
         "#
         .to_string(),
@@ -4138,6 +4135,103 @@ mod tests {
                 .iter()
                 .any(|item| item.booking_event_kind.as_deref() == Some("line_deleted"))
         }));
+        transaction.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn booked_activity_keeps_zero_value_initial_transactions_visible() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let mut connection = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect migrated test database");
+        let mut transaction = connection.begin().await.expect("begin transaction");
+        let transaction_id = Uuid::new_v4();
+        let transaction_line_id = Uuid::new_v4();
+        let event_time = Utc.with_ymd_and_hms(2099, 1, 16, 12, 0, 0).unwrap();
+
+        sqlx::query(
+            r#"
+            INSERT INTO transactions (
+                id, booked_at, business_date, total_price, balance_due,
+                display_id, checkout_client_id, sale_channel
+            ) VALUES ($1, $2, $2::date, 0.00, 0.00, $3, $4, 'register')
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(event_time)
+        .bind(format!("TXN-ZERO-ACTIVITY-{}", transaction_id.simple()))
+        .bind(Uuid::new_v4())
+        .execute(&mut *transaction)
+        .await
+        .expect("insert zero-value transaction");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_lines (
+                id, transaction_id, fulfillment, quantity, unit_price,
+                unit_cost, state_tax, local_tax, booked_at
+            ) VALUES ($1, $2, 'pickup_later', 1, 0.00, 118.02, 0.00, 0.00, $3)
+            "#,
+        )
+        .bind(transaction_line_id)
+        .bind(transaction_id)
+        .bind(event_time)
+        .execute(&mut *transaction)
+        .await
+        .expect("insert zero-value transaction line");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_line_booking_events (
+                transaction_id, transaction_line_id, event_kind, booked_at,
+                subtotal_delta, tax_delta, is_internal, line_kind, metadata
+            ) VALUES ($1, $2, 'initial_booking', $3, 0.00, 0.00, FALSE, NULL, '{}'::jsonb)
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(transaction_line_id)
+        .bind(event_time)
+        .execute(&mut *transaction)
+        .await
+        .expect("insert zero-value booking event");
+
+        let summary = fetch_register_day_summary_page_on_connection(
+            &mut *transaction,
+            Some("custom".to_string()),
+            Some(event_time.date_naive()),
+            Some(event_time.date_naive()),
+            None,
+            ReportBasis::Booked,
+            ActivityPageOptions::default(),
+        )
+        .await
+        .expect("load zero-value booked activity");
+        let activity = summary
+            .activities
+            .iter()
+            .find(|activity| activity.transaction_id == Some(transaction_id))
+            .expect("zero-value transaction must remain visible in Daily/Z activity");
+
+        assert_eq!(summary.sales_count, 0);
+        assert_eq!(summary.net_sales.parse::<Decimal>().unwrap(), Decimal::ZERO);
+        assert_eq!(activity.title, "Order Booked (Sale)");
+        assert_eq!(
+            activity
+                .sales_total
+                .as_deref()
+                .unwrap()
+                .parse::<Decimal>()
+                .unwrap(),
+            Decimal::ZERO
+        );
+        assert!(activity.items.as_ref().is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item.booking_event_kind.as_deref() == Some("initial_booking"))
+        }));
+
         transaction.rollback().await.expect("rollback transaction");
     }
 
