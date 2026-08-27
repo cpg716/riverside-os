@@ -9,6 +9,12 @@ use serde_json::json;
 use crate::api::AppState;
 use crate::logic::internal_updates::{self, InternalReleaseManifest};
 
+const RUNNING_BUILD_SHA: &str = env!("RIVERSIDE_GIT_SHA");
+
+fn workstation_release_is_active(release_sha: &str, running_sha: &str) -> bool {
+    release_sha.eq_ignore_ascii_case(running_sha)
+}
+
 fn public_base_url(headers: &HeaderMap) -> Result<String, String> {
     let host = headers
         .get(header::HOST)
@@ -84,6 +90,17 @@ async fn release_metadata(headers: HeaderMap) -> Result<Json<serde_json::Value>,
 
 async fn windows_latest(headers: HeaderMap) -> Result<Json<serde_json::Value>, Response> {
     let release = load_release_response()?;
+    if !workstation_release_is_active(&release.source_git_sha, RUNNING_BUILD_SHA) {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "The published candidate must be installed on the Main Hub before workstation updates are available.",
+                "candidateBuildSha": release.source_git_sha,
+                "mainHubBuildSha": RUNNING_BUILD_SHA,
+            })),
+        )
+            .into_response());
+    }
     let base = public_base_url(&headers).map_err(|error| {
         (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response()
     })?;
@@ -115,7 +132,7 @@ pub fn router() -> Router<AppState> {
 
 #[cfg(test)]
 mod tests {
-    use super::public_base_url;
+    use super::{public_base_url, workstation_release_is_active};
     use axum::http::{HeaderMap, HeaderValue};
 
     #[test]
@@ -128,5 +145,19 @@ mod tests {
         );
         headers.insert("host", HeaderValue::from_static("host/path"));
         assert!(public_base_url(&headers).is_err());
+    }
+
+    #[test]
+    fn workstation_feed_unlocks_only_after_main_hub_runs_the_candidate() {
+        let candidate = "0123456789abcdef0123456789abcdef01234567";
+        assert!(workstation_release_is_active(candidate, candidate));
+        assert!(workstation_release_is_active(
+            candidate,
+            "0123456789ABCDEF0123456789ABCDEF01234567"
+        ));
+        assert!(!workstation_release_is_active(
+            candidate,
+            "89abcdef0123456789abcdef0123456789abcdef"
+        ));
     }
 }

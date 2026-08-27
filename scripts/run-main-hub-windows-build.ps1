@@ -10,6 +10,7 @@ param(
   [string]$IdentityFile = "",
   [switch]$AllowStoreHours,
   [switch]$AllowExternalDownloads,
+  [switch]$PublishCandidate,
   [switch]$Promote,
   [switch]$KeepRemoteSource,
   [switch]$DryRun
@@ -83,8 +84,11 @@ $resultArchiveName = "riverside-windows-build-results-$jobId.zip"
 $remoteRunnerFileName = "riverside-windows-build-runner-$jobId.ps1"
 $target = if ([string]::IsNullOrWhiteSpace($UserName)) { $MainHubHost } else { "$UserName@$MainHubHost" }
 
-if ($Promote -and $Task -ne "Package") {
-  throw "-Promote requires -Task Package."
+if ($Promote) {
+  throw "-Promote is retired because candidate publication and Main Hub installation are now separate. Use -PublishCandidate; staff install the published candidate from ROS on the Main Hub."
+}
+if ($PublishCandidate -and $Task -ne "Package") {
+  throw "-PublishCandidate requires -Task Package."
 }
 
 Assert-CommittedSource $repoRoot
@@ -96,10 +100,10 @@ Write-Host "Task: $Task"
 Write-Host "Source commit: $fullHead"
 Write-Host "Remote worker root: $RemoteWorkerRoot"
 Write-Host "Local artifacts: $localArtifactDir"
-Write-Host $(if ($Promote) {
-  "Promotion requested: install the exact candidate on Main Hub, verify readiness, then publish the private workstation feed."
+Write-Host $(if ($PublishCandidate) {
+  "Candidate publication requested: make the exact candidate available in ROS without installing it anywhere."
 } else {
-  "This command does not install or deploy the result."
+  "This command builds evidence only; it does not publish, install, or deploy the result."
 })
 
 if ($DryRun) {
@@ -250,20 +254,27 @@ Remove-Item (Join-Path $env:USERPROFILE "__RUNNER_FILE__") -Force -ErrorAction S
     throw "The Windows build succeeded, but its evidence archive could not be copied back to the Mac."
   }
 
-  if ($Promote) {
+  if ($PublishCandidate) {
     $summaryPath = Join-Path $localArtifactDir "windows-build-summary.json"
     if (-not (Test-Path $summaryPath)) {
-      throw "The Windows build succeeded but its summary is missing; refusing promotion."
+      throw "The Windows build succeeded but its summary is missing; refusing candidate publication."
     }
     $summary = Get-Content $summaryPath -Raw | ConvertFrom-Json
     if ($summary.status -ne "succeeded" -or
         $summary.sourceGitSha -ne $fullHead -or
         $summary.releaseCandidateReady -ne $true -or
         $summary.internalUpdaterSigned -ne $true) {
-      throw "The Windows candidate did not pass the exact-build internal release gate; refusing promotion."
+      throw "The Windows candidate did not pass the exact-build internal release gate; refusing candidate publication."
     }
 
-    $promotionScript = @'
+    $publisherSource = Join-Path $repoRoot "deployment\windows\Invoke-RiversideInternalReleasePromotion.ps1"
+    $publisherUploadName = "riverside-internal-candidate-publisher-$jobId.ps1"
+    & $scp @scpArgs $publisherSource "${target}:$publisherUploadName"
+    if ($LASTEXITCODE -ne 0) {
+      throw "Could not copy the committed candidate publisher to the Main Hub."
+    }
+
+    $publicationScript = @'
 $ErrorActionPreference = "Stop"
 $workerRoot = [IO.Path]::GetFullPath("__WORKER_ROOT__")
 $jobId = "__JOB_ID__"
@@ -273,47 +284,57 @@ $promotionRoot = Join-Path $workerRoot "promotion"
 $requestPath = Join-Path $promotionRoot "promotion-request.json"
 $statusPath = Join-Path $promotionRoot "promotion-status.json"
 $taskName = "Riverside OS Internal Release Promotion"
-if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) {
-  throw "The internal release promotion task is not installed. Rerun Initialize-RiversideWindowsBuildWorker.ps1 from elevated PowerShell on Main Hub."
+$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if (-not $task) {
+  throw "The internal candidate publication task is not installed. Rerun Initialize-RiversideWindowsBuildWorker.ps1 from elevated PowerShell on Main Hub."
+}
+if ($task.State -eq "Running") {
+  throw "The internal candidate publication task is already running."
 }
 if (-not (Test-Path (Join-Path $candidateDirectory "release.json"))) {
   throw "The exact internal release candidate is missing from the Main Hub build worker."
 }
+$publisherUpload = Join-Path $env:USERPROFILE "__PUBLISHER_FILE__"
+$publisherTarget = Join-Path $workerRoot "Invoke-RiversideInternalReleasePromotion.ps1"
+try {
+  Copy-Item -LiteralPath $publisherUpload -Destination $publisherTarget -Force
+} finally {
+  Remove-Item -LiteralPath $publisherUpload -Force -ErrorAction SilentlyContinue
+}
 New-Item -ItemType Directory -Force -Path $promotionRoot | Out-Null
 Remove-Item $statusPath -Force -ErrorAction SilentlyContinue
 [ordered]@{
-  contractVersion = 1
+  contractVersion = 2
   jobId = $jobId
   expectedSourceSha = $sourceSha
   candidateDirectory = $candidateDirectory
-  allowStoreHours = __ALLOW_STORE_HOURS__
 } | ConvertTo-Json -Depth 4 | Set-Content -Path $requestPath -Encoding UTF8
 Start-ScheduledTask -TaskName $taskName
-Write-Host "Guarded Main Hub promotion started."
+Write-Host "Guarded candidate publication started. No installation was requested."
 $deadline = (Get-Date).AddMinutes(60)
 do {
   Start-Sleep -Seconds 5
   if (Test-Path $statusPath) {
     $status = Get-Content $statusPath -Raw | ConvertFrom-Json
     if ($status.jobId -eq $jobId) {
-      Write-Host ("Promotion status: " + $status.status + " - " + $status.message)
-      if ($status.status -eq "READY") { exit 0 }
+      Write-Host ("Publication status: " + $status.status + " - " + $status.message)
+      if ($status.status -eq "PUBLISHED") { exit 0 }
       if ($status.status -eq "FAILED") { exit 1 }
     }
   }
 } while ((Get-Date) -lt $deadline)
-throw "Timed out waiting for the guarded Main Hub promotion task. Inspect the promotion status and transcript on Main Hub."
+throw "Timed out waiting for candidate publication. Inspect the publication status and transcript on Main Hub."
 '@
-    $promotionScript = $promotionScript.Replace("__WORKER_ROOT__", $RemoteWorkerRoot.Replace('"', ''))
-    $promotionScript = $promotionScript.Replace("__JOB_ID__", $jobId)
-    $promotionScript = $promotionScript.Replace("__SOURCE_SHA__", $fullHead)
-    $promotionScript = $promotionScript.Replace("__ALLOW_STORE_HOURS__", $(if ($AllowStoreHours) { '$true' } else { '$false' }))
-    $encodedPromotion = ConvertTo-EncodedPowerShell $promotionScript
-    & $ssh @sshArgs $target "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedPromotion"
+    $publicationScript = $publicationScript.Replace("__WORKER_ROOT__", $RemoteWorkerRoot.Replace('"', ''))
+    $publicationScript = $publicationScript.Replace("__JOB_ID__", $jobId)
+    $publicationScript = $publicationScript.Replace("__SOURCE_SHA__", $fullHead)
+    $publicationScript = $publicationScript.Replace("__PUBLISHER_FILE__", $publisherUploadName)
+    $encodedPublication = ConvertTo-EncodedPowerShell $publicationScript
+    & $ssh @sshArgs $target "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedPublication"
     if ($LASTEXITCODE -ne 0) {
-      throw "Guarded Main Hub promotion failed. The previous internal workstation feed remains current."
+      throw "Guarded candidate publication failed. The previous published candidate remains current."
     }
-    Write-Host "Main Hub and private Windows update feed promoted to $fullHead."
+    Write-Host "Candidate $fullHead is available in ROS. No Main Hub or workstation installation was started."
   }
 } finally {
   foreach ($temporaryPath in @($archive, $requestPath, $remoteRunnerPath, $resultArchivePath)) {

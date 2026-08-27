@@ -235,7 +235,7 @@ export default function UpdateManagerPanel() {
         title: "Main Hub",
         badge: "MAIN HUB UPDATE PATH",
         detail:
-          "This PC owns the Riverside API, PostgreSQL migrations, served app files, ROSIE runtime assets, and local desktop app update sequence.",
+          "A published candidate changes nothing until staff install it here. This PC then updates the Riverside API, PostgreSQL migrations, served app files, ROSIE runtime assets, and local desktop app.",
       };
     }
     if (/back\\s*office|backoffice/i.test(stationLabel)) {
@@ -616,9 +616,9 @@ export default function UpdateManagerPanel() {
                   ? <Sparkles className="h-4 w-4 shrink-0" />
                   : <CheckCircle2 className="h-4 w-4 shrink-0" />}
                 {serverUpdateCheck.rebuild_available
-                  ? `New build of v${serverUpdateCheck.latest_version} is available`
+                  ? `Candidate build of v${serverUpdateCheck.latest_version} is ready to install`
                   : serverUpdateCheck.update_available
-                    ? `v${serverUpdateCheck.latest_version} is available (you are on v${serverUpdateCheck.current_version})`
+                    ? `Candidate v${serverUpdateCheck.latest_version} is ready to install (you are on v${serverUpdateCheck.current_version})`
                     : `You are on the latest version (v${serverUpdateCheck.current_version})`}
               </div>
               <div className="mt-1 text-[10px] font-black uppercase tracking-wider opacity-75">
@@ -711,9 +711,7 @@ export default function UpdateManagerPanel() {
                 {serverUpdateBusy ? (
                   <><RefreshCw className="h-4 w-4 animate-spin" />Updating...</>
                 ) : serverUpdateCheck?.update_available ? (
-                  serverLocalStatus?.is_local
-                    ? `Update Server & Client App to v${serverUpdateCheck.latest_version}`
-                    : `Update server to v${serverUpdateCheck.latest_version}`
+                  `Install Main Hub candidate v${serverUpdateCheck.latest_version}`
                 ) : (
                   "Server is up to date"
                 )}
@@ -734,8 +732,8 @@ export default function UpdateManagerPanel() {
                 {[
                   "On the Main Hub, open Settings → Updates.",
                   "Confirm the update window (before 10 AM or after 6 PM).",
-                  "Click \"Update Server & Client App\" — it updates server/API, app files, migrations, and ROSIE assets.",
-                  "Relaunch Riverside on all stations when prompted.",
+                  "Click \"Install Main Hub candidate\" — it updates server/API, app files, migrations, and ROSIE assets.",
+                  "After Main Hub is ready, manually install the update on each Windows station and reload each PWA.",
                 ].map((step, i) => (
                   <li key={i} className="flex gap-2">
                     <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-app-accent/10 text-[10px] font-black text-app-accent">{i + 1}</span>
@@ -753,9 +751,10 @@ export default function UpdateManagerPanel() {
           <RefreshCw className="mt-0.5 h-5 w-5 shrink-0 text-app-accent" aria-hidden />
           <p className="text-sm font-medium leading-relaxed text-app-text-muted">
             Mac development produces the committed source change. The Main Hub
-            builds and signs the private Windows release, installs its own guarded
-            package first, then serves the verified workstation update to the other
-            Windows PCs over the Riverside connection.
+            builds, signs, and publishes the private candidate without installing it.
+            Staff install it on the Main Hub from this page. Only after the Main Hub
+            is running that exact build does Riverside make the signed workstation
+            update available; each Windows app and PWA is then updated manually.
           </p>
         </div>
       </section>

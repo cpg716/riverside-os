@@ -1,6 +1,6 @@
 # Internal Windows Build Worker
 
-Riverside OS uses the Mac as the primary development machine and the Main Hub Windows PC as the private Windows build, signing, promotion, and update host. This lane transfers committed source directly over the store LAN or Tailscale, performs Windows-native validation and packaging outside the live installation, and can explicitly promote the verified result without a hosted source or release service.
+Riverside OS uses the Mac as the primary development machine and the Main Hub Windows PC as the private Windows build, signing, candidate-publication, and update host. This lane transfers committed source directly over the store LAN or Tailscale, performs Windows-native validation and packaging outside the live installation, and can publish the verified candidate to ROS without installing it.
 
 GitHub is not part of this source-transfer or build-control path.
 
@@ -16,10 +16,10 @@ The build worker:
 - requires at least 35 GB of free disk space;
 - requires the live Main Hub `/api/ready` check before the build and again afterward;
 - serializes jobs with an exclusive build lock;
-- never installs or changes production during `Validate` or `Package`; production changes require the separate explicit `-Promote` switch;
+- never installs or changes production during `Validate`, `Package`, or candidate publication; production changes begin only when staff select **Install Main Hub candidate** inside ROS on the Main Hub;
 - records the exact 40-character source SHA, worker identity, validation result, Main Hub readiness, artifact hashes, and certification boundary in `windows-build-summary.json`.
 
-`Package` produces an exact-build Main Hub ZIP, a Tauri-signed Windows updater artifact, `release.json`, the public updater key, hashes, and build evidence. The private updater key is generated once on Main Hub, encrypted for the existing Windows account with Windows DPAPI, and never copied to the Mac. The candidate summary remains `productionReady: false` until explicit promotion installs the Main Hub package and passes exact-build readiness. Physical hardware checks remain an operator responsibility.
+`Package` produces an exact-build Main Hub ZIP, a Tauri-signed Windows updater artifact, `release.json`, the public updater key, hashes, and build evidence. The private updater key is generated once on Main Hub, encrypted for the existing Windows account with Windows DPAPI, and never copied to the Mac. The candidate summary remains `productionReady: false`; publishing it only makes it visible in ROS. Physical hardware checks remain an operator responsibility.
 
 ## Main Hub prerequisites
 
@@ -39,7 +39,7 @@ Initialize the current Windows account's build directories from an elevated Main
 .\deployment\windows\Initialize-RiversideWindowsBuildWorker.ps1
 ```
 
-The initializer defaults to the existing machine-local `$env:COMPUTERNAME\$env:USERNAME` account. Pass `-BuildWorkerUser` explicitly only when Main Hub intentionally uses a domain account. It does not create an account, install toolchains, enable OpenSSH Server, or broaden the firewall. It grants the existing account access to the isolated worker directory, installs the fixed elevated **Riverside OS Internal Release Promotion** scheduled task, then requires the Windows `sshd` service to already be running. Use the configured SSH key; no Riverside command accepts or stores the Windows account password.
+The initializer defaults to the existing machine-local `$env:COMPUTERNAME\$env:USERNAME` account. Pass `-BuildWorkerUser` explicitly only when Main Hub intentionally uses a domain account. It does not create an account, install toolchains, enable OpenSSH Server, or broaden the firewall. It grants the existing account access to the isolated worker directory, installs the fixed elevated **Riverside OS Internal Release Promotion** scheduled task used only for atomic candidate publication, then requires the Windows `sshd` service to already be running. The legacy task name is retained for compatibility; it does not install Riverside. Use the configured SSH key; no Riverside command accepts or stores the Windows account password.
 
 Tauri updater signing is automatic on the first package build. If Riverside later obtains a real Windows code-signing certificate, configure its existing certificate-store thumbprint while rerunning the initializer:
 
@@ -84,7 +84,7 @@ Use Tailscale only when building remotely:
 export ROS_MAIN_HUB_HOST="riverside-main-hub-tailscale"
 ```
 
-Choose the route that will remain reachable for the complete build and promotion. If the Mac may leave the store network before the command finishes, select Tailscale before starting. An established LAN SSH connection cannot migrate to Tailscale mid-command; the isolated Windows build can still finish, but the Mac cannot retrieve its evidence or request promotion through the broken LAN socket.
+Choose the route that will remain reachable for the complete build and publication. If the Mac may leave the store network before the command finishes, select Tailscale before starting. An established LAN SSH connection cannot migrate to Tailscale mid-command; the isolated Windows build can still finish, but the Mac cannot retrieve its evidence or publish the candidate through the broken LAN socket.
 
 The SSH alias selects the dedicated key. Do not put a Windows password, signing key, token, or other secret in the command, repository, logs, or documentation.
 
@@ -110,7 +110,7 @@ npm run build:windows:remote -- -Task Package -AllowStoreHours
 npm run build:windows:remote -- -Task Package -AllowStoreHours -AllowExternalDownloads
 ```
 
-Do **not** add `-Promote` when the request is only to build a candidate. Keep the command attached until it exits. Optimized Rust linking, Tauri bundling, copying Cube Core, verifying the package manifest, and ZIP compression can each be silent for several minutes; silence alone is not a hung build. Do not start a second build while the first job is still running.
+Do **not** add `-PublishCandidate` when the request is only to build evidence. `-Promote` is retired and fails closed. Keep the command attached until it exits. Optimized Rust linking, Tauri bundling, copying Cube Core, verifying the package manifest, and ZIP compression can each be silent for several minutes; silence alone is not a hung build. Do not start a second build while the first job is still running.
 
 ### 4. Require successful completion evidence
 
@@ -184,7 +184,7 @@ At candidate completion, report:
 - the Main Hub ZIP and Windows updater filenames;
 - that all copied SHA-256 values matched;
 - that Main Hub readiness passed before and after and its live build SHA did not change;
-- that nothing was installed, promoted, pushed, tagged, or published.
+- that nothing was installed, pushed, tagged, or published.
 
 `productionReady: false` is correct for a candidate-only run. `authenticodeVerified: false` is also expected unless Riverside has configured a valid Windows code-signing certificate; the internal Tauri signature still protects updater integrity, but it does not provide Windows publisher reputation.
 
@@ -210,15 +210,15 @@ Create an exact-build Windows/Main Hub candidate after the runtime cache is popu
 npm run build:windows:remote -- -Task Package
 ```
 
-Build, install on Main Hub, verify the exact release, and publish it to the private workstation feed:
+Build, sign, and publish the exact candidate to ROS without installing it anywhere:
 
 ```bash
 npm run release:internal:windows
 ```
 
-This supported activation path starts a fresh exact-`HEAD` `Package` job and promotes it only after the candidate gate passes. It does not silently promote an older folder copied to the Mac. Keep building and activation as separate operator decisions.
+This command starts a fresh exact-`HEAD` `Package` job, verifies the candidate gate, and atomically publishes its metadata and packages to the Main Hub. It does not install the Main Hub, run migrations, replace served PWA files, or update any Tauri app. It does not silently publish an older folder copied to the Mac.
 
-The release command requires a clean committed `HEAD`. During store hours it stops before building or installing unless `-- -AllowStoreHours` is explicitly added. Use the Tailscale route when away from the store:
+The release command requires a clean committed `HEAD`. During store hours it stops before building unless `-- -AllowStoreHours` is explicitly added. Candidate publication itself never installs production. Use the Tailscale route when away from the store:
 
 ```bash
 npm run release:internal:windows -- -MainHubHost riverside-main-hub-tailscale
@@ -272,17 +272,17 @@ Windows-side evidence remains beneath:
 C:\ProgramData\RiversideOS\build-worker\artifacts\<timestamp>-<sha>-<task>\
 ```
 
-## Guarded promotion and rollback
+## Canonical release and activation sequence
 
-A successful build is not a deployment. `-Promote` is a separate explicit action. It starts the fixed elevated Main Hub task, which:
+A successful build is not a deployment, and a published candidate is not an installed update. Use this order every time:
 
-1. validates `release.json`, the exact 40-character source SHA, byte counts, package SHA-256, and updater SHA-256;
-2. runs the normal checksummed `install-server.ps1`, including the required verified pre-migration PostgreSQL backup and its built-in file/task/config rollback;
-3. updates the Main Hub desktop app with the same package;
-4. requires `/api/ready` to report the expected build, connected database, and authoritative search;
-5. only then atomically makes the new internal release feed current, retaining the previous feed.
+1. On the Mac, finish validation and commit the exact intended source.
+2. Run `npm run release:internal:windows`. The Main Hub builds and signs the candidate, validates `release.json`, source SHA, byte counts, package SHA-256, updater SHA-256, and the package's embedded source identity, then atomically publishes it to ROS. No installation starts.
+3. On the Main Hub, open **Settings → Updates**, review the candidate version/build, and select **Install Main Hub candidate** during the approved update window. The normal guarded updater verifies the package, creates the required pre-migration PostgreSQL backup, installs the server, migrations, served PWA files, ROSIE assets, and Main Hub desktop app, then requires exact `/api/ready` database/search readiness.
+4. After the Main Hub is running the exact candidate build, visit each Windows Register and Back Office PC and select **Settings → Updates → Check for update → Install update**. Workstation updater metadata is unavailable until the Main Hub activation succeeds.
+5. On every PWA/browser/iPad station, finish active work, then use **Settings → Updates → Check app files → Reload app** or the mandatory resync prompt. These files come from the newly activated Main Hub.
 
-If installation or readiness fails, the new feed is not published. The prior feed stays current, and the normal server installer rollback is authoritative. Promotion status is written under `C:\ProgramData\RiversideOS\build-worker\promotion`. Once promoted, Windows stations use **Settings → Updates → Install update**; the signed artifact comes from the Main Hub address already stored in that station's configuration.
+Candidate publication status is written under `C:\ProgramData\RiversideOS\build-worker\promotion`; the directory name is retained for compatibility. If Main Hub installation or readiness fails, the normal server installer rollback is authoritative and workstation metadata stays locked because the running Main Hub build does not match the candidate. Staff must not update workstations ahead of the Main Hub.
 
 The internal read-only feed is served at:
 
@@ -296,7 +296,7 @@ Plain HTTP updater transport is accepted only for loopback, private LAN, Tailsca
 
 ## Remaining operator proof
 
-The automated promotion proves source identity, package integrity, backup/rollback execution, server/database/search readiness, and updater signature. Before calling a substantial release fully store-certified, still perform the release's targeted Playwright coverage and real Register printer, scanner, cash-drawer, payment-terminal, and updater smoke checks when those areas changed.
+Candidate publication proves source identity, package integrity, and updater signature without touching production. Main Hub activation separately proves backup/rollback execution and server/database/search readiness. Before calling a substantial release fully store-certified, still perform the release's targeted Playwright coverage and real Register printer, scanner, cash-drawer, payment-terminal, and updater smoke checks when those areas changed.
 
 ## Troubleshooting
 
@@ -307,6 +307,7 @@ The automated promotion proves source identity, package integrity, backup/rollba
 - **Missing pinned runtime:** rerun the first package build with `-AllowExternalDownloads`; a checksum mismatch fails closed.
 - **Migration 207 historical checksum:** the deployment migration tools normalize only the exact known expanded `b160d740...` ledger to canonical `fd7dcd54...`, and only while the exact immutable migration 213 companion is present. Do not edit migration 207 or update the migration ledger manually; any other checksum pair remains a blocking drift error.
 - **Failed build:** inspect `windows-build.log` and `windows-build-summary.json` copied to the Mac. A failed job does not install its output.
-- **Promotion task missing:** rerun `Initialize-RiversideWindowsBuildWorker.ps1` from elevated Main Hub PowerShell once after installing this phase.
-- **Promotion failed:** inspect `promotion-status.json` and the job's `promotion-transcript.txt`; the previous workstation feed remains current.
+- **Publication task missing:** rerun `Initialize-RiversideWindowsBuildWorker.ps1` from elevated Main Hub PowerShell once. The scheduled task retains its legacy promotion name but only publishes candidates.
+- **Publication failed:** inspect `promotion-status.json` and the job's `promotion-transcript.txt`; the previously published candidate remains current and no installation was started.
+- **Workstation update unavailable:** install the published candidate on the Main Hub first and confirm `/api/ready` reports the candidate SHA. Riverside unlocks the signed workstation manifest only when those exact SHAs match.
 - **Windows publisher warning:** updater integrity is protected by the Tauri signature, but Windows publisher reputation additionally requires a valid Authenticode certificate configured by thumbprint.

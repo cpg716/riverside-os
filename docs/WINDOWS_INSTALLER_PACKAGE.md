@@ -47,7 +47,7 @@ From a Windows release machine after building the server, client, and Tauri bund
 .\deployment\windows\build-deployment-package.ps1 -Version "0.90.0"
 ```
 
-For the private Mac-to-Main-Hub Windows release lane, use [`INTERNAL_WINDOWS_BUILD_WORKER.md`](INTERNAL_WINDOWS_BUILD_WORKER.md). That workflow transfers committed source over LAN or Tailscale, builds and signs outside the live installation, returns exact-SHA evidence to the Mac, and installs/publishes only when its explicit guarded promotion mode is requested.
+For the private Mac-to-Main-Hub Windows release lane, use [`INTERNAL_WINDOWS_BUILD_WORKER.md`](INTERNAL_WINDOWS_BUILD_WORKER.md). That workflow transfers committed source over LAN or Tailscale, builds and signs outside the live installation, returns exact-SHA evidence to the Mac, and publishes the candidate to ROS without installing it. Staff later activate it from **Settings → Updates** on the Main Hub, then manually update each Tauri and PWA station from that Main Hub.
 
 The package builder normalizes packaged migration file line endings to match the live migration ledger checksum history: migrations `001-101` are packaged as CRLF, and migrations `102+` are packaged as LF. The server and deployment scripts treat CRLF/LF-only checksum differences as equivalent while still failing real SQL drift. Do not hand-edit packaged migration files after the ZIP is built; rerun the package builder so the checksum-compatible rule is applied consistently.
 

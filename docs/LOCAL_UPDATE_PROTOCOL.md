@@ -131,25 +131,25 @@ Use `-SkipBackup` only when a separate current backup has already been verified.
 
 The Main Hub can now be the private build, signing, installation, and workstation update host. See [`INTERNAL_WINDOWS_BUILD_WORKER.md`](INTERNAL_WINDOWS_BUILD_WORKER.md) for initial setup and the Mac command.
 
-1. **Create and promote from the Mac**: Commit the intended source, then run `npm run release:internal:windows`. The Main Hub performs the Windows build and updater signing. The elevated promotion task verifies hashes, uses the normal pre-migration backup/rollback installer, requires the exact expected `/api/ready` build with database and authoritative search, and publishes the private feed only after those checks pass.
-2. **Admin notification**: The server reads the promoted local `release.json` first and sends the existing `update_available` notification when the promoted version or exact build differs. GitHub is only the legacy fallback when no internal release is present.
+1. **Build and publish from the Mac**: Commit the intended source, then run `npm run release:internal:windows`. The Main Hub performs the Windows build and updater signing, verifies the exact source identity and hashes, and publishes the candidate to ROS. This command does not install the Main Hub, run migrations, replace PWA files, or update a workstation.
+2. **Admin notification**: The server reads the published local `release.json` first and sends the existing `update_available` notification when the candidate version or exact build differs. GitHub is only the legacy fallback when no internal release is present.
 3. **Timing**: Updates should be performed **before 10 AM or after 6 PM** (outside store hours). The update UI warns if the store may be open.
 4. **On the Main Hub (Backoffice / Server PC)**:
    - Open **Settings → Updates → Server update**.
    - Confirm the version banner identifies **Private Main Hub release** and shows the expected version/build.
-   - Click **"Update server to vX.X.X"** and monitor the progress steps.
-   - This button is primarily the self-service path for a previously published internal candidate. The Mac `release:internal:windows` command performs build plus first promotion in one guarded operation.
+   - Click **"Install Main Hub candidate vX.X.X"** and monitor the progress steps.
+   - This is the only normal activation step. The Mac `release:internal:windows` command stops after candidate publication and never performs this click automatically.
    - When the PowerShell window prints "Update Complete", verify `C:\ProgramData\RiversideOS\deployment.status` reports `READY` for the expected version/build, then relaunch Riverside on all stations. The `READY` result is written only after the final restarted server passes `/api/ready`.
-5. **On Register / Back Office satellite stations**:
+5. **On Register / Back Office satellite stations, after Main Hub is ready**:
    - The next time staff launch the app, the `BackofficeSignInGate` checks `GET /api/version`.
    - If the server is ahead of the client, the sign-in screen is **replaced with a blocking update prompt**.
-   - Windows Tauri stations: click **"Update to vX.X.X"** to pull the Tauri-signed updater artifact from the Main Hub address in `station-config.json`.
-   - PWA / browser stations: reload after the server admin has pushed updated web files.
+   - Windows Tauri stations: use **Settings → Updates → Check for update → Install update** to pull the Tauri-signed updater artifact from the Main Hub address in `station-config.json`. The Main Hub refuses to advertise that artifact until it is running the same exact candidate SHA.
+   - PWA / browser stations: use **Settings → Updates → Check app files → Reload app**, or the mandatory resync prompt, to load the files served by the activated Main Hub.
    - Staff cannot sign in until client and server versions match.
 
 The read-only artifact URLs do not contain credentials. Authenticity is established by the updater public key embedded in the installed app; modified artifacts are rejected. Plain HTTP is limited in the desktop app to loopback, private LAN, Tailscale, and approved internal hostnames. A real Authenticode certificate is a separate Windows publisher-trust layer.
 
-The GitHub release path remains available to older/public-channel builds when the Main Hub has no promoted internal release. It is no longer required for this store's private update lane.
+The GitHub release path remains available to older/public-channel builds when the Main Hub has no published internal candidate. It is no longer required for this store's private update lane.
 
 ### 5.2 Backup (mandatory — in-app and manual paths)
 

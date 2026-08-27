@@ -57,6 +57,8 @@ VitePWA({
 
 **Why the server matters**: The browser checks for a new `sw.js` by fetching it from the web server. If the web server is still serving an old `client/dist/`, no update is detected.
 
+In the private release lane, publishing a candidate to ROS does not replace `client/dist/`. Staff must activate the candidate from **Settings → Updates** on the Main Hub first. Only that guarded Main Hub installation replaces the served PWA files; each PWA/browser station is then reloaded manually.
+
 ## Service worker lifecycle
 
 ```
@@ -164,4 +166,4 @@ The `windows-deployment-package.yml` workflow does **not** build the PWA directl
 - `docs/staff/pwa-updates-manual.md` — staff-facing explanation
 - `docs/staff/pwa-update-troubleshooting.md` — operational recovery steps
 
-**Last reviewed:** 2026-08-15
+**Last reviewed:** 2026-08-27

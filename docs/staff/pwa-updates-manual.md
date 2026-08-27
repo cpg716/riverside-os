@@ -12,6 +12,8 @@
 
 Riverside is a Progressive Web App (PWA). That means it stores a local copy on your device so it works quickly and stays available even if the network is slow. When the store system is updated, your device needs to load that newer copy. The app tells you when that is ready.
 
+A published Riverside candidate does not change this device. A manager must install the candidate on the Main Hub first. After the Main Hub is ready, update each PWA manually from **Settings → Updates → Check app files → Reload app** or follow the update prompt.
+
 ## The update banner
 
 When a new version is available, a banner appears at the bottom of the screen:
@@ -86,4 +88,4 @@ The reload button refreshes the browser tab. Your sign-in state is preserved. If
 - `REMOTE_ACCESS_GUIDE.md` — installing Riverside as a home-screen app.
 - `working-offline.md` — what happens when the network is down.
 
-**Last reviewed:** 2026-08-15
+**Last reviewed:** 2026-08-27

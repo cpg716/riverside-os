@@ -17,7 +17,7 @@ function Write-PromotionStatus(
   $statusDir = Split-Path $statusPath -Parent
   New-Item -ItemType Directory -Force -Path $statusDir | Out-Null
   [ordered]@{
-    contractVersion = 1
+    contractVersion = 2
     status = $Status
     message = $Message
     jobId = $JobId
@@ -40,37 +40,6 @@ function Assert-Sha256([string]$Path, [string]$ExpectedSha256, [long]$ExpectedBy
   }
 }
 
-function Get-ReadyBuild([string]$ExpectedSourceSha) {
-  try {
-    $response = Invoke-WebRequest -Uri "http://127.0.0.1:3000/api/ready" -UseBasicParsing -TimeoutSec 5
-    if ([int]$response.StatusCode -ne 200) { return $null }
-    $ready = $response.Content | ConvertFrom-Json
-    $observed = "$($ready.build_sha)".Trim().ToLowerInvariant()
-    $expected = $ExpectedSourceSha.Trim().ToLowerInvariant()
-    if ($ready.database.connected -ne $true -or
-        $ready.search.authoritative -ne $true -or
-        $observed -ne $expected) {
-      return $null
-    }
-    return $observed
-  } catch {
-    return $null
-  }
-}
-
-function Resolve-DeploymentConfig([string]$InstallRoot, [string]$PackageRoot) {
-  foreach ($candidate in @(
-    (Join-Path $InstallRoot "riverside-deployment.config.json"),
-    (Join-Path $env:ProgramData "RiversideOS\riverside-deployment.config.json"),
-    (Join-Path $PackageRoot "riverside-deployment.config.json")
-  )) {
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-      return $candidate
-    }
-  }
-  throw "Could not find the existing Main Hub deployment configuration."
-}
-
 $requestPath = Join-Path $WorkerRoot "promotion\promotion-request.json"
 $lockPath = Join-Path $WorkerRoot "locks\internal-release-promotion.lock"
 $lockStream = $null
@@ -84,19 +53,13 @@ try {
     throw "Internal release promotion request is missing: $requestPath"
   }
   $request = Get-Content -LiteralPath $requestPath -Raw | ConvertFrom-Json
-  if ($request.contractVersion -ne 1 -or $request.jobId -notmatch '^[A-Za-z0-9._-]+$') {
-    throw "Internal release promotion request is invalid."
+  if ($request.contractVersion -ne 2 -or $request.jobId -notmatch '^[A-Za-z0-9._-]+$') {
+    throw "Internal candidate publication request is invalid."
   }
   $jobId = "$($request.jobId)"
   $expectedSourceSha = "$($request.expectedSourceSha)".Trim().ToLowerInvariant()
   if ($expectedSourceSha -notmatch '^[0-9a-f]{40}$') {
-    throw "Internal release promotion requires an exact 40-character source SHA."
-  }
-  if (-not $request.allowStoreHours) {
-    $hour = (Get-Date).Hour
-    if ($hour -ge 10 -and $hour -lt 18) {
-      throw "Internal release promotion is blocked from 10 AM through 6 PM unless store-hours approval is explicit."
-    }
+    throw "Internal candidate publication requires an exact 40-character source SHA."
   }
 
   $artifactRoot = [IO.Path]::GetFullPath((Join-Path $WorkerRoot "artifacts"))
@@ -129,64 +92,18 @@ try {
   $transcriptPath = Join-Path $workRoot "promotion-transcript.txt"
   Start-Transcript -Path $transcriptPath -Force | Out-Null
   $transcriptStarted = $true
-  Write-PromotionStatus "INSTALLING" "Verified candidate; guarded Main Hub installation started." $jobId $expectedSourceSha
+  Write-PromotionStatus "PUBLISHING" "Verified candidate; publishing it to ROS without installing it." $jobId $expectedSourceSha
 
   $packageRoot = Join-Path $workRoot "package"
   Expand-Archive -LiteralPath $mainHubPackagePath -DestinationPath $packageRoot -Force
-  $installServer = Get-ChildItem $packageRoot -Recurse -Filter "install-server.ps1" -File | Select-Object -First 1
-  if (-not $installServer) {
-    throw "Main Hub package does not contain install-server.ps1."
+  $packageManifestPath = Get-ChildItem $packageRoot -Recurse -Filter "deployment-package.manifest.json" -File |
+    Select-Object -First 1
+  if (-not $packageManifestPath) {
+    throw "Main Hub package does not contain deployment-package.manifest.json."
   }
-  $packageScriptRoot = $installServer.DirectoryName
-  $packageManifestPath = Join-Path $packageScriptRoot "deployment-package.manifest.json"
-  $packageManifest = Get-Content -LiteralPath $packageManifestPath -Raw | ConvertFrom-Json
+  $packageManifest = Get-Content -LiteralPath $packageManifestPath.FullName -Raw | ConvertFrom-Json
   if ("$($packageManifest.sourceGitSha)".ToLowerInvariant() -ne $expectedSourceSha) {
     throw "Extracted Main Hub package does not match the requested exact source SHA."
-  }
-
-  $installRoot = "C:\RiversideOS"
-  $existingConfig = Resolve-DeploymentConfig $installRoot $packageScriptRoot
-  $stagedConfig = Join-Path $packageScriptRoot "riverside-deployment.config.json"
-  if ($existingConfig -ne $stagedConfig) {
-    Copy-Item -LiteralPath $existingConfig -Destination $stagedConfig -Force
-  }
-
-  Push-Location $packageScriptRoot
-  try {
-    & powershell.exe `
-      -NoProfile `
-      -ExecutionPolicy Bypass `
-      -File $installServer.FullName `
-      -ConfigPath $stagedConfig
-    if ($LASTEXITCODE -ne 0) {
-      throw "install-server.ps1 failed with exit code $LASTEXITCODE."
-    }
-    $installRegister = Join-Path $packageScriptRoot "install-register.ps1"
-    if (-not (Test-Path -LiteralPath $installRegister -PathType Leaf)) {
-      throw "Main Hub package does not contain install-register.ps1."
-    }
-    & powershell.exe `
-      -NoProfile `
-      -ExecutionPolicy Bypass `
-      -File $installRegister `
-      -ConfigPath $stagedConfig `
-      -StationMode mainhub `
-      -NoLaunch
-    if ($LASTEXITCODE -ne 0) {
-      throw "install-register.ps1 failed with exit code $LASTEXITCODE."
-    }
-  } finally {
-    Pop-Location
-  }
-
-  $observedBuild = $null
-  for ($attempt = 0; $attempt -lt 90; $attempt++) {
-    $observedBuild = Get-ReadyBuild $expectedSourceSha
-    if ($observedBuild) { break }
-    Start-Sleep -Seconds 2
-  }
-  if (-not $observedBuild) {
-    throw "The installed Main Hub did not reach exact-build database/search readiness within 180 seconds. The internal feed was not promoted."
   }
 
   New-Item -ItemType Directory -Force -Path $UpdateRoot | Out-Null
@@ -238,7 +155,7 @@ try {
     throw
   }
 
-  Write-PromotionStatus "READY" "Main Hub and internal workstation feed are current at the exact promoted build." $jobId $expectedSourceSha
+  Write-PromotionStatus "PUBLISHED" "Candidate is available in ROS. No Main Hub or workstation installation was started." $jobId $expectedSourceSha
   Remove-Item $requestPath -Force -ErrorAction SilentlyContinue
 } catch {
   Write-PromotionStatus "FAILED" $_.Exception.Message $jobId $expectedSourceSha

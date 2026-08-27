@@ -25,7 +25,7 @@
     "wedding:cutover:preview": "node scripts/wedding-cutover-import-preview.mjs",
     "release:retag": "node scripts/release-retag.mjs",
     "build:windows:remote": "pwsh -NoProfile -File scripts/run-main-hub-windows-build.ps1",
-    "release:internal:windows": "pwsh -NoProfile -File scripts/run-main-hub-windows-build.ps1 -MainHubHost riverside-main-hub -Task Package -Promote",
+    "release:internal:windows": "pwsh -NoProfile -File scripts/run-main-hub-windows-build.ps1 -MainHubHost riverside-main-hub -Task Package -PublishCandidate",
     "push:main-hub": "pwsh -NoProfile -File scripts/push-main-hub.ps1",
     "push:main-hub:fast": "pwsh -NoProfile -File scripts/push-main-hub-fast.ps1",
     "help:aidocs:check": "uvx --from aidocs aidocs check",

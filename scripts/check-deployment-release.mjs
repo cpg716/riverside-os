@@ -574,15 +574,17 @@ for (const copy of [
   "The Windows build worker accepts committed source only",
   'Assert-Command "ssh"',
   'Assert-Command "scp"',
-  "This command does not install or deploy the result.",
-  'if ($Promote)',
+  "This command builds evidence only; it does not publish, install, or deploy the result.",
+  'if ($PublishCandidate)',
+  "-Promote is retired",
+  "contractVersion = 2",
   "releaseCandidateReady",
   "Start-ScheduledTask -TaskName $taskName",
 ]) {
   assertIncludes(
     internalWindowsBuildRequester,
     copy,
-    "Mac-to-Main-Hub builds must transfer committed source directly and require an explicit guarded promotion mode",
+    "Mac-to-Main-Hub builds must transfer committed source directly and keep candidate publication separate from installation",
   );
 }
 for (const forbidden of ["git push", "gh ", "Read-Host"]) {
@@ -597,17 +599,39 @@ const internalReleasePromotion =
   "deployment/windows/Invoke-RiversideInternalReleasePromotion.ps1";
 for (const copy of [
   "Assert-Sha256",
-  "install-server.ps1",
-  "install-register.ps1",
-  "$ready.database.connected -ne $true",
-  "$ready.search.authoritative -ne $true",
-  "The internal feed was not promoted",
-  'Write-PromotionStatus "READY"',
+  "deployment-package.manifest.json",
+  "contractVersion = 2",
+  'Write-PromotionStatus "PUBLISHED"',
+  "No Main Hub or workstation installation was started.",
 ]) {
   assertIncludes(
     internalReleasePromotion,
     copy,
-    "Internal release promotion must verify the candidate, reuse guarded installers, require exact readiness, and publish last",
+    "Internal candidate publication must verify the candidate and publish it without installing production",
+  );
+}
+for (const forbidden of [
+  "install-server.ps1",
+  "install-register.ps1",
+  "Get-ReadyBuild",
+  "Start-ScheduledTask",
+]) {
+  assertNotIncludes(
+    internalReleasePromotion,
+    forbidden,
+    "Candidate publication must never install or restart Riverside",
+  );
+}
+
+for (const copy of [
+  "workstation_release_is_active",
+  "StatusCode::CONFLICT",
+  "must be installed on the Main Hub before workstation updates are available",
+]) {
+  assertIncludes(
+    "server/src/api/internal_updates.rs",
+    copy,
+    "The Main Hub must run the published exact build before workstation updater metadata is served",
   );
 }
 
