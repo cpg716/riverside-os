@@ -42,6 +42,14 @@ test("every variation editor exposes parent-price inheritance", () => {
   expect(variationsList).toContain("clear_retail_override");
 });
 
+test("variation cards stay editable without mounting the full catalog", () => {
+  expect(variationsWorkspace).toContain("VirtualizedList");
+  expect(variationsWorkspace).toContain("rowComponent={VirtualizedCardRow}");
+  expect(variationsWorkspace).toContain("overscanCount={1}");
+  expect(variationsWorkspace).toContain("cardDraftsRef");
+  expect(variationsWorkspace).toContain("useDeferredValue(localSearch)");
+});
+
 test("parent and variation names use audited catalog mutation paths", () => {
   expect(productHub).toContain("Save name");
   expect(productHub).toContain("audit_note");

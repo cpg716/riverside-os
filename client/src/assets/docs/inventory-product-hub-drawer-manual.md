@@ -100,6 +100,7 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 17. Select **Analyze product** only when you want the optional read-only ROSIE catalog review. Product Hub does not run that analysis automatically when the drawer opens.
 18. In **Item Setup** and **SKUs & Stock**, read `Average cost` as the financial basis and `Last cost` as purchasing reference only.
 19. On a variation card, leave **Tag copies** at `1` and select **Print 1 tag** for one tag. Enter a larger copy count and select the same button, or press Enter in the copy field, to print that many identical tags. Repeated button presses remain separate print jobs.
+20. Card view keeps every SKU editor available while loading only the visible card rows. Scroll normally to reach later SKUs; unfinished card input is retained while you remain in Product Hub, even when that card scrolls out of view.
 
 ## Parent stock and sales report
 

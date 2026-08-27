@@ -1420,8 +1420,8 @@ export default function ProductHubDrawer({
   ).length;
   const inheritingRetailCount = orderedVariants.length - retailOverrideCount;
 
-  const hubVariants: HubVariant[] =
-    orderedVariants.map((v) => ({
+  const hubVariants = useMemo<HubVariant[]>(
+    () => orderedVariants.map((v) => ({
       id: v.id,
       sku: v.sku,
       variation_values: v.variation_values,
@@ -1442,7 +1442,9 @@ export default function ProductHubDrawer({
       web_published: Boolean(v.web_published),
       web_price_override: v.web_price_override ?? null,
       web_gallery_order: v.web_gallery_order ?? 0,
-    }));
+    })),
+    [orderedVariants],
+  );
 
   const inventoryEvents = timeline
     .filter((event) => event.kind.startsWith("inventory_"))
