@@ -16,6 +16,7 @@ import {
   SlidersHorizontal,
   ShieldAlert,
   DollarSign,
+  X,
 } from "lucide-react";
 import { List as VirtualizedList, type RowComponentProps } from "react-window";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -183,7 +184,7 @@ function VariantTagPrintControl({
     <div
       role="group"
       aria-label={`Print tags for ${sku}`}
-      className="min-w-0 space-y-1.5"
+      className="w-full min-w-0 space-y-1.5 sm:w-72"
     >
       <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
         Tag copies
@@ -306,7 +307,7 @@ function VariantIdentityEditor({
   };
 
   return (
-    <div className="mt-4 space-y-2 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
+    <div className="space-y-2 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
       <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
         Variation name
       </p>
@@ -423,7 +424,7 @@ function VariantIdentifierEditor({
   const vendorUpcChanged = vendorUpcDraft.trim() !== (variant.vendor_upc ?? "");
 
   return (
-    <div className="mt-4 space-y-2 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
+    <div className="space-y-2 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
       <div className="grid gap-2">
         <div className="grid gap-1">
           <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -559,7 +560,7 @@ function VariantRetailInheritanceEditor({
   };
 
   return (
-    <div className="mt-4 space-y-2 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
+    <div className="space-y-2 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
       <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text">
         <input
           type="checkbox"
@@ -611,16 +612,233 @@ function VariantRetailInheritanceEditor({
   );
 }
 
+function VariantPricingEditor({
+  variant,
+  itemSalePrice,
+  onSave,
+}: {
+  variant: HubVariant;
+  itemSalePrice: string | null;
+  onSave: (patch: VariantPatch) => Promise<VariantPricingPatchResponse | null>;
+}) {
+  const [saleDraft, setSaleDraft] = useState(
+    variant.sale_price_override ?? variant.effective_sale ?? "",
+  );
+  const [averageCostDraft, setAverageCostDraft] = useState(
+    variant.cost_override ?? variant.effective_average_cost,
+  );
+  const [saving, setSaving] = useState<"sale" | "cost" | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const saleChanged =
+    saleDraft.trim() !==
+    (variant.sale_price_override ?? variant.effective_sale ?? "").trim();
+  const averageCostChanged =
+    averageCostDraft.trim() !==
+    (variant.cost_override ?? variant.effective_average_cost).trim();
+
+  useEffect(() => {
+    setSaleDraft(variant.sale_price_override ?? variant.effective_sale ?? "");
+    setAverageCostDraft(variant.cost_override ?? variant.effective_average_cost);
+    setMessage(null);
+  }, [
+    variant.cost_override,
+    variant.effective_average_cost,
+    variant.effective_sale,
+    variant.id,
+    variant.sale_price_override,
+  ]);
+
+  const normalizedMoney = (value: string, label: string): string | null => {
+    const trimmed = value.trim();
+    if (!/^(?:\d+|\d*\.\d{1,2})$/.test(trimmed)) {
+      setMessage(`Enter a valid ${label} with no more than two decimals.`);
+      return null;
+    }
+    return centsToFixed2(parseMoneyToCents(trimmed));
+  };
+
+  const saveSale = async () => {
+    const amount = normalizedMoney(saleDraft, "sale price");
+    if (amount == null) return;
+    setSaving("sale");
+    setMessage(null);
+    try {
+      await onSave({ sale_price_override: amount });
+      setMessage("SKU sale price saved and added to Timeline.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Sale price update failed.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const saveAverageCost = async () => {
+    const amount = normalizedMoney(averageCostDraft, "average cost");
+    if (amount == null) return;
+    setSaving("cost");
+    setMessage(null);
+    try {
+      await onSave({ cost_override: amount });
+      setMessage("SKU average-cost override saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Average cost update failed.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const restoreInherited = async (field: "sale" | "cost") => {
+    setSaving(field);
+    setMessage(null);
+    try {
+      await onSave(
+        field === "sale" ? { clear_sale_override: true } : { cost_override: null },
+      );
+      setMessage(
+        field === "sale"
+          ? itemSalePrice
+            ? "SKU now uses the item sale price."
+            : "SKU sale-price override removed; no item sale price is set."
+          : "SKU now uses the item average cost.",
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Pricing update failed.");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  return (
+    <div className="space-y-3 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
+      <div>
+        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          Sale price
+        </p>
+        <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+          {variant.sale_price_override != null
+            ? "This SKU has its own sale price."
+            : itemSalePrice
+              ? `Uses item sale price $${centsToFixed2(parseMoneyToCents(itemSalePrice))}.`
+              : "No sale price is set for the item."}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label className="relative min-w-32 flex-1">
+            <span className="sr-only">Sale price override for {variant.sku}</span>
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted">
+              $
+            </span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={saleDraft}
+              disabled={saving != null}
+              onChange={(event) => setSaleDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveSale();
+              }}
+              className="ui-input h-9 w-full pl-7 text-sm font-bold tabular-nums"
+              placeholder="No SKU sale price"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={saving != null || !saleChanged}
+            onClick={() => void saveSale()}
+            className="ui-btn-secondary h-9 px-3 text-[10px] font-black uppercase tracking-widest"
+          >
+            Save sale
+          </button>
+          {variant.sale_price_override != null ? (
+            <button
+              type="button"
+              disabled={saving != null}
+              onClick={() => void restoreInherited("sale")}
+              className="text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-50"
+            >
+              {itemSalePrice ? "Use item sale price" : "Remove SKU sale price"}
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="border-t border-app-border/60 pt-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Average cost
+            </p>
+            <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+              Financial cost basis. Last cost is purchasing reference only
+              {variant.effective_last_cost
+                ? ` ($${centsToFixed2(parseMoneyToCents(variant.effective_last_cost))})`
+                : ""}.
+            </p>
+          </div>
+          {variant.cost_override != null ? (
+            <span className="ui-pill border-amber-300 bg-amber-50 text-[9px] font-black uppercase text-amber-700">
+              SKU override
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label className="relative min-w-32 flex-1">
+            <span className="sr-only">Average cost override for {variant.sku}</span>
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-app-text-muted">
+              $
+            </span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={averageCostDraft}
+              disabled={saving != null}
+              onChange={(event) => setAverageCostDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveAverageCost();
+              }}
+              className="ui-input h-9 w-full pl-7 text-sm font-bold tabular-nums"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={saving != null || !averageCostChanged}
+            onClick={() => void saveAverageCost()}
+            className="ui-btn-secondary h-9 px-3 text-[10px] font-black uppercase tracking-widest"
+          >
+            Save cost
+          </button>
+          {variant.cost_override != null ? (
+            <button
+              type="button"
+              disabled={saving != null}
+              onClick={() => void restoreInherited("cost")}
+              className="text-[10px] font-black uppercase tracking-widest text-app-accent disabled:opacity-50"
+            >
+              Use item average cost
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {message ? (
+        <p className="text-[10px] font-semibold text-app-text-muted">{message}</p>
+      ) : null}
+    </div>
+  );
+}
+
 type PatchVariantHandler = (
   variantId: string,
   patch: VariantPatch,
 ) => Promise<VariantPricingPatchResponse | null>;
 
-interface VirtualizedCardRowProps {
-  variants: HubVariant[];
-  columnCount: number;
+interface SelectedVariationEditorProps {
+  variant: HubVariant;
   productTrackLowStock: boolean;
   templateBaseRetail: string;
+  templateBaseSale: string | null;
   variationAxes: string[];
   draftStore: VariantCardDraftStore;
   onPatchVariant: PatchVariantHandler;
@@ -630,111 +848,131 @@ interface VirtualizedCardRowProps {
     variant: HubVariant,
     type: "damaged" | "return_to_vendor",
   ) => void;
+  onClose: () => void;
 }
 
-const VariantCard = React.memo(function VariantCard({
+function SelectedVariationEditor({
   variant,
   productTrackLowStock,
   templateBaseRetail,
+  templateBaseSale,
   variationAxes,
   draftStore,
   onPatchVariant,
   onStockCorrection,
   onPrintTags,
   onMaintenance,
-}: Omit<VirtualizedCardRowProps, "variants" | "columnCount"> & {
-  variant: HubVariant;
-}) {
+  onClose,
+}: SelectedVariationEditorProps) {
   return (
-    <section className="h-full overflow-y-auto rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-mono text-xs font-black text-app-text">
+    <section
+      className="rounded-2xl border border-app-accent/30 bg-app-surface p-4 shadow-sm ring-1 ring-app-accent/10"
+      aria-labelledby={`variation-editor-${variant.id}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-accent">
+            Edit selected variation
+          </p>
+          <h3
+            id={`variation-editor-${variant.id}`}
+            className="mt-1 text-lg font-black tracking-tight text-app-text"
+          >
+            {variant.variation_label || "Standard"}
+          </h3>
+          <p className="mt-1 font-mono text-xs font-bold text-app-text-muted">
             {variant.sku}
           </p>
-          <p className="mt-1 text-sm font-black text-app-text">
-            {variant.variation_label || "Standard"}
-          </p>
         </div>
-        <span
-          className={`rounded-xl px-3 py-1 text-sm font-black tabular-nums ${
-            variant.stock_on_hand <= 0
-              ? "bg-red-50 text-red-700"
-              : variant.stock_on_hand <= variant.reorder_point
-                ? "bg-amber-50 text-amber-700"
-                : "bg-emerald-50 text-emerald-700"
-          }`}
-        >
-          {variant.stock_on_hand} on hand
-        </span>
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2 text-[10px] font-black uppercase tracking-widest">
-        <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 text-app-text-muted">
-          Retail ${centsToFixed2(parseMoneyToCents(variant.effective_retail))}
-        </span>
-        <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 text-app-text-muted">
-          Sale {variant.effective_sale ? `$${centsToFixed2(parseMoneyToCents(variant.effective_sale))}` : "not set"}
-        </span>
-        <span
-          className={`rounded-lg border px-2 py-1 ${
-            variant.cost_override
-              ? "border-amber-200 bg-amber-50 text-amber-700"
-              : "border-app-border bg-app-surface-2 text-app-text-muted"
-          }`}
-        >
-          Avg cost ${centsToFixed2(parseMoneyToCents(variant.effective_average_cost))}
-        </span>
-        <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-1 text-app-text-muted">
-          Last cost {variant.effective_last_cost ? `$${centsToFixed2(parseMoneyToCents(variant.effective_last_cost))}` : "not available"}
-        </span>
-        <span className={`rounded-lg border px-2 py-1 ${variant.web_published ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-app-border bg-app-surface-2 text-app-text-muted"}`}>
-          {variant.web_published ? "Online" : "Not online"}
-        </span>
-        {productTrackLowStock && variant.track_low_stock ? (
-          <span className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-amber-700">
-            Low-stock alert
+        <div className="flex items-center gap-2">
+          <span
+            className={`rounded-xl px-3 py-1.5 text-sm font-black tabular-nums ${
+              variant.stock_on_hand <= 0
+                ? "bg-red-50 text-red-700"
+                : variant.stock_on_hand <= variant.reorder_point
+                  ? "bg-amber-50 text-amber-700"
+                  : "bg-emerald-50 text-emerald-700"
+            }`}
+          >
+            {variant.stock_on_hand} on hand
           </span>
-        ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            className="ui-touch-target inline-flex items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text-muted hover:text-app-text"
+            aria-label="Close variation editor"
+          >
+            <X size={16} aria-hidden />
+          </button>
+        </div>
       </div>
-      <VariantRetailInheritanceEditor
-        variant={variant}
-        parentRetail={templateBaseRetail}
-        onSave={(patch) => onPatchVariant(variant.id, patch)}
-        draftStore={draftStore}
-      />
-      <VariantIdentityEditor
-        variant={variant}
-        variationAxes={variationAxes}
-        onSave={(patch) => onPatchVariant(variant.id, patch)}
-        draftStore={draftStore}
-      />
-      <VariantIdentifierEditor
-        variant={variant}
-        onSave={(patch) => onPatchVariant(variant.id, patch)}
-        draftStore={draftStore}
-      />
-      <div className="mt-4 grid grid-cols-2 gap-2">
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-3">
+        <VariantIdentityEditor
+          variant={variant}
+          variationAxes={variationAxes}
+          onSave={(patch) => onPatchVariant(variant.id, patch)}
+          draftStore={draftStore}
+        />
+        <VariantIdentifierEditor
+          variant={variant}
+          onSave={(patch) => onPatchVariant(variant.id, patch)}
+          draftStore={draftStore}
+        />
+        <div className="space-y-3">
+          <VariantRetailInheritanceEditor
+            variant={variant}
+            parentRetail={templateBaseRetail}
+            onSave={(patch) => onPatchVariant(variant.id, patch)}
+            draftStore={draftStore}
+          />
+          <VariantPricingEditor
+            variant={variant}
+            itemSalePrice={templateBaseSale}
+            onSave={(patch) => onPatchVariant(variant.id, patch)}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
         <button
           type="button"
           onClick={() => onStockCorrection(variant)}
           className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-emerald-300 hover:text-emerald-700`}
         >
-          Count Fix
+          Correct count
         </button>
         <button
           type="button"
-          onClick={() => void onPatchVariant(variant.id, { clear_sale_override: true })}
-          className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-app-accent hover:text-app-accent`}
+          aria-pressed={variant.web_published}
+          onClick={() =>
+            void onPatchVariant(variant.id, {
+              web_published: !variant.web_published,
+            })
+          }
+          className={`${cardActionButtonClass} ${
+            variant.web_published
+              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+              : "border-app-border bg-app-surface-2 text-app-text"
+          }`}
         >
-          Clear Sale
+          {variant.web_published ? "Published online" : "Not published online"}
         </button>
-        <button
-          type="button"
-          onClick={() => void onPatchVariant(variant.id, { cost_override: null })}
-          className={`${cardActionButtonClass} border-app-border bg-app-surface-2 text-app-text hover:border-amber-300 hover:text-amber-700`}
-        >
-          Clear Avg Cost
-        </button>
+        {productTrackLowStock ? (
+          <label className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text">
+            <input
+              type="checkbox"
+              checked={variant.track_low_stock}
+              onChange={(event) =>
+                void onPatchVariant(variant.id, {
+                  track_low_stock: event.target.checked,
+                })
+              }
+              className="h-4 w-4 accent-app-accent"
+            />
+            Low-stock alert
+          </label>
+        ) : null}
         <VariantTagPrintControl
           variantId={variant.id}
           sku={variant.sku}
@@ -746,7 +984,7 @@ const VariantCard = React.memo(function VariantCard({
           onClick={() => onMaintenance(variant, "damaged")}
           className={`${cardActionButtonClass} border-red-200 bg-red-50 text-red-700`}
         >
-          Damage
+          Record damage
         </button>
         <button
           type="button"
@@ -758,26 +996,151 @@ const VariantCard = React.memo(function VariantCard({
       </div>
     </section>
   );
+}
+
+interface CompactCardRowProps {
+  variants: HubVariant[];
+  columnCount: number;
+  activeVariantId: string | null;
+  selectedIds: Set<string>;
+  onEdit: (variantId: string) => void;
+  onToggleSelect: (variantId: string) => void;
+}
+
+const CompactVariantCard = React.memo(function CompactVariantCard({
+  variant,
+  active,
+  selected,
+  onEdit,
+  onToggleSelect,
+}: {
+  variant: HubVariant;
+  active: boolean;
+  selected: boolean;
+  onEdit: () => void;
+  onToggleSelect: () => void;
+}) {
+  const stockClass =
+    variant.stock_on_hand <= 0
+      ? "bg-red-50 text-red-700"
+      : variant.stock_on_hand <= variant.reorder_point
+        ? "bg-amber-50 text-amber-700"
+        : "bg-emerald-50 text-emerald-700";
+
+  return (
+    <section
+      className={`h-full rounded-2xl border bg-app-surface p-3 shadow-sm transition-colors ${
+        active
+          ? "border-app-accent ring-2 ring-app-accent/15"
+          : "border-app-border hover:border-app-accent/50"
+      }`}
+    >
+      <div className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          className="mt-1 h-4 w-4 shrink-0 accent-app-accent"
+          aria-label={`Select ${variant.sku} for bulk actions`}
+        />
+        <button
+          type="button"
+          onClick={onEdit}
+          className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent"
+          aria-label={`Edit variation ${variant.variation_label || variant.sku}`}
+        >
+          <span className="block truncate font-mono text-[11px] font-black text-app-text-muted">
+            {variant.sku}
+          </span>
+          <span className="mt-0.5 block truncate text-sm font-black text-app-text">
+            {variant.variation_label || "Standard"}
+          </span>
+        </button>
+        <span className={`shrink-0 rounded-lg px-2 py-1 text-xs font-black tabular-nums ${stockClass}`}>
+          {variant.stock_on_hand} on hand
+        </span>
+      </div>
+
+      <button
+        type="button"
+        onClick={onEdit}
+        className="mt-3 grid w-full grid-cols-2 gap-x-3 gap-y-2 border-t border-app-border/60 pt-3 text-left"
+        aria-label={`Open editor for ${variant.variation_label || variant.sku}`}
+      >
+        <span className="min-w-0">
+          <span className="block text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+            Product UPC
+          </span>
+          <span className="mt-0.5 block truncate font-mono text-[10px] font-bold text-app-text">
+            {variant.barcode || "Not recorded"}
+          </span>
+        </span>
+        <span>
+          <span className="block text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+            Retail / sale
+          </span>
+          <span className="mt-0.5 block text-[10px] font-bold tabular-nums text-app-text">
+            ${centsToFixed2(parseMoneyToCents(variant.effective_retail))}
+            {variant.effective_sale
+              ? ` / $${centsToFixed2(parseMoneyToCents(variant.effective_sale))}`
+              : " / No sale"}
+          </span>
+        </span>
+        <span>
+          <span className="block text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+            Average cost
+          </span>
+          <span className="mt-0.5 block text-[10px] font-bold tabular-nums text-app-text">
+            ${centsToFixed2(parseMoneyToCents(variant.effective_average_cost))}
+            {variant.cost_override != null ? " override" : " inherited"}
+          </span>
+        </span>
+        <span className="flex items-end justify-between gap-2">
+          <span>
+            <span className="block text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+              Web
+            </span>
+            <span className="mt-0.5 block text-[10px] font-bold text-app-text">
+              {variant.web_published ? "Published" : "Not published"}
+            </span>
+          </span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-app-accent">
+            {active ? "Editing" : "Edit"}
+          </span>
+        </span>
+      </button>
+    </section>
+  );
 });
 
-function VirtualizedCardRow({
+function CompactCardRow({
   index,
   style,
   ariaAttributes,
   variants,
   columnCount,
-  ...cardProps
-}: RowComponentProps<VirtualizedCardRowProps>) {
+  activeVariantId,
+  selectedIds,
+  onEdit,
+  onToggleSelect,
+}: RowComponentProps<CompactCardRowProps>) {
   const rowVariants = variants.slice(index * columnCount, (index + 1) * columnCount);
 
   return (
-    <div {...ariaAttributes} style={{ ...style, paddingBottom: 12 }}>
+    <div {...ariaAttributes} style={{ ...style, paddingBottom: 10 }}>
       <div
-        className="grid h-full gap-3"
+        className="grid h-full gap-2.5"
         style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}
       >
         {rowVariants.map((variant) => (
-          <VariantCard key={variant.id} variant={variant} {...cardProps} />
+          <CompactVariantCard
+            key={variant.id}
+            variant={variant}
+            active={variant.id === activeVariantId}
+            selected={selectedIds.has(variant.id)}
+            onEdit={() => onEdit(variant.id)}
+            onToggleSelect={() => onToggleSelect(variant.id)}
+          />
         ))}
       </div>
     </div>
@@ -788,6 +1151,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   productId,
   productTrackLowStock,
   templateBaseRetail = "0",
+  templateBaseSale = null,
   productName,
   categoryName,
   variationAxes,
@@ -807,6 +1171,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   const [viewMode, setViewMode] = useState<"cards" | "matrix" | "list">("cards");
   const [localSearch, setLocalSearch] = useState("");
   const deferredSearch = useDeferredValue(localSearch);
+  const [activeVariantId, setActiveVariantId] = useState<string | null>(null);
   const [cardColumnCount, setCardColumnCount] = useState(1);
   const cardDraftsRef = useRef(new Map<string, VariantCardDraft>());
   const cardDraftStore = useMemo<VariantCardDraftStore>(
@@ -870,8 +1235,13 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
     });
   }, [deferredSearch, variants]);
 
+  const activeVariant = useMemo(
+    () => variants.find((variant) => variant.id === activeVariantId) ?? null,
+    [activeVariantId, variants],
+  );
+
   const handleCardGridResize = useCallback(({ width }: { width: number }) => {
-    const nextColumnCount = width >= 1400 ? 4 : width >= 1020 ? 3 : width >= 680 ? 2 : 1;
+    const nextColumnCount = width >= 1180 ? 3 : width >= 700 ? 2 : 1;
     setCardColumnCount((current) =>
       current === nextColumnCount ? current : nextColumnCount,
     );
@@ -1186,11 +1556,11 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
     [selectedIds, variants],
   );
 
-  const handleCardStockCorrection = useCallback(
+  const handleSelectedStockCorrection = useCallback(
     (variant: HubVariant) => openStockCorrection([variant.id], variant.sku, "1"),
     [openStockCorrection],
   );
-  const handleCardPrintTags = useCallback(
+  const handleSelectedPrintTags = useCallback(
     (variant: HubVariant, quantity: number) => {
       void handlePrintTags(
         [variant],
@@ -1200,40 +1570,38 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
     },
     [handlePrintTags],
   );
-  const handleCardMaintenance = useCallback(
+  const handleSelectedMaintenance = useCallback(
     (variant: HubVariant, type: "damaged" | "return_to_vendor") => {
       setMaintenanceTarget({ variantId: variant.id, sku: variant.sku, type });
     },
     [],
   );
-  const cardRowProps = useMemo<VirtualizedCardRowProps>(
+  const toggleVariantSelection = useCallback((variantId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(variantId)) next.delete(variantId);
+      else next.add(variantId);
+      return next;
+    });
+  }, []);
+  const compactCardRowProps = useMemo<CompactCardRowProps>(
     () => ({
       variants: displayVariants,
       columnCount: cardColumnCount,
-      productTrackLowStock,
-      templateBaseRetail,
-      variationAxes,
-      draftStore: cardDraftStore,
-      onPatchVariant: patchVariant,
-      onStockCorrection: handleCardStockCorrection,
-      onPrintTags: handleCardPrintTags,
-      onMaintenance: handleCardMaintenance,
+      activeVariantId,
+      selectedIds,
+      onEdit: setActiveVariantId,
+      onToggleSelect: toggleVariantSelection,
     }),
     [
+      activeVariantId,
       cardColumnCount,
-      cardDraftStore,
       displayVariants,
-      handleCardMaintenance,
-      handleCardPrintTags,
-      handleCardStockCorrection,
-      patchVariant,
-      productTrackLowStock,
-      templateBaseRetail,
-      variationAxes,
+      selectedIds,
+      toggleVariantSelection,
     ],
   );
-  const cardRowCount = Math.ceil(displayVariants.length / cardColumnCount);
-  const cardRowHeight = 820 + Math.max(1, variationAxes.length) * 56;
+  const compactCardRowCount = Math.ceil(displayVariants.length / cardColumnCount);
 
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-500">
@@ -1247,29 +1615,33 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
             {productName}
           </h2>
           <div className="flex items-center gap-3">
-            <div
-              className={`flex rounded-xl bg-app-surface shadow-sm border border-app-border p-1 ${viewMode === "cards" ? "ring-1 ring-app-accent/20" : ""}`}
-            >
+            <div className="flex rounded-xl border border-app-border bg-app-surface p-1 shadow-sm">
               <button
+                type="button"
+                aria-pressed={viewMode === "cards"}
                 onClick={() => setViewMode("cards")}
-                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${viewMode === "cards" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
-                title="Card view"
+                className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === "cards" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
               >
-                <Package size={16} />
+                <Package size={15} aria-hidden />
+                Cards
               </button>
               <button
-                onClick={() => setViewMode("matrix")}
-                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${viewMode === "matrix" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
-                title="Matrix view"
-              >
-                <LayoutGrid size={16} />
-              </button>
-              <button
+                type="button"
+                aria-pressed={viewMode === "list"}
                 onClick={() => setViewMode("list")}
-                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${viewMode === "list" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
-                title="List view"
+                className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === "list" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
               >
-                <ListIcon size={16} />
+                <ListIcon size={15} aria-hidden />
+                List
+              </button>
+              <button
+                type="button"
+                aria-pressed={viewMode === "matrix"}
+                onClick={() => setViewMode("matrix")}
+                className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === "matrix" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
+              >
+                <LayoutGrid size={15} aria-hidden />
+                Matrix
               </button>
             </div>
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
@@ -1301,35 +1673,58 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase leading-tight tracking-[0.1em] text-app-text-muted transition-colors hover:bg-app-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Printer size={14} />
-            <span>Print Tags</span>
+            <span>
+              {selectedIds.size > 0
+                ? `Print ${selectedIds.size} selected`
+                : "Print all tags"}
+            </span>
           </button>
         </div>
       </div>
 
       <div className="rounded-2xl border border-amber-300/50 bg-amber-50 px-4 py-3 text-xs font-semibold leading-relaxed text-amber-850">
-        Use SKU actions here for prices, tags, web status, small count corrections, damage, and vendor returns.
-        Receive vendor shipments in <span className="font-black">Receive Stock</span>, not as count corrections.
+        In Cards, select <span className="font-black">Edit</span> to change one
+        variation&apos;s name, identifiers, prices, web status, tags, or stock status.
+        Use the checkboxes for bulk actions. Receive vendor shipments in{" "}
+        <span className="font-black">Receive Stock</span>, not as count corrections.
       </div>
 
       {/* Main View Area */}
       {viewMode === "cards" ? (
-        displayVariants.length > 0 ? (
-          <VirtualizedList
-            rowComponent={VirtualizedCardRow}
-            rowCount={cardRowCount}
-            rowHeight={cardRowHeight}
-            rowProps={cardRowProps}
-            overscanCount={1}
-            onResize={handleCardGridResize}
-            className="rounded-2xl"
-            style={{ height: "min(72vh, 860px)", width: "100%" }}
-            aria-label="SKU card grid"
-          />
-        ) : (
-          <div className="rounded-2xl border border-app-border bg-app-surface p-8 text-center text-sm font-semibold text-app-text-muted">
-            No SKUs match this filter.
-          </div>
-        )
+        <div className="space-y-3">
+          {activeVariant ? (
+            <SelectedVariationEditor
+              variant={activeVariant}
+              productTrackLowStock={productTrackLowStock}
+              templateBaseRetail={templateBaseRetail}
+              templateBaseSale={templateBaseSale}
+              variationAxes={variationAxes}
+              draftStore={cardDraftStore}
+              onPatchVariant={patchVariant}
+              onStockCorrection={handleSelectedStockCorrection}
+              onPrintTags={handleSelectedPrintTags}
+              onMaintenance={handleSelectedMaintenance}
+              onClose={() => setActiveVariantId(null)}
+            />
+          ) : null}
+          {displayVariants.length > 0 ? (
+            <VirtualizedList
+              rowComponent={CompactCardRow}
+              rowCount={compactCardRowCount}
+              rowHeight={190}
+              rowProps={compactCardRowProps}
+              overscanCount={2}
+              onResize={handleCardGridResize}
+              className="rounded-2xl"
+              style={{ height: "min(68vh, 760px)", width: "100%" }}
+              aria-label="Variation cards"
+            />
+          ) : (
+            <div className="rounded-2xl border border-app-border bg-app-surface p-8 text-center text-sm font-semibold text-app-text-muted">
+              No variations match this filter.
+            </div>
+          )}
+        </div>
       ) : viewMode === "matrix" ? (
         <div className="relative overflow-auto rounded-[24px] border border-app-border bg-app-surface/40 shadow-sm backdrop-blur-xl max-h-[70vh]">
           <table className="w-full border-separate border-spacing-0">
@@ -1433,14 +1828,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         <VariationsList
           variants={displayVariants}
           selectedIds={selectedIds}
-          onToggleSelect={(id) =>
-            setSelectedIds((prev) => {
-              const next = new Set(prev);
-              if (next.has(id)) next.delete(id);
-              else next.add(id);
-              return next;
-            })
-          }
+          onToggleSelect={toggleVariantSelection}
           onSelectAll={() => setSelectedIds(new Set(displayVariants.map((v) => v.id)))}
           onDeselectAll={() => setSelectedIds(new Set())}
           onUpdateVariant={

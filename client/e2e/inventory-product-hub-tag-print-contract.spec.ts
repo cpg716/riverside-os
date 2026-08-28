@@ -13,12 +13,17 @@ const variationsWorkspace = readFileSync(
 );
 
 test("Product Hub prints one or many copies from the same variation control", () => {
-  expect(variationsWorkspace).toContain('const [quantityDraft, setQuantityDraft] = useState("1")');
+  expect(variationsWorkspace).toContain(
+    'draftStore.read(variantId)?.tagQuantity ?? "1"',
+  );
   expect(variationsWorkspace).toContain("Tag copies");
   expect(variationsWorkspace).toContain('quantity === 1 ? "tag" : "tags"');
   expect(variationsWorkspace).toContain("Leave at 1 for one tag");
-  expect(variationsWorkspace).toContain("Array.from({ length: copiesPerVariant }");
+  expect(variationsWorkspace).toContain(
+    "Array.from({ length: copiesPerVariant }",
+  );
   expect(variationsWorkspace).toContain('event.key === "Enter"');
+  expect(variationsWorkspace).toContain("Edit selected variation");
   expect(variationsWorkspace).toContain(
     "Array.from(new Set(variantsToPrint.map((variant) => variant.id)))",
   );

@@ -192,9 +192,11 @@ Every count correction needs a short reason. Stock decreases, damage/loss, and r
 
 Open **Product Hub** from **Find Item**. The **SKUs & Stock** tab supports three views:
 
-- **Cards:** default, touch-friendly inventory cards for daily SKU work.
+- **Cards:** default, compact inventory summaries for daily SKU work. Select **Edit** on one card to open the shared variation editor above the list. Card checkboxes select several variations for bulk actions without repeating a full form on every card.
 - **Matrix:** compact axis grid when a style has true size/color/fit structure.
 - **List:** dense table for long SKU lists and bulk edits.
+
+The shared editor groups variation name/axes, Product UPC and supplier identifiers, retail/sale/average-cost overrides, tag printing, web and low-stock status, count correction, damage, and return-to-vendor actions. Inheritance actions appear only when a SKU override exists; if the item has no sale price, the sale action says **Remove SKU sale price** instead. Average cost remains the financial basis and last cost remains read-only purchasing reference.
 
 All views should represent the same filtered SKUs. Used Counterpoint SKUs, new ROS SKUs, Product UPCs, and supplier catalog/style identifiers must remain searchable, editable, sellable, and usable in receiving and order workflows.
 

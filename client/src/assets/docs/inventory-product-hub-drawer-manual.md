@@ -91,16 +91,17 @@ Internal POS and Custom SKUs are sale items, not shelf-counted inventory. Produc
 8. To rename the parent item, edit **Name** and select **Save name**. Riverside refreshes current catalog/search surfaces and records the exact before/after name and staff member in **Timeline**.
 9. To change the inherited retail price, enter the amount in **Base retail** and select **Save price**. Riverside shows how many variations inherit the parent and how many use SKU overrides. Leave **Apply to all variations** unchecked to preserve those exceptions; check it and confirm only when every variation should inherit the new parent price.
 10. To set an exact promotional price, enter it in **Base sale** and select **Save sale**. The sale price stays dormant until an eligible active discount event is applied; leave it blank to keep using the event's percentage discount.
-11. In **SKUs & Stock**, every variation has a **Use parent retail price** checkbox. Keep it checked to inherit the parent price. Uncheck it, enter the exact amount, and save to create a SKU override; check it again to clear that override.
-12. To rename a variation, edit its displayed option fields such as Color and Size, then select **Save name**. Riverside updates the underlying variation values and derived display label together so the matrix, search, POS selection, and future tags stay aligned. The SKU does not change.
-13. Review the shared retail price-tag dialog, adjust quantities, and confirm the final print batch.
-14. Open **Timeline** after a name or price edit to review the parent or SKU, exact before/after value, and the staff member or automated source that changed it. Price history is append-only and cannot be rewritten.
-15. Use recent inventory events when you need to confirm why an inventory number changed.
-16. Open **Stock Report** to review every variation's current quantity, last sold date, average monthly unit sales, and average yearly unit sales, then select **Print Report**.
-17. Select **Analyze product** only when you want the optional read-only ROSIE catalog review. Product Hub does not run that analysis automatically when the drawer opens.
-18. In **Item Setup** and **SKUs & Stock**, read `Average cost` as the financial basis and `Last cost` as purchasing reference only.
-19. On a variation card, leave **Tag copies** at `1` and select **Print 1 tag** for one tag. Enter a larger copy count and select the same button, or press Enter in the copy field, to print that many identical tags. Repeated button presses remain separate print jobs.
-20. Card view keeps every SKU editor available while loading only the visible card rows. Scroll normally to reach later SKUs; unfinished card input is retained while you remain in Product Hub, even when that card scrolls out of view.
+11. In **SKUs & Stock**, cards stay compact so staff can scan many variations at once. Select **Edit** on one card to open the shared variation editor above the card list. Use the card checkbox only when selecting several variations for a bulk action.
+12. In the shared editor, keep **Use parent retail price** checked to inherit the parent price. Uncheck it, enter the exact amount, and save to create a SKU override; check it again to restore the parent price.
+13. To rename the selected variation, edit its displayed option fields such as Color and Size, then select **Save name**. Riverside updates the underlying variation values and derived display label together so the matrix, search, POS selection, and future tags stay aligned. The SKU does not change.
+14. Review the shared retail price-tag dialog, adjust quantities, and confirm the final print batch.
+15. Open **Timeline** after a name or price edit to review the parent or SKU, exact before/after value, and the staff member or automated source that changed it. Price history is append-only and cannot be rewritten.
+16. Use recent inventory events when you need to confirm why an inventory number changed.
+17. Open **Stock Report** to review every variation's current quantity, last sold date, average monthly unit sales, and average yearly unit sales, then select **Print Report**.
+18. Select **Analyze product** only when you want the optional read-only ROSIE catalog review. Product Hub does not run that analysis automatically when the drawer opens.
+19. In **Item Setup** and the shared variation editor, read `Average cost` as the financial basis and `Last cost` as purchasing reference only. **Use item average cost** appears only when the selected SKU has an override. A SKU sale override offers **Use item sale price** when an item sale exists, or **Remove SKU sale price** when it does not.
+20. In the selected variation editor, leave **Tag copies** at `1` and select **Print 1 tag** for one tag. Enter a larger copy count and select the same button, or press Enter in the copy field, to print that many identical tags. Repeated button presses remain separate print jobs.
+21. Card view loads only the visible compact card rows while retaining one shared editor for the selected variation. Search still covers the entire loaded variation set, including SKU, variation name, Product UPC, and supplier catalog/style number.
 
 ## Parent stock and sales report
 

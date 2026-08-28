@@ -42,12 +42,27 @@ test("every variation editor exposes parent-price inheritance", () => {
   expect(variationsList).toContain("clear_retail_override");
 });
 
-test("variation cards stay editable without mounting the full catalog", () => {
+test("compact variation cards open one shared editor without mounting the full catalog", () => {
   expect(variationsWorkspace).toContain("VirtualizedList");
-  expect(variationsWorkspace).toContain("rowComponent={VirtualizedCardRow}");
-  expect(variationsWorkspace).toContain("overscanCount={1}");
+  expect(variationsWorkspace).toContain("rowComponent={CompactCardRow}");
+  expect(variationsWorkspace).toContain("rowHeight={190}");
+  expect(variationsWorkspace).toContain("overscanCount={2}");
+  expect(variationsWorkspace).toContain("SelectedVariationEditor");
+  expect(variationsWorkspace).toContain("Edit selected variation");
+  expect(variationsWorkspace).toContain("activeVariantId");
   expect(variationsWorkspace).toContain("cardDraftsRef");
   expect(variationsWorkspace).toContain("useDeferredValue(localSearch)");
+});
+
+test("variation pricing actions name their inherited result", () => {
+  expect(variationsWorkspace).toContain("Use item sale price");
+  expect(variationsWorkspace).toContain("Use item average cost");
+  expect(variationsWorkspace).toContain("Average cost");
+  expect(variationsWorkspace).toContain(
+    "Last cost is purchasing reference only",
+  );
+  expect(variationsWorkspace).not.toContain("Clear Avg Cost");
+  expect(variationsWorkspace).not.toContain("Clear Sale");
 });
 
 test("parent and variation names use audited catalog mutation paths", () => {

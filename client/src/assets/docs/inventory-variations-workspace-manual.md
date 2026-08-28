@@ -40,16 +40,18 @@ Use this workspace when you need to:
 
 ## Steps
 
-1. Open the **Variations** tab inside Product Hub.
-2. Switch between grid and list view depending on whether matrix layout or row-level detail is easier for the task.
+1. Open **SKUs & Stock** inside Product Hub.
+2. Use compact **Cards** for the normal workflow, **Matrix** for a size/color axis, or **List** for a dense table.
    - Riverside groups like variation axes and sorts common apparel sizes in working order (for example XS, SMALL/S, MED/M, LG/L, XL, 2XL), with numeric values sorted naturally and ordinary text alphabetically. Slash and hyphen suffix separators share one natural ordering pattern without merging distinct SKUs.
-3. If you only need some variations, select those rows first.
-4. Use `Print selected tags` when you have an active selection, or `Print all tags` when you want the full variation set.
-5. Use `Product UPC` for the manufacturer barcode that should scan at POS or receiving.
-6. Use `Catalog # / vendor style #` for the supplier item/style number used by buying and receiving paperwork.
-7. Review the shared retail price-tag dialog and adjust quantities for each variation.
-8. Confirm the print batch when the dialog matches the physical tags you need.
-9. For a single variation card, leave **Tag copies** at `1` and select **Print 1 tag**. Enter a larger copy count to print a batch; pressing the button again creates another print job.
+3. Select **Edit** on a card to open the one shared editor for that variation. The compact card remains a summary; forms and inventory actions are not repeated on every card.
+4. If you only need some variations for a bulk action, select their card or row checkboxes first.
+5. Use `Print selected tags` when you have an active selection, or `Print all tags` when you want the full variation set.
+6. In the shared editor, use `Product UPC` for the manufacturer barcode that should scan at POS or receiving.
+7. Use `Catalog # / vendor style #` for the supplier item/style number used by buying and receiving paperwork.
+8. Save a SKU sale or average-cost override only when that variation is genuinely different. **Use item sale price** and **Use item average cost** restore inheritance and appear only when an override exists. If no item sale price exists, the sale action reads **Remove SKU sale price** instead.
+9. Review the shared retail price-tag dialog and adjust quantities for each variation.
+10. Confirm the print batch when the dialog matches the physical tags you need.
+11. For the selected variation, leave **Tag copies** at `1` and select **Print 1 tag**. Enter a larger copy count to print a batch; pressing the button again creates another print job.
 
 ## What to watch for
 
