@@ -33,8 +33,8 @@ Only run the Main Hub update during an approved update window, normally before 1
 2. Confirm the release card says **Private Main Hub release** and review the candidate version and build.
 3. Confirm no Register is in an active payment or unsynced checkout.
 4. Select **Install Main Hub candidate** only when the release is ready and the update window is approved.
-5. Follow the elevated update window until Riverside reports the expected build is ready.
-6. Reopen Riverside and confirm the Main Hub, database, and search readiness are healthy.
+5. Leave the elevated update window open. Riverside closes automatically while the desktop app is replaced, then relaunches after installation.
+6. Confirm the Main Hub, database, and search readiness are healthy.
 
 The guarded update verifies the package, takes the required pre-migration backup, runs the normal installer and migrations, and checks the exact build. Until the Main Hub is running that candidate build, Riverside keeps the Windows workstation updater unavailable. If installation or readiness fails, the normal rollback remains authoritative and staff must not update other stations.
 

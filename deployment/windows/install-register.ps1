@@ -199,7 +199,7 @@ function Write-StationConfig($Config) {
 }
 
 function Stop-RiversideDesktopApp {
-  foreach ($name in @("Riverside POS", "Riverside.POS", "RiversideOS", "riverside-pos")) {
+  foreach ($name in @("Riverside POS", "Riverside.POS", "RiversideOS", "riverside-pos", "riverside-pos-tauri")) {
     Stop-Process -Name $name -Force -ErrorAction SilentlyContinue
   }
 }
@@ -285,6 +285,9 @@ function Install-RegisterApp($InstallerPath) {
 
 function Find-InstalledApp {
   $candidates = @(
+    "$env:LOCALAPPDATA\Riverside POS\riverside-pos-tauri.exe",
+    "$env:LOCALAPPDATA\Riverside POS\Riverside POS.exe",
+    "$env:LOCALAPPDATA\Programs\Riverside POS\riverside-pos-tauri.exe",
     "$env:ProgramFiles\Riverside POS\Riverside POS.exe",
     "${env:ProgramFiles(x86)}\Riverside POS\Riverside POS.exe",
     "$env:LOCALAPPDATA\Programs\Riverside POS\Riverside POS.exe"
@@ -355,6 +358,7 @@ if (-not $SkipAppInstall) {
   # Tauri MSI/NSIS installers perform an in-place upgrade. Keep the current app
   # installed until the replacement installer succeeds so a failed update does
   # not leave the workstation unusable.
+  Stop-RiversideDesktopApp
   Clear-RiversideClientCaches
   Write-Host "Installing Riverside desktop app from $installer"
   Install-RegisterApp $installer

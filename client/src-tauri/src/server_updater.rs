@@ -851,6 +851,7 @@ pub async fn download_and_run_server_installer(
         )?;
 
         let runner_script_path = temp_dir.join("update-runner.ps1");
+        let launcher_script_path = temp_dir.join("update-launcher.ps1");
         let runner_log_path = temp_dir.join("main-hub-update-transcript.txt");
         // Resolve config path from the detected install root rather than hardcoding.
         let install_root = check_server_local_status()
@@ -973,7 +974,7 @@ try {{
     Write-MainHubUpdateStatus 'UPDATING' 'Server files installed; completing the desktop update and final readiness check.'
 
     Write-Host 'Step 2: Updating client app on this PC (preserving existing config)...'
-    ./install-register.ps1 -ConfigPath $configPath -StationMode mainhub
+    ./install-register.ps1 -ConfigPath $configPath -StationMode mainhub -Launch
 
     # Checksum verification
     if (Test-Path -Path $serverBin) {{
@@ -1080,10 +1081,31 @@ Read-Host 'Press Enter to close this window'
         std::fs::write(&runner_script_path, runner_content)
             .map_err(|e| format!("Failed to write update runner script: {e}"))?;
 
+        // Run the update through Task Scheduler so replacing the Tauri app cannot
+        // terminate the elevated update runner with the desktop app's process tree.
         let escaped_runner = runner_script_path.to_string_lossy().replace('\'', "''");
+        let launcher_content = format!(
+            r#"$ErrorActionPreference = 'Stop'
+$taskName = 'Riverside OS Main Hub Update'
+$runnerPath = '{escaped_runner}'
+$existingTask = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($existingTask -and $existingTask.State -eq 'Running') {{
+    throw 'A Main Hub update is already running.'
+}}
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ("-NoProfile -ExecutionPolicy Bypass -File `"" + $runnerPath + "`"")
+$principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Highest
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Force | Out-Null
+Start-ScheduledTask -TaskName $taskName
+"#,
+        );
+        std::fs::write(&launcher_script_path, launcher_content)
+            .map_err(|e| format!("Failed to write update launcher script: {e}"))?;
+
+        let escaped_launcher = launcher_script_path.to_string_lossy().replace('\'', "''");
         let spawn_cmd = format!(
-            "$args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-NoExit', '-File', '{}'); Start-Process -FilePath 'powershell.exe' -ArgumentList $args -Verb RunAs",
-            escaped_runner
+            "$args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', '{}'); $process = Start-Process -FilePath 'powershell.exe' -ArgumentList $args -Verb RunAs -Wait -PassThru; exit $process.ExitCode",
+            escaped_launcher
         );
 
         let mut spawn_process = Command::new("powershell");
