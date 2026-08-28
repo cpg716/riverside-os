@@ -268,6 +268,8 @@ pub struct RegisterActivityItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub salesperson_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub operator_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub deposits_paid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub balance_due: Option<String>,
@@ -1026,6 +1028,7 @@ async fn fetch_register_sales_totals_on_connection(
                     e.transaction_id,
                     'ros:' || e.transaction_id::text AS activity_key,
                     FALSE AS is_counterpoint_history,
+                    BOOL_OR(e.event_kind <> 'initial_booking') AS is_ros_amendment,
                     SUM(e.subtotal_delta + e.tax_delta) > 0 AS countable_sale,
                     (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
                     SUM(
@@ -1054,6 +1057,8 @@ async fn fetch_register_sales_totals_on_connection(
                   AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
                   AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
                   AND NOT (
+                      e.event_kind = 'initial_booking'
+                      AND
                       COALESCE(source_transaction.is_counterpoint_import, FALSE)
                       AND source_transaction.counterpoint_doc_ref IS NOT NULL
                       AND EXISTS (
@@ -1081,6 +1086,7 @@ async fn fetch_register_sales_totals_on_connection(
                     'counterpoint:' || e.source_document_type || ':' || e.source_document_id
                         AS activity_key,
                     TRUE AS is_counterpoint_history,
+                    FALSE AS is_ros_amendment,
                     SUM(e.subtotal_delta + e.tax_delta) > 0 AS countable_sale,
                     (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date AS business_date,
                     SUM(e.subtotal_delta)::numeric(14,2) AS line_subtotal,
@@ -1105,6 +1111,7 @@ async fn fetch_register_sales_totals_on_connection(
                 oi.transaction_id,
                 'ros:' || oi.transaction_id::text AS activity_key,
                 FALSE AS is_counterpoint_history,
+                FALSE AS is_ros_amendment,
                 TRUE AS countable_sale,
                 (({recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date
                     AS business_date,
@@ -1153,9 +1160,12 @@ async fn fetch_register_sales_totals_on_connection(
             )::bigint AS web_count
         FROM ({summary_line_source}) ln
         LEFT JOIN transactions o ON o.id = ln.transaction_id
-        WHERE reporting.counterpoint_source_is_reportable(
-            COALESCE(o.is_counterpoint_import, ln.is_counterpoint_history),
-            ln.business_date
+        WHERE (
+            ln.is_ros_amendment
+            OR reporting.counterpoint_source_is_reportable(
+                COALESCE(o.is_counterpoint_import, ln.is_counterpoint_history),
+                ln.business_date
+            )
         )
           AND (
             (ln.is_counterpoint_history AND $3::uuid IS NULL)
@@ -1578,9 +1588,12 @@ async fn fetch_register_day_summary_page_on_connection(
                   AND e.booked_at < $2
                   AND e.is_internal = FALSE
                   AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
-                  AND reporting.counterpoint_source_is_reportable(
-                        o.is_counterpoint_import,
-                        (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  AND (
+                        e.event_kind <> 'initial_booking'
+                        OR reporting.counterpoint_source_is_reportable(
+                            o.is_counterpoint_import,
+                            (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                        )
                       )
                   AND UPPER(TRIM(COALESCE(pv.sku, ''))) IN ('SHIPPING', 'ROS-SHIPPING-FEE')
                 {order_session_filter}
@@ -1652,9 +1665,12 @@ async fn fetch_register_day_summary_page_on_connection(
               AND e.booked_at < $2
               AND e.is_internal = FALSE
               AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
-              AND reporting.counterpoint_source_is_reportable(
-                    o.is_counterpoint_import,
-                    (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+              AND (
+                    e.event_kind <> 'initial_booking'
+                    OR reporting.counterpoint_source_is_reportable(
+                        o.is_counterpoint_import,
+                        (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                    )
                   )
               AND e.line_kind IN ('alteration_service', 'alteration_fee')
             {order_session_filter}
@@ -1723,9 +1739,12 @@ async fn fetch_register_day_summary_page_on_connection(
           AND e.booked_at < $2
           AND e.is_internal = FALSE
           AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
-          AND reporting.counterpoint_source_is_reportable(
-                o.is_counterpoint_import,
-                (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+          AND (
+                e.event_kind <> 'initial_booking'
+                OR reporting.counterpoint_source_is_reportable(
+                    o.is_counterpoint_import,
+                    (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                )
               )
           AND e.line_kind = 'pos_gift_card_load'
         {booked_session_filter}
@@ -2098,6 +2117,7 @@ async fn fetch_register_day_summary_page_on_connection(
         customer_phone: Option<String>,
         customer_email: Option<String>,
         salesperson_name: Option<String>,
+        operator_name: Option<String>,
         balance_due: Decimal,
         channel: String,
         is_order_cancellation: bool,
@@ -2179,9 +2199,12 @@ async fn fetch_register_day_summary_page_on_connection(
                 WHERE e.booked_at >= $1 AND e.booked_at < $2
                   AND e.is_internal = FALSE
                   AND COALESCE(e.metadata->>'reporting_excluded', '') = ''
-                  AND reporting.counterpoint_source_is_reportable(
-                      source_transaction.is_counterpoint_import,
-                      (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                  AND (
+                      e.event_kind <> 'initial_booking'
+                      OR reporting.counterpoint_source_is_reportable(
+                          source_transaction.is_counterpoint_import,
+                          (e.booked_at AT TIME ZONE reporting.effective_store_timezone())::date
+                      )
                   )
                   AND e.line_kind IS DISTINCT FROM 'rms_charge_payment'
                   AND e.line_kind IS DISTINCT FROM 'pos_gift_card_load'
@@ -3095,24 +3118,40 @@ async fn fetch_register_day_summary_page_on_connection(
                         + COALESCE(trl.refund_state_tax, tl.state_tax * trl.quantity_returned)
                         + COALESCE(trl.refund_local_tax, tl.local_tax * trl.quantity_returned)
                 )), 0)::numeric(14,2) AS refund_total,
-                MAX(cancelling_staff.full_name) AS salesperson_name,
+                MAX(cancelling_staff.full_name) AS operator_name,
                 jsonb_agg(jsonb_build_object(
                     'name', COALESCE(NULLIF(TRIM(p.name), ''), pv.sku, 'Cancelled item'),
                     'sku', COALESCE(pv.sku, 'Unknown SKU'),
                     'quantity', -trl.quantity_returned,
-                    'price', (
+                    'price', ROUND((
                         COALESCE(trl.refund_subtotal, tl.unit_price * trl.quantity_returned)
                         / GREATEST(trl.quantity_returned, 1)
-                    )::text,
-                    'reg_price', COALESCE(pv.retail_price_override, p.base_retail_price)::text,
+                    ), 2)::numeric(14,2)::text,
+                    'reg_price', ROUND(
+                        COALESCE(pv.retail_price_override, p.base_retail_price),
+                        2
+                    )::numeric(14,2)::text,
                     'product_id', p.id,
                     'fulfillment', CASE
                         WHEN trl.reason LIKE 'Order item cancellation:%'
-                        THEN 'cancellation'
+                        THEN 'order_cancellation'
                         ELSE 'return'
                     END,
                     'is_internal', false,
-                    'line_kind', 'return'
+                    'line_kind', 'return',
+                    'booking_delta', ROUND(-COALESCE(
+                        trl.refund_subtotal,
+                        tl.unit_price * trl.quantity_returned
+                    ), 2)::numeric(14,2)::text,
+                    'booking_tax_delta', ROUND(-(
+                        COALESCE(trl.refund_state_tax, tl.state_tax * trl.quantity_returned)
+                        + COALESCE(trl.refund_local_tax, tl.local_tax * trl.quantity_returned)
+                    ), 2)::numeric(14,2)::text,
+                    'booking_event_kind', CASE
+                        WHEN trl.reason LIKE 'Order item cancellation:%'
+                        THEN 'line_cancelled'
+                        ELSE 'line_returned'
+                    END
                 ) ORDER BY trl.created_at, trl.id) AS items_json
             FROM transaction_return_lines trl
             INNER JOIN transaction_lines tl ON tl.id = trl.transaction_line_id
@@ -3172,7 +3211,10 @@ async fn fetch_register_day_summary_page_on_connection(
             c.customer_code,
             c.phone AS customer_phone,
             c.email AS customer_email,
-            cancellation.salesperson_name,
+            (SELECT salesperson.full_name
+             FROM staff salesperson
+             WHERE salesperson.id = o.primary_salesperson_id) AS salesperson_name,
+            cancellation.operator_name,
             COALESCE(o.balance_due, 0)::numeric(14,2) AS balance_due,
             o.sale_channel::text AS channel,
             COALESCE((
@@ -3380,11 +3422,11 @@ async fn fetch_register_day_summary_page_on_connection(
             if s.sales_total_booked < Decimal::ZERO
                 || (s.sales_total_booked == Decimal::ZERO && s.tax_total < Decimal::ZERO)
             {
-                "Order Adjustment (Decrease)".to_string()
+                "Order Edited (Decrease)".to_string()
             } else if s.sales_total_booked == Decimal::ZERO && s.tax_total == Decimal::ZERO {
-                "Order Adjustment (No Net Change)".to_string()
+                "Order Edited (No Net Change)".to_string()
             } else {
-                "Order Adjustment (Increase)".to_string()
+                "Order Edited (Increase)".to_string()
             }
         } else if is_rms_payment_activity {
             "RMS Charge Payment".to_string()
@@ -3412,7 +3454,9 @@ async fn fetch_register_day_summary_page_on_connection(
                 }
             }
         };
-        let sale_kind = if is_rms_payment_activity {
+        let sale_kind = if is_booked_amendment {
+            "order_edit"
+        } else if is_rms_payment_activity {
             "payment"
         } else if is_pickup_activity {
             "pickup"
@@ -3473,7 +3517,7 @@ async fn fetch_register_day_summary_page_on_connection(
             id: format!("{sale_kind}:{}", s.transaction_id),
             kind: sale_kind.to_string(),
             occurred_at: s.booked_at,
-            title: if is_counterpoint_import {
+            title: if is_counterpoint_import && !is_booked_amendment {
                 "Imported Order".to_string()
             } else {
                 title
@@ -3512,6 +3556,7 @@ async fn fetch_register_day_summary_page_on_connection(
             customer_phone: s.customer_phone,
             customer_email: s.customer_email,
             salesperson_name: s.salesperson_name,
+            operator_name: None,
             deposits_paid: deposits,
             balance_due: balance,
             fulfillment_type: if is_pickup_activity {
@@ -3525,7 +3570,7 @@ async fn fetch_register_day_summary_page_on_connection(
             wedding_deposit_member_count: wedding_contribution
                 .map(|(_, member_count)| *member_count),
             short_id: s.short_id,
-            imported_at: if is_counterpoint_import {
+            imported_at: if is_counterpoint_import && !is_booked_amendment {
                 Some(s.created_at)
             } else {
                 None
@@ -3714,6 +3759,7 @@ async fn fetch_register_day_summary_page_on_connection(
             customer_phone: p.customer_phone,
             customer_email: p.customer_email,
             salesperson_name: p.salesperson_name,
+            operator_name: None,
             deposits_paid: Some(money_label(p.amount)),
             balance_due: Some(money_label(p.target_balance_due)),
             fulfillment_type: Some(
@@ -3732,6 +3778,7 @@ async fn fetch_register_day_summary_page_on_connection(
         });
     }
 
+    let mut merged_return_adjustment_count = 0_i64;
     for cancellation in return_adjustment_activities {
         let customer_full = match (
             cancellation
@@ -3750,9 +3797,77 @@ async fn fetch_register_day_summary_page_on_connection(
             (None, Some(last)) => Some(last.to_string()),
             _ => cancellation.customer_code.clone(),
         };
-        let items = cancellation
+        let mut items = cancellation
             .items_json
             .and_then(|value| serde_json::from_value::<Vec<ActivityItemDetail>>(value).ok());
+
+        if cancellation.is_order_cancellation {
+            let cancellation_business_date =
+                cancellation.created_at.with_timezone(&tz).date_naive();
+            if let Some(activity) = activities.iter_mut().find(|activity| {
+                activity.transaction_id == Some(cancellation.transaction_id)
+                    && activity.kind == "order_edit"
+                    && activity.occurred_at.with_timezone(&tz).date_naive()
+                        == cancellation_business_date
+            }) {
+                let current_sales = activity
+                    .sales_total
+                    .as_deref()
+                    .and_then(|value| value.parse::<Decimal>().ok())
+                    .unwrap_or(Decimal::ZERO);
+                let current_tax = activity
+                    .tax_total
+                    .as_deref()
+                    .and_then(|value| value.parse::<Decimal>().ok())
+                    .unwrap_or(Decimal::ZERO);
+                let current_shipping = activity
+                    .shipping_total
+                    .as_deref()
+                    .and_then(|value| value.parse::<Decimal>().ok())
+                    .unwrap_or(Decimal::ZERO);
+                let current_alterations = activity
+                    .alterations_total
+                    .as_deref()
+                    .and_then(|value| value.parse::<Decimal>().ok())
+                    .unwrap_or(Decimal::ZERO);
+                let combined_sales = current_sales - cancellation.refund_subtotal;
+                let combined_tax = current_tax - cancellation.refund_tax;
+                let combined_shipping = current_shipping - cancellation.shipping_total;
+                let combined_alterations = current_alterations - cancellation.alterations_total;
+                let combined_total = combined_sales + combined_tax + combined_shipping;
+
+                activity.occurred_at = activity.occurred_at.max(cancellation.created_at);
+                activity.title = if combined_sales < Decimal::ZERO
+                    || (combined_sales == Decimal::ZERO
+                        && combined_tax + combined_shipping < Decimal::ZERO)
+                {
+                    "Order Edited (Decrease)".to_string()
+                } else if combined_sales == Decimal::ZERO
+                    && combined_tax == Decimal::ZERO
+                    && combined_shipping == Decimal::ZERO
+                {
+                    "Order Edited (No Net Change)".to_string()
+                } else {
+                    "Order Edited (Increase)".to_string()
+                };
+                activity.amount_label = Some(currency_label(combined_total));
+                activity.sales_total = Some(money_label(combined_sales));
+                activity.tax_total = Some(money_label(combined_tax));
+                activity.shipping_total = Some(money_label(combined_shipping));
+                activity.alterations_total = Some(money_label(combined_alterations));
+                activity.operator_name = cancellation.operator_name;
+                activity.balance_due = Some(money_label(cancellation.balance_due));
+                activity.fulfillment_type = Some("order_edit".to_string());
+                if let Some(cancelled_items) = items.take() {
+                    activity
+                        .items
+                        .get_or_insert_with(Vec::new)
+                        .extend(cancelled_items);
+                }
+                merged_return_adjustment_count = merged_return_adjustment_count.saturating_add(1);
+                continue;
+            }
+        }
 
         activities.push(RegisterActivityItem {
             id: format!("return-adjustment:{}", cancellation.refund_event_id),
@@ -3793,17 +3908,18 @@ async fn fetch_register_day_summary_page_on_connection(
             customer_phone: cancellation.customer_phone,
             customer_email: cancellation.customer_email,
             salesperson_name: cancellation.salesperson_name,
+            operator_name: cancellation.operator_name,
             deposits_paid: None,
             balance_due: Some(money_label(cancellation.balance_due)),
             fulfillment_type: Some(
                 if cancellation.is_order_cancellation {
-                    "order_adjustment"
+                    "order_cancellation"
                 } else {
                     "return_adjustment"
                 }
                 .to_string(),
             ),
-            transaction_total: Some(money_label(-cancellation.refund_total)),
+            transaction_total: None,
             wedding_deposit_contributions: None,
             wedding_deposit_member_count: None,
             short_id: Some(cancellation.short_id),
@@ -3859,6 +3975,7 @@ async fn fetch_register_day_summary_page_on_connection(
             customer_phone: deposit.customer_phone,
             customer_email: deposit.customer_email,
             salesperson_name: deposit.salesperson_name,
+            operator_name: None,
             deposits_paid: Some(money_label(deposit.total_amount)),
             balance_due: Some(money_label(Decimal::ZERO)),
             fulfillment_type: Some("wedding_deposit".to_string()),
@@ -3874,7 +3991,8 @@ async fn fetch_register_day_summary_page_on_connection(
         .saturating_add(payments_matched_count)
         .saturating_add(return_adjustments_matched_count)
         .saturating_add(wedding_deposits_matched_count)
-        .saturating_sub(merged_payment_count);
+        .saturating_sub(merged_payment_count)
+        .saturating_sub(merged_return_adjustment_count);
     activities.sort_by(compare_activity_desc);
     let activities = activities
         .into_iter()
@@ -3943,6 +4061,7 @@ async fn fetch_register_day_summary_page_on_connection(
                 customer_phone: p.customer_phone,
                 customer_email: p.customer_email,
                 salesperson_name: p.salesperson_name,
+                operator_name: None,
                 deposits_paid: None,
                 balance_due: Some(money_label(p.balance_due.max(Decimal::ZERO))),
                 fulfillment_type: Some("pickup".to_string()),
@@ -4120,7 +4239,7 @@ mod tests {
             Decimal::new(-5000, 2)
         );
         assert_eq!(activity.occurred_at, event_time);
-        assert_eq!(activity.title, "Order Adjustment (Decrease)");
+        assert_eq!(activity.title, "Order Edited (Decrease)");
         assert_eq!(
             activity
                 .sales_total
@@ -4364,7 +4483,7 @@ mod tests {
             summary.special_order_sale_count, 0,
             "an older Order amendment must not be counted as a new Order"
         );
-        assert_eq!(activity.title, "Order Adjustment (No Net Change)");
+        assert_eq!(activity.title, "Order Edited (No Net Change)");
         assert_eq!(
             activity
                 .sales_total
@@ -4400,7 +4519,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn booked_activity_keeps_adjustment_when_refund_payment_is_outside_window() {
+    async fn booked_activity_groups_native_edit_to_imported_order_without_false_payment() {
         let Ok(database_url) = std::env::var("DATABASE_URL") else {
             return;
         };
@@ -4444,13 +4563,15 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO transactions (
-                id, total_price, balance_due, display_id, checkout_client_id, sale_channel
-            ) VALUES ($1, 0.00, 0.00, $2, $3, 'register')
+                id, total_price, balance_due, display_id, checkout_client_id, sale_channel,
+                is_counterpoint_import, counterpoint_doc_ref
+            ) VALUES ($1, 50.00, 0.00, $2, $3, 'register', TRUE, $4)
             "#,
         )
         .bind(transaction_id)
         .bind(format!("TXN-UNTENDERED-CANCEL-{}", transaction_id.simple()))
         .bind(Uuid::new_v4())
+        .bind(format!("CP-EDIT-{}", transaction_id.simple()))
         .execute(&mut *transaction)
         .await
         .expect("insert cancellation test transaction");
@@ -4470,6 +4591,31 @@ mod tests {
         .execute(&mut *transaction)
         .await
         .expect("insert cancellation test transaction line");
+
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_line_booking_events (
+                transaction_id, transaction_line_id, event_kind, booked_at,
+                subtotal_delta, tax_delta, is_internal, line_kind, metadata
+            ) VALUES (
+                $1, $2, 'line_added', $3, 50.00, 2.38, FALSE, NULL,
+                jsonb_build_object(
+                    'product_id', $4::text,
+                    'variant_id', $5::text,
+                    'new_quantity', '1',
+                    'new_unit_price', '50.00'
+                )
+            )
+            "#,
+        )
+        .bind(transaction_id)
+        .bind(transaction_line_id)
+        .bind(event_time - chrono::Duration::minutes(1))
+        .bind(product_id)
+        .bind(variant_id)
+        .execute(&mut *transaction)
+        .await
+        .expect("insert native ROS line addition to imported order");
 
         sqlx::query(
             r#"
@@ -4541,31 +4687,37 @@ mod tests {
         let activity = summary
             .activities
             .iter()
-            .find(|activity| activity.refund_event_id == Some(refund_event_id))
-            .expect("in-window adjustment should remain visible in activity detail");
+            .find(|activity| activity.transaction_id == Some(transaction_id))
+            .expect("the imported order edit should remain visible in activity detail");
 
-        assert_eq!(
-            summary.net_sales.parse::<Decimal>().unwrap(),
-            Decimal::new(-5000, 2)
-        );
+        assert_eq!(summary.net_sales.parse::<Decimal>().unwrap(), Decimal::ZERO);
         assert_eq!(
             summary.sales_tax_total.parse::<Decimal>().unwrap(),
-            Decimal::new(-238, 2)
+            Decimal::ZERO
         );
-        assert_eq!(activity.title, "Order Item Cancellation");
-        assert_eq!(activity.amount_label.as_deref(), Some("-$52.38"));
-        assert_eq!(activity.sales_total.as_deref(), Some("-50.00"));
-        assert_eq!(activity.tax_total.as_deref(), Some("-2.38"));
-        assert!(activity
-            .items
-            .as_ref()
-            .is_some_and(|items| { items.len() == 1 && items[0].quantity == -1 }));
+        assert_eq!(summary.activity_total_count, 1);
+        assert_eq!(activity.kind, "order_edit");
+        assert_eq!(activity.title, "Order Edited (No Net Change)");
+        assert_eq!(activity.amount_label.as_deref(), Some("$0"));
+        assert_eq!(activity.sales_total.as_deref(), Some("0.00"));
+        assert_eq!(activity.tax_total.as_deref(), Some("0.00"));
+        assert_eq!(activity.transaction_total, None);
+        assert_eq!(activity.fulfillment_type.as_deref(), Some("order_edit"));
+        assert!(activity.items.as_ref().is_some_and(|items| {
+            items.iter().any(|item| {
+                item.booking_event_kind.as_deref() == Some("line_added") && item.price == "50.00"
+            }) && items.iter().any(|item| {
+                item.booking_event_kind.as_deref() == Some("line_cancelled")
+                    && item.quantity == -1
+                    && item.price == "50.00"
+            })
+        }));
         validate_financial_activity_totals(
             &summary.net_sales,
             &summary.sales_tax_total,
             &summary.activities,
         )
-        .expect("out-of-window refund payment should not hide the in-window adjustment");
+        .expect("the grouped edit should reconcile both sides without a tender");
 
         transaction.rollback().await.expect("rollback transaction");
     }

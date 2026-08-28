@@ -745,6 +745,7 @@ export type RegisterReportActivity = {
   }[];
   customer_name?: string | null;
   salesperson_name?: string | null;
+  operator_name?: string | null;
   customer_code?: string | null;
   wedding_party_name?: string | null;
   sales_total?: string | null;
@@ -869,6 +870,13 @@ export function renderRegisterActivityRows(
             subtotalCents +
             parseRegisterReportMoneyToCents(row.tax_total) +
             parseRegisterReportMoneyToCents(row.shipping_total);
+          const hasPaymentEvidence =
+            row.kind === "payment" ||
+            row.kind === "wedding_deposit" ||
+            row.transaction_total != null ||
+            Boolean(row.payment_summary) ||
+            Boolean(row.payments?.length) ||
+            Boolean(row.payment_applications?.length);
 
           return `
         <section class="activity-card">
@@ -876,7 +884,7 @@ export function renderRegisterActivityRows(
             <div class="pill">${row.title}</div>
             <div class="customer">${customerInfo || "Walk-in Customer"}</div>
             ${row.short_id ? `<div class="transaction-ref mono">${escapeReportHtml(row.short_id)}</div>` : ""}
-            <div class="transaction-meta"><div><span>Salesperson</span><strong>${escapeReportHtml(row.salesperson_name || "Unassigned")}</strong></div></div>
+            <div class="transaction-meta"><div><span>Salesperson</span><strong>${escapeReportHtml(row.salesperson_name || "Unassigned")}</strong></div>${row.operator_name ? `<div><span>${row.kind === "order_edit" ? "Edited by" : "Processed by"}</span><strong>${escapeReportHtml(row.operator_name)}</strong></div>` : ""}</div>
             <div class="chips">${chips}</div>
             <div class="time">${tm}</div>
           </div>
@@ -897,7 +905,7 @@ export function renderRegisterActivityRows(
             ${row.kind !== "payment" && row.kind !== "wedding_deposit" && row.tax_total ? `<div class="money-sub">Tax: ${formatReportMoney(row.tax_total)}</div>` : ""}
             ${row.kind !== "payment" && row.kind !== "wedding_deposit" && parseRegisterReportMoneyToCents(row.shipping_total) !== 0 ? `<div class="money-sub">Shipping: ${formatReportMoney(row.shipping_total ?? "0")}</div>` : ""}
             ${row.kind !== "payment" && row.kind !== "wedding_deposit" && parseRegisterReportMoneyToCents(row.alterations_total) !== 0 ? `<div class="money-sub">Alterations: ${formatReportMoney(row.alterations_total ?? "0")}</div>` : ""}
-            ${row.kind !== "payment" && row.kind !== "wedding_deposit" ? `<div class="money-sub">${row.payment_applications?.length ? "Total Paid Today" : "Transaction Total"}: ${row.transaction_total ? `$${row.transaction_total}` : "—"}</div>` : ""}
+            ${row.kind !== "payment" && row.kind !== "wedding_deposit" && hasPaymentEvidence ? `<div class="money-sub">${row.payment_applications?.length ? "Total Paid Today" : "Paid on this Transaction"}: ${row.transaction_total ? formatReportMoney(row.transaction_total) : "—"}</div>` : ""}
             ${row.kind !== "wedding_deposit" && row.wedding_deposit_contributions ? `<div class="money-good">Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} member${row.wedding_deposit_member_count === 1 ? "" : "s"}</div>` : ""}
             ${row.kind !== "wedding_deposit" && row.wedding_deposit_contributions ? `<div class="money-sub">Total Tender Collected: ${formatReportMoney(registerReportTenderCollectedCents(row))}</div>` : ""}
             ${paymentRows}
@@ -944,7 +952,7 @@ function registerActivityTextLines(
       row.kind === "payment" && row.subtitle
         ? ` ${textValue(row.subtitle)}`
         : ""
-    }${row.short_id ? ` | ${row.short_id}` : ""} | Salesperson: ${row.salesperson_name || "Unassigned"} | ${
+    }${row.short_id ? ` | ${row.short_id}` : ""} | Salesperson: ${row.salesperson_name || "Unassigned"}${row.operator_name ? ` | ${row.kind === "order_edit" ? "Edited by" : "Processed by"}: ${row.operator_name}` : ""} | ${
       customerInfo || "Walk-in Customer"
     } | ${row.kind === "payment" ? "Payment" : row.kind === "wedding_deposit" ? "Wedding Deposits" : "Sales"}: ${
       row.kind === "payment" || row.kind === "wedding_deposit"
@@ -1003,7 +1011,7 @@ function registerActivityTextLines(
       row.kind !== "payment" &&
       row.kind !== "wedding_deposit" &&
       row.transaction_total
-        ? `${row.payment_applications?.length ? "Total Paid Today" : "Transaction Total"}: ${formatReportMoney(row.transaction_total)}`
+        ? `${row.payment_applications?.length ? "Total Paid Today" : "Paid on this Transaction"}: ${formatReportMoney(row.transaction_total)}`
         : "",
       row.kind !== "wedding_deposit" && row.wedding_deposit_contributions
         ? `Wedding Deposits Placed: ${formatReportMoney(row.wedding_deposit_contributions)} for ${row.wedding_deposit_member_count ?? 0} members`

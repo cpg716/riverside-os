@@ -437,20 +437,31 @@ test.describe("Register report output integrity contracts", () => {
     expect(bookedSummaryQuery).not.toContain(
       "HAVING SUM(e.subtotal_delta + e.tax_delta) > 0",
     );
-    expect(bookedActivityJoin).toContain("BOOL_OR(e.event_kind <> 'initial_booking')");
+    expect(bookedSummaryQuery).toContain(
+      "BOOL_OR(e.event_kind <> 'initial_booking') AS is_ros_amendment",
+    );
+    expect(bookedActivityJoin).toContain("e.event_kind <> 'initial_booking'");
+    expect(registerDayServerSource).toContain("ln.is_ros_amendment");
     expect(signedActivityPresence).toContain(
       'ReportBasis::Booked => "TRUE"',
     );
     expect(registerDayServerSource).toContain("AND ln.countable_sale");
     expect(registerDayServerSource).toContain(
-      '"Order Adjustment (Decrease)".to_string()',
+      '"Order Edited (Decrease)".to_string()',
     );
     expect(registerDayServerSource).toContain(
-      '"Order Adjustment (No Net Change)".to_string()',
+      '"Order Edited (No Net Change)".to_string()',
     );
     expect(registerDayServerSource).toContain(
       "amount_label: Some(currency_label(s.sales_total_booked))",
     );
+    expect(registerDayServerSource).toContain(
+      'activity.fulfillment_type = Some("order_edit".to_string())',
+    );
+    expect(registerDayServerSource).toContain("transaction_total: None");
+    expect(registerReportsSource).toContain("activityHasPaymentEvidence(row)");
+    expect(registerReportsSource).toContain("moneyFromValue(it.price)");
+    expect(registerReportsSource).toContain("Edited by");
     expect(bookingEventMigrationSource).toContain(
       "OLD.transaction_id, NULL, 'line_deleted', CURRENT_TIMESTAMP",
     );

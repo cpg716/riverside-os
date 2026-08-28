@@ -167,6 +167,7 @@ interface RegisterActivityItem {
   payment_applications?: OrderPaymentApplication[];
   cashier_name?: string | null;
   salesperson_name?: string | null;
+  operator_name?: string | null;
 }
 
 interface RegisterDaySummary {
@@ -553,6 +554,15 @@ function fulfillmentDisplayLabel(value?: string | null): string | null {
       return "Layaway";
     case "pickup":
       return "Pickup";
+    case "order_edit":
+    case "order_adjustment":
+      return "Edited Order";
+    case "order_cancellation":
+    case "cancellation":
+      return "Cancelled";
+    case "return_adjustment":
+    case "return":
+      return "Returned";
     default:
       return null;
   }
@@ -649,6 +659,44 @@ function activityTotalWithTaxCents(
     parseMoneyToCents(row.tax_total ?? "0") +
     parseMoneyToCents(row.shipping_total ?? "0")
   );
+}
+
+function activityReportedTotalWithTaxCents(
+  row: Pick<
+    RegisterActivityItem,
+    "sales_total" | "tax_total" | "shipping_total"
+  >,
+): number {
+  return (
+    parseMoneyToCents(row.sales_total ?? "0") +
+    parseMoneyToCents(row.tax_total ?? "0") +
+    parseMoneyToCents(row.shipping_total ?? "0")
+  );
+}
+
+function activityHasPaymentEvidence(row: RegisterActivityItem): boolean {
+  return (
+    row.kind === "payment" ||
+    row.kind === "wedding_deposit" ||
+    row.transaction_total != null ||
+    Boolean(row.payment_summary) ||
+    Boolean(row.payments?.length) ||
+    Boolean(row.payment_applications?.length)
+  );
+}
+
+function bookingEventLabel(value?: string | null): string {
+  switch (value) {
+    case "line_deleted":
+    case "line_cancelled":
+      return "Removed";
+    case "line_returned":
+      return "Returned";
+    case "line_amendment":
+      return "Change";
+    default:
+      return "Added";
+  }
 }
 
 function moneyFromCents(cents: number): string {
@@ -1559,7 +1607,8 @@ export default function RegisterReports({
       ),
       total_with_tax: centsToFixed2(
         acts.reduce(
-          (sum, activity) => sum + activityTotalWithTaxCents(activity),
+          (sum, activity) =>
+            sum + activityReportedTotalWithTaxCents(activity),
           0,
         ),
       ),
@@ -1764,12 +1813,17 @@ export default function RegisterReports({
           "Customer Name": a.customer_name || "",
           "Customer #": a.customer_code || "",
           Salesperson: a.salesperson_name || "",
+          Operator: a.operator_name || "",
           "Wedding Party": a.wedding_party_name || "",
           Item: item?.name ?? "",
           SKU: item?.sku ?? "",
           Qty: item?.quantity ?? "",
-          "Reg Price": item?.reg_price ?? "",
-          "Sale Price": item?.price ?? "",
+          "Reg Price": item?.reg_price
+            ? centsToFixed2(parseMoneyToCents(item.reg_price))
+            : "",
+          "Sale Price": item?.price
+            ? centsToFixed2(parseMoneyToCents(item.price))
+            : "",
           Takeaway: a.is_takeaway ? "Yes" : "No",
           Fulfillment: activityFulfillmentLabel(a) || "",
           "Deposit Paid":
@@ -1788,7 +1842,7 @@ export default function RegisterReports({
             idx === 0
               ? a.kind === "wedding_deposit"
                 ? "0"
-                : a.transaction_total || a.amount_label || "0"
+                : a.transaction_total || ""
               : "",
           "Wedding Deposits Placed":
             idx === 0 ? a.wedding_deposit_contributions || "0" : "",
@@ -1815,9 +1869,7 @@ export default function RegisterReports({
           activity.kind === "wedding_deposit"
             ? sum
             : sum +
-              parseRegisterReportMoneyToCents(
-                activity.transaction_total || activity.amount_label || "0",
-              ),
+              parseRegisterReportMoneyToCents(activity.transaction_total),
         0,
       );
       const totalTenderCollectedCents = exportSummary.activities.reduce(
@@ -1872,6 +1924,8 @@ export default function RegisterReports({
         "Order ID": "",
         "Customer Name": "",
         "Customer #": "",
+        Salesperson: "",
+        Operator: "",
         "Wedding Party": "",
         Item: "",
         SKU: "",
@@ -1903,6 +1957,8 @@ export default function RegisterReports({
         "Order ID",
         "Customer Name",
         "Customer #",
+        "Salesperson",
+        "Operator",
         "Wedding Party",
         "Item",
         "SKU",
@@ -2950,6 +3006,17 @@ export default function RegisterReports({
                                   <div className="mt-2 text-xs font-bold text-app-text-muted">
                                     Salesperson: {row.salesperson_name || "Unassigned"}
                                   </div>
+                                  {row.operator_name ? (
+                                    <div className="mt-1 text-xs font-bold text-app-text-muted">
+                                      {row.kind === "order_edit"
+                                        ? "Edited by"
+                                        : row.fulfillment_type ===
+                                            "order_cancellation"
+                                          ? "Cancelled by"
+                                          : "Processed by"}
+                                      : {row.operator_name}
+                                    </div>
+                                  ) : null}
                                 </div>
                               </div>
 
@@ -3049,7 +3116,11 @@ export default function RegisterReports({
                                 {row.kind !== "payment" &&
                                 row.kind !== "wedding_deposit" ? (
                                   <span className="text-xs font-semibold text-app-text-muted opacity-70">
-                                    ({row.items?.length || 0} units)
+                                    ({row.items?.length || 0}{" "}
+                                    {row.kind === "order_edit"
+                                      ? "changes"
+                                      : "units"}
+                                    )
                                   </span>
                                 ) : null}
                               </div>
@@ -3132,21 +3203,19 @@ export default function RegisterReports({
                                               {it.quantity}
                                             </td>
                                             <td className="py-2.5 text-center align-top text-app-text-muted/60 line-through font-medium tracking-tighter tabular-nums">
-                                              ${it.reg_price}
+                                              {it.reg_price
+                                                ? moneyFromValue(it.reg_price)
+                                                : "—"}
                                             </td>
                                             <td className="py-2.5 text-center align-top font-black text-app-text tracking-tighter tabular-nums">
-                                              ${it.price}
+                                              {moneyFromValue(it.price)}
                                               {it.booking_delta != null &&
                                               it.booking_event_kind !==
                                                 "initial_booking" ? (
                                                 <div className="mt-1 text-[9px] font-black uppercase tracking-wider text-app-accent">
-                                                  {it.booking_event_kind ===
-                                                  "line_deleted"
-                                                    ? "Removed"
-                                                    : it.booking_event_kind ===
-                                                        "line_amendment"
-                                                      ? "Change"
-                                                      : "Added"}{" "}
+                                                  {bookingEventLabel(
+                                                    it.booking_event_kind,
+                                                  )}{" "}
                                                   {moneyFromValue(
                                                     it.booking_delta,
                                                   )}
@@ -3282,43 +3351,45 @@ export default function RegisterReports({
                                   </div>
                                 ) : null}
 
-                                <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
-                                  <span className="text-xs font-bold text-app-success">
-                                    {row.kind === "payment"
-                                      ? "Payment Applied Today"
-                                      : row.kind === "wedding_deposit"
-                                        ? "Wedding Deposits Collected"
-                                      : row.payment_applications?.length
-                                        ? "Total Paid Today"
-                                        : "Paid on this Transaction"}
-                                  </span>
-                                  <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
-                                    {moneyFromValue(
-                                      row.transaction_total || "0.00",
-                                    )}
-                                  </span>
-                                  <div className="mt-1 flex flex-col items-end gap-0.5 text-xs font-semibold text-app-text-muted opacity-80">
-                                    {row.payments?.length
-                                      ? row.payments.map((payment, idx) => (
-                                          <span
-                                            key={`${payment.method}-${idx}`}
-                                            className="inline-flex items-center gap-1 uppercase tracking-tighter tabular-nums"
-                                          >
-                                            {paymentIcon(payment.method)}
-                                            <span>
-                                              {payment.method} $
-                                              {payment.amount_label}
+                                {activityHasPaymentEvidence(row) ? (
+                                  <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
+                                    <span className="text-xs font-bold text-app-success">
+                                      {row.kind === "payment"
+                                        ? "Payment Applied Today"
+                                        : row.kind === "wedding_deposit"
+                                          ? "Wedding Deposits Collected"
+                                          : row.payment_applications?.length
+                                            ? "Total Paid Today"
+                                            : "Paid on this Transaction"}
+                                    </span>
+                                    <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
+                                      {moneyFromValue(
+                                        row.transaction_total || "0.00",
+                                      )}
+                                    </span>
+                                    <div className="mt-1 flex flex-col items-end gap-0.5 text-xs font-semibold text-app-text-muted opacity-80">
+                                      {row.payments?.length
+                                        ? row.payments.map((payment, idx) => (
+                                            <span
+                                              key={`${payment.method}-${idx}`}
+                                              className="inline-flex items-center gap-1 uppercase tracking-tighter tabular-nums"
+                                            >
+                                              {paymentIcon(payment.method)}
+                                              <span>
+                                                {payment.method} $
+                                                {payment.amount_label}
+                                              </span>
                                             </span>
-                                          </span>
-                                        ))
-                                      : row.payment_summary && (
-                                          <span className="inline-flex items-center gap-1 uppercase tracking-tighter tabular-nums">
-                                            {paymentIcon(row.payment_summary)}
-                                            <span>{row.payment_summary}</span>
-                                          </span>
-                                        )}
+                                          ))
+                                        : row.payment_summary && (
+                                            <span className="inline-flex items-center gap-1 uppercase tracking-tighter tabular-nums">
+                                              {paymentIcon(row.payment_summary)}
+                                              <span>{row.payment_summary}</span>
+                                            </span>
+                                          )}
+                                    </div>
                                   </div>
-                                </div>
+                                ) : null}
                                 {parseMoneyToCents(
                                   row.wedding_deposit_contributions || "0",
                                 ) > 0 && row.kind !== "wedding_deposit" ? (
